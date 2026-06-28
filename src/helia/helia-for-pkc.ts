@@ -422,6 +422,23 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     }
 
                     for (const topic of helia.libp2p.services.pubsub.getTopics()) helia.libp2p.services.pubsub.unsubscribe(topic);
+
+                    // Force-reset open transport connections before stopping helia. helia.stop()
+                    // closes them gracefully (the TCP transport calls socket.destroySoon(), which waits
+                    // for the peer's FIN), so a slow or unresponsive remote peer can leave the underlying
+                    // socket lingering in FIN_WAIT for tens of seconds — long enough to keep the Node
+                    // process alive past pkc.destroy()'s teardown budget (see test/node/pkc/hanging.pkc.test.ts).
+                    // abort() sends RST and destroys the socket immediately, making teardown bounded
+                    // regardless of peer responsiveness. This only runs on the final release of the helia
+                    // instance (countOfUsesOfInstance === 0), so no other consumer needs these connections.
+                    for (const connection of helia.libp2p.getConnections()) {
+                        try {
+                            connection.abort(new Error("pkc-js libp2p instance is stopping"));
+                        } catch (e) {
+                            log.error("Error aborting libp2p connection during stop", e);
+                        }
+                    }
+
                     try {
                         await helia.stop();
                     } catch (e) {

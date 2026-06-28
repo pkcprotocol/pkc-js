@@ -30,7 +30,14 @@ import {
     verifyChallengeMessage,
     verifyChallengeVerification
 } from "../signer/signatures.js";
-import { deepMergeRuntimeFields, hideClassPrivateProps, isStringDomain, shortifyAddress, timestamp } from "../util.js";
+import {
+    deepMergeRuntimeFields,
+    hideClassPrivateProps,
+    isStringDomain,
+    shortifyAddress,
+    sleepUntilTimeoutOrAbort,
+    timestamp
+} from "../util.js";
 import { TypedEmitter } from "tiny-typed-emitter";
 import { Comment } from "./comment/comment.js";
 import { PKCError } from "../pkc-error.js";
@@ -1022,8 +1029,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
         currentPubsubProviderIndex: number;
         acceptedChallengeTypes: DecryptedChallengeRequestMessageType["acceptedChallengeTypes"];
     }) {
-        await new Promise((resolve) => setTimeout(resolve, this._publishToDifferentProviderThresholdSeconds * 1000));
+        await sleepUntilTimeoutOrAbort(this._publishToDifferentProviderThresholdSeconds * 1000, this._pkc._getDestroyAbortSignal());
 
+        // pkc.destroy() aborts the sleep above so teardown isn't blocked waiting it out. Bail before
+        // doing any re-publish work — otherwise we'd create a signer on a destroyed pkc (throwing
+        // ERR_PKC_IS_DESTROYED) and re-subscribe/re-dial peers that nothing is left to tear down.
+        // (state === "stopped" is handled by the existing branch below.)
+        if (this._pkc.destroyed) return;
         if (this._didWeReceiveChallengeOrChallengeVerification()) return;
 
         // this provider did not get us a challenge or challenge verification
@@ -1098,9 +1110,14 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     log(`Published a challenge request of publication`, this.getType(), "with provider", providerUrl);
                     this.emit("challengerequest", decryptedRequest);
                     if (currentPubsubProviderIndex !== providers.length)
-                        await new Promise((resolve) => setTimeout(resolve, this._publishToDifferentProviderThresholdSeconds * 1000));
+                        await sleepUntilTimeoutOrAbort(
+                            this._publishToDifferentProviderThresholdSeconds * 1000,
+                            this._pkc._getDestroyAbortSignal()
+                        );
+                    if (this._pkc.destroyed) return;
                 }
-                await new Promise((resolve) => setTimeout(resolve, this._setProviderFailureThresholdSeconds * 1000));
+                await sleepUntilTimeoutOrAbort(this._setProviderFailureThresholdSeconds * 1000, this._pkc._getDestroyAbortSignal());
+                if (this._pkc.destroyed) return;
                 if (this._isAllAttemptsExhausted(providers.length)) {
                     await this._postSucessOrFailurePublishing();
                     const allAttemptsFailedError = new PKCError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {
