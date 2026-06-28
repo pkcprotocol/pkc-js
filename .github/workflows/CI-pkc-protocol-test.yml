@@ -25,14 +25,42 @@ jobs:
       # move pkc-js back to working dir in a sub folder
       - run: mv ../pkc-js-tmp pkc-js
       # build the latest pkc-js dist folder
-      - run: cd pkc-js && npm ci
+      # Retry: the kubo postinstall downloads its binary from dist.ipfs.tech,
+      # which intermittently returns 5xx and aborts the install with no retry
+      # of its own. This affects every npm install step below.
+      - name: cd pkc-js && npm ci (with retry)
+        shell: bash
+        run: |
+          cd pkc-js
+          for attempt in 1 2 3; do
+            npm ci && exit 0
+            echo "npm ci attempt $attempt failed; retrying in 15s..."
+            sleep 15
+          done
+          exit 1
       - run: cd pkc-js && npm run build
       - run: rm -fr pkc-js/node_modules
       # install plebbit-protocol-test
-      - run: npm i
+      - name: npm i (with retry)
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            npm i && exit 0
+            echo "npm i attempt $attempt failed; retrying in 15s..."
+            sleep 15
+          done
+          exit 1
       # install latest pkc-js using add ./pkc-js (local folder module)
       - run: npm remove @pkcprotocol/pkc-js
-      - run: npm i ./pkc-js
+      - name: npm i ./pkc-js (with retry)
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            npm i ./pkc-js && exit 0
+            echo "npm i ./pkc-js attempt $attempt failed; retrying in 15s..."
+            sleep 15
+          done
+          exit 1
       # install playwright browsers
       - run: npx playwright install --with-deps chromium firefox
       # disable hosts we shouldn't use
