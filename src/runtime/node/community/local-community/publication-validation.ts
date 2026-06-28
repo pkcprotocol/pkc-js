@@ -227,7 +227,12 @@ async function checkParentAndPostState(
 
         if (isPostDeletedQueryRes?.deleted && !request.commentModeration) return messages.ERR_COMMUNITY_PUBLICATION_POST_HAS_BEEN_DELETED;
 
-        if (postFlags.locked && !request.commentModeration) return messages.ERR_COMMUNITY_PUBLICATION_POST_IS_LOCKED;
+        if (postFlags.locked && !request.commentModeration) {
+            // A locked post is closed to regular users, not to mods. Like Reddit, owners/admins/moderators
+            // can still reply (and otherwise publish) under a locked post.
+            const isAuthorMod = await isPublicationAuthorPartOfRoles(community, publication, ["owner", "admin", "moderator"]);
+            if (!isAuthorMod) return messages.ERR_COMMUNITY_PUBLICATION_POST_IS_LOCKED;
+        }
 
         if (postFlags.archived && !request.commentModeration) return messages.ERR_COMMUNITY_PUBLICATION_POST_IS_ARCHIVED;
 

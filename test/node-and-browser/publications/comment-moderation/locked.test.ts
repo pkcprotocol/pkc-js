@@ -224,6 +224,37 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         });
 
+        // A locked post is closed to regular users, not to mods. Like Reddit, owners/admins/moderators
+        // can still reply under a locked post. These run sequentially so they execute while the post is
+        // locked (after the sequential lock test, before the sequential unlock test).
+        it.sequential(`Mod can reply to a locked post`, async () => {
+            const reply = await generateMockComment(postToBeLocked as CommentIpfsWithCidDefined, pkc, false, {
+                signer: roles[2].signer
+            });
+            await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
+        });
+
+        it.sequential(`Admin can reply to a locked post`, async () => {
+            const reply = await generateMockComment(postToBeLocked as CommentIpfsWithCidDefined, pkc, false, {
+                signer: roles[1].signer
+            });
+            await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
+        });
+
+        it.sequential(`Owner can reply to a locked post`, async () => {
+            const reply = await generateMockComment(postToBeLocked as CommentIpfsWithCidDefined, pkc, false, {
+                signer: roles[0].signer
+            });
+            await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
+        });
+
+        it.sequential(`Mod can reply to a reply of a locked post`, async () => {
+            const reply = await generateMockComment(replyUnderPostToBeLocked as CommentIpfsWithCidDefined, pkc, false, {
+                signer: roles[2].signer
+            });
+            await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
+        });
+
         it.sequential(`Mod can unlock a post`, async () => {
             const unlockEdit = await pkc.createCommentModeration({
                 communityAddress: postToBeLocked.communityAddress,
