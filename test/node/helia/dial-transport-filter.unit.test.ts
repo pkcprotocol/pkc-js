@@ -7,7 +7,6 @@ import {
 } from "../../../dist/node/helia/dial-transport-filter.js";
 import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/helia-for-pkc.js";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
-import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { ConnectionGater } from "@libp2p/interface";
 
 // _mergedHeliaOptions.libp2p is typed as `Libp2pOptions | Libp2p`, so narrow it to the option shape we set.
@@ -54,8 +53,8 @@ describe("Default dial-transport gater (reject WebRTC + WebTransport)", () => {
 });
 
 // Wiring + override coverage. Builds a real libp2p-js helia client (no test server needed: it only
-// starts a local node and never dials). Helia is identical regardless of the pkc RPC config, so run once.
-describeSkipIfRpc("Default dial-transport gater wiring into the libp2p-js helia client", () => {
+// starts a local node and never dials). This bypasses PKC/RPC entirely, so it runs in every config.
+describe("Default dial-transport gater wiring into the libp2p-js helia client", () => {
     const clientsToStop: Libp2pJsClient[] = [];
     let keyCounter = 0;
 
