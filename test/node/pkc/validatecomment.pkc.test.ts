@@ -13,6 +13,7 @@ import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { PKCError } from "../../../dist/node/pkc-error.js";
 import signers from "../../fixtures/signers.js";
 import * as remeda from "remeda";
+import pRetry from "p-retry";
 import { describe, beforeAll, afterAll, beforeEach, afterEach, it } from "vitest";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
@@ -89,7 +90,15 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
 
             const flatPageCid = postWithRepliesInstance.replies.pageCids?.newFlat;
             expect(flatPageCid, "Post must expose a flat replies page").to.be.a("string");
-            const flatPage = await postWithRepliesInstance.replies.getPage({ cid: flatPageCid! });
+            // The IPFS-Gateway config fetches pages from a single local gateway, so a transient socket
+            // error (ETIMEDOUT/ECONNREFUSED, common on the Windows CI runner) has no gateway fallback and
+            // fails the whole beforeAll. Retry the fetch of this known-local page to ride out the hiccup.
+            const flatPage = await pRetry(() => postWithRepliesInstance.replies.getPage({ cid: flatPageCid! }), {
+                retries: 3,
+                factor: 2,
+                minTimeout: 1000,
+                maxTimeout: 4000
+            });
             expect(flatPage.comments.length).to.be.greaterThan(0, "Flat page must contain comments");
             replyFromFlatPage = flatPage.comments[0];
             expect(replyFromFlatPage, "Failed to get a reply from the flat page").to.exist;
@@ -99,7 +108,12 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
             if (!bestPage?.comments?.length) {
                 const bestPageCid = postWithRepliesInstance.replies.pageCids?.best;
                 expect(bestPageCid, "Post must expose a best replies page").to.be.a("string");
-                bestPage = await postWithRepliesInstance.replies.getPage({ cid: bestPageCid! });
+                bestPage = await pRetry(() => postWithRepliesInstance.replies.getPage({ cid: bestPageCid! }), {
+                    retries: 3,
+                    factor: 2,
+                    minTimeout: 1000,
+                    maxTimeout: 4000
+                });
             }
             expect(bestPage?.comments?.length, "Post must have replies on 'best' page for test").to.be.greaterThan(0);
             replyFromBestPage = bestPage!.comments[0];
