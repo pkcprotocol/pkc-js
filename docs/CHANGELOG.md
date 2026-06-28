@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.59](https://github.com/pkcprotocol/pkc-js/compare/v0.0.58...v0.0.59) (2026-06-28)
+
+### Features
+
+* **helia:** reject WebRTC + WebTransport dials by default ([#167](https://github.com/pkcprotocol/pkc-js/issues/167)) ([8f9f8db](https://github.com/pkcprotocol/pkc-js/commit/8f9f8db866ecf531314682999a760c9788ccc29d)), closes [#166](https://github.com/pkcprotocol/pkc-js/issues/166)
+
 ## [0.0.58](https://github.com/pkcprotocol/pkc-js/compare/v0.0.57...v0.0.58) (2026-06-28)
 
 ### Features
