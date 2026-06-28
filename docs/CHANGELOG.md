@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.58](https://github.com/pkcprotocol/pkc-js/compare/v0.0.57...v0.0.58) (2026-06-28)
+
+### Features
+
+* **local-community:** allow mods to reply to locked posts ([#165](https://github.com/pkcprotocol/pkc-js/issues/165)) ([b32830e](https://github.com/pkcprotocol/pkc-js/commit/b32830e8adf7e049decbafffe2c86b11ddbde9d3)), closes [#164](https://github.com/pkcprotocol/pkc-js/issues/164)
+
+### Bug Fixes
+
+* **local-community:** clearer error when post is missing required link ([d8dcd57](https://github.com/pkcprotocol/pkc-js/commit/d8dcd57e9e6ca1b61466cb326dfeea5f932e1c18))
+
 ## [0.0.57](https://github.com/pkcprotocol/pkc-js/compare/v0.0.56...v0.0.57) (2026-06-26)
 
 ### Features
