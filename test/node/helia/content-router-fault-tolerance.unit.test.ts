@@ -51,7 +51,15 @@ describeSkipIfRpc("Content router fault tolerance (issue #171)", () => {
 
     afterEach(async () => {
         // countOfUsesOfInstance starts at 1, so a single stop() tears each helia instance down.
-        while (clientsToStop.length) await clientsToStop.pop()!.heliaWithKuboRpcClientFunctions.stop();
+        // Isolate each stop() so a failing client shutdown still lets every router get destroyed below.
+        let stopError: unknown;
+        while (clientsToStop.length) {
+            try {
+                await clientsToStop.pop()!.heliaWithKuboRpcClientFunctions.stop();
+            } catch (e) {
+                stopError ??= e;
+            }
+        }
         while (startedRouters.length) {
             try {
                 await startedRouters.pop()!.destroy();
@@ -59,6 +67,7 @@ describeSkipIfRpc("Content router fault tolerance (issue #171)", () => {
                 // already destroyed (e.g. a "dead" router we closed on purpose)
             }
         }
+        if (stopError) throw stopError;
     });
 
     // Healthy and every unhealthy shape a real HTTP router can take. "dead"/"slow"/"empty" are the

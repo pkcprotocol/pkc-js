@@ -263,14 +263,23 @@ export class MockHttpRouter {
     // disconnect so a test can assert the in-flight request was cancelled.
     private _stallUntilDelayOrClientGone(res: http.ServerResponse, delayMs: number | null): Promise<boolean> {
         return new Promise<boolean>((resolve) => {
-            const timer = delayMs === null ? undefined : setTimeout(() => resolve(false), delayMs);
-            res.once("close", () => {
+            let settled = false;
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const settle = (clientGone: boolean) => {
+                if (settled) return;
+                settled = true;
+                if (timer) clearTimeout(timer);
+                res.off("close", onClose);
+                resolve(clientGone);
+            };
+            const onClose = () => {
                 if (!res.writableEnded) {
-                    if (timer) clearTimeout(timer);
                     this._abortedProviderGetCount++;
-                    resolve(true);
+                    settle(true);
                 }
-            });
+            };
+            res.once("close", onClose);
+            timer = delayMs === null ? undefined : setTimeout(() => settle(false), delayMs);
         });
     }
 

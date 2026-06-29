@@ -219,19 +219,21 @@ describeSkipIfRpc("connectToPubsubPeers warmup (issue #171 follow-up)", () => {
         const HANG_WATCHDOG_MS = 20_000;
         const ac = new AbortController();
         let hung = false;
+        let watchdog: ReturnType<typeof setTimeout> | undefined;
         const start = Date.now();
         const outcome = await Promise.race([
             connectToPubsubPeers({ helia: node._helia, pubsubTopic: topic, maxPeers: 4, log, options: { signal: ac.signal } })
                 .then(() => "returned" as const)
                 .catch((e: Error) => e),
-            new Promise<"hung">((resolve) =>
-                setTimeout(() => {
+            new Promise<"hung">((resolve) => {
+                watchdog = setTimeout(() => {
                     hung = true;
                     resolve("hung");
-                }, HANG_WATCHDOG_MS)
-            )
+                }, HANG_WATCHDOG_MS);
+            })
         ]);
         const elapsed = Date.now() - start;
+        if (watchdog) clearTimeout(watchdog);
         // Unblock any still-pending lookup (matters on the pre-fix hang) so afterEach teardown completes.
         ac.abort();
 
