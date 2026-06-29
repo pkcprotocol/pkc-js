@@ -31,13 +31,22 @@ describeSkipIfRpc("Content router fault tolerance (issue #171)", () => {
 
     const queryCid: CID = pubsubTopicToDhtKeyCid("content-router-fault-tolerance-test-topic");
     let providerPeerIdStr: string;
+    // Distinct provider ids so timing tests can prove WHICH router's provider arrived first.
+    let secondProviderPeerIdStr: string;
+    let slowProviderPeerIdStr: string;
 
     const startedRouters: MockHttpRouter[] = [];
     const clientsToStop: Libp2pJsClient[] = [];
     let keyCounter = 0;
 
+    const newPeerIdStr = async () => peerIdFromPrivateKey(await generateKeyPair("Ed25519")).toString();
+
     beforeAll(async () => {
-        providerPeerIdStr = peerIdFromPrivateKey(await generateKeyPair("Ed25519")).toString();
+        [providerPeerIdStr, secondProviderPeerIdStr, slowProviderPeerIdStr] = await Promise.all([
+            newPeerIdStr(),
+            newPeerIdStr(),
+            newPeerIdStr()
+        ]);
     });
 
     afterEach(async () => {
@@ -122,6 +131,42 @@ describeSkipIfRpc("Content router fault tolerance (issue #171)", () => {
         return lookupFirstProvider(client);
     };
 
+    // Start a router that serves `providerId` for queryCid after `delayMs` (0 = immediate). Unlike the
+    // fixed "good"/"slow" kinds above, this lets a timing test seed a DISTINCT provider behind a chosen
+    // delay so it can assert which router's provider arrived.
+    const startServingRouter = async (opts: { delayMs?: number; providerId: string }): Promise<string> => {
+        const router = new MockHttpRouter({ providerGetDelayMs: opts.delayMs ?? 0 });
+        await router.start();
+        startedRouters.push(router);
+        router.addProviderForTesting(queryCid.toString(), { ID: opts.providerId, Addrs: ["/ip4/1.2.3.4/tcp/4001"] });
+        return router.url;
+    };
+
+    // Collect up to `want` providers, stopping as soon as we have them (or on the safety deadline).
+    // Returns how long the collection took so a test can prove it did not block on a slow router.
+    const collectProviders = async (
+        client: Libp2pJsClient,
+        opts: { want: number; maxMs: number }
+    ): Promise<{ found: string[]; elapsedMs: number; threw: Error | null }> => {
+        const ac = new AbortController();
+        const timer = setTimeout(() => ac.abort(), opts.maxMs);
+        const start = Date.now();
+        const found: string[] = [];
+        let threw: Error | null = null;
+        try {
+            for await (const peer of client._helia.libp2p.contentRouting.findProviders(queryCid, { signal: ac.signal })) {
+                found.push(peer.id.toString());
+                if (found.length >= opts.want) break;
+            }
+        } catch (e) {
+            threw = e as Error;
+        } finally {
+            clearTimeout(timer);
+            ac.abort();
+        }
+        return { found, elapsedMs: Date.now() - start, threw };
+    };
+
     // The core regression: a healthy router plus one connection-refused router. The good router is
     // given a small head start so the dead router's ECONNREFUSED is observed first — before the fix
     // that refusal rejected the merged stream and the lookup threw before ever yielding the provider.
@@ -174,5 +219,41 @@ describeSkipIfRpc("Content router fault tolerance (issue #171)", () => {
         const { found, threw } = await runScenario(["dead", "empty"]);
         expect(threw, threw ? `lookup threw: ${threw.name}: ${threw.message}` : undefined).to.equal(null);
         expect(found).to.deep.equal([]);
+    });
+
+    // Core browser requirement: a router that responds with providers immediately must surface them
+    // right away even when another configured router takes 10s to respond. The merged stream yields
+    // providers as each router produces them, so the immediate provider arrives in well under 10s — we
+    // do NOT block on the slow router. Both routers serve a (distinct) provider so we can assert the
+    // FIRST one returned is the immediate router's, not the slow router's.
+    it("an immediate router's provider arrives without waiting for a 10s-slow router", async () => {
+        const slowUrl = await startServingRouter({ delayMs: 10_000, providerId: slowProviderPeerIdStr });
+        const immediateUrl = await startServingRouter({ delayMs: 0, providerId: providerPeerIdStr });
+        // Slow router listed FIRST to rule out any ordering luck.
+        const client = await createHeliaWithRouters([slowUrl, immediateUrl]);
+
+        const { found, firstMs, threw } = await lookupFirstProvider(client);
+        expect(threw, threw ? `lookup threw: ${threw.name}: ${threw.message}` : undefined).to.equal(null);
+        expect(found).to.deep.equal([providerPeerIdStr]);
+        expect(firstMs).to.be.a("number");
+        // Nowhere near the slow router's 10s response time.
+        expect(firstMs!).to.be.lessThan(2_000);
+    });
+
+    // All immediately-available providers (from multiple fast routers) must be collected without
+    // blocking on a 10s-slow router. We ask for the two immediate providers and assert we get both
+    // quickly; the slow router's provider does not gate them.
+    it("collects all immediately-available providers without blocking on a 10s-slow router", async () => {
+        const immediate1 = await startServingRouter({ delayMs: 0, providerId: providerPeerIdStr });
+        const immediate2 = await startServingRouter({ delayMs: 0, providerId: secondProviderPeerIdStr });
+        const slow = await startServingRouter({ delayMs: 10_000, providerId: slowProviderPeerIdStr });
+        const client = await createHeliaWithRouters([slow, immediate1, immediate2]);
+
+        const { found, elapsedMs, threw } = await collectProviders(client, { want: 2, maxMs: 8_000 });
+        expect(threw, threw ? `lookup threw: ${threw.name}: ${threw.message}` : undefined).to.equal(null);
+        expect(found).to.have.members([providerPeerIdStr, secondProviderPeerIdStr]);
+        expect(found).to.not.include(slowProviderPeerIdStr);
+        // Both immediate providers were collected long before the slow router's 10s response.
+        expect(elapsedMs).to.be.lessThan(2_000);
     });
 });
