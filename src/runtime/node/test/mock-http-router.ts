@@ -34,6 +34,10 @@ export type RecordedRequest = {
 export type MockHttpRouterOptions = {
     hostname?: string;
     port?: number;
+    // When set, the provider GET handler waits this many ms before responding. Simulates a "slow"
+    // router that accepts the connection then stalls (issue #171 reproduction). The delay aborts
+    // early if the request is aborted by the client.
+    providerGetDelayMs?: number;
 };
 
 const PROVIDERS_PUBLISH_PATH = "/routing/v1/providers";
@@ -46,12 +50,14 @@ export class MockHttpRouter {
     private _baseUrl?: string;
     private _providerRecords: Map<string, ProviderRecord[]>;
     private _requests: RecordedRequest[];
+    private _providerGetDelayMs: number;
 
     constructor(options: MockHttpRouterOptions = {}) {
         this._hostname = options.hostname ?? "127.0.0.1";
         this._port = options.port ?? 0;
         this._providerRecords = new Map();
         this._requests = [];
+        this._providerGetDelayMs = options.providerGetDelayMs ?? 0;
         this._server = http.createServer((req, res) => {
             this._handleRequest(req, res).catch((error) => {
                 if (!res.headersSent) {
@@ -130,7 +136,7 @@ export class MockHttpRouter {
             return;
         }
         if (req.method === "GET" && this._isProvidersGetPath(requestUrl.pathname)) {
-            this._handleProviderGet(requestUrl, res, corsHeaders);
+            await this._handleProviderGet(requestUrl, res, corsHeaders);
             return;
         }
         res.writeHead(501, corsHeaders);
@@ -211,7 +217,29 @@ export class MockHttpRouter {
         res.end(JSON.stringify({ ok: true, stored: storedCount }));
     }
 
-    private _handleProviderGet(url: URL, res: http.ServerResponse, corsHeaders: Record<string, string>) {
+    // Seed a provider record for a CID directly, without going through the HTTP publish path.
+    // Used by tests that need a "good" router which immediately serves a known provider.
+    addProviderForTesting(cid: string, provider: { ID: string; Addrs: string[]; Protocols?: string[] }): void {
+        this._addProviderRecord(cid, { ID: provider.ID, Addrs: provider.Addrs, Protocols: provider.Protocols }, Date.now());
+    }
+
+    private async _handleProviderGet(url: URL, res: http.ServerResponse, corsHeaders: Record<string, string>) {
+        if (this._providerGetDelayMs > 0) {
+            // Stall before responding to emulate a slow/hanging router. Resolve early if the client
+            // disconnects (response closes before we wrote it) so we don't keep a dangling timer or
+            // try to write to a dead socket. We key off the response lifecycle, NOT the request body
+            // stream, whose "close" fires as soon as the GET body is drained.
+            const clientGone = await new Promise<boolean>((resolve) => {
+                const timer = setTimeout(() => resolve(false), this._providerGetDelayMs);
+                res.once("close", () => {
+                    if (!res.writableEnded) {
+                        clearTimeout(timer);
+                        resolve(true);
+                    }
+                });
+            });
+            if (clientGone) return;
+        }
         const cid = decodeURIComponent(url.pathname.slice(PROVIDERS_GET_PREFIX.length)).replace(/\/+$/, "");
         if (!cid) {
             res.writeHead(400, { ...corsHeaders, "Content-Type": "application/json" });
