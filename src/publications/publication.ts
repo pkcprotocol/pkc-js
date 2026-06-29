@@ -1118,6 +1118,12 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 }
                 await sleepUntilTimeoutOrAbort(this._setProviderFailureThresholdSeconds * 1000, this._pkc._getDestroyAbortSignal());
                 if (this._pkc.destroyed) return;
+                // A plain publication.stop() does not abort the wait above (only destroy does), so it
+                // resumes here. Bail out the same way the earlier branch does, otherwise we'd treat an
+                // intentionally-stopped publication as a failure and emit ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS.
+                // The enclosing `else` narrowed `this.state` to exclude "stopped", but stop() during the
+                // awaited wait above can have set it since, so widen back to the field's declared type.
+                if ((this.state as Publication["state"]) === "stopped") return;
                 if (this._isAllAttemptsExhausted(providers.length)) {
                     await this._postSucessOrFailurePublishing();
                     const allAttemptsFailedError = new PKCError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {
