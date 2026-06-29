@@ -31,6 +31,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             postToBeLocked: Comment,
             replyUnderPostToBeLocked: Comment,
             modReplyUnderPostToBeLocked: Comment,
+            adminReplyUnderPostToBeLocked: Comment,
+            ownerReplyUnderPostToBeLocked: Comment,
             modPost: Comment,
             community: RemoteCommunity;
         beforeAll(async () => {
@@ -49,12 +51,22 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 parentComment: postToBeLocked as CommentIpfsWithCidDefined,
                 pkc: pkc
             });
-            // A mod's own reply, published before the post is locked, so we can later assert the mod can
-            // edit their own comment while the post is locked.
+            // A mod's/admin's/owner's own reply, published before the post is locked, so we can later assert
+            // that each privileged role can edit their own comment while the post is locked.
             modReplyUnderPostToBeLocked = await publishRandomReply({
                 parentComment: postToBeLocked as CommentIpfsWithCidDefined,
                 pkc: pkc,
                 commentProps: { signer: roles[2].signer }
+            });
+            adminReplyUnderPostToBeLocked = await publishRandomReply({
+                parentComment: postToBeLocked as CommentIpfsWithCidDefined,
+                pkc: pkc,
+                commentProps: { signer: roles[1].signer }
+            });
+            ownerReplyUnderPostToBeLocked = await publishRandomReply({
+                parentComment: postToBeLocked as CommentIpfsWithCidDefined,
+                pkc: pkc,
+                commentProps: { signer: roles[0].signer }
             });
             await modPost.update();
         });
@@ -285,6 +297,54 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 signer: roles[2].signer
             });
             await publishWithExpectedResult({ publication: edit, expectedChallengeSuccess: true });
+        });
+
+        it.sequential(`Admin can edit their own comment under a locked post`, async () => {
+            const edit = await pkc.createCommentEdit({
+                communityAddress: adminReplyUnderPostToBeLocked.communityAddress,
+                commentCid: adminReplyUnderPostToBeLocked.cid,
+                content: "Edited admin reply under a locked post",
+                signer: roles[1].signer
+            });
+            await publishWithExpectedResult({ publication: edit, expectedChallengeSuccess: true });
+        });
+
+        it.sequential(`Owner can edit their own comment under a locked post`, async () => {
+            const edit = await pkc.createCommentEdit({
+                communityAddress: ownerReplyUnderPostToBeLocked.communityAddress,
+                commentCid: ownerReplyUnderPostToBeLocked.cid,
+                content: "Edited owner reply under a locked post",
+                signer: roles[0].signer
+            });
+            await publishWithExpectedResult({ publication: edit, expectedChallengeSuccess: true });
+        });
+
+        // A mod editing the locked post itself (e.g. a pinned announcement they authored and locked) should
+        // bypass the lock just like editing a reply under a locked post does. modPost was authored and locked
+        // by the mod (roles[2]) earlier in this suite and is never unlocked.
+        it.sequential(`Mod can edit their own locked post`, async () => {
+            const edit = await pkc.createCommentEdit({
+                communityAddress: modPost.communityAddress,
+                commentCid: modPost.cid,
+                content: "Edited mod's own locked post",
+                signer: roles[2].signer
+            });
+            await publishWithExpectedResult({ publication: edit, expectedChallengeSuccess: true });
+        });
+
+        // A regular (non-mod) author can NOT edit their own comment while the post is locked.
+        it.sequential(`Regular author can't edit their own comment under a locked post`, async () => {
+            const edit = await pkc.createCommentEdit({
+                communityAddress: replyUnderPostToBeLocked.communityAddress,
+                commentCid: replyUnderPostToBeLocked.cid,
+                content: "Attempted edit by regular author under a locked post",
+                signer: replyUnderPostToBeLocked.signer
+            });
+            await publishWithExpectedResult({
+                publication: edit,
+                expectedChallengeSuccess: false,
+                expectedReason: messages.ERR_COMMUNITY_PUBLICATION_POST_IS_LOCKED
+            });
         });
 
         it.sequential(`Mod can unlock a post`, async () => {
