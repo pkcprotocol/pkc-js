@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.60](https://github.com/pkcprotocol/pkc-js/compare/v0.0.59...v0.0.60) (2026-06-29)
+
+### Bug Fixes
+
+* **destroy:** force-reset libp2p sockets and abort pending re-publish on destroy ([#168](https://github.com/pkcprotocol/pkc-js/issues/168)) ([2aa1d2a](https://github.com/pkcprotocol/pkc-js/commit/2aa1d2a382c2914c5f27dce863bfbecde1ad9257))
+
 ## [0.0.59](https://github.com/pkcprotocol/pkc-js/compare/v0.0.58...v0.0.59) (2026-06-28)
 
 ### Features
