@@ -323,9 +323,19 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
                 });
             });
 
+            // Bound the wait so a state-machine regression that never reaches "waiting-challenge"
+            // fails fast with a clear message instead of hanging until the suite timeout.
+            let stoppedGuardTimer: ReturnType<typeof setTimeout> | undefined;
+            const stoppedGuard = new Promise<never>((_, reject) => {
+                stoppedGuardTimer = setTimeout(
+                    () => reject(new Error("Timed out waiting for second provider to enter waiting-challenge")),
+                    10_000
+                );
+            });
+
             try {
                 await mockPost.publish();
-                await stopped;
+                await Promise.race([stopped, stoppedGuard]);
 
                 // Wait past the final _setProviderFailureThresholdSeconds wait so the (buggy) error
                 // would have fired by now if the stop() bailout were missing.
@@ -336,6 +346,7 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
                 expect(errors, "stop() during the final wait must not emit an error: " + errors.map((e) => e.code).join(",")).to.be.empty;
                 expect(mockPost.publishingState).to.equal("stopped");
             } finally {
+                clearTimeout(stoppedGuardTimer);
                 await offlinePubsubPKC.destroy();
             }
         }
