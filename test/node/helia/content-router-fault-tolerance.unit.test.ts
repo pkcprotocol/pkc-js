@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/helia-for-pkc.js";
 import { MockHttpRouter } from "../../../dist/node/runtime/node/test/mock-http-router.js";
 import { pubsubTopicToDhtKeyCid } from "../../../dist/node/util.js";
@@ -61,11 +61,24 @@ describeSkipIfRpc("Content router fault tolerance (issue #171)", () => {
         }
     });
 
-    type RouterKind = "good" | "slow" | "empty" | "dead";
+    // Healthy and every unhealthy shape a real HTTP router can take. "dead"/"slow"/"empty" are the
+    // original #171 modes; "error5xx"/"error429"/"malformed"/"reset"/"blackhole" cover the common
+    // real-world outages (5xx under load, rate-limiting, a fronting proxy returning garbage, a
+    // connection reset mid-stream, and a true black hole that accepts then never replies).
+    type RouterKind = "good" | "slow" | "empty" | "dead" | "error5xx" | "error429" | "malformed" | "reset" | "blackhole";
 
     // Build one synthetic router of the given kind and return its URL. "good" serves the provider for
     // queryCid (optionally after goodDelayMs); "slow" accepts then stalls; "empty" answers instantly
-    // with no providers; "dead" is a closed port that refuses connections (ECONNREFUSED).
+    // with no providers; "dead" is a closed port that refuses connections (ECONNREFUSED); the rest
+    // misbehave per their fault mode (see MockHttpRouterFaultMode). Only "good" serves a provider.
+    const faultModeForKind: Partial<Record<RouterKind, ConstructorParameters<typeof MockHttpRouter>[0]>> = {
+        slow: { providerGetDelayMs: SLOW_ROUTER_STALL_MS },
+        error5xx: { faultMode: "errorStatus", errorStatusCode: 503 },
+        error429: { faultMode: "errorStatus", errorStatusCode: 429 },
+        malformed: { faultMode: "malformed" },
+        reset: { faultMode: "resetMidResponse" },
+        blackhole: { faultMode: "blackHole" }
+    };
     const startRouter = async (kind: RouterKind, goodDelayMs: number): Promise<string> => {
         if (kind === "dead") {
             // Bind to grab a free port, then close it so connections to that port are refused.
@@ -76,11 +89,7 @@ describeSkipIfRpc("Content router fault tolerance (issue #171)", () => {
             return url;
         }
         const router =
-            kind === "slow"
-                ? new MockHttpRouter({ providerGetDelayMs: SLOW_ROUTER_STALL_MS })
-                : kind === "good"
-                  ? new MockHttpRouter({ providerGetDelayMs: goodDelayMs })
-                  : new MockHttpRouter();
+            kind === "good" ? new MockHttpRouter({ providerGetDelayMs: goodDelayMs }) : new MockHttpRouter(faultModeForKind[kind]);
         await router.start();
         startedRouters.push(router);
         if (kind === "good") router.addProviderForTesting(queryCid.toString(), { ID: providerPeerIdStr, Addrs: ["/ip4/1.2.3.4/tcp/4001"] });
@@ -142,6 +151,17 @@ describeSkipIfRpc("Content router fault tolerance (issue #171)", () => {
         return router.url;
     };
 
+    // Like startServingRouter but returns the router INSTANCE (registered for cleanup) so a test can
+    // inspect its recorded/aborted request counts. Optionally seeds a provider for queryCid.
+    const startInspectableRouter = async (opts: ConstructorParameters<typeof MockHttpRouter>[0] & { servesProvider?: boolean } = {}) => {
+        const { servesProvider, ...routerOpts } = opts;
+        const router = new MockHttpRouter(routerOpts);
+        await router.start();
+        startedRouters.push(router);
+        if (servesProvider) router.addProviderForTesting(queryCid.toString(), { ID: providerPeerIdStr, Addrs: ["/ip4/1.2.3.4/tcp/4001"] });
+        return router;
+    };
+
     // Collect up to `want` providers, stopping as soon as we have them (or on the safety deadline).
     // Returns how long the collection took so a test can prove it did not block on a slow router.
     const collectProviders = async (
@@ -184,7 +204,18 @@ describeSkipIfRpc("Content router fault tolerance (issue #171)", () => {
         { name: "good + slow", kinds: ["good", "slow"] },
         { name: "good + empty", kinds: ["good", "empty"] },
         { name: "dead + good (dead first)", kinds: ["dead", "good"] },
-        { name: "good + dead + slow + empty", kinds: ["good", "dead", "slow", "empty"] }
+        { name: "good + dead + slow + empty", kinds: ["good", "dead", "slow", "empty"] },
+        // Real-world outage shapes: each bad router must be swallowed per-router, never thrown out of
+        // the merged stream, and must not delay the provider the good router can serve.
+        { name: "good + 5xx", kinds: ["good", "error5xx"] },
+        { name: "good + 429", kinds: ["good", "error429"] },
+        { name: "good + malformed body", kinds: ["good", "malformed"] },
+        { name: "good + connection reset mid-response", kinds: ["good", "reset"] },
+        { name: "5xx first + good", kinds: ["error5xx", "good"] },
+        {
+            name: "every failure mode + good",
+            kinds: ["good", "dead", "slow", "empty", "error5xx", "error429", "malformed", "reset", "blackhole"]
+        }
     ];
     for (const { name, kinds } of goodPlusBadCombos)
         it(`yields the provider quickly for: ${name}`, async () => {
@@ -255,5 +286,137 @@ describeSkipIfRpc("Content router fault tolerance (issue #171)", () => {
         expect(found).to.not.include(slowProviderPeerIdStr);
         // Both immediate providers were collected long before the slow router's 10s response.
         expect(elapsedMs).to.be.lessThan(2_000);
+    });
+
+    // No good router at all: every failure mode must degrade to "found nothing" rather than throwing.
+    // (The black hole is excluded here — with no router able to end the merged stream it can only end
+    // on abort/timeout, which is exercised by its own bounded test below.)
+    const allBadNoGoodModes: RouterKind[] = ["dead", "empty", "error5xx", "error429", "malformed", "reset"];
+    for (const mode of allBadNoGoodModes)
+        it(`degrades to no-providers-no-error when the only router is: ${mode}`, async () => {
+            const { found, threw, firstMs } = await runScenario([mode]);
+            expect(threw, threw ? `lookup threw: ${threw.name}: ${threw.message}` : undefined).to.equal(null);
+            expect(found).to.deep.equal([]);
+            // Even the "no providers" outcome must be fast — a bad router must not stall the lookup.
+            expect(firstMs).to.equal(null);
+        });
+
+    // Aborting a lookup (subscriber found / maxPeers reached / caller signal) must actually CANCEL the
+    // in-flight HTTP request to a slow router rather than leak the socket. Across many warmups a leak
+    // here exhausts file descriptors and silently slows the whole node. The good router answers after a
+    // short head start; we break on the first provider, which aborts — and the slow router must observe
+    // its in-flight GET being cancelled.
+    it("aborting after the first provider cancels the in-flight request to a slow router", async () => {
+        const slow = await startInspectableRouter({ providerGetDelayMs: SLOW_ROUTER_STALL_MS });
+        const goodUrl = await startServingRouter({ delayMs: 200, providerId: providerPeerIdStr });
+        const client = await createHeliaWithRouters([slow.url, goodUrl]);
+
+        const { found, threw } = await lookupFirstProvider(client);
+        expect(threw, threw ? `lookup threw: ${threw.name}: ${threw.message}` : undefined).to.equal(null);
+        expect(found).to.deep.equal([providerPeerIdStr]);
+        // The slow router received the GET and then saw the client disconnect when we aborted — i.e.
+        // the request was cancelled, not left dangling for its full 30s stall.
+        await vi.waitFor(() => expect(slow.abortedProviderGetCount).to.be.greaterThan(0), { timeout: 3_000 });
+    });
+
+    // Repeated lookups against a mixed-health fleet must stay fast and bounded: no per-lookup leak, no
+    // runaway retries against the good router, and every in-flight slow request cancelled. This is the
+    // sequential-warmup load a real node sees (one lookup per community/topic).
+    it("stays fast and leak-free across many sequential lookups against a mixed fleet", async () => {
+        const REPS = 20;
+        const slow = await startInspectableRouter({ providerGetDelayMs: SLOW_ROUTER_STALL_MS });
+        const good = await startInspectableRouter({ servesProvider: true });
+        const deadUrl = await startRouter("dead", 0);
+        const emptyUrl = await startRouter("empty", 0);
+        const client = await createHeliaWithRouters([slow.url, good.url, deadUrl, emptyUrl]);
+
+        for (let i = 0; i < REPS; i++) {
+            const { found, firstMs, threw } = await lookupFirstProvider(client);
+            expect(threw, threw ? `rep ${i} threw: ${threw.name}: ${threw.message}` : undefined).to.equal(null);
+            expect(found, `rep ${i}`).to.deep.equal([providerPeerIdStr]);
+            expect(firstMs!, `rep ${i} firstMs`).to.be.lessThan(FAST_LOOKUP_MAX_MS);
+        }
+        // Exactly one GET per lookup to the good router — no retry storm amplifying load.
+        const goodGets = good.requests.filter((r) => r.method === "GET").length;
+        expect(goodGets).to.equal(REPS);
+        // Every slow request was cancelled when its lookup ended — none leaked across the 20 reps.
+        await vi.waitFor(() => expect(slow.abortedProviderGetCount).to.equal(REPS), { timeout: 5_000 });
+    });
+
+    // Scaling guard: the per-router wrap + it-merge fan-out must add negligible fixed cost, so shipping
+    // many routers is not inherently slower than shipping a few. One good router buried behind eight
+    // empty ones must resolve about as fast as the good router alone.
+    it("a good router buried behind many empty routers is not slowed down", async () => {
+        const baseline = await runScenario(["good"]);
+        expect(baseline.found).to.deep.equal([providerPeerIdStr]);
+        expect(baseline.firstMs).to.be.a("number");
+
+        const manyEmpty: RouterKind[] = ["good", "empty", "empty", "empty", "empty", "empty", "empty", "empty", "empty"];
+        const laden = await runScenario(manyEmpty);
+        expect(laden.threw, laden.threw ? `lookup threw: ${laden.threw.name}` : undefined).to.equal(null);
+        expect(laden.found).to.deep.equal([providerPeerIdStr]);
+        expect(laden.firstMs!).to.be.lessThan(FAST_LOOKUP_MAX_MS);
+        expect(laden.firstMs!).to.be.lessThan(baseline.firstMs! + 2000);
+    });
+
+    // A lookup whose signal is already aborted must return immediately with nothing and without
+    // throwing a non-abort error — the wrap swallows the abort per-router. Guards against an
+    // already-cancelled warmup wasting time or surfacing a spurious failure.
+    it("an already-aborted lookup ends immediately with no providers and no error", async () => {
+        const goodUrl = await startServingRouter({ delayMs: 0, providerId: providerPeerIdStr });
+        const client = await createHeliaWithRouters([goodUrl]);
+
+        const ac = new AbortController();
+        ac.abort();
+        const start = Date.now();
+        const found: string[] = [];
+        let threw: Error | null = null;
+        try {
+            for await (const peer of client._helia.libp2p.contentRouting.findProviders(queryCid, { signal: ac.signal })) {
+                found.push(peer.id.toString());
+                break;
+            }
+        } catch (e) {
+            threw = e as Error;
+        }
+        expect(threw, threw ? `lookup threw: ${threw.name}: ${threw.message}` : undefined).to.equal(null);
+        expect(found).to.deep.equal([]);
+        expect(Date.now() - start).to.be.lessThan(1_000);
+    });
+
+    // Cross-router de-duplication: when the SAME provider is announced by several routers, libp2p's
+    // CompoundContentRouting yields it only ONCE across the merged stream. This is what keeps warmup
+    // from dialing one peer N times when it's announced to the whole fleet (the common case — every
+    // healthy router serves the same record). Pins the behaviour so a libp2p upgrade can't regress it
+    // into an N-fold dial amplification.
+    it("yields the same provider only once even when three routers announce it", async () => {
+        const urls = await Promise.all([
+            startServingRouter({ delayMs: 0, providerId: providerPeerIdStr }),
+            startServingRouter({ delayMs: 0, providerId: providerPeerIdStr }),
+            startServingRouter({ delayMs: 0, providerId: providerPeerIdStr })
+        ]);
+        const client = await createHeliaWithRouters(urls);
+
+        const { found, threw } = await collectProviders(client, { want: 10, maxMs: 2_000 });
+        expect(threw, threw ? `lookup threw: ${threw.name}: ${threw.message}` : undefined).to.equal(null);
+        const occurrences = found.filter((id) => id === providerPeerIdStr).length;
+        expect(occurrences).to.equal(1);
+    });
+
+    // A true black hole (accepts the connection, never replies, never closes) must not hang a lookup
+    // another router can satisfy: the good router's provider arrives promptly and the black hole's
+    // dangling request is cancelled on abort rather than gating the result. This is the dangerous mode
+    // ECONNREFUSED/404 don't reproduce — those end instantly, a black hole would otherwise wait forever.
+    it("a black-hole router does not stall a lookup another router can satisfy", async () => {
+        const blackhole = await startInspectableRouter({ faultMode: "blackHole" });
+        const goodUrl = await startServingRouter({ delayMs: 0, providerId: providerPeerIdStr });
+        // Black hole listed FIRST so any "wait for the first router" bug would surface as a hang.
+        const client = await createHeliaWithRouters([blackhole.url, goodUrl]);
+
+        const { found, firstMs, threw } = await lookupFirstProvider(client);
+        expect(threw, threw ? `lookup threw: ${threw.name}: ${threw.message}` : undefined).to.equal(null);
+        expect(found).to.deep.equal([providerPeerIdStr]);
+        expect(firstMs!).to.be.lessThan(FAST_LOOKUP_MAX_MS);
+        await vi.waitFor(() => expect(blackhole.abortedProviderGetCount).to.be.greaterThan(0), { timeout: 3_000 });
     });
 });

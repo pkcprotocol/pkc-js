@@ -31,6 +31,17 @@ export type RecordedRequest = {
     body: string;
 };
 
+// How the provider GET handler should misbehave, for fault-tolerance tests (issue #171). Each mode
+// emulates a real-world router outage so we can prove one bad router never poisons the merged
+// findProviders stream nor slows down a lookup another router can satisfy:
+//   - "errorStatus": respond with an HTTP error status (5xx/429/401/...) instead of providers.
+//   - "malformed":   respond 200 with a body that is not valid provider JSON (parser throws).
+//   - "resetMidResponse": send headers + a partial body then destroy the socket (ECONNRESET).
+//   - "blackHole":   accept the connection then never respond and never close it (true hang,
+//                    distinct from a "slow" router that eventually replies). The handler still
+//                    resolves if the client disconnects so the server can shut down cleanly.
+export type MockHttpRouterFaultMode = "errorStatus" | "malformed" | "resetMidResponse" | "blackHole";
+
 export type MockHttpRouterOptions = {
     hostname?: string;
     port?: number;
@@ -38,6 +49,11 @@ export type MockHttpRouterOptions = {
     // router that accepts the connection then stalls (issue #171 reproduction). The delay aborts
     // early if the request is aborted by the client.
     providerGetDelayMs?: number;
+    // When set, the provider GET handler misbehaves in the given way instead of serving providers.
+    // See MockHttpRouterFaultMode. Applied after providerGetDelayMs, so a fault can also be "slow".
+    faultMode?: MockHttpRouterFaultMode;
+    // HTTP status code used when faultMode === "errorStatus" (default 500).
+    errorStatusCode?: number;
 };
 
 const PROVIDERS_PUBLISH_PATH = "/routing/v1/providers";
@@ -51,6 +67,12 @@ export class MockHttpRouter {
     private _providerRecords: Map<string, ProviderRecord[]>;
     private _requests: RecordedRequest[];
     private _providerGetDelayMs: number;
+    private _faultMode?: MockHttpRouterFaultMode;
+    private _errorStatusCode: number;
+    // Count of provider GETs the client disconnected before we finished responding. Lets a test
+    // prove that aborting findProviders (subscriber found / maxPeers reached / caller signal)
+    // actually cancels the in-flight request to a slow/black-hole router rather than leaking it.
+    private _abortedProviderGetCount: number;
 
     constructor(options: MockHttpRouterOptions = {}) {
         this._hostname = options.hostname ?? "127.0.0.1";
@@ -58,6 +80,9 @@ export class MockHttpRouter {
         this._providerRecords = new Map();
         this._requests = [];
         this._providerGetDelayMs = options.providerGetDelayMs ?? 0;
+        this._faultMode = options.faultMode;
+        this._errorStatusCode = options.errorStatusCode ?? 500;
+        this._abortedProviderGetCount = 0;
         this._server = http.createServer((req, res) => {
             this._handleRequest(req, res).catch((error) => {
                 if (!res.headersSent) {
@@ -86,6 +111,12 @@ export class MockHttpRouter {
         return [...this._requests];
     }
 
+    // Number of provider GETs the client disconnected before this router finished responding.
+    // > 0 proves an in-flight request to this (slow/black-hole) router was actually cancelled.
+    get abortedProviderGetCount(): number {
+        return this._abortedProviderGetCount;
+    }
+
     async start(): Promise<void> {
         if (this._baseUrl) return;
         await new Promise<void>((resolve) => {
@@ -100,6 +131,9 @@ export class MockHttpRouter {
     async destroy(): Promise<void> {
         await new Promise<void>((resolve, reject) => {
             this._server.close((error) => (error ? reject(error) : resolve()));
+            // A black-hole/slow handler holds its connection open, so close() would otherwise wait
+            // for it forever. Force any lingering sockets shut so cleanup always completes.
+            this._server.closeAllConnections?.();
         });
         this._baseUrl = undefined;
     }
@@ -223,22 +257,56 @@ export class MockHttpRouter {
         this._addProviderRecord(cid, { ID: provider.ID, Addrs: provider.Addrs, Protocols: provider.Protocols }, Date.now());
     }
 
-    private async _handleProviderGet(url: URL, res: http.ServerResponse, corsHeaders: Record<string, string>) {
-        if (this._providerGetDelayMs > 0) {
-            // Stall before responding to emulate a slow/hanging router. Resolve early if the client
-            // disconnects (response closes before we wrote it) so we don't keep a dangling timer or
-            // try to write to a dead socket. We key off the response lifecycle, NOT the request body
-            // stream, whose "close" fires as soon as the GET body is drained.
-            const clientGone = await new Promise<boolean>((resolve) => {
-                const timer = setTimeout(() => resolve(false), this._providerGetDelayMs);
-                res.once("close", () => {
-                    if (!res.writableEnded) {
-                        clearTimeout(timer);
-                        resolve(true);
-                    }
-                });
+    // Wait up to `delayMs` (or forever when delayMs is null, i.e. a black hole) before continuing.
+    // Resolves true if the client disconnected first — keyed off the response lifecycle, NOT the
+    // request body stream whose "close" fires as soon as the GET body is drained. Records the
+    // disconnect so a test can assert the in-flight request was cancelled.
+    private _stallUntilDelayOrClientGone(res: http.ServerResponse, delayMs: number | null): Promise<boolean> {
+        return new Promise<boolean>((resolve) => {
+            const timer = delayMs === null ? undefined : setTimeout(() => resolve(false), delayMs);
+            res.once("close", () => {
+                if (!res.writableEnded) {
+                    if (timer) clearTimeout(timer);
+                    this._abortedProviderGetCount++;
+                    resolve(true);
+                }
             });
+        });
+    }
+
+    private async _handleProviderGet(url: URL, res: http.ServerResponse, corsHeaders: Record<string, string>) {
+        // A black hole accepts the connection then never responds and never closes it — it only
+        // unblocks when the client disconnects. Distinct from "slow", which eventually replies.
+        if (this._faultMode === "blackHole") {
+            await this._stallUntilDelayOrClientGone(res, null);
+            return;
+        }
+        if (this._providerGetDelayMs > 0) {
+            // Stall before responding to emulate a slow/hanging router, then fall through to the
+            // normal (or fault) response once the delay elapses.
+            const clientGone = await this._stallUntilDelayOrClientGone(res, this._providerGetDelayMs);
             if (clientGone) return;
+        }
+        // Fault injection: misbehave instead of serving providers, to prove one bad router neither
+        // throws out of the merged findProviders stream nor slows a lookup another router satisfies.
+        if (this._faultMode === "errorStatus") {
+            res.writeHead(this._errorStatusCode, { ...corsHeaders, "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: `synthetic ${this._errorStatusCode}` }));
+            return;
+        }
+        if (this._faultMode === "malformed") {
+            // Valid 200 + content-type but a body the provider-record parser cannot read.
+            res.writeHead(200, { ...corsHeaders, "Content-Type": "application/json" });
+            res.end("{ this is not valid provider json ]]]");
+            return;
+        }
+        if (this._faultMode === "resetMidResponse") {
+            // Send headers and a partial body, then abruptly destroy the socket (ECONNRESET) so the
+            // client throws mid-stream rather than on connect.
+            res.writeHead(200, { ...corsHeaders, "Content-Type": "application/json" });
+            res.write('{ "Providers": [');
+            res.socket?.destroy();
+            return;
         }
         const cid = decodeURIComponent(url.pathname.slice(PROVIDERS_GET_PREFIX.length)).replace(/\/+$/, "");
         if (!cid) {
