@@ -194,7 +194,16 @@ export async function connectToPubsubPeers({
             }
         },
         () => {
-            // swallow timeout/abort — handled in the post-loop await below
+            // The subscriber wait ended without a subscriber (the 10s floor timeout, or the caller's
+            // signal). Abort findProviders too: most routers end their own iterator so the for-await
+            // below completes on its own, but a black-hole router (accepts the GET, never responds,
+            // never closes) never yields and never ends its it-merge source — without this abort the
+            // for-await would pull it forever and warmup would hang PAST the floor. The post-loop
+            // `await subscriberAppearedPromise` still surfaces the timeout as graftError.
+            if (!findProvidersAbort.signal.aborted) {
+                log.trace("Aborting findProviders iterator - subscriber wait ended without a subscriber for topic", pubsubTopic);
+                findProvidersAbort.abort();
+            }
         }
     );
 

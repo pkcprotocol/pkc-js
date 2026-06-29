@@ -10,7 +10,7 @@ import { peerIdFromString } from "@libp2p/peer-id";
 import { bitswap } from "@helia/block-brokers";
 import { MemoryBlockstore } from "blockstore-core";
 import { delegatedRoutingV1HttpApiClientContentRouting } from "@helia/delegated-routing-v1-http-api-client";
-import { NotFoundError } from "@libp2p/interface";
+import { NotFoundError, type AbortOptions } from "@libp2p/interface";
 import { unixfs } from "@helia/unixfs";
 import { fetch as libp2pFetch } from "@libp2p/fetch";
 import { pubsub as createIpnsPubusubRouter } from "@helia/ipns/routing";
@@ -54,6 +54,28 @@ function getDelegatedRoutingFields(routers: string[]) {
                 throw new NotFoundError("pkc HTTP routers do not serve IPNS records");
             };
             routing.put = async () => {};
+
+            // libp2p's CompoundContentRouting.findProviders merges EVERY configured router into one
+            // async iterator (it-merge), which rejects the whole merged stream the moment ANY single
+            // router's iterator throws. So one unreachable router — e.g. a host that's up but whose
+            // service is down, returning ECONNREFUSED — aborts findProviders for the entire node,
+            // taking down IPNS-over-pubsub warmup and bitswap provider lookups even while other,
+            // healthy routers are returning providers (issue #171). Wrap each router so its errors
+            // end ITS iterator instead of throwing: a dead/erroring router degrades to "found no
+            // providers" (the harmless empty case) rather than poisoning the merged stream. The
+            // underlying client already swallows NotFoundError; this additionally covers connection
+            // and transport errors. We do not re-throw on abort either — when findProviders is
+            // aborted (subscriber found / maxPeers reached / caller signal), ending the iterator is
+            // the correct outcome and the caller handles the abort separately.
+            const routerUrl = routers[i];
+            const originalFindProviders = routing.findProviders.bind(routing);
+            routing.findProviders = async function* (cid: CID, options?: AbortOptions) {
+                try {
+                    yield* originalFindProviders(cid, options);
+                } catch (e) {
+                    log.trace("Content router", routerUrl, "errored during findProviders; treating it as returning no providers", e);
+                }
+            };
             return routing;
         };
     }
