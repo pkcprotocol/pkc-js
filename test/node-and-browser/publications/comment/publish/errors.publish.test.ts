@@ -280,4 +280,75 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         await mockPost.stop();
         await offlinePubsubPKC.destroy();
     });
+    it.sequential(
+        `comment does not emit ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS when publication.stop() is called during the final provider-failure wait`,
+        async () => {
+            // Regression for PR #168 (CodeRabbit finding): both providers accept the publish but never
+            // relay a challenge, so publishing reaches the final `_setProviderFailureThresholdSeconds`
+            // wait in `_handleNotReceivingResponseToChallengeRequest`. A plain `publication.stop()`
+            // does NOT abort that wait (only `pkc.destroy()` does), so it used to resume and fall
+            // through to the exhaustion check, wrongly emitting ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS
+            // on an intentionally-stopped publication. The fix bails out on `this.state === "stopped"`.
+            const nonRespondingUrlA = "http://localhost:23425";
+            const nonRespondingUrlB = "http://localhost:23426";
+            const offlinePubsubPKC = await mockRemotePKC({
+                pkcOptions: { pubsubKuboRpcClientsOptions: [nonRespondingUrlA, nonRespondingUrlB] }
+            });
+
+            // Make both providers accept publish/subscribe but never relay a challenge (non-responding).
+            for (const url of [nonRespondingUrlA, nonRespondingUrlB]) {
+                offlinePubsubPKC.clients.pubsubKuboRpcClients[url]._client.pubsub.publish = async () => {};
+                offlinePubsubPKC.clients.pubsubKuboRpcClients[url]._client.pubsub.subscribe = async () => {};
+            }
+
+            const mockPost = await generateMockPost({ communityAddress: signers[1].address, pkc: offlinePubsubPKC });
+            // Pre-set _community to skip the network IPNS fetch in _initCommunity(),
+            // which is flaky in CI. This isolates the test to only exercise the pubsub failure path.
+            (mockPost as any)._community = {
+                encryption: { type: "ed25519-aes-gcm", publicKey: signers[1].publicKey },
+                pubsubTopic: signers[1].address,
+                address: signers[1].address
+            };
+            (mockPost as unknown as CommentWithInternals)._publishToDifferentProviderThresholdSeconds = 1;
+            (mockPost as unknown as CommentWithInternals)._setProviderFailureThresholdSeconds = 3;
+
+            const errors: PKCError[] = [];
+            mockPost.on("error", (err) => errors.push(err as PKCError));
+
+            // Stop the publication once we've re-published to the 2nd provider, i.e. we're now inside
+            // the final provider-failure wait at the bottom of _handleNotReceivingResponseToChallengeRequest.
+            const stopped = new Promise<void>((resolve) => {
+                mockPost.clients.pubsubKuboRpcClients[nonRespondingUrlB].on("statechange", (newState: string) => {
+                    if (newState === "waiting-challenge") mockPost.stop().then(resolve);
+                });
+            });
+
+            // Bound the wait so a state-machine regression that never reaches "waiting-challenge"
+            // fails fast with a clear message instead of hanging until the suite timeout.
+            let stoppedGuardTimer: ReturnType<typeof setTimeout> | undefined;
+            const stoppedGuard = new Promise<never>((_, reject) => {
+                stoppedGuardTimer = setTimeout(
+                    () => reject(new Error("Timed out waiting for second provider to enter waiting-challenge")),
+                    10_000
+                );
+            });
+
+            try {
+                await mockPost.publish();
+                await Promise.race([stopped, stoppedGuard]);
+
+                // Wait past the final _setProviderFailureThresholdSeconds wait so the (buggy) error
+                // would have fired by now if the stop() bailout were missing.
+                await new Promise((r) =>
+                    setTimeout(r, (mockPost as unknown as CommentWithInternals)._setProviderFailureThresholdSeconds * 1000 + 2000)
+                );
+
+                expect(errors, "stop() during the final wait must not emit an error: " + errors.map((e) => e.code).join(",")).to.be.empty;
+                expect(mockPost.publishingState).to.equal("stopped");
+            } finally {
+                clearTimeout(stoppedGuardTimer);
+                await offlinePubsubPKC.destroy();
+            }
+        }
+    );
 });
