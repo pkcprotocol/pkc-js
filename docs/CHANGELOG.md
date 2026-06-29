@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.62](https://github.com/pkcprotocol/pkc-js/compare/v0.0.61...v0.0.62) (2026-06-29)
+
+### Bug Fixes
+
+* **helia:** tolerate per-router errors in content-routing findProviders ([#171](https://github.com/pkcprotocol/pkc-js/issues/171)) ([#172](https://github.com/pkcprotocol/pkc-js/issues/172)) ([a1d77c7](https://github.com/pkcprotocol/pkc-js/commit/a1d77c7dc89aabc0b37fbb20c9ed2aa3af30a0b1))
+
 ## [0.0.61](https://github.com/pkcprotocol/pkc-js/compare/v0.0.60...v0.0.61) (2026-06-29)
 
 ## [0.0.60](https://github.com/pkcprotocol/pkc-js/compare/v0.0.59...v0.0.60) (2026-06-29)
