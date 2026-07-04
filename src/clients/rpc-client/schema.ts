@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comment/schema.js";
 import { AuthorAddressSchema, ChallengeAnswersSchema, CidStringSchema } from "../../schema/schema.js";
-import { CommunityEditOptionsSchema, CommunityExportRecordsSchema, ExportCommunityModLogsOptionsSchema } from "../../community/schema.js";
+import {
+    CommunityEditOptionsSchema,
+    CommunityExportRecordsSchema,
+    CommunityIncludeFieldsSchema,
+    ExportCommunityModLogsOptionsSchema
+} from "../../community/schema.js";
 import { CommentModerationsTableRowSchema } from "../../publications/comment-moderation/schema.js";
 import { NameResolveCacheOptionsSchema } from "../../schema.js";
 import type { EncodedDecryptedChallengeVerificationMessageType } from "../../pubsub-messages/types.js";
@@ -30,7 +35,8 @@ export const RpcCidParamSchema = z
 export const RpcCommunityIdentifierParamSchema = z
     .object({
         name: z.string().min(1).optional(),
-        publicKey: z.string().min(1).optional()
+        publicKey: z.string().min(1).optional(),
+        include: CommunityIncludeFieldsSchema.optional() // request only cheap fields (fast started-only fetch)
     })
     .refine((args) => args.name || args.publicKey, "At least one of name or publicKey must be provided");
 export const RpcFetchCidParamSchema = z.object({ cid: CidStringSchema });
@@ -62,6 +68,7 @@ export const RpcUnsubscribeParamSchema = z.object({ subscriptionId: Subscription
 export const RpcStateChangeEventResultSchema = z.object({ state: z.string() });
 export const RpcCommunitiesChangeEventResultSchema = z.object({ communities: z.array(z.string()) });
 export const RpcFetchCidResultSchema = z.object({ content: z.string() });
+export const RpcCommunityStartedResultSchema = z.object({ address: z.string(), started: z.boolean() }); // createCommunity({ include: ["started"] }) fast-path result
 export const RpcResolveAuthorNameResultSchema = z.object({ resolvedAuthorName: z.string().nullable() });
 export const RpcSuccessResultSchema = z.object({ success: z.literal(true) });
 export const RpcSubscriptionIdResultSchema = z.object({ subscriptionId: SubscriptionIdSchema }); // parsed with .loose() in rpc-schema-util.ts

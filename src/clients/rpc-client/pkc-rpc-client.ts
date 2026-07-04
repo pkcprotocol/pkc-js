@@ -5,7 +5,7 @@ import { PKCError } from "../../pkc-error.js";
 import EventEmitter from "events";
 import pTimeout from "p-timeout";
 import { hideClassPrivateProps, replaceXWithY, resolveWhenPredicateIsTrue } from "../../util.js";
-import type { CreateNewLocalCommunityUserOptions } from "../../community/types.js";
+import type { CreateNewLocalCommunityUserOptions, CommunityIncludeFields } from "../../community/types.js";
 import type { CommentChallengeRequestToEncryptType } from "../../publications/comment/types.js";
 import type { VoteChallengeRequestToEncryptType } from "../../publications/vote/types.js";
 import type { CommentEditChallengeRequestToEncryptType } from "../../publications/comment-edit/types.js";
@@ -37,6 +37,7 @@ import type {
     RpcSubscriptionIdResult,
     RpcSuccessResult,
     RpcFetchCidResult,
+    RpcCommunityStartedResult,
     ExportCommunityRpcParam,
     CancelExportRpcParam,
     RpcExportCommunityResult,
@@ -53,6 +54,7 @@ import {
     parseRpcCommunityPageParam,
     parseRpcResolveAuthorNameResult,
     parseRpcFetchCidResult,
+    parseRpcCommunityStartedResult,
     parseRpcSuccessResult,
     parseRpcSubscriptionIdResult,
     parseRpcExportCommunityParam,
@@ -359,7 +361,22 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
 
     async createCommunity(
         createCommunityOptions: CreateNewLocalCommunityUserOptions
-    ): Promise<RpcInternalCommunityRecordBeforeFirstUpdateType> {
+    ): Promise<RpcInternalCommunityRecordBeforeFirstUpdateType>;
+    async createCommunity(
+        createCommunityOptions: CommunityIdentifierRpcParam & { include: CommunityIncludeFields }
+    ): Promise<RpcCommunityStartedResult>;
+    async createCommunity(
+        createCommunityOptions: CreateNewLocalCommunityUserOptions | (CommunityIdentifierRpcParam & { include: CommunityIncludeFields })
+    ): Promise<RpcInternalCommunityRecordBeforeFirstUpdateType | RpcCommunityStartedResult> {
+        // Fast path: started-only (or other cheap-field) fetch of an EXISTING community — the server
+        // returns { address, started } from its in-memory registry without instantiating anything.
+        if (
+            "include" in createCommunityOptions &&
+            Array.isArray(createCommunityOptions.include) &&
+            createCommunityOptions.include.length > 0
+        ) {
+            return parseRpcCommunityStartedResult(await this._webSocketClient.call("createCommunity", [createCommunityOptions]));
+        }
         // This is gonna create a new local community. Not an instance of an existing community
         const communityProps = <RpcInternalCommunityRecordBeforeFirstUpdateType>(
             await this._webSocketClient.call("createCommunity", [createCommunityOptions])

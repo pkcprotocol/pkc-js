@@ -7,6 +7,7 @@ import { findStartedCommunity } from "../../../../dist/node/pkc/tracked-instance
 import { mockRpcServerForTests, mockRpcServerPKC } from "../../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../../../test/helpers/conditional-tests.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcInternalCommunityRecordBeforeFirstUpdateType } from "../../../../dist/node/community/types.js";
 
 const { PKCWsServer: createPKCWsServer, setPKCJs } = PKCWsServerModule;
 
@@ -85,7 +86,7 @@ describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
         };
 
         try {
-            const created = await rpcServer.createCommunity([{}]);
+            const created = (await rpcServer.createCommunity([{}])) as RpcInternalCommunityRecordBeforeFirstUpdateType;
             expect(created.localCommunity.address).to.be.a("string");
             expect(trackedCalls).to.have.length(0, "createCommunity should not track event listeners");
         } finally {
@@ -111,7 +112,7 @@ describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
         const connectionId = "start-stop-connection";
         setupConnectionContext(rpcServer, connectionId);
 
-        const createResponse = await rpcServer.createCommunity([{}]);
+        const createResponse = (await rpcServer.createCommunity([{}])) as RpcInternalCommunityRecordBeforeFirstUpdateType;
         const address = createResponse.localCommunity.address;
         expect(address).to.be.a("string");
 
@@ -166,7 +167,7 @@ describeSkipIfRpc("PKCWsServer listener lifecycle", function () {
         const connectionId = "delete-connection";
         setupConnectionContext(rpcServer, connectionId);
 
-        const createResponse = await rpcServer.createCommunity([{}]);
+        const createResponse = (await rpcServer.createCommunity([{}])) as RpcInternalCommunityRecordBeforeFirstUpdateType;
         const address = createResponse.localCommunity.address;
         expect(address).to.be.a("string");
 
