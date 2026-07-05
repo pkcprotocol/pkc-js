@@ -46,6 +46,10 @@ const targets = [
     { label: "challenges subsystem", file: "runtime/node/community/challenges/index.js" },
     { label: "pkc core class", file: "pkc/pkc.js" },
     { label: "pkc-with-rpc-client (extends PKC)", file: "pkc/pkc-with-rpc-client.js" },
+    // The slim RPC-only entry (issue #120, Lever B): should land near the rpc-client floor, NOT near
+    // pkc-with-rpc-client, because the signer/pages/community subgraphs are dynamic-imported behind
+    // the async createCommunity / create* boundaries and never loaded on a bare import.
+    { label: "client.js (slim RPC-only entry)", file: "client.js" },
     { label: "index.js (public entry)", file: "index.js" },
     // cache disabled in cold runs (NODE_DISABLE_COMPILE_CACHE=1), so this row isolates the
     // bootstrap wrapper's own overhead vs index.js — it should be ~0
@@ -112,6 +116,8 @@ console.log(`| --- | --- | --- | --- |`);
 const bundledTargets = [
     { label: "index.js (public entry)", file: "index.js" },
     { label: "index-with-compile-cache.js (npm import entry, cache disabled)", file: "index-with-compile-cache.js" },
+    { label: "client.js (slim RPC-only entry)", file: "client.js" },
+    { label: "client-with-compile-cache.js (npm import entry, cache disabled)", file: "client-with-compile-cache.js" },
     { label: "challenges.js", file: "challenges.js" },
     { label: "rpc/src/index.js (RPC server)", file: "rpc/src/index.js" }
 ];

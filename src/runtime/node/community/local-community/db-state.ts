@@ -1,7 +1,8 @@
 import Logger from "../../../../logger.js";
 import * as remeda from "remeda";
 import { v4 as uuidV4 } from "uuid";
-import { ipnsNameToIpnsOverPubsubTopic, pubsubTopicToDhtKey, timestamp } from "../../../../util.js";
+import { pubsubTopicToDhtKey, timestamp } from "../../../../util.js";
+import { ipnsNameToIpnsOverPubsubTopic } from "../../../../ipns-pubsub-topic.js";
 import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
 import { STORAGE_KEYS } from "../../../../constants.js";

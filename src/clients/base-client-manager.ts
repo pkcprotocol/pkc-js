@@ -13,8 +13,10 @@ import {
     throwIfAbortSignalAborted
 } from "../util.js";
 import { sha256 } from "js-sha256";
-import { getPKCAddressFromPublicKey } from "../signer/util.js";
-import { nativeFunctions } from "../runtime/node/util.js";
+// getPKCAddressFromPublicKey, convertBase58IpnsNameToBase36Cid (from ../signer/util.js -> @libp2p/peer-id)
+// and `of` (typestub-ipfs-only-hash) are dynamic-imported at their gateway/verification use sites below,
+// so this base manager — loaded during every PKC construction — no longer statically pulls them (#120).
+import { nativeFunctions, applyGlobalFetchBodyTimeoutPatch } from "../runtime/node/util.js";
 import pLimit from "p-limit";
 import pRetry, { AbortError as PRetryAbortError } from "p-retry";
 import {
@@ -33,10 +35,8 @@ import { concat as uint8ArrayConcat } from "uint8arrays/concat";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import all from "it-all";
 import * as remeda from "remeda";
-import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { CidPathSchema } from "../schema/schema.js";
-import { CID } from "kubo-rpc-client";
-import { convertBase58IpnsNameToBase36Cid } from "../signer/util.js";
+import { CID } from "multiformats/cid"; // identity-safe; avoids pulling the kubo-rpc-client graph (#120)
 import pTimeout from "p-timeout";
 import { InflightResourceTypes } from "../util/inflight-fetch-manager.js";
 import { NameResolutionCache } from "./name-resolution-cache.js";
@@ -84,19 +84,27 @@ export type OptionsToLoadFromGateway = {
     log: Logger;
 };
 
-const createUrlFromPathResolution = (gateway: string, opts: OptionsToLoadFromGateway): string => {
-    const root = opts.recordIpfsType === "ipfs" ? CID.parse(opts.root).toV1().toString() : convertBase58IpnsNameToBase36Cid(opts.root);
+// async so convertBase58IpnsNameToBase36Cid (-> signer/util -> @libp2p/peer-id) can be dynamic-imported
+// only on the gateway-fetch path; keeps peer-id out of this module's static graph (issue #120). The
+// sole caller (_fetchWithGateway) is already async.
+const createUrlFromPathResolution = async (gateway: string, opts: OptionsToLoadFromGateway): Promise<string> => {
+    let root: string;
+    if (opts.recordIpfsType === "ipfs") root = CID.parse(opts.root).toV1().toString();
+    else {
+        const { convertBase58IpnsNameToBase36Cid } = await import("../signer/util.js");
+        root = convertBase58IpnsNameToBase36Cid(opts.root);
+    }
     return `${gateway}/${opts.recordIpfsType}/${root}${opts.path ? "/" + opts.path : ""}`;
 };
 
-const createUrlFromSubdomainResolution = (gateway: string, opts: OptionsToLoadFromGateway): string => {
+const createUrlFromSubdomainResolution = async (gateway: string, opts: OptionsToLoadFromGateway): Promise<string> => {
     const gatewayUrl = new URL(gateway);
-    const root =
-        opts.recordIpfsType === "ipfs"
-            ? CID.parse(opts.root).toV1().toString()
-            : opts.recordIpfsType === "ipns"
-              ? convertBase58IpnsNameToBase36Cid(opts.root)
-              : opts.root;
+    let root: string;
+    if (opts.recordIpfsType === "ipfs") root = CID.parse(opts.root).toV1().toString();
+    else if (opts.recordIpfsType === "ipns") {
+        const { convertBase58IpnsNameToBase36Cid } = await import("../signer/util.js");
+        root = convertBase58IpnsNameToBase36Cid(opts.root);
+    } else root = opts.root;
 
     return `${gatewayUrl.protocol}//${root}.${opts.recordIpfsType}.${gatewayUrl.host}${opts.path ? "/" + opts.path : ""}`;
 };
@@ -462,9 +470,13 @@ export class BaseClientsManager {
     ): Promise<{ res: Response; resText: string | undefined } | { error: PKCError }> {
         const log = Logger("pkc-js:pkc:fetchWithGateway");
 
+        // Apply the global-fetch body-timeout workaround before the first gateway fetch (it used to run
+        // eagerly in polyfill.ts, which forced undici into every import graph). No-op after the first call.
+        await applyGlobalFetchBodyTimeoutPatch();
+
         const url = GATEWAYS_THAT_SUPPORT_SUBDOMAIN_RESOLUTION[gateway]
-            ? createUrlFromSubdomainResolution(gateway, loadOpts)
-            : createUrlFromPathResolution(gateway, loadOpts);
+            ? await createUrlFromSubdomainResolution(gateway, loadOpts)
+            : await createUrlFromPathResolution(gateway, loadOpts);
 
         this.preFetchGateway(gateway, loadOpts);
         const timeBefore = Date.now();
@@ -733,6 +745,7 @@ export class BaseClientsManager {
                 throw new PKCError("ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P", { cid: cidV0, loadOpts });
             }
             if (data.byteLength === loadOpts.maxFileSizeBytes) {
+                const { of: calculateIpfsHash } = await import("typestub-ipfs-only-hash"); // deferred (#120)
                 const calculatedCid: string = await calculateIpfsHash(fileContent);
                 if (calculatedCid !== cidV0)
                     throw new PKCError("ERR_OVER_DOWNLOAD_LIMIT", {
@@ -817,6 +830,7 @@ export class BaseClientsManager {
         cid: string,
         loadOpts: Pick<OptionsToLoadFromGateway, "maxFileSizeBytes">
     ) {
+        const { of: calculateIpfsHash } = await import("typestub-ipfs-only-hash"); // deferred (#120)
         const calculatedCid: string = await calculateIpfsHash(gatewayResponseBody);
         if (gatewayResponseBody.length === loadOpts.maxFileSizeBytes && calculatedCid !== cid)
             throw new PKCError("ERR_OVER_DOWNLOAD_LIMIT", { cid, loadOpts, gatewayResponseBody });
@@ -996,6 +1010,7 @@ export class BaseClientsManager {
                     // undefined so the next pass retries. Failing-shut here would risk permanently rejecting an author after a brief outage.
                     return false;
                 }
+                const { getPKCAddressFromPublicKey } = await import("../signer/util.js"); // deferred (#120)
                 const signerAddress = await getPKCAddressFromPublicKey(entry.signaturePublicKey);
                 verificationCache.set(entry.cacheKey, resolved === signerAddress);
                 return true; // newly set

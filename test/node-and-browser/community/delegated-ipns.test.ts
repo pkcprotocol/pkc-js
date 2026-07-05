@@ -9,7 +9,8 @@ import {
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
 import { getPKCAddressFromPublicKeySync, convertBase58IpnsNameToBase36Cid } from "../../../dist/node/signer/util.js";
-import { ipnsNameToIpnsOverPubsubTopic, fetchAndValidateIpnsRecordFromGateway } from "../../../dist/node/util.js";
+import { fetchAndValidateIpnsRecordFromGateway } from "../../../dist/node/util.js";
+import { ipnsNameToIpnsOverPubsubTopic } from "../../../dist/node/ipns-pubsub-topic.js";
 import { generateKeyPair } from "@libp2p/crypto/keys";
 import { createIPNSRecord, marshalIPNSRecord } from "ipns";
 

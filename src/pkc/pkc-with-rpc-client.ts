@@ -3,15 +3,19 @@ import { PKC } from "./pkc.js";
 import type { InputPKCOptions, GetCommunityArgs } from "../types.js";
 import { parseCreateRpcCommunityFunctionArgumentSchemaWithPKCErrorIfItFails } from "../schema/schema-util.js";
 import { CreateRpcCommunityFunctionArgumentSchema } from "../community/schema.js";
-import { RpcLocalCommunity } from "../community/rpc-local-community.js";
-import { RpcRemoteCommunity } from "../community/rpc-remote-community.js";
+// The RPC community classes pull the RemoteCommunity subtree (pages -> comment ->
+// typestub-ipfs-only-hash, signer/util -> @libp2p/peer-id). They are only needed once a community is
+// materialized, so they are dynamic-imported inside createCommunity (below) and kept type-only here.
+// This keeps them out of the ./client static closure (issue #120).
+import type { RpcLocalCommunity } from "../community/rpc-local-community.js";
+import type { RpcRemoteCommunity } from "../community/rpc-remote-community.js";
 import type { RpcLocalCommunityJson, RpcLocalCommunityUpdateResultType, RpcRemoteCommunityJson } from "../community/types.js";
 import { z } from "zod";
 import { PKCError } from "../pkc-error.js";
 import type { AuthorNameRpcParam, CidRpcParam } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam, parseRpcFetchCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { listStartedCommunities } from "./tracked-instance-registry-util.js";
-import { CommentJson } from "../publications/comment/types.js";
+import type { CommentJson } from "../publications/comment/types.js";
 
 // This is a helper class for separating RPC-client logic from main PKC
 // Not meant to be used with end users
@@ -84,6 +88,10 @@ export class PKCWithRpcClient extends PKC {
         options: z.infer<typeof CreateRpcCommunityFunctionArgumentSchema> | RpcRemoteCommunityJson | RpcLocalCommunityJson = {}
     ): Promise<RpcLocalCommunity | RpcRemoteCommunity> {
         const log = Logger("pkc-js:pkc-with-rpc-client:createCommunity");
+
+        // Load the community classes on demand — this is the boundary that keeps the RemoteCommunity
+        // subtree (pages, signer, community-client-manager) out of the ./client static closure (#120).
+        const { RpcLocalCommunity, RpcRemoteCommunity } = await import("./lazy-runtime.js");
 
         // No need to parse if it's a jsonified instance
         const parsedRpcOptions =

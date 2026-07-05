@@ -13,6 +13,7 @@ import {
 import { FailedToFetchCommentUpdateFromGatewaysError, PKCError } from "../../pkc-error.js";
 import { verifyCommentIpfs, verifyCommentUpdate } from "../../signer/signatures.js";
 import { getPKCAddressFromPublicKeySync } from "../../signer/util.js";
+import { MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE } from "../../constants.js";
 import Logger from "../../logger.js";
 import { getPostUpdateTimestampRange, hideClassPrivateProps, isAbortError, resolveWhenPredicateIsTrue } from "../../util.js";
 import { PublicationClientsManager } from "../publication-client-manager.js";
@@ -43,7 +44,10 @@ type NewCommentUpdate =
     | { commentUpdate: CommentUpdateType; commentUpdateIpfsPath: NonNullable<Comment["_commentUpdateIpfsPath"]> }
     | undefined;
 
-export const MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE = 1024 * 1024;
+// Re-exported so existing importers keep working; the number now lives in constants.js (a
+// dependency-free module) so runtime/node/util.ts can import it without dragging this heavy module in.
+// See issue #120.
+export { MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE };
 export class CommentClientsManager extends PublicationClientsManager {
     override clients!: {
         ipfsGateways: { [ipfsGatewayUrl: string]: CommentIpfsGatewayClient };

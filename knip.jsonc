@@ -3,6 +3,8 @@
     "entry": [
         // package.json "exports" point at dist/, knip auto-detects the other src entries
         "src/index-with-compile-cache.ts",
+        // slim RPC-only ./client entry + its compile-cache bootstrap (issue #120)
+        "src/client-with-compile-cache.ts",
         // standalone bootstrap for running the RPC server directly
         "src/rpc/start.js",
         // the browser build is a post-build text replacement of /runtime/node/ -> /runtime/browser/

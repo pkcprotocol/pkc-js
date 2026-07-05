@@ -12,7 +12,7 @@ import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { IpfsHttpClientPubsubMessage } from "../../../dist/node/types.js";
-import { ipnsNameToIpnsOverPubsubTopic } from "../../../dist/node/util.js";
+import { ipnsNameToIpnsOverPubsubTopic } from "../../../dist/node/ipns-pubsub-topic.js";
 import { importer } from "ipfs-unixfs-importer";
 
 async function firstFromAsyncIterable<T>(iterable: AsyncIterable<T>): Promise<T> {

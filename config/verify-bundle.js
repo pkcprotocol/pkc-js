@@ -74,6 +74,38 @@ for (const lazyInput of lazyInputs) {
     }
 }
 
+// --- 1a. The slim ./client entry must NOT statically pull the local-node / signer / community graph.
+// This is the whole point of the entry (issue #120, Lever B): an RPC-only consumer that never
+// materializes a community must pay only the transport floor. These subgraphs are dynamic-imported
+// behind the async createCommunity / create* boundaries in pkc.ts + pkc-with-rpc-client.ts, so a
+// refactor that makes any of them a static import again should fail the build here.
+const clientClosure = staticClosure("client.js");
+const clientLazyInputs = [
+    "dist/node/helia/helia-for-pkc.js",
+    "dist/node/runtime/node/community/local-community.js",
+    "dist/node/signer/util.js", // -> @libp2p/peer-id, @noble/curves (the ~380ms blocker)
+    "dist/node/signer/signatures.js",
+    "dist/node/pages/pages.js",
+    "dist/node/publications/comment/comment.js", // -> typestub-ipfs-only-hash
+    "dist/node/publications/vote/vote.js",
+    "dist/node/publications/comment-edit/comment-edit.js",
+    "dist/node/publications/comment-moderation/comment-moderation.js",
+    "dist/node/publications/community-edit/community-edit.js",
+    "dist/node/community/remote-community.js",
+    "dist/node/community/community-client-manager.js"
+];
+for (const lazyInput of clientLazyInputs) {
+    const fileName = outputContainingInput(lazyInput);
+    if (!fileName) {
+        problems.push(`${lazyInput} is in no bundled output - was it renamed? Update verify-bundle.js.`);
+    } else if (clientClosure.has(fileName)) {
+        problems.push(
+            `${lazyInput} (in ${fileName}) is in the STATIC import closure of dist/bundled/client.js - ` +
+                `the slim RPC-only client entry (issue #120, Lever B) would over-import the local-node runtime.`
+        );
+    }
+}
+
 // --- 1b. External allowlist: only declared externals may stay bare ---------------------------
 
 for (const [fileName, out] of Object.entries(outputs)) {
@@ -105,9 +137,24 @@ if (!bootstrap.includes('import("./index.js")')) {
     );
 }
 
+const clientBootstrap = fs.readFileSync(path.join(bundledDir, "client-with-compile-cache.js"), "utf8");
+if (!clientBootstrap.includes('import("./client.js")')) {
+    problems.push(
+        'dist/bundled/client-with-compile-cache.js lost its dynamic import("./client.js") boundary - ' +
+            "the compile cache would no longer cover the client graph."
+    );
+}
+
 // --- 3 + 4. Export parity and require(esm), in fresh child processes -------------------------
 
-const entries = ["index.js", "index-with-compile-cache.js", "challenges.js", "rpc/src/index.js"];
+const entries = [
+    "index.js",
+    "index-with-compile-cache.js",
+    "client.js",
+    "client-with-compile-cache.js",
+    "challenges.js",
+    "rpc/src/index.js"
+];
 
 function exportKeysInChildProcess(fileAbsPath) {
     const script = `const m = await import(${JSON.stringify(url.pathToFileURL(fileAbsPath).href)}); console.log(JSON.stringify(Object.keys(m).sort()));`;
@@ -127,7 +174,7 @@ for (const entry of entries) {
     }
 }
 
-for (const requireEntry of ["index.js", "rpc/src/index.js"]) {
+for (const requireEntry of ["index.js", "client.js", "rpc/src/index.js"]) {
     const fileAbsPath = path.join(bundledDir, requireEntry);
     const script = `const { createRequire } = require("node:module"); createRequire(process.cwd() + "/")(${JSON.stringify(fileAbsPath)}); console.log("ok");`;
     try {

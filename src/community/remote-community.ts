@@ -2,14 +2,14 @@ import {
     createAbortError,
     doesDomainAddressHaveCapitalLetter,
     hideClassPrivateProps,
-    ipnsNameToIpnsOverPubsubTopic,
     isIpns,
     isStringDomain,
     pubsubTopicToDhtKey,
     shortifyAddress,
     timestamp
 } from "../util.js";
-import { PKC } from "../pkc/pkc.js";
+import type { PKC } from "../pkc/pkc.js";
+import { ipnsNameToIpnsOverPubsubTopic } from "../ipns-pubsub-topic.js";
 
 import Logger from "../logger.js";
 

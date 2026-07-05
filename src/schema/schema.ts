@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CID } from "kubo-rpc-client";
+import { CID } from "multiformats/cid"; // identity-safe; avoids pulling the kubo-rpc-client graph (#120)
 import { messages } from "../errors.js";
 import * as remeda from "remeda";
 

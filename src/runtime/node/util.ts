@@ -14,19 +14,22 @@ import { default as nodeNativeFunctions } from "./native-functions.js";
 import type { KuboRpcClient, NativeFunctions } from "../../types.js";
 import path from "path";
 import assert from "assert";
-import scraper from "open-graph-scraper";
 import { HttpProxyAgent, HttpsProxyAgent } from "hpagent";
 import { PKCError } from "../../pkc-error.js";
-import probe from "probe-image-size";
-import { PKC } from "../../pkc/pkc.js";
-import { STORAGE_KEYS } from "../../constants.js";
-import { RemoteCommunity } from "../../community/remote-community.js";
+import type { PKC } from "../../pkc/pkc.js";
+import { STORAGE_KEYS, MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE } from "../../constants.js";
+// Type-only: RemoteCommunity is used solely as a parameter type here. A value import would pull the
+// community subtree (pages -> typestub-ipfs-only-hash, signer/util -> @libp2p/peer-id) into every
+// consumer of this node-util hub — including the slim ./client entry (issue #120).
+import type { RemoteCommunity } from "../../community/remote-community.js";
 import os from "os";
 import type { OpenGraphScraperOptions } from "open-graph-scraper/types";
 import { Agent as HttpAgent } from "http";
 import { Agent as HttpsAgent } from "https";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
-import { create as CreateKuboRpcClient } from "kubo-rpc-client";
+// `create` (the kubo-rpc-client factory, ~371 modules incl. @libp2p/peer-id) is dynamic-imported
+// inside createKuboRpcClient() below so importing this node-util hub — and therefore the slim ./client
+// entry — never statically pulls the kubo graph. RPC-only clients never create a kubo client. See #120.
 import Logger from "../../logger.js";
 import retry from "retry";
 import * as remeda from "remeda";
@@ -44,7 +47,6 @@ import { DbHandler } from "./community/db-handler.js";
 import Database from "better-sqlite3";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comment/schema.js";
 import type { PageIpfs } from "../../pages/types.js";
-import { MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE } from "../../publications/comment/comment-client-manager.js";
 
 export const getDefaultDataPath = () => path.join(process.cwd(), ".pkc");
 
@@ -82,6 +84,9 @@ async function _getThumbnailUrlOfLink(url: string, agent?: { https: any; http: a
 
     if (agent) options["agent"] = agent;
 
+    // open-graph-scraper drags a ~200-module HTML-parsing graph (parse5/cheerio/iconv-lite/...) that is
+    // only needed to scrape a link thumbnail on the publish path; dynamic-import it (#120).
+    const { default: scraper } = await import("open-graph-scraper");
     const res = await scraper(options);
 
     if (res.error) {
@@ -158,6 +163,7 @@ export async function getThumbnailPropsOfLink(
 }
 
 async function fetchDimensionsOfImage(imageUrl: string, agent?: any): Promise<{ width: number; height: number } | undefined> {
+    const { default: probe } = await import("probe-image-size");
     const result = await probe(imageUrl, { agent });
     if (typeof result?.width === "number") return { width: result.width, height: result.height };
 }
@@ -484,7 +490,25 @@ export async function moveCommunityDbToDeletedDirectory(communityAddress: string
     }
 }
 
-export function createKuboRpcClient(kuboRpcClientOptions: KuboRpcClient["_clientOptions"]): KuboRpcClient["_client"] {
+// Patch Node's global fetch dispatcher to disable the body timeout — a workaround for kubo-rpc-client
+// (and long gateway body reads) hanging on node 18+, to be removed once kubo fixes it upstream. This
+// used to run at polyfill import time and forced every consumer to statically import undici's
+// ~112-module graph. It is now applied lazily and once, at the first place Node's global fetch is
+// actually used (a kubo client is built, or a gateway fetch is issued), so RPC-only consumers — which
+// do neither — never import undici. See issue #120.
+let _globalFetchBodyTimeoutPatched = false;
+export async function applyGlobalFetchBodyTimeoutPatch(): Promise<void> {
+    if (_globalFetchBodyTimeoutPatched) return;
+    _globalFetchBodyTimeoutPatched = true;
+    if (Number(process.versions.node.split(".")[0]) >= 18) {
+        const { setGlobalDispatcher, Agent } = await import("undici");
+        setGlobalDispatcher(new Agent({ bodyTimeout: Number.MAX_SAFE_INTEGER }));
+    }
+}
+
+export async function createKuboRpcClient(kuboRpcClientOptions: KuboRpcClient["_clientOptions"]): Promise<KuboRpcClient["_client"]> {
+    await applyGlobalFetchBodyTimeoutPatch();
+    const { create: CreateKuboRpcClient } = await import("kubo-rpc-client");
     const log = Logger("pkc-js:pkc:createKuboRpcClient");
     log.trace("Creating a new kubo client on node with options", kuboRpcClientOptions);
     const isHttpsAgent =

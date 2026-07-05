@@ -6,7 +6,8 @@ import {
 } from "../../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import signers from "../../../fixtures/signers.js";
-import { ipnsNameToIpnsOverPubsubTopic, pubsubTopicToDhtKey } from "../../../../dist/node/util.js";
+import { pubsubTopicToDhtKey } from "../../../../dist/node/util.js";
+import { ipnsNameToIpnsOverPubsubTopic } from "../../../../dist/node/ipns-pubsub-topic.js";
 import { createSigner } from "../../../../dist/node/signer/index.js";
 
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
