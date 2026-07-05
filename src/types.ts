@@ -1,4 +1,4 @@
-import { create as CreateIpfsClient, Options as IpfsHttpClientOptions } from "kubo-rpc-client";
+import type { create as CreateIpfsClient, Options as IpfsHttpClientOptions } from "kubo-rpc-client";
 import type Publication from "./publications/publication.js";
 import type { PKCError } from "./pkc-error.js";
 import type { PKC } from "./pkc/pkc.js";

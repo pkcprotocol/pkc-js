@@ -291,8 +291,10 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         //@ts-expect-error
         this.clients = {};
 
-        this._initKuboRpcClientsIfNeeded();
-        this._initKuboPubsubClientsIfNeeded();
+        // kubo client construction is async now (kubo-rpc-client is dynamic-imported), so the actual
+        // population happens in _init(); set empty maps here so the shape exists during construction.
+        this.clients.kuboRpcClients = {};
+        this.clients.pubsubKuboRpcClients = {};
         this._initRpcClientsIfNeeded();
         this._initIpfsGatewaysIfNeeded();
         this._initMemCaches();
@@ -327,11 +329,11 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         };
     }
 
-    private _initKuboRpcClientsIfNeeded() {
+    private async _initKuboRpcClientsIfNeeded() {
         this.clients.kuboRpcClients = {};
         if (!this.kuboRpcClientsOptions) return;
         for (const clientOptions of this.kuboRpcClientsOptions) {
-            const kuboRpcClient = createKuboRpcClient(clientOptions);
+            const kuboRpcClient = await createKuboRpcClient(clientOptions);
             this.clients.kuboRpcClients[clientOptions.url!.toString()] = {
                 _client: kuboRpcClient,
                 _clientOptions: clientOptions,
@@ -342,12 +344,12 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         }
     }
 
-    private _initKuboPubsubClientsIfNeeded() {
+    private async _initKuboPubsubClientsIfNeeded() {
         this.clients.pubsubKuboRpcClients = {};
         if (!this.pubsubKuboRpcClientsOptions) return;
 
         for (const clientOptions of this.pubsubKuboRpcClientsOptions) {
-            const kuboRpcClient = createKuboRpcClient(clientOptions);
+            const kuboRpcClient = await createKuboRpcClient(clientOptions);
             this.clients.pubsubKuboRpcClients[clientOptions.url!.toString()] = {
                 _client: kuboRpcClient,
                 _clientOptions: clientOptions,
@@ -433,6 +435,10 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
     async _init() {
         const log = Logger("pkc-js:pkc:_init");
+        // Construct kubo clients before anything that reads them (Stats, HTTP routers). No-op for RPC
+        // clients (kuboRpcClientsOptions is undefined). Async because kubo-rpc-client is dynamic-imported.
+        await this._initKuboRpcClientsIfNeeded();
+        await this._initKuboPubsubClientsIfNeeded();
         // Init storage
         this._storage = new Storage(this);
         await this._storage.init();

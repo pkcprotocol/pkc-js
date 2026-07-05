@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CID } from "kubo-rpc-client";
+import { CID } from "multiformats/cid"; // re-sourced from kubo-rpc-client (identical class) to keep kubo off the eager import path
 import { messages } from "../errors.js";
 import * as remeda from "remeda";
 
