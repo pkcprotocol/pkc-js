@@ -16,7 +16,7 @@ import { RpcRemoteCommunity } from "./rpc-remote-community.js";
 import { z } from "zod";
 import { messages } from "../errors.js";
 import * as remeda from "remeda";
-import { PKC } from "../pkc/pkc.js";
+import type { PKC } from "../pkc/pkc.js";
 import { PKCError } from "../pkc-error.js";
 
 import { CommunityEditOptionsSchema } from "./schema.js";

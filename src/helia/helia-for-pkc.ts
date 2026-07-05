@@ -24,7 +24,7 @@ import { PKCError } from "../pkc-error.js";
 import { Libp2pJsClient } from "./libp2pjsClient.js";
 import { connectToPubsubPeers, getHeliaDebugContext } from "./util.js";
 import { createDefaultDialTransportGater } from "./dial-transport-filter.js";
-import { ipnsNameToIpnsOverPubsubTopic } from "../util.js";
+import { ipnsNameToIpnsOverPubsubTopic } from "../ipns-pubsub-topic.js";
 
 const log = Logger("pkc-js:libp2p-js");
 

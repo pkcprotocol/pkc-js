@@ -54,6 +54,12 @@
             "import": "./dist/bundled/index-with-compile-cache.js",
             "require": "./dist/bundled/index.js"
         },
+        "./client": {
+            "types": "./dist/node/client.d.ts",
+            "browser": "./dist/browser/client.js",
+            "import": "./dist/bundled/client-with-compile-cache.js",
+            "require": "./dist/bundled/client.js"
+        },
         "./challenges": {
             "types": "./dist/node/challenges.d.ts",
             "browser": null,

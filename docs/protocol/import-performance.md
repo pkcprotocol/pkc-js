@@ -151,9 +151,41 @@ were consolidated into it).
     pays a one-time ~30ms cache-population cost. Cache dir is Node's default
     (`os.tmpdir()/node-compile-cache`), overridable with `NODE_COMPILE_CACHE`; opt out with
     `NODE_DISABLE_COMPILE_CACHE=1`.
--   [ ] **Thin client entry point** — e.g. a `./client` export that pulls a minimal graph so RPC-only
-        consumers never resolve/link the local-node modules at all. Likely unnecessary now that the
-        heavy leaves are lazy; revisit only if the residual is still too high on slow hardware.
+-   [x] **Thin client entry point** (`./client`) — a slim RPC-only export for consumers that only talk
+        to a remote daemon over RPC (e.g. the bitsocial CLI) and never start a local node. It constructs
+        `PKCWithRpcClient` directly and throws if `pkcRpcClientsOptions` is absent. The win came less from
+        the entry file itself and more from pushing the heavy subgraphs behind dynamic `import()`s on the
+        `create*`/`createCommunity`/publish/gateway paths so a bare RPC import never resolves/links them:
+
+    -   **signer/pages/community/publication subtree** — all `create*` factories in
+        [`src/pkc/pkc.ts`](../../src/pkc/pkc.ts) and the `Rpc*Community` classes in
+        [`src/pkc/pkc-with-rpc-client.ts`](../../src/pkc/pkc-with-rpc-client.ts) now dynamic-import
+        through one barrel, [`src/pkc/lazy-runtime.ts`](../../src/pkc/lazy-runtime.ts). Funnelling every
+        heavy import through a single dynamic entry keeps the whole subtree (comment →
+        `typestub-ipfs-only-hash`, `signer/util` → `@libp2p/peer-id`, pages, the community classes) in
+        one lazy chunk that no entry references statically — otherwise rolldown hoists a module shared by
+        two lazy chunks into the shared static chunk and defeats the laziness.
+    -   **kubo-rpc-client** (~371 modules incl. `@libp2p/peer-id`) — `create` is dynamic-imported inside
+        `createKuboRpcClient`, and kubo client construction moved from the `PKC` constructor to the async
+        `_init()`. RPC-only clients never build a kubo client, so they never import the graph.
+    -   **undici** (~112 modules) — the global-fetch body-timeout patch left `polyfill.ts` (which forced
+        undici into every import graph) and is now applied lazily on the first kubo/gateway fetch.
+    -   **open-graph-scraper + probe-image-size** (~230 modules of HTML/image parsing) and
+        **ipfs-unixfs-importer + blockstore-core** (~40) — dynamic-imported at their publish-path use
+        sites in `runtime/node/util.ts` and `util.ts`.
+    -   Small relocations so ubiquitously-imported `util.ts`/`runtime/node/util.ts` stop pulling
+        `@libp2p/peer-id`/`typestub`: `ipnsNameToIpnsOverPubsubTopic` moved to
+        [`src/ipns-pubsub-topic.ts`](../../src/ipns-pubsub-topic.ts); `CID` re-sourced from
+        `multiformats/cid` (identity-safe, cf. PR #177); `MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE` moved
+        to `constants.ts`.
+
+    Result: the `./client` static closure went from **952 → 309 modules** with **zero** heavy static
+    externals (no `@libp2p/peer-id`, `typestub-ipfs-only-hash`, `kubo-rpc-client`, or `undici`).
+    `config/verify-bundle.js` asserts this closure stays clean. Because most of the deferrals live in
+    shared code (`pkc.ts`, `util.ts`, `runtime/node/util.ts`), the `.` entry benefits too. The residual
+    309 modules are dominated by `remeda` (164 — a namespace import rolldown will not tree-shake) plus
+    the core zod/cborg/PKC-shell graph; getting materially below this needs a remeda replacement or a
+    deeper split of the `PKC` base class (follow-ups).
 -   [x] **Bundle the published `dist` (our files; deps external)** (done in #126) — a rolldown step
         ([`config/build-node-bundle.js`](../../config/build-node-bundle.js)) collapses the compiled
         `dist/node/*.js` graph into a few ESM chunks under `dist/bundled/`, and the package.json
@@ -242,6 +274,11 @@ row here so each change shows its delta against the prior one. (Fast 8-core host
 | bundle dist (our files; deps external) | ~245ms | ~196ms          | ~173ms (unbundled) | ~258ms (unbundled) | node_modules ESM closure  | #126 (rolldown -> dist/bundled)  |
 | inline pure-JS deps (zod, undici, ...) | ~253ms | ~195ms          | ~179ms (unbundled) | ~256ms (unbundled) | kubo-rpc-client closure   | #126 (config/bundle-externals.js) |
 | inline kubo-rpc-client + unixfs-importer | ~205ms | ~155ms        | ~176ms (unbundled) | ~256ms (unbundled) | remaining externals + link | #126 (~21% vs deps-external bundle) |
+| `./client` slim entry + defer kubo/undici/signer/thumbnail | index ~119ms cold / ~99ms warm; **client ~113ms cold / ~97ms warm** | — | — | — | `remeda` (164 mods) + zod/cborg/PKC shell | #120 (client closure 952 → 309 modules) |
+
+On this fast host the absolute deltas are tiny (the residual graph link dominates and both entries
+now defer the same heavy leaves); the change matters on slow hardware, where per-module ESM link cost
+is ~10× higher — see the production numbers below.
 
 ### Production validation (2026-06-10)
 
@@ -295,3 +332,29 @@ multiformats identity layer — plus link/exec of the bundle itself), ~1.2s the 
 uncached graph (bitsocial-cli compile-cache issue), ~2s RPC work (daemon-side; next lever
 would be batching the per-community `createCommunity` round trips or including `started` in
 the communities subscription).
+
+### Production validation — `./client` slim entry (2026-07-05)
+
+Deployed this branch's `dist/` + `package.json` into the CLI's pkc-js install (slow host, Node
+v22.22.2) and timed a fresh-process import of the bundled bootstrap entries (6–7 runs, drop the
+cold first run, median):
+
+| Entry (bundled `*-with-compile-cache.js`) | before (deployed `.` baseline) | after (this branch) |
+| ----------------------------------------- | ------------------------------ | ------------------- |
+| `.` (index)                               | ~1968ms                        | **~1360ms**         |
+| `./client`                                | n/a (new)                      | **~1220ms** (~38% vs the `.` baseline) |
+
+`bitsocial community list -q` (steady state, the CLI still imports the `.` entry until the CLI is
+switched to `./client`): **~3.34s → ~2.6s** (~22%). The `./client` import is ~140ms below the new
+`.` import — that gap is `@libp2p/peer-id`, which the `.` entry still pulls statically through the
+challenges subsystem but `./client` never touches.
+
+Neither entry is sub-second on this host: after removing `@libp2p/peer-id`, kubo-rpc-client, undici,
+typestub and the thumbnail graph from the `./client` static closure (952 → 309 modules), the residual
+is `remeda` (164 tiny per-function modules that a `import * as remeda` namespace import prevents
+rolldown from tree-shaking) plus the core zod/cborg/PKC-shell graph. Reaching sub-second would need a
+remeda replacement (or a working tree-shake of it) and/or splitting the `PKC` base class so the RPC
+client links even fewer of the schema/client-manager modules — larger, separate efforts.
+
+Prod restored to the prior deployed `dist/` + `package.json` after measuring (`community list`
+verified to still print the full started-column table).

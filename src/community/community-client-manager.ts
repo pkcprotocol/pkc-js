@@ -15,13 +15,13 @@ import * as remeda from "remeda";
 import type { CommunityIpfsType } from "./types.js";
 import { getCommunityNameFromWire } from "./community-wire.js";
 import { getPKCAddressFromPublicKeySync } from "../signer/util.js";
+import { ipnsNameToIpnsOverPubsubTopic } from "../ipns-pubsub-topic.js";
 import Logger from "../logger.js";
 
 import {
     areEquivalentCommunityAddresses,
     fetchAndValidateIpnsRecordFromGateway,
     hideClassPrivateProps,
-    ipnsNameToIpnsOverPubsubTopic,
     isAbortError,
     isIpfsPath,
     isIpnsPath,

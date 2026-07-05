@@ -75,14 +75,26 @@ if (!resolvedEntry.includes("dist/bundled/")) {
 }
 
 // 3. Import every public subpath, ESM and CJS.
-for (const subpath of ["@pkcprotocol/pkc-js", "@pkcprotocol/pkc-js/challenges", "@pkcprotocol/pkc-js/rpc"]) {
+for (const subpath of ["@pkcprotocol/pkc-js", "@pkcprotocol/pkc-js/client", "@pkcprotocol/pkc-js/challenges", "@pkcprotocol/pkc-js/rpc"]) {
     run(`esm import ${subpath}`, process.execPath, ["--input-type=module", "-e", `await import(${JSON.stringify(subpath)});`], {
         cwd: consumerDir
     });
 }
-for (const subpath of ["@pkcprotocol/pkc-js", "@pkcprotocol/pkc-js/rpc"]) {
+for (const subpath of ["@pkcprotocol/pkc-js", "@pkcprotocol/pkc-js/client", "@pkcprotocol/pkc-js/rpc"]) {
     run(`cjs require ${subpath}`, process.execPath, ["-e", `require(${JSON.stringify(subpath)});`], { cwd: consumerDir });
 }
+// The slim ./client entry must reject when constructed without an RPC client (it has no local node).
+run(
+    "client entry rejects without pkcRpcClientsOptions",
+    process.execPath,
+    [
+        "--input-type=module",
+        "-e",
+        `import PKC from "@pkcprotocol/pkc-js/client";
+         await PKC({}).then(() => { console.error("expected client PKC() to reject"); process.exit(1); }, () => {});`
+    ],
+    { cwd: consumerDir }
+);
 
 // 4. Real work: createCommunity() through the installed bundle. This crosses the lazy
 // local-community chunk boundary and opens a better-sqlite3 database on disk.
@@ -158,7 +170,12 @@ for (const dep of inlinedDeps) {
 }
 console.log(`hid ${hidden.length} inlined dependencies from the consumer's node_modules`);
 try {
-    for (const subpath of ["@pkcprotocol/pkc-js", "@pkcprotocol/pkc-js/challenges", "@pkcprotocol/pkc-js/rpc"]) {
+    for (const subpath of [
+        "@pkcprotocol/pkc-js",
+        "@pkcprotocol/pkc-js/client",
+        "@pkcprotocol/pkc-js/challenges",
+        "@pkcprotocol/pkc-js/rpc"
+    ]) {
         run(
             `esm import ${subpath} (inlined deps hidden)`,
             process.execPath,

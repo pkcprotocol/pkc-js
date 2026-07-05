@@ -3,7 +3,7 @@ import { PKCError } from "./pkc-error.js";
 import type { CommunityIpfsType } from "./community/types.js";
 //@ts-expect-error
 import extName from "ext-name";
-import { CID } from "kubo-rpc-client";
+import { CID } from "multiformats/cid"; // was kubo-rpc-client; identity-safe (kubo re-exports multiformats CID) and keeps the kubo graph off util.ts (#120, cf. PR #177)
 import type { Multiaddr } from "@multiformats/multiaddr";
 import * as Digest from "multiformats/hashes/digest";
 import { Buffer } from "buffer";
@@ -33,20 +33,22 @@ import type {
 } from "./pubsub-messages/types.js";
 import { DecryptedChallengeRequestPublicationSchema } from "./pubsub-messages/schema.js";
 import EventEmitter from "events";
-import { RemoteCommunity } from "./community/remote-community.js";
+// Type-only: RemoteCommunity is only a parameter type here; a value import would pull the community
+// subtree (-> typestub-ipfs-only-hash, @libp2p/peer-id) into util.ts, which is imported almost
+// everywhere. See issue #120.
+import type { RemoteCommunity } from "./community/remote-community.js";
 import pTimeout from "p-timeout";
-import { of as calculateIpfsCidV0Lib } from "typestub-ipfs-only-hash";
+// typestub-ipfs-only-hash (CID hashing) and @libp2p/peer-id are dynamic-imported at their use sites
+// below so util.ts — imported by nearly every module, including the slim ./client static graph — no
+// longer statically pulls them (issue #120).
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { sha256 } from "js-sha256";
 import { base32 } from "multiformats/bases/base32";
-import { PKC } from "./pkc/pkc.js";
+import type { PKC } from "./pkc/pkc.js";
 import Logger from "./logger.js";
 import retry from "retry";
-import { peerIdFromString } from "@libp2p/peer-id";
 import { unmarshalIPNSRecord, multihashToIPNSRoutingKey, type IPNSRecord } from "ipns";
 import { ipnsValidator } from "ipns/validator";
-import { importFile } from "ipfs-unixfs-importer";
-import { MemoryBlockstore } from "blockstore-core";
 import { findUpdatingCommunity } from "./pkc/tracked-instance-registry-util.js";
 
 export function timestamp() {
@@ -675,7 +677,8 @@ export async function waitForUpdateInCommunityInstanceWithErrorAndTimeout(commun
     }
 }
 
-export function calculateIpfsCidV0(content: string) {
+export async function calculateIpfsCidV0(content: string) {
+    const { of: calculateIpfsCidV0Lib } = await import("typestub-ipfs-only-hash");
     return calculateIpfsCidV0Lib(content);
 }
 
@@ -688,17 +691,8 @@ export function binaryKeyToPubsubTopic(key: Uint8Array) {
     return `/record/${b64url}`;
 }
 
-export function ipnsNameToIpnsOverPubsubTopic(ipnsName: string) {
-    // for ipns over pubsub, the topic is '/record/' + Base64Url(Uint8Array('/ipns/') + Uint8Array('12D...'))
-    // https://github.com/ipfs/helia/blob/1561e4a106074b94e421a77b0b8776b065e48bc5/packages/ipns/src/routing/pubsub.ts#L169
-    const ipnsNamespaceBytes = new TextEncoder().encode("/ipns/");
-    const ipnsNameBytes = peerIdFromString(ipnsName).toMultihash().bytes; // accepts base58 (12D...) and base36 (k51...)
-    const ipnsNameBytesWithNamespace = new Uint8Array(ipnsNamespaceBytes.length + ipnsNameBytes.length);
-    ipnsNameBytesWithNamespace.set(ipnsNamespaceBytes, 0);
-    ipnsNameBytesWithNamespace.set(ipnsNameBytes, ipnsNamespaceBytes.length);
-    const pubsubTopic = "/record/" + uint8ArrayToString(ipnsNameBytesWithNamespace, "base64url");
-    return pubsubTopic;
-}
+// ipnsNameToIpnsOverPubsubTopic moved to ./ipns-pubsub-topic.js so util.ts no longer statically
+// imports @libp2p/peer-id (issue #120). Import it from there.
 
 export const pubsubTopicToDhtKey = (pubsubTopic: string): string => {
     return pubsubTopicToDhtKeyCid(pubsubTopic).toString(base32);
@@ -1236,6 +1230,7 @@ export async function fetchAndValidateIpnsRecordFromGateway(
     // Validate the record's signature AND validity (EOL) against the routing key derived from the
     // IPNS name. This is what makes following the chain through an untrusted gateway safe.
     try {
+        const { peerIdFromString } = await import("@libp2p/peer-id"); // deferred: keep peer-id off util.ts's static graph (#120)
         const routingKey = multihashToIPNSRoutingKey(peerIdFromString(ipnsName).toMultihash());
         await ipnsValidator(routingKey, ipnsRecordRaw);
     } catch (e) {
@@ -1273,6 +1268,9 @@ export async function fetchAndValidateIpnsRecordFromGateway(
 const textEncoder = new TextEncoder();
 
 export async function calculateStringSizeSameAsIpfsAddCidV0(content: string): Promise<number> {
+    // ipfs-unixfs-importer (+ blockstore-core) is a ~40-module graph only needed to size a comment;
+    // dynamic-imported so it stays off util.ts's static graph and the slim ./client entry (#120).
+    const [{ importFile }, { MemoryBlockstore }] = await Promise.all([import("ipfs-unixfs-importer"), import("blockstore-core")]);
     const blockstore = new MemoryBlockstore();
     const entry = await importFile({ path: "content.json", content: textEncoder.encode(content) }, blockstore, {
         cidVersion: 0,

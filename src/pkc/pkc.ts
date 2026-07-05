@@ -21,7 +21,7 @@ import type {
     CreatePublicationOptions,
     GetCommunityArgs
 } from "../types.js";
-import { Comment } from "../publications/comment/comment.js";
+import type { Comment } from "../publications/comment/comment.js";
 import {
     waitForUpdateInCommunityInstanceWithErrorAndTimeout,
     areEquivalentCommunityAddresses,
@@ -33,12 +33,10 @@ import {
     timestamp,
     resolveWhenPredicateIsTrue
 } from "../util.js";
-import Vote from "../publications/vote/vote.js";
-import { createSigner, verifyCommentPubsubMessage } from "../signer/index.js";
-import { CommentEdit } from "../publications/comment-edit/comment-edit.js";
+import type Vote from "../publications/vote/vote.js";
+import type { CommentEdit } from "../publications/comment-edit/comment-edit.js";
 import Logger from "../logger.js";
 import env from "../version.js";
-import { verifyCommentEdit, verifyCommentIpfs, verifyCommentUpdate, verifyCommunityEdit } from "../signer/signatures.js";
 import Stats from "../stats.js";
 import Storage from "../runtime/node/storage.js";
 import { PKCClientsManager } from "./pkc-client-manager.js";
@@ -56,14 +54,18 @@ import type {
     RpcRemoteCommunityJson
 } from "../community/types.js";
 import LRUStorage from "../runtime/node/lru-storage.js";
-import { RemoteCommunity } from "../community/remote-community.js";
-import { RpcRemoteCommunity } from "../community/rpc-remote-community.js";
-import { RpcLocalCommunity } from "../community/rpc-local-community.js";
+// The community classes and their subtree (pages -> comment -> typestub-ipfs-only-hash, signer/util
+// -> @libp2p/peer-id, community-client-manager) are the bulk of the RPC-only import cost (issue #120).
+// They are only needed once a community is actually materialized, so they are dynamic-imported at the
+// `new RemoteCommunity(this)` / `new Rpc*Community(this)` sites (all inside async create paths) and
+// kept type-only here (erased at build time). This keeps them out of the ./client static closure.
+import type { RemoteCommunity } from "../community/remote-community.js";
+import type { RpcRemoteCommunity } from "../community/rpc-remote-community.js";
+import type { RpcLocalCommunity } from "../community/rpc-local-community.js";
 // LocalCommunity pulls in the db-handler -> better-sqlite3 graph (issue #120). It is only
 // instantiated when a local community is created (_createLocalCommunity), so the class and its
 // helper functions are loaded dynamically there; here we keep only the type (erased at build time).
 import type { LocalCommunity } from "../runtime/node/community/local-community.js";
-import { extractCommunityRuntimeFieldsFromParsedPages } from "../pages/util.js";
 import pTimeout, { TimeoutError } from "p-timeout";
 import * as remeda from "remeda";
 import { z } from "zod";
@@ -111,7 +113,7 @@ import {
     parseCommunityEditPubsubMessagePublicationSchemaWithPKCErrorIfItFails,
     parseVotePubsubMessagePublicationSchemaWithPKCErrorIfItFails
 } from "../schema/schema-util.js";
-import { CommentModeration } from "../publications/comment-moderation/comment-moderation.js";
+import type { CommentModeration } from "../publications/comment-moderation/comment-moderation.js";
 import type {
     CommentModerationOptionsToSign,
     CommentModerationPubsubMessagePublication,
@@ -119,7 +121,7 @@ import type {
     CreateCommentModerationOptions
 } from "../publications/comment-moderation/types.js";
 import { setupKuboAddressesRewriterAndHttpRouters } from "../runtime/node/setup-kubo-address-rewriter-and-http-router.js";
-import CommunityEdit from "../publications/community-edit/community-edit.js";
+import type CommunityEdit from "../publications/community-edit/community-edit.js";
 import type {
     CreateCommunityEditPublicationOptions,
     CommunityEditJson,
@@ -136,7 +138,6 @@ import type { PageTypeJson } from "../pages/types.js";
 import type { Libp2pJsClient } from "../helia/libp2pjsClient.js";
 import type { AuthorNameRpcParam, CidRpcParam, RpcFetchCidResult } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
-import { cleanWireAuthor, normalizeCreatePublicationAuthor } from "../publications/publication-author.js";
 import { IndexedTrackedInstanceRegistry, TrackedInstanceRegistry } from "./tracked-instance-registry.js";
 import {
     findUpdatingCommunity,
@@ -291,8 +292,11 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         //@ts-expect-error
         this.clients = {};
 
-        this._initKuboRpcClientsIfNeeded();
-        this._initKuboPubsubClientsIfNeeded();
+        // kubo client creation is deferred to _init() (async) so the kubo-rpc-client graph
+        // (-> @libp2p/peer-id, ~371 modules) is only imported when a kubo client is actually built.
+        // RPC-only clients never build one, so the slim ./client entry never loads kubo. See #120.
+        this.clients.kuboRpcClients = {};
+        this.clients.pubsubKuboRpcClients = {};
         this._initRpcClientsIfNeeded();
         this._initIpfsGatewaysIfNeeded();
         this._initMemCaches();
@@ -327,11 +331,11 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         };
     }
 
-    private _initKuboRpcClientsIfNeeded() {
+    private async _initKuboRpcClientsIfNeeded() {
         this.clients.kuboRpcClients = {};
         if (!this.kuboRpcClientsOptions) return;
         for (const clientOptions of this.kuboRpcClientsOptions) {
-            const kuboRpcClient = createKuboRpcClient(clientOptions);
+            const kuboRpcClient = await createKuboRpcClient(clientOptions);
             this.clients.kuboRpcClients[clientOptions.url!.toString()] = {
                 _client: kuboRpcClient,
                 _clientOptions: clientOptions,
@@ -342,12 +346,12 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         }
     }
 
-    private _initKuboPubsubClientsIfNeeded() {
+    private async _initKuboPubsubClientsIfNeeded() {
         this.clients.pubsubKuboRpcClients = {};
         if (!this.pubsubKuboRpcClientsOptions) return;
 
         for (const clientOptions of this.pubsubKuboRpcClientsOptions) {
-            const kuboRpcClient = createKuboRpcClient(clientOptions);
+            const kuboRpcClient = await createKuboRpcClient(clientOptions);
             this.clients.pubsubKuboRpcClients[clientOptions.url!.toString()] = {
                 _client: kuboRpcClient,
                 _clientOptions: clientOptions,
@@ -433,6 +437,11 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
     async _init() {
         const log = Logger("pkc-js:pkc:_init");
+        // Build kubo clients here (not in the constructor) so the kubo-rpc-client import stays lazy
+        // for RPC-only consumers (#120). Must run before Stats / PKCClientsManager / http-router setup,
+        // which read this.clients.kubo*RpcClients.
+        await this._initKuboRpcClientsIfNeeded();
+        await this._initKuboPubsubClientsIfNeeded();
         // Init storage
         this._storage = new Storage(this);
         await this._storage.init();
@@ -511,6 +520,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     ): Promise<CommentOptionsToSign | VoteOptionsToSign | CommentEditOptionsToSign | CommunityEditPublicationOptionsToSign> {
         const finalOptions = remeda.clone(pubOptions);
         if (!finalOptions.signer) throw Error("User did not provide a signer to create a local publication");
+        const { cleanWireAuthor, normalizeCreatePublicationAuthor } = await import("./lazy-runtime.js");
         const normalizedAuthor = normalizeCreatePublicationAuthor(finalOptions.author);
         let cleanedAuthor = cleanWireAuthor(normalizedAuthor);
         // Strip empty objects from author — empty {} should not be signed
@@ -541,6 +551,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     private async _createCommentInstanceFromAnotherCommentInstance(options: Comment | CommentWithinRepliesPostsPageJson | CommentJson) {
+        const { Comment } = await import("./lazy-runtime.js");
         const commentInstance = new Comment(this);
 
         if (options.cid) commentInstance.setCid(options.cid);
@@ -602,6 +613,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             | CommentIpfsWithCidDefined
     ): Promise<Comment> {
         const log = Logger("pkc-js:pkc:createComment");
+        const { Comment } = await import("./lazy-runtime.js");
 
         if ("clients" in options || "raw" in options || "original" in options || options instanceof Comment)
             return this._createCommentInstanceFromAnotherCommentInstance(
@@ -684,6 +696,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         options: CreateRemoteCommunityOptions | CommunityIpfsType | RemoteCommunityJson | RpcRemoteCommunityJson
     ) {
         await community.initRemoteCommunityPropsNoMerge(options);
+        const { extractCommunityRuntimeFieldsFromParsedPages } = await import("./lazy-runtime.js");
         const preservedRuntimeFields = extractCommunityRuntimeFieldsFromParsedPages({
             postsPages: community.posts.pages,
             modQueuePages: community.modQueue.pages
@@ -749,6 +762,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         const log = Logger("pkc-js:pkc:createRemoteCommunity");
 
         log.trace("Received community options to create a remote community instance:", options);
+        const { RemoteCommunity } = await import("./lazy-runtime.js");
         const community = new RemoteCommunity(this);
         await this._setCommunityIpfsOnInstanceIfPossible(community, options);
 
@@ -876,6 +890,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     async _createVoteInstanceFromJsonfiedVote(jsonfied: VoteJson) {
+        const { Vote } = await import("./lazy-runtime.js");
         const voteInstance = new Vote(this);
         const unsignedOpts = (jsonfied.raw as { unsignedPublicationOptions?: CreatePublicationOptions }).unsignedPublicationOptions;
         if (jsonfied.raw.pubsubMessageToPublish)
@@ -901,6 +916,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     async createVote(options: CreateVoteOptions | VotePubsubMessagePublication | VoteJson): Promise<Vote> {
         const log = Logger("pkc-js:pkc:createVote");
         if ("clients" in options) return this._createVoteInstanceFromJsonfiedVote(options);
+        const { Vote } = await import("./lazy-runtime.js");
         const voteInstance = new Vote(this);
 
         if ("signature" in options) {
@@ -919,6 +935,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     async _createCommentEditInstanceFromJsonfiedCommentEdit(jsonfied: CommentEditTypeJson) {
+        const { CommentEdit } = await import("./lazy-runtime.js");
         const editInstance = new CommentEdit(this);
         const unsignedOpts = (jsonfied.raw as { unsignedPublicationOptions?: CreatePublicationOptions }).unsignedPublicationOptions;
         if (jsonfied.raw.pubsubMessageToPublish)
@@ -946,6 +963,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     ): Promise<CommentEdit> {
         const log = Logger("pkc-js:pkc:createCommentEdit");
         if ("clients" in options) return this._createCommentEditInstanceFromJsonfiedCommentEdit(options);
+        const { CommentEdit } = await import("./lazy-runtime.js");
         const editInstance = new CommentEdit(this);
 
         if ("signature" in options) {
@@ -964,6 +982,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     async _createCommentModerationInstanceFromJsonfiedCommentModeration(jsonfied: CommentModerationTypeJson) {
+        const { CommentModeration } = await import("./lazy-runtime.js");
         const modInstance = new CommentModeration(this);
         const unsignedOpts = (jsonfied.raw as { unsignedPublicationOptions?: CreatePublicationOptions }).unsignedPublicationOptions;
         if (jsonfied.raw.pubsubMessageToPublish)
@@ -991,6 +1010,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     ): Promise<CommentModeration> {
         const log = Logger("pkc-js:pkc:createCommentEdit");
         if ("clients" in options) return this._createCommentModerationInstanceFromJsonfiedCommentModeration(options);
+        const { CommentModeration } = await import("./lazy-runtime.js");
         const modInstance = new CommentModeration(this);
 
         if ("signature" in options) {
@@ -1011,6 +1031,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     async _createCommunityEditInstanceFromJsonfiedCommunityEdit(jsonfied: CommunityEditJson) {
+        const { CommunityEdit } = await import("./lazy-runtime.js");
         const communityEditInstance = new CommunityEdit(this);
         const unsignedOpts = (jsonfied.raw as { unsignedPublicationOptions?: CreatePublicationOptions }).unsignedPublicationOptions;
         if (jsonfied.raw.pubsubMessageToPublish)
@@ -1038,6 +1059,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     ): Promise<CommunityEdit> {
         const log = Logger("pkc-js:pkc:createCommunityEdit");
         if ("clients" in options) return this._createCommunityEditInstanceFromJsonfiedCommunityEdit(options);
+        const { CommunityEdit } = await import("./lazy-runtime.js");
         const communityEditInstance = new CommunityEdit(this);
 
         if ("signature" in options) {
@@ -1057,7 +1079,8 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         return communityEditInstance;
     }
 
-    createSigner(createSignerOptions?: CreateSignerOptions) {
+    async createSigner(createSignerOptions?: CreateSignerOptions) {
+        const { createSigner } = await import("./lazy-runtime.js");
         return createSigner(createSignerOptions);
     }
 
@@ -1105,6 +1128,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         if (!commentUpdate) throw new PKCError("ERR_COMMENT_MISSING_UPDATE", { comment, commentUpdate });
         if (!postCid) throw new PKCError("ERR_COMMENT_MISSING_POST_CID", { comment, postCid }); // postCid should always be defined if you have CommentIpfs
 
+        const { verifyCommentIpfs, verifyCommentUpdate } = await import("./lazy-runtime.js");
         const commentIpfsVerificationOpts = {
             comment: commentIpfs,
             resolveAuthorNames: this.resolveAuthorNames,
