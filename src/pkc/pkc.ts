@@ -65,7 +65,7 @@ import { RpcLocalCommunity } from "../community/rpc-local-community.js";
 import type { LocalCommunity } from "../runtime/node/community/local-community.js";
 import { extractCommunityRuntimeFieldsFromParsedPages } from "../pages/util.js";
 import pTimeout, { TimeoutError } from "p-timeout";
-import * as remeda from "remeda";
+import { clone, flat, isEmpty, omit, pick, unique } from "remeda";
 import { z } from "zod";
 import type { CreateSignerOptions } from "../signer/types.js";
 import type {
@@ -353,8 +353,8 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                 _clientOptions: clientOptions,
                 peers: async () => {
                     const topics = await kuboRpcClient.pubsub.ls();
-                    const topicPeers = remeda.flattenDeep(await Promise.all(topics.map((topic) => kuboRpcClient.pubsub.peers(topic))));
-                    const peers = remeda.unique(topicPeers.map((topicPeer) => topicPeer.toString()));
+                    const topicPeers = flat(await Promise.all(topics.map((topic) => kuboRpcClient.pubsub.peers(topic))));
+                    const peers = unique(topicPeers.map((topicPeer) => topicPeer.toString()));
                     return peers;
                 },
                 url: clientOptions.url!.toString(),
@@ -509,7 +509,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             | CreateCommunityEditPublicationOptions,
         log: Logger
     ): Promise<CommentOptionsToSign | VoteOptionsToSign | CommentEditOptionsToSign | CommunityEditPublicationOptionsToSign> {
-        const finalOptions = remeda.clone(pubOptions);
+        const finalOptions = clone(pubOptions);
         if (!finalOptions.signer) throw Error("User did not provide a signer to create a local publication");
         const normalizedAuthor = normalizeCreatePublicationAuthor(finalOptions.author);
         let cleanedAuthor = cleanWireAuthor(normalizedAuthor);
@@ -520,7 +520,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                 if (typeof val === "object" && val !== null && !Array.isArray(val) && Object.keys(val).length === 0)
                     delete (cleanedAuthor as Record<string, unknown>)[key];
             }
-            if (remeda.isEmpty(cleanedAuthor)) cleanedAuthor = undefined;
+            if (isEmpty(cleanedAuthor)) cleanedAuthor = undefined;
         }
         const filledTimestamp = typeof finalOptions.timestamp !== "number" ? timestamp() : finalOptions.timestamp;
         const filledSigner = await this.createSigner(finalOptions.signer);
@@ -638,7 +638,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             // Options is CommentIpfs | CommentIpfsWithCidDefined | MinimumCommentFieldsToFetchPages
             if ("cid" in options) commentInstance.setCid(parseCidStringSchemaWithPKCErrorIfItFails(options.cid));
             //@ts-expect-error
-            const commentIpfs: CommentIpfsType = remeda.omit(options, ["cid"]); // remove cid to make sure if options:CommentIpfsWithCidDefined that cid doesn't become part of comment.raw.comment
+            const commentIpfs: CommentIpfsType = omit(options, ["cid"]); // remove cid to make sure if options:CommentIpfsWithCidDefined that cid doesn't become part of comment.raw.comment
 
             // if it has signature it means it's a full CommentIpfs
             if (!("signature" in options)) Object.assign(commentInstance, options);
@@ -709,7 +709,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         if (!community.raw.communityIpfs) {
             if (options.signature) {
                 const resParseCommunityIpfs = CommunityIpfsSchema.loose().safeParse(
-                    remeda.pick(options, <(keyof CommunityIpfsType)[]>[...options.signature.signedPropertyNames, "signature"])
+                    pick(options, <(keyof CommunityIpfsType)[]>[...options.signature.signedPropertyNames, "signature"])
                 );
                 if (resParseCommunityIpfs.success) {
                     const cleanedRecord = removeUndefinedValuesRecursively(resParseCommunityIpfs.data); // safe way to replicate JSON.stringify() which is done before adding record to ipfs

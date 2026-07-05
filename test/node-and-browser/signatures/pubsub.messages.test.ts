@@ -11,7 +11,7 @@ import {
 } from "../../../dist/node/signer/signatures.js";
 import signers from "../../fixtures/signers.js";
 import { messages } from "../../../dist/node/errors.js";
-import * as remeda from "remeda";
+import { clone, isPlainObject, omit } from "remeda";
 import { default as PKCJsVersion } from "../../../dist/node/version.js";
 import { encode as cborgEncode, decode as cborgDecode } from "cborg";
 import { getBufferedPKCAddressFromPublicKey } from "../../../dist/node/signer/util.js";
@@ -45,9 +45,9 @@ const parsePubsubMsgFixture = <T extends Record<string, unknown>>(json: T): T =>
     const isBuffer = (obj: Record<string, unknown>) => Object.keys(obj).every((key) => /\d/.test(key));
     const parsed: Record<string, unknown> = {};
     for (const key of Object.keys(json)) {
-        if (remeda.isPlainObject(json[key]) && isBuffer(json[key] as Record<string, unknown>))
+        if (isPlainObject(json[key]) && isBuffer(json[key] as Record<string, unknown>))
             parsed[key] = Uint8Array.from(Object.values(json[key] as Record<string, unknown>) as number[]);
-        else if (remeda.isPlainObject(json[key])) parsed[key] = parsePubsubMsgFixture(json[key] as Record<string, unknown>);
+        else if (isPlainObject(json[key])) parsed[key] = parsePubsubMsgFixture(json[key] as Record<string, unknown>);
         else parsed[key] = json[key];
     }
     return parsed as T;
@@ -67,13 +67,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`valid challengerequest fixture from previous version can be validated`, async () => {
-            const request = parsePubsubMsgFixture(remeda.clone(validChallengeRequestFixture)) as unknown as ChallengeRequestMessageType;
+            const request = parsePubsubMsgFixture(clone(validChallengeRequestFixture)) as unknown as ChallengeRequestMessageType;
             const verificaiton = await verifyChallengeRequest({ request, validateTimestampRange: false });
             expect(verificaiton).to.deep.equal({ valid: true });
         });
 
         it(`challenge request with challengeRequestId that is not derived from signer is invalidated`, async () => {
-            const request = parsePubsubMsgFixture(remeda.clone(validChallengeRequestFixture)) as unknown as ChallengeRequestMessageType;
+            const request = parsePubsubMsgFixture(clone(validChallengeRequestFixture)) as unknown as ChallengeRequestMessageType;
             request.challengeRequestId[0] += 1; // Invalidate challengeRequestId
             const verificaiton = await verifyChallengeRequest({ request, validateTimestampRange: false });
             expect(verificaiton).to.deep.equal({ valid: false, reason: messages.ERR_CHALLENGE_REQUEST_ID_NOT_DERIVED_FROM_SIGNATURE });
@@ -90,11 +90,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             );
             await comment.publish();
             const challengeRequest = await challengeRequestPromise;
-            const challengeRequestToEdit = remeda.omit(remeda.clone(challengeRequest), [
-                "comment",
-                "challengeAnswers",
-                "challengeCommentCids"
-            ]);
+            const challengeRequestToEdit = omit(clone(challengeRequest), ["comment", "challengeAnswers", "challengeCommentCids"]);
             challengeRequestToEdit.timestamp = timestamp() - 6 * 60; // Should be invalidated now
             const signer = Object.values(comment._challengeExchanges)[0].signer!;
             challengeRequestToEdit.signature = await signChallengeRequest({ request: challengeRequestToEdit, signer });
@@ -114,7 +110,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
             await comment.publish();
             const challengeRequest = await challengeRequestPromise;
-            const requestToValidate = remeda.omit(challengeRequest, ["comment", "challengeAnswers", "challengeCommentCids"]);
+            const requestToValidate = omit(challengeRequest, ["comment", "challengeAnswers", "challengeCommentCids"]);
             const verificaiton = await verifyChallengeRequest({ request: requestToValidate, validateTimestampRange: false });
             expect(verificaiton).to.deep.equal({ valid: true });
         });
@@ -135,7 +131,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             await comment.publish();
             const challengeRequest = await challengeRequestPromise;
 
-            const challengeRequestToModify = remeda.omit(challengeRequest, ["comment", "challengeCommentCids", "challengeAnswers"]);
+            const challengeRequestToModify = omit(challengeRequest, ["comment", "challengeCommentCids", "challengeAnswers"]);
             const pubsubSigner = Object.values(comment._challengeExchanges)[0].signer!;
             challengeRequestToModify.encrypted = await encryptEd25519AesGcm(
                 JSON.stringify(comment.toJSONPubsubRequestToEncrypt()),
@@ -204,7 +200,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 reason: messages.ERR_SIGNATURE_IS_INVALID
             });
 
-            const challengeRequestToModify = remeda.omit(challengeRequest, ["comment", "challengeCommentCids", "challengeAnswers"]);
+            const challengeRequestToModify = omit(challengeRequest, ["comment", "challengeCommentCids", "challengeAnswers"]);
             const pubsubSigner = Object.values(comment._challengeExchanges)[0].signer!;
 
             challengeRequestToModify.encrypted = await encryptEd25519AesGcm(
@@ -241,11 +237,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             await Promise.all([new Promise((resolve) => comment.once("challengeverification", resolve)), comment.publish()]);
 
             const challengeRequest = await challengeRequestPromise;
-            const requestWithInvalidSignature = remeda.omit(remeda.clone(challengeRequest), [
-                "comment",
-                "challengeCommentCids",
-                "challengeAnswers"
-            ]);
+            const requestWithInvalidSignature = omit(clone(challengeRequest), ["comment", "challengeCommentCids", "challengeAnswers"]);
             requestWithInvalidSignature.acceptedChallengeTypes.push("test"); // Signature should be invalid after
             const verificaiton = await verifyChallengeRequest({ request: requestWithInvalidSignature, validateTimestampRange: false });
             expect(verificaiton).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
@@ -281,7 +273,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`valid challengemessage fixture from previous version can be validated`, async () => {
-            const challenge = parsePubsubMsgFixture(remeda.clone(validChallengeFixture)) as unknown as ChallengeMessageType;
+            const challenge = parsePubsubMsgFixture(clone(validChallengeFixture)) as unknown as ChallengeMessageType;
             const verificaiton = await verifyChallengeMessage({
                 challenge,
                 pubsubTopic: "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z",
@@ -291,7 +283,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`Invalid ChallengeMessage gets invalidated correctly`, async () => {
-            const challenge = parsePubsubMsgFixture(remeda.clone(validChallengeFixture)) as unknown as ChallengeMessageType;
+            const challenge = parsePubsubMsgFixture(clone(validChallengeFixture)) as unknown as ChallengeMessageType;
             challenge.timestamp -= 1234; // Should invalidate signature
             const verificaiton = await verifyChallengeMessage({
                 challenge,
@@ -302,7 +294,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`challenge message signed by other than community.pubsubTopic is invalidated`, async () => {
-            const challenge = parsePubsubMsgFixture(remeda.clone(validChallengeFixture)) as unknown as ChallengeMessageType;
+            const challenge = parsePubsubMsgFixture(clone(validChallengeFixture)) as unknown as ChallengeMessageType;
             const verificaiton = await verifyChallengeMessage({
                 challenge,
                 pubsubTopic: (await pkc.createSigner()).address,
@@ -322,7 +314,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
             const challengePubsubMsg = await new Promise<DecryptedChallengeMessageType>((resolve) => comment.once("challenge", resolve));
 
-            const challengePubsubMsgNoExtraProps = remeda.omit(challengePubsubMsg, ["challenges"]);
+            const challengePubsubMsgNoExtraProps = omit(challengePubsubMsg, ["challenges"]);
 
             const verification = await verifyChallengeMessage({
                 challenge: challengePubsubMsgNoExtraProps,
@@ -345,13 +337,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`valid challengeanswer fixture from previous version can be validated`, async () => {
-            const answer = parsePubsubMsgFixture(remeda.clone(validChallengeAnswerFixture)) as unknown as ChallengeAnswerMessageType;
+            const answer = parsePubsubMsgFixture(clone(validChallengeAnswerFixture)) as unknown as ChallengeAnswerMessageType;
             const verificaiton = await verifyChallengeAnswer({ answer, validateTimestampRange: false });
             expect(verificaiton).to.deep.equal({ valid: true });
         });
 
         it(`challenge answer with challengeRequestId that is not derived from signer is invalidated`, async () => {
-            const answer = parsePubsubMsgFixture(remeda.clone(validChallengeAnswerFixture)) as unknown as ChallengeAnswerMessageType;
+            const answer = parsePubsubMsgFixture(clone(validChallengeAnswerFixture)) as unknown as ChallengeAnswerMessageType;
             answer.challengeRequestId[0] += 1; // Invalidate challenge request id
             const verificaiton = await verifyChallengeAnswer({ answer, validateTimestampRange: false });
             expect(verificaiton).to.deep.equal({ valid: false, reason: messages.ERR_CHALLENGE_REQUEST_ID_NOT_DERIVED_FROM_SIGNATURE });
@@ -371,7 +363,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             const challengeAnswerPubsubMsg = await new Promise<DecryptedChallengeAnswerMessageType>((resolve) =>
                 comment.once("challengeanswer", resolve)
             );
-            const challengeAnswerPubsubMsgNoExtraProps = remeda.omit(challengeAnswerPubsubMsg, ["challengeAnswers"]);
+            const challengeAnswerPubsubMsgNoExtraProps = omit(challengeAnswerPubsubMsg, ["challengeAnswers"]);
             const verificaiton = await verifyChallengeAnswer({
                 answer: challengeAnswerPubsubMsgNoExtraProps,
                 validateTimestampRange: false
@@ -457,7 +449,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     (exchange) => exchange.challengeAnswer
                 )!.challengeAnswer!;
 
-                const challengeAnswerToModify = remeda.omit(challengeAnswersPubsubMessage, ["challengeAnswers"]);
+                const challengeAnswerToModify = omit(challengeAnswersPubsubMessage, ["challengeAnswers"]);
                 challengeAnswerToModify.encrypted = await encryptEd25519AesGcm(
                     JSON.stringify({}),
                     pubsubSigner.privateKey,
@@ -555,7 +547,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
         it(`valid challengeverification fixture from previous version can be validated`, async () => {
             const challengeVerification = parsePubsubMsgFixture(
-                remeda.clone(validChallengeVerificationFixture)
+                clone(validChallengeVerificationFixture)
             ) as unknown as ChallengeVerificationMessageType;
             const verificaiton = await verifyChallengeVerification({
                 verification: challengeVerification,
@@ -575,7 +567,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             const challengeVerification = await new Promise<DecryptedChallengeVerificationMessageType>((resolve) =>
                 comment.once("challengeverification", resolve)
             );
-            const challengeVerificationNoExtraProps = remeda.omit(challengeVerification, ["comment", "commentUpdate"]);
+            const challengeVerificationNoExtraProps = omit(challengeVerification, ["comment", "commentUpdate"]);
             const verification = await verifyChallengeVerification({
                 verification: challengeVerificationNoExtraProps,
                 pubsubTopic: signers[0].address,
@@ -585,7 +577,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
         it(`Invalid challengeverification gets invalidated correctly`, async () => {
             const challengeVerification = parsePubsubMsgFixture(
-                remeda.clone(validChallengeVerificationFixture)
+                clone(validChallengeVerificationFixture)
             ) as unknown as ChallengeVerificationMessageType;
             challengeVerification.timestamp -= 1234; // Invalidate signature
             const verificaiton = await verifyChallengeVerification({

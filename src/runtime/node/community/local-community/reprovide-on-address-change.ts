@@ -1,5 +1,5 @@
 import Logger from "../../../../logger.js";
-import * as remeda from "remeda";
+import { flat, isDeepEqual, unique } from "remeda";
 import { CID } from "multiformats/cid";
 import { normalizeSelfAddrsForProvider } from "../../addresses-rewriter-proxy-server.js";
 
@@ -46,12 +46,12 @@ export async function getBrowserDialableSelfAddrs(client: ReprovideKuboRpcClient
     const normalized = normalizeSelfAddrsForProvider(
         [
             ...idRes.addresses.map((addr) => addr.toString()),
-            ...remeda.flatten(swarmListeningAddresses.map((swarmAddr) => swarmAddr.addrs.map((addr) => addr.toString())))
+            ...flat(swarmListeningAddresses.map((swarmAddr) => swarmAddr.addrs.map((addr) => addr.toString())))
         ],
         peerId
     );
 
-    return remeda.unique(normalized.filter(isBrowserDialableAddr)).sort();
+    return unique(normalized.filter(isBrowserDialableAddr)).sort();
 }
 
 // The CIDs a browser needs a fresh provider record for in order to bootstrap a connection to the community:
@@ -60,7 +60,7 @@ export async function getBrowserDialableSelfAddrs(client: ReprovideKuboRpcClient
 // when the node's addresses rotate. updateCid is intentionally excluded: it rotates every <=15 min and is
 // re-provided with fresh addresses on every publish, so it is already self-healing.
 function connectionCriticalCids(community: AddressChangeReprovidable): string[] {
-    return remeda.unique(
+    return unique(
         [community.pubsubTopicRoutingCid, community.ipnsPubsubTopicRoutingCid].filter((cid): cid is string => typeof cid === "string")
     );
 }
@@ -87,7 +87,7 @@ export async function reprovideConnectionCidsIfBrowserAddrsChanged(
         return { reprovided: false, providedCids: [], browserAddrs: current };
     }
 
-    if (remeda.isDeepEqual(previous, current)) return { reprovided: false, providedCids: [], browserAddrs: current };
+    if (isDeepEqual(previous, current)) return { reprovided: false, providedCids: [], browserAddrs: current };
 
     // Record the snapshot before providing so a slow/failing provide doesn't make us re-announce every tick.
     community._lastProvidedBrowserDialableSelfAddrs = current;

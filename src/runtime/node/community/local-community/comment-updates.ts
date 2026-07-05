@@ -1,5 +1,5 @@
 import { stringify as deterministicStringify } from "safe-stable-stringify";
-import * as remeda from "remeda";
+import { groupBy, keys, pick } from "remeda";
 import pLimit from "p-limit";
 import Logger from "../../../../logger.js";
 import { timestamp, writeKuboFilesWithTimeout } from "../../../../util.js";
@@ -89,7 +89,7 @@ export async function calculateNewCommentUpdate(
         else if (generatedRepliesPages.pageCids) {
             commentUpdatePriorToSigning.replies = {
                 pageCids: generatedRepliesPages.pageCids,
-                pages: remeda.pick(generatedRepliesPages.pages, [preloadedRepliesPages])
+                pages: pick(generatedRepliesPages.pages, [preloadedRepliesPages])
             };
         }
     }
@@ -186,7 +186,7 @@ export async function updateCommentsThatNeedToBeUpdated(community: LocalCommunit
     log(`Will update ${commentsToUpdate.length} comments in this update loop for community (${community.address})`);
 
     // Group by postCid
-    const commentsByPostCid = remeda.groupBy.strict(commentsToUpdate, (x) => x.postCid);
+    const commentsByPostCid = groupBy(commentsToUpdate, (x) => x.postCid);
     const allCommentUpdateRows: CommentUpdateToWriteToDbAndPublishToIpfs[] = [];
 
     // Process different post trees in parallel
@@ -196,8 +196,8 @@ export async function updateCommentsThatNeedToBeUpdated(community: LocalCommunit
         postLimit(async () => {
             try {
                 // Group by depth
-                const commentsByDepth = remeda.groupBy.strict(commentsForPost, (x) => x.depth);
-                const depthsKeySorted = remeda.keys.strict(commentsByDepth).sort((a, b) => Number(b) - Number(a)); // Sort depths from highest to lowest
+                const commentsByDepth = groupBy(commentsForPost, (x) => x.depth);
+                const depthsKeySorted = keys(commentsByDepth).sort((a, b) => Number(b) - Number(a)); // Sort depths from highest to lowest
 
                 const postUpdateRows: CommentUpdateToWriteToDbAndPublishToIpfs[] = [];
 

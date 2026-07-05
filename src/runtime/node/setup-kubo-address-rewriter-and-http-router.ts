@@ -3,7 +3,7 @@ import retry, { RetryOperation } from "retry";
 import { AddressesRewriterProxyServer } from "./addresses-rewriter-proxy-server.js";
 import Logger from "../../logger.js";
 import { PKCError } from "../../pkc-error.js";
-import * as remeda from "remeda";
+import { isDeepEqual } from "remeda";
 import tcpPortUsed from "tcp-port-used";
 
 type KuboRouterEntry = {
@@ -114,7 +114,7 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboR
     const endpointsAfter: string[] = Object.values(mergedRoutingValue.Routers)
         .map((router) => router.Parameters?.Endpoint)
         .filter((endpoint): endpoint is string => endpoint !== undefined);
-    if (!remeda.isDeepEqual(endpointsBefore.sort(), endpointsAfter.sort())) {
+    if (!isDeepEqual(endpointsBefore.sort(), endpointsAfter.sort())) {
         log(
             "Config on kubo node has been changed. PKC-js will send shutdown command to node",
             kuboClient._clientOptions.url,

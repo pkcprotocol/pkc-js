@@ -13,7 +13,7 @@ import { describeIfRpc } from "../../helpers/conditional-tests.js";
 
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 
-import * as remeda from "remeda";
+import { clone } from "remeda";
 import validCommunityJsonfiedFixture from "../../fixtures/signatures/community/valid_community_jsonfied.json" with { type: "json" };
 import validCommunityJsonfiedOldWireFormatFixture from "../../fixtures/signatures/community/valid_community_jsonfied_old_wire_format.json" with { type: "json" };
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -148,7 +148,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         );
 
         it("createCommunity preserves runtime-only author.nameResolved in preloaded fixture pages", async () => {
-            const communityJson = remeda.clone(validCommunityJsonfiedFixture);
+            const communityJson = clone(validCommunityJsonfiedFixture);
             const sourceComment = communityJson.posts.pages.hot.comments[0];
             const sourceRawComment = (communityJson.raw.subplebbitIpfs || (communityJson.raw as Record<string, any>).communityIpfs).posts
                 .pages.hot.comments[0];
@@ -169,7 +169,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         });
 
         it("createCommunity preserves runtime-only author.nameResolved in preloaded OLD-wire-format fixture pages", async () => {
-            const communityJson = remeda.clone(validCommunityJsonfiedOldWireFormatFixture);
+            const communityJson = clone(validCommunityJsonfiedOldWireFormatFixture);
             const sourceComment = communityJson.posts.pages.hot.comments[0];
             const sourceRawComment = (communityJson.raw.subplebbitIpfs || (communityJson.raw as Record<string, any>).communityIpfs).posts
                 .pages.hot.comments[0];
@@ -190,8 +190,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         });
 
         it(`Community JSON props does not change by creating a Community object via pkc.createCommunity`, async () => {
-            const communityJson = remeda.clone(validCommunityJsonfiedFixture);
-            const communityObj = await pkc.createCommunity(remeda.clone(validCommunityJsonfiedFixture));
+            const communityJson = clone(validCommunityJsonfiedFixture);
+            const communityObj = await pkc.createCommunity(clone(validCommunityJsonfiedFixture));
             expect(communityJson.lastPostCid).to.equal(communityObj.lastPostCid).and.to.be.a("string");
             expect(communityJson.pubsubTopic).to.equal(communityObj.pubsubTopic).and.to.be.a("string");
             expect(communityJson.address).to.equal(communityObj.address).and.to.be.a("string");
@@ -217,8 +217,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
         });
 
         it("createCommunity with old-wire-format fixture correctly derives communityAddress in pages", async () => {
-            const communityJson = remeda.clone(validCommunityJsonfiedOldWireFormatFixture);
-            const communityObj = await pkc.createCommunity(remeda.clone(validCommunityJsonfiedOldWireFormatFixture));
+            const communityJson = clone(validCommunityJsonfiedOldWireFormatFixture);
+            const communityObj = await pkc.createCommunity(clone(validCommunityJsonfiedOldWireFormatFixture));
 
             // Top-level fields unaffected by wire format change
             expect(communityJson.lastPostCid).to.equal(communityObj.lastPostCid).and.to.be.a("string");

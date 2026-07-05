@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, expect } from "vitest";
 import signers from "../../fixtures/signers.js";
 import { getAvailablePKCConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
-import * as remeda from "remeda";
+import { clone } from "remeda";
 import validCommunityFixture from "../../fixtures/signatures/community/valid_community_ipfs.json" with { type: "json" };
 import newFormatFixture from "../../fixtures/signatures/community/valid_community_ipfs_new_format.json" with { type: "json" };
 import newFormatWithNameFixture from "../../fixtures/signatures/community/valid_community_ipfs_new_format_with_name.json" with { type: "json" };
@@ -30,14 +30,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`address stays immutable when loading new-format record with name`, async () => {
             const community = await pkc.createCommunity({ address: signers[0].address });
-            community.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatWithNameFixture) as CommunityIpfsType);
+            community.initCommunityIpfsPropsNoMerge(clone(newFormatWithNameFixture) as CommunityIpfsType);
             expect(community.name).to.equal("test-sub.eth");
             expect(community.address).to.equal(signers[0].address); // address is immutable
         });
 
         it(`address falls back to publicKey when no name is present`, async () => {
             const community = await pkc.createCommunity({ address: signers[0].address });
-            community.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatFixture) as CommunityIpfsType);
+            community.initCommunityIpfsPropsNoMerge(clone(newFormatFixture) as CommunityIpfsType);
             // No name, so address should be the IPNS key derived from signature.publicKey
             expect(community.address).to.equal(signers[0].address);
         });
@@ -45,19 +45,19 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`address is computed correctly when loading old-format record with IPNS address`, async () => {
             const community = await pkc.createCommunity({ address: signers[0].address });
             // Old fixture has address = signers[0].address (IPNS key)
-            community.initCommunityIpfsPropsNoMerge(remeda.clone(validCommunityFixture) as CommunityIpfsType);
+            community.initCommunityIpfsPropsNoMerge(clone(validCommunityFixture) as CommunityIpfsType);
             expect(community.address).to.equal(signers[0].address);
         });
 
         it(`publicKey is derived from signature.publicKey`, async () => {
             const community = await pkc.createCommunity({ address: signers[0].address });
-            community.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatFixture) as CommunityIpfsType);
+            community.initCommunityIpfsPropsNoMerge(clone(newFormatFixture) as CommunityIpfsType);
             expect(community.publicKey).to.equal(signers[0].address);
         });
 
         it(`address and publicKey appear in JSON.stringify output`, async () => {
             const community = await pkc.createCommunity({ address: signers[0].address });
-            community.initCommunityIpfsPropsNoMerge(remeda.clone(newFormatFixture) as CommunityIpfsType);
+            community.initCommunityIpfsPropsNoMerge(clone(newFormatFixture) as CommunityIpfsType);
             const json = JSON.parse(JSON.stringify(community));
             expect(json.address).to.be.a("string");
             expect(json.publicKey).to.be.a("string");
@@ -179,7 +179,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
 describe.concurrent("Wire format migration — backward compat parsing", async () => {
     it(`parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails accepts old record with address`, () => {
-        const result = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(remeda.clone(validCommunityFixture) as CommunityIpfsType);
+        const result = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(clone(validCommunityFixture) as CommunityIpfsType);
         // Old record with address should parse successfully
         expect(result).to.have.property("signature");
         // Address is preserved as a passthrough field
@@ -187,15 +187,13 @@ describe.concurrent("Wire format migration — backward compat parsing", async (
     });
 
     it(`parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails accepts new record without address`, () => {
-        const result = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(remeda.clone(newFormatFixture) as CommunityIpfsType);
+        const result = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(clone(newFormatFixture) as CommunityIpfsType);
         expect(result).to.have.property("signature");
         expect((result as Record<string, unknown>).address).to.be.undefined;
     });
 
     it(`parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails accepts new record with name`, () => {
-        const result = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(
-            remeda.clone(newFormatWithNameFixture) as CommunityIpfsType
-        );
+        const result = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(clone(newFormatWithNameFixture) as CommunityIpfsType);
         expect(result).to.have.property("signature");
         expect(result.name).to.equal("test-sub.eth");
     });

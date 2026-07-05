@@ -3,7 +3,7 @@ import { PKCError } from "../pkc-error.js";
 import { RemoteCommunity } from "../community/remote-community.js";
 import { NameResolverClient } from "../clients/name-resolver-client.js";
 import Publication from "./publication.js";
-import * as remeda from "remeda";
+import { keys } from "remeda";
 import {
     PublicationIpfsGatewayClient,
     PublicationKuboPubsubClient,
@@ -46,12 +46,12 @@ export class PublicationClientsManager extends PKCClientsManager {
 
     protected override _initKuboRpcClients(): void {
         if (this._pkc.clients.kuboRpcClients)
-            for (const ipfsUrl of remeda.keys.strict(this._pkc.clients.kuboRpcClients))
+            for (const ipfsUrl of keys(this._pkc.clients.kuboRpcClients))
                 this.clients.kuboRpcClients = { ...this.clients.kuboRpcClients, [ipfsUrl]: new PublicationKuboRpcClient("stopped") };
     }
 
     protected override _initPubsubKuboRpcClients(): void {
-        for (const pubsubUrl of remeda.keys.strict(this._pkc.clients.pubsubKuboRpcClients))
+        for (const pubsubUrl of keys(this._pkc.clients.pubsubKuboRpcClients))
             this.clients.pubsubKuboRpcClients = {
                 ...this.clients.pubsubKuboRpcClients,
                 [pubsubUrl]: new PublicationKuboPubsubClient("stopped")
@@ -59,7 +59,7 @@ export class PublicationClientsManager extends PKCClientsManager {
     }
 
     protected _initPKCRpcClients() {
-        for (const rpcUrl of remeda.keys.strict(this._pkc.clients.pkcRpcClients))
+        for (const rpcUrl of keys(this._pkc.clients.pkcRpcClients))
             this.clients.pkcRpcClients = {
                 ...this.clients.pkcRpcClients,
                 [rpcUrl]: new PublicationPKCRpcStateClient("stopped")

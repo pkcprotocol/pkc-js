@@ -29,7 +29,7 @@ import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { create as CreateKuboRpcClient } from "kubo-rpc-client";
 import Logger from "../../logger.js";
 import retry from "retry";
-import * as remeda from "remeda";
+import { difference, keys, pick } from "remeda";
 import type { CommunityIpfsType } from "../../community/types.js";
 import type {
     CommentIpfsType,
@@ -217,7 +217,7 @@ export async function tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc: PKC
                 );
             }
         }
-        const newPersistentDeletedCommunities = remeda.difference(deletedPersistentCommunities, communitiesThatWereDeletedSuccessfully);
+        const newPersistentDeletedCommunities = difference(deletedPersistentCommunities, communitiesThatWereDeletedSuccessfully);
         if (newPersistentDeletedCommunities.length === 0) {
             await pkc._storage.removeItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES]);
             log("Removed persistent deleted communities from storage because there are none left");
@@ -564,8 +564,8 @@ export function calculateExpectedSignatureSize(
 }
 
 export function deriveCommentIpfsFromCommentTableRow(commentTableRow: CommentsTableRow): CommentIpfsType {
-    const commentIpfs = remeda.pick(commentTableRow, remeda.keys.strict(CommentIpfsSchema.shape)) as CommentIpfsType;
-    const commentPubsub = remeda.pick(
+    const commentIpfs = pick(commentTableRow, keys(CommentIpfsSchema.shape)) as CommentIpfsType;
+    const commentPubsub = pick(
         commentTableRow,
         (commentTableRow.signature as CommentPubsubMessagPublicationSignature).signedPropertyNames
     ) as CommentPubsubMessagePublication;
@@ -710,8 +710,8 @@ export function resolveDbPostsCidRefs(opts: { dbPosts: DbPostsFormat; dbHandler:
     // For preloaded sorts (with commentCids): query those posts from DB and resolve their nested replies.
     // For non-preloaded sorts (allPageCids only): reconstruct pageCids.
     const { dbPosts, dbHandler } = opts;
-    const commentUpdateCols = remeda.keys.strict(CommentUpdateSchema.shape);
-    const commentIpfsCols = [...remeda.keys.strict(CommentIpfsSchema.shape), "extraProps"];
+    const commentUpdateCols = keys(CommentUpdateSchema.shape);
+    const commentIpfsCols = [...keys(CommentIpfsSchema.shape), "extraProps"];
 
     const pages: Record<string, PageIpfs> = {};
     const pageCids: Record<string, string> = {};

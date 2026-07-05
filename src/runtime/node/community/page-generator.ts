@@ -13,7 +13,7 @@ import type {
     ReplySortName,
     SortProps
 } from "../../../pages/types.js";
-import * as remeda from "remeda";
+import { keys, omit } from "remeda";
 import type { CommentsTableRow, CommentUpdateType } from "../../../publications/comment/types.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import env from "../../../version.js";
@@ -326,7 +326,7 @@ export class PageGenerator {
             unpinnedComments = unpinnedComments.filter((obj) => obj.comment.timestamp >= timestampLower);
         }
 
-        const commentsSorted = pinnedComments.concat(unpinnedComments).map((comment) => remeda.omit(comment, ["activeScore"]));
+        const commentsSorted = pinnedComments.concat(unpinnedComments).map((comment) => omit(comment, ["activeScore"]));
 
         if (commentsSorted.length === 0) return [];
 
@@ -409,7 +409,7 @@ export class PageGenerator {
 
         sortResults.push(await this.addPreloadedCommentChunksToIpfs(preloadedChunk, preloadedPageSortName));
 
-        const nonPreloadedSorts = remeda.keys.strict(POSTS_SORT_TYPES).filter((sortName) => sortName !== preloadedPageSortName);
+        const nonPreloadedSorts = keys(POSTS_SORT_TYPES).filter((sortName) => sortName !== preloadedPageSortName);
         await Promise.all(
             nonPreloadedSorts.map(async (sortName) => {
                 sortResults.push(
@@ -510,7 +510,7 @@ export class PageGenerator {
             sortResults.push(await this.addPreloadedCommentChunksToIpfs(preloadedChunk, preloadedReplyPageSortName));
         }
 
-        const nonPreloadedSorts = remeda.keys.strict(POST_REPLIES_SORT_TYPES).filter((sortName) => sortName !== preloadedReplyPageSortName);
+        const nonPreloadedSorts = keys(POST_REPLIES_SORT_TYPES).filter((sortName) => sortName !== preloadedReplyPageSortName);
 
         const flattenedReplies = this._community._dbHandler.queryFlattenedPageReplies({
             ...pageOptions,
@@ -561,9 +561,7 @@ export class PageGenerator {
         if (!disablePreload && preloadedChunk.length === 1)
             return { singlePreloadedPage: { [preloadedReplyPageSortName]: { comments: preloadedChunk[0] } } }; // all comments fit in one page
 
-        const nonPreloadedSorts = remeda.keys
-            .strict(REPLY_REPLIES_SORT_TYPES)
-            .filter((sortName) => sortName !== preloadedReplyPageSortName);
+        const nonPreloadedSorts = keys(REPLY_REPLIES_SORT_TYPES).filter((sortName) => sortName !== preloadedReplyPageSortName);
 
         const sortResults: (PageGenerationRes | undefined)[] = [];
 

@@ -1,4 +1,4 @@
-import * as remeda from "remeda";
+import { firstBy, keys } from "remeda";
 import { timestamp } from "../util.js";
 import type { CommunityIpfsType, CommunityJson } from "./types.js";
 import type { PKCError } from "../pkc-error.js";
@@ -33,12 +33,12 @@ export function selectWinningGatewayCommunity(opts: {
     fallbackIpnsName: string;
 }): { community: CommunityIpfsType; cid: string; ipnsHops: string[]; bestGatewayUrl: string; recordAgeSeconds: number } | undefined {
     const { gatewayFetches, currentUpdatedAt, totalGateways, fallbackIpnsName } = opts;
-    const gatewaysWithCommunity = remeda.keys.strict(gatewayFetches).filter((gatewayUrl) => gatewayFetches[gatewayUrl].communityRecord);
+    const gatewaysWithCommunity = keys(gatewayFetches).filter((gatewayUrl) => gatewayFetches[gatewayUrl].communityRecord);
     if (gatewaysWithCommunity.length === 0) return undefined;
 
-    const gatewaysWithError = remeda.keys.strict(gatewayFetches).filter((gatewayUrl) => gatewayFetches[gatewayUrl].error);
+    const gatewaysWithError = keys(gatewayFetches).filter((gatewayUrl) => gatewayFetches[gatewayUrl].error);
     const bestGatewayUrl = <string>(
-        remeda.maxBy(gatewaysWithCommunity, (gatewayUrl) => gatewayFetches[gatewayUrl].communityRecord!.updatedAt)
+        firstBy(gatewaysWithCommunity, [(gatewayUrl) => gatewayFetches[gatewayUrl].communityRecord!.updatedAt, "desc"])
     );
     const best = gatewayFetches[bestGatewayUrl];
 

@@ -7,7 +7,7 @@ import {
     resolveWhenConditionIsTrue,
     getAvailablePKCConfigsToTestAgainst
 } from "../../../../dist/node/test/test-util.js";
-import * as remeda from "remeda";
+import { clone } from "remeda";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
@@ -40,7 +40,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential("Can downvote a post", async () => {
-            const originalDownvote = remeda.clone(postToVote.downvoteCount);
+            const originalDownvote = clone(postToVote.downvoteCount);
             const vote = await generateMockVote(postToVote as unknown as CommentIpfsWithCidDefined, -1, pkc);
             await publishWithExpectedResult({ publication: vote, expectedChallengeSuccess: true });
 
@@ -58,7 +58,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential(`Can downvote a reply`, async () => {
-            const originalDownvote = remeda.clone(replyToVote.downvoteCount);
+            const originalDownvote = clone(replyToVote.downvoteCount);
             const vote = await generateMockVote(replyToVote as unknown as CommentIpfsWithCidDefined, -1, pkc);
             await publishWithExpectedResult({ publication: vote, expectedChallengeSuccess: true });
 
@@ -77,8 +77,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential("Can change post downvote to upvote", async () => {
-            const originalUpvote = remeda.clone(postToVote.upvoteCount);
-            const originalDownvote = remeda.clone(postToVote.downvoteCount);
+            const originalUpvote = clone(postToVote.upvoteCount);
+            const originalDownvote = clone(postToVote.downvoteCount);
             const vote = await pkc.createVote({
                 commentCid: previousVotes[0].commentCid,
                 communityAddress: previousVotes[0].communityAddress,
@@ -100,8 +100,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential("Can change reply downvote to upvote", async () => {
-            const originalUpvote = remeda.clone(replyToVote.upvoteCount);
-            const originalDownvote = remeda.clone(replyToVote.downvoteCount);
+            const originalUpvote = clone(replyToVote.upvoteCount);
+            const originalDownvote = clone(replyToVote.downvoteCount);
             const vote = await pkc.createVote({
                 commentCid: previousVotes[1].commentCid,
                 communityAddress: previousVotes[1].communityAddress,

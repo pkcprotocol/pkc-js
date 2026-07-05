@@ -15,7 +15,7 @@ import type { CommentModerationTableRow } from "../publications/comment-moderati
 import { RpcRemoteCommunity } from "./rpc-remote-community.js";
 import { z } from "zod";
 import { messages } from "../errors.js";
-import * as remeda from "remeda";
+import { keys, pick } from "remeda";
 import { PKC } from "../pkc/pkc.js";
 import { PKCError } from "../pkc-error.js";
 
@@ -84,7 +84,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         this.edit = this.edit.bind(this);
         this._setStartedStateWithEmission("stopped");
         this.on("update", () => {
-            this.editable = remeda.pick(this, remeda.keys.strict(CommunityEditOptionsSchema.shape));
+            this.editable = pick(this, keys(CommunityEditOptionsSchema.shape)) as Pick<RpcLocalCommunity, keyof CommunityEditOptions>;
         });
         hideClassPrivateProps(this);
     }
@@ -146,7 +146,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         this.started = newProps.localCommunity.started;
         this.updateCid = newProps.runtimeFields.updateCid;
         this.raw.localCommunity = newProps;
-        this.editable = remeda.pick(this, remeda.keys.strict(CommunityEditOptionsSchema.shape));
+        this.editable = pick(this, keys(CommunityEditOptionsSchema.shape)) as Pick<RpcLocalCommunity, keyof CommunityEditOptions>;
     }
 
     protected _updateRpcClientStateFromStartedState(startedState: RpcLocalCommunity["startedState"]) {

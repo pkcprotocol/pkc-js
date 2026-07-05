@@ -14,7 +14,7 @@ import {
 } from "../schema/schema.js";
 import { ModQueuePagesIpfsSchema, PostsPagesIpfsSchema } from "../pages/schema.js";
 import type { LocalCommunity } from "../runtime/node/community/local-community.js";
-import * as remeda from "remeda";
+import { difference, isEmpty, keys, omit } from "remeda";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../pubsub-messages/types.js";
 import { messages } from "../errors.js";
 
@@ -140,7 +140,7 @@ export const ChallengeExcludePublicationTypeSchema = z
         communityEdit: excludePublicationFieldSchema
     })
     .refine(
-        (args) => !remeda.isEmpty(JSON.parse(JSON.stringify(args))), // is it empty object {} or {field: undefined}? throw if so
+        (args) => !isEmpty(JSON.parse(JSON.stringify(args))), // is it empty object {} or {field: undefined}? throw if so
         messages.ERR_CAN_NOT_SET_EXCLUDE_PUBLICATION_TO_EMPTY_OBJECT
     );
 
@@ -236,7 +236,7 @@ export const CommunityIpfsSchema = z
     })
     .strict();
 
-export const CommunitySignedPropertyNames = remeda.keys.strict(remeda.omit(CommunityIpfsSchema.shape, ["signature"]));
+export const CommunitySignedPropertyNames = keys(omit(CommunityIpfsSchema.shape, ["signature"]));
 
 // This is object transmitted by RPC server to RPC client when it's fetching a remote community
 // When resetInstance is true, community/updateCid are absent — the client should clear its state
@@ -401,7 +401,7 @@ export const CommunityExportRecordsSchema = CommunityExportRecordSchema.array();
 // Reserved fields
 
 // TODO should make the array of class props typed
-export const CommunityIpfsReservedFields = remeda.difference(
+export const CommunityIpfsReservedFields = difference(
     [
         "cid",
         "shortCid",
@@ -424,5 +424,5 @@ export const CommunityIpfsReservedFields = remeda.difference(
         "started",
         "exports"
     ],
-    remeda.keys.strict(CommunityIpfsSchema.shape)
+    keys(CommunityIpfsSchema.shape)
 );

@@ -1,7 +1,7 @@
 import Logger from "../logger.js";
 import { RemoteCommunity } from "./remote-community.js";
 import type { RpcRemoteCommunityType, CommunityEvents, CommunityRpcErrorToTransmit } from "./types.js";
-import * as remeda from "remeda";
+import { keys } from "remeda";
 import { PKCError } from "../pkc-error.js";
 import { parseRpcRemoteCommunityUpdateEventWithPKCErrorIfItFails } from "../schema/schema-util.js";
 import { deepMergeRuntimeFields } from "../util.js";
@@ -29,14 +29,14 @@ export class RpcRemoteCommunity extends RemoteCommunity {
     > = undefined; // The pkc._updatingCommunities we're subscribed to
 
     protected _setRpcClientStateWithoutEmission(newState: RemoteCommunity["clients"]["pkcRpcClients"][""]["state"]) {
-        const currentRpcUrl = remeda.keys.strict(this.clients.pkcRpcClients)[0];
+        const currentRpcUrl = keys(this.clients.pkcRpcClients)[0];
         const currentState = this.clients.pkcRpcClients[currentRpcUrl].state;
         if (newState === currentState) return;
         this.clients.pkcRpcClients[currentRpcUrl].state = newState;
     }
 
     protected _setRpcClientStateWithEmission(newState: RemoteCommunity["clients"]["pkcRpcClients"][""]["state"]) {
-        const currentRpcUrl = remeda.keys.strict(this.clients.pkcRpcClients)[0];
+        const currentRpcUrl = keys(this.clients.pkcRpcClients)[0];
         const currentState = this.clients.pkcRpcClients[currentRpcUrl].state;
         if (newState === currentState) return;
         this.clients.pkcRpcClients[currentRpcUrl].state = newState;
@@ -180,7 +180,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
             this._updatingRpcCommunityInstanceWithListeners.startedstatechange
         );
 
-        const clientKeys = remeda.keys.strict(this.clients);
+        const clientKeys = keys(this.clients);
 
         for (const clientType of clientKeys)
             if (updatingCommunity.clients[clientType])
@@ -325,7 +325,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
             "startedstatechange",
             this._updatingRpcCommunityInstanceWithListeners.startedstatechange
         );
-        const clientKeys = remeda.keys.strict(this.clients);
+        const clientKeys = keys(this.clients);
 
         for (const clientType of clientKeys)
             if (this.clients[clientType])

@@ -12,7 +12,7 @@ import {
     ensurePublicationIsSigned
 } from "../../../../../dist/node/test/test-util.js";
 import { itSkipIfRpc } from "../../../../helpers/conditional-tests.js";
-import * as remeda from "remeda";
+import { sample } from "remeda";
 import { messages } from "../../../../../dist/node/errors.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";
@@ -91,7 +91,7 @@ describe.concurrent("Community rejection of incorrect values of fields", async (
         const comment = await pkc.createComment({
             parentCid: "QmV8Q8tWqbLTPYdrvSXHjXgrgWUR1fZ9Ctj56ETPi58FDY", // random cid that's not related to this sub,
             postCid: "QmV8Q8tWqbLTPYdrvSXHjXgrgWUR1fZ9Ctj56ETPi58FDY",
-            signer: remeda.sample(signers, 1)[0],
+            signer: sample(signers, 1)[0],
             content: `Random Content` + Date.now(),
             communityAddress: communityAddress
         });

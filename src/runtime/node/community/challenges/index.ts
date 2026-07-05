@@ -27,7 +27,7 @@ import type {
     CommunityChallengeSetting
 } from "../../../../community/types.js";
 import { LocalCommunity } from "../local-community.js";
-import * as remeda from "remeda";
+import { omit } from "remeda";
 import { ChallengeFileFactorySchema, ChallengeFileSchema, CommunityChallengeSettingSchema } from "../../../../community/schema.js";
 import { PKCError } from "../../../../pkc-error.js";
 import { pathToFileURL } from "node:url";
@@ -788,9 +788,7 @@ const getChallengeVerification = async ({
     let challengeVerification: Pick<ChallengeVerificationMessageType, "challengeSuccess" | "challengeErrors"> & ChallengeResultAggregate;
     // was able to verify without asking author for challenges
     if ("pendingChallenges" in res) {
-        const challengeAnswers = await getChallengeAnswers(
-            res.pendingChallenges.map((challenge) => remeda.omit(challenge, ["index", "verify"]))
-        );
+        const challengeAnswers = await getChallengeAnswers(res.pendingChallenges.map((challenge) => omit(challenge, ["index", "verify"])));
         const verificationFromPending = await getChallengeVerificationFromChallengeAnswers({
             pendingChallenges: res.pendingChallenges,
             challengeAnswers,
@@ -802,7 +800,7 @@ const getChallengeVerification = async ({
         });
         if ("pendingApprovalSuccess" in verificationFromPending) {
             pendingApprovalSuccess = pendingApprovalSuccess || verificationFromPending.pendingApprovalSuccess;
-            challengeVerification = remeda.omit(verificationFromPending, ["pendingApprovalSuccess"]);
+            challengeVerification = omit(verificationFromPending, ["pendingApprovalSuccess"]);
         } else {
             pendingApprovalSuccess = false;
             challengeVerification = verificationFromPending;

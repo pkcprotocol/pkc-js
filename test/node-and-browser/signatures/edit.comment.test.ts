@@ -3,7 +3,7 @@ import { mockRemotePKC } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import signers from "../../fixtures/signers.js";
 import { timestamp } from "../../../dist/node/util.js";
-import * as remeda from "remeda";
+import { clone, omit } from "remeda";
 import { messages } from "../../../dist/node/errors.js";
 import { verifyCommentEdit, signCommentEdit } from "../../../dist/node/signer/signatures.js";
 import validCommentEditFixture from "../../fixtures/signatures/commentEdit/valid_comment_edit.json" with { type: "json" };
@@ -50,7 +50,7 @@ describe("Sign commentedit", async () => {
     });
 
     it(`signCommentEdit throws with author.name not being a domain`, async () => {
-        const cloneEdit = remeda.clone(editProps);
+        const cloneEdit = clone(editProps);
         cloneEdit.author = { name: "gibbreish" };
         try {
             await signCommentEdit({ edit: { ...cloneEdit, signer: signers[7] }, pkc: pkc });
@@ -61,7 +61,7 @@ describe("Sign commentedit", async () => {
     });
     it(`signCommentEdit allows author to be omitted`, async () => {
         const signature = await signCommentEdit({
-            edit: { ...remeda.omit(editProps, ["author"]), signer: signers[7] } as CommentEditOptionsToSign,
+            edit: { ...omit(editProps, ["author"]), signer: signers[7] } as CommentEditOptionsToSign,
             pkc: pkc
         });
         expect(signature.publicKey).to.equal(signers[7].publicKey);
@@ -76,7 +76,7 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
         await pkc.createCommentEdit(validCommentEditFixture as unknown as CommentEditPubsubMessagePublication); // should throw if it has an invalid schema
     });
     it(`Valid CommentEdit signature fixture is validated correctly`, async () => {
-        const edit = remeda.clone(validCommentEditFixture) as CommentEditPubsubMessagePublication;
+        const edit = clone(validCommentEditFixture) as CommentEditPubsubMessagePublication;
         const verification = await verifyCommentEdit({
             edit,
             resolveAuthorNames: pkc.resolveAuthorNames,
@@ -86,7 +86,7 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
     });
 
     it(`Invalid CommentEdit signature gets invalidated correctly`, async () => {
-        const edit = remeda.clone(validCommentEditFixture) as CommentEditPubsubMessagePublication & { reason: string };
+        const edit = clone(validCommentEditFixture) as CommentEditPubsubMessagePublication & { reason: string };
         edit.reason += "1234"; // Should invalidate comment edit
         const verification = await verifyCommentEdit({
             edit,
@@ -97,7 +97,7 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
     });
 
     it(`verifyCommentEdit invalidates a commentEdit with tampered author.name`, async () => {
-        const edit = remeda.clone(validCommentEditFixture) as CommentEditPubsubMessagePublication;
+        const edit = clone(validCommentEditFixture) as CommentEditPubsubMessagePublication;
         edit.author = { ...(edit.author || {}), name: "gibbresish" };
         const verification = await verifyCommentEdit({
             edit,
@@ -108,7 +108,7 @@ describeSkipIfRpc("Verify CommentEdit", async () => {
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
     it("verifyCommentEdit invalidates a legacy commentEdit with author removed because the signature changes", async () => {
-        const edit = remeda.clone(validCommentEditFixture) as CommentEditPubsubMessagePublication;
+        const edit = clone(validCommentEditFixture) as CommentEditPubsubMessagePublication;
         delete edit.author;
         const verification = await verifyCommentEdit({
             edit,

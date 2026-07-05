@@ -6,7 +6,7 @@ import type { JsonSignature } from "../../../dist/node/signer/types.js";
 import type { CommentsTableRowInsert } from "../../../dist/node/publications/comment/types.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { PurgedCommentTableRows } from "../../../dist/node/runtime/node/community/db-handler-types.js";
-import * as remeda from "remeda";
+import { intersection } from "remeda";
 
 interface FakeCommunity {
     address: string;
@@ -122,7 +122,7 @@ describe(`_purgeCommentsWithInvalidSchemaOrSignature constructs CommentIpfs corr
         // which includes DB-only fields that are in CommentIpfsReservedFields
         const buggyObject = { ...commentRecord, ...commentRecord.extraProps };
         const buggyKeys = Object.keys(buggyObject);
-        const reservedFieldsInBuggyObject = remeda.intersection(buggyKeys, [...CommentIpfsReservedFields]);
+        const reservedFieldsInBuggyObject = intersection(buggyKeys, [...CommentIpfsReservedFields]);
 
         // This SHOULD be empty but ISN'T due to the bug
         expect(
@@ -133,7 +133,7 @@ describe(`_purgeCommentsWithInvalidSchemaOrSignature constructs CommentIpfs corr
         // FIX: deriveCommentIpfsFromCommentTableRow correctly extracts only CommentIpfs fields
         const fixedObject = deriveCommentIpfsFromCommentTableRow(commentRecord);
         const fixedKeys = Object.keys(fixedObject);
-        const reservedFieldsInFixedObject = remeda.intersection(fixedKeys, [...CommentIpfsReservedFields]);
+        const reservedFieldsInFixedObject = intersection(fixedKeys, [...CommentIpfsReservedFields]);
 
         expect(reservedFieldsInFixedObject, `deriveCommentIpfsFromCommentTableRow should not include any reserved fields`).toEqual([]);
     });

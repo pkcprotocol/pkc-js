@@ -6,7 +6,7 @@ import {
     hasAtLeastOneCommunityIdentifier,
     atLeastOneCommunityIdentifierMessage
 } from "../../schema/schema.js";
-import * as remeda from "remeda";
+import { difference, keys, mapToObj, omit } from "remeda";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
 
 export const CreateCommunityEditPublicationOptionsSchema = CreatePublicationUserOptionsSchema.extend({
@@ -18,12 +18,12 @@ export const CreateCommunityEditPublicationOptionsWithRefinementSchema = CreateC
     atLeastOneCommunityIdentifierMessage
 );
 
-export const CommunityEditPublicationSignedPropertyNames = remeda.keys.strict(
-    remeda.omit(CreateCommunityEditPublicationOptionsSchema.shape, keysToOmitFromSignedPropertyNames)
+export const CommunityEditPublicationSignedPropertyNames = keys(
+    omit(CreateCommunityEditPublicationOptionsSchema.shape, keysToOmitFromSignedPropertyNames)
 );
 
 const communityEditPublicationPickOptions = <Record<(typeof CommunityEditPublicationSignedPropertyNames)[number] | "signature", true>>(
-    remeda.mapToObj([...CommunityEditPublicationSignedPropertyNames, "signature"], (x) => [x, true])
+    mapToObj([...CommunityEditPublicationSignedPropertyNames, "signature"], (x) => [x, true])
 );
 
 // Will be used by the community when parsing request.communityEdit
@@ -41,9 +41,9 @@ export const CommunityEditPublicationChallengeRequestToEncryptSchema = CreateCom
         communityEdit: CommunityEditPubsubMessagePublicationSchema.loose()
     });
 
-export const CommunityEditPublicationPubsubReservedFields = remeda.difference(
+export const CommunityEditPublicationPubsubReservedFields = difference(
     [
-        ...remeda.keys.strict(CommunityEditPublicationChallengeRequestToEncryptSchema.shape),
+        ...keys(CommunityEditPublicationChallengeRequestToEncryptSchema.shape),
         "shortCommunityAddress",
         "shortCommunityAddress",
         "communityAddress",
@@ -55,5 +55,5 @@ export const CommunityEditPublicationPubsubReservedFields = remeda.difference(
         "clients",
         "nameResolved"
     ],
-    remeda.keys.strict(CommunityEditPubsubMessagePublicationSchema.shape)
+    keys(CommunityEditPubsubMessagePublicationSchema.shape)
 );

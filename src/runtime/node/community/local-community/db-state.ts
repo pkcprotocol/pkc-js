@@ -1,5 +1,5 @@
 import Logger from "../../../../logger.js";
-import * as remeda from "remeda";
+import { clone, isDeepEqual, isEmpty, omit, pick } from "remeda";
 import { v4 as uuidV4 } from "uuid";
 import { ipnsNameToIpnsOverPubsubTopic, pubsubTopicToDhtKey, timestamp } from "../../../../util.js";
 import { PKCError } from "../../../../pkc-error.js";
@@ -79,7 +79,7 @@ export async function updateDbInternalState(
     props: Partial<InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType>
 ): Promise<InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType> {
     const log = Logger("pkc-js:local-community:_updateDbInternalState");
-    if (remeda.isEmpty(props)) throw Error("props to update DB internal state should not be empty");
+    if (isEmpty(props)) throw Error("props to update DB internal state should not be empty");
     await community._dbHandler.initDbIfNeeded();
 
     props._internalStateUpdateId = uuidV4();
@@ -215,7 +215,7 @@ export async function setChallengesToDefaultIfNotDefined(community: LocalCommuni
             community._defaultCommunityChallenges = generateDefaultChallenges(currentAnswer);
         }
 
-        if (!remeda.isDeepEqual(community.settings?.challenges, community._defaultCommunityChallenges)) {
+        if (!isDeepEqual(community.settings?.challenges, community._defaultCommunityChallenges)) {
             await community.edit({ settings: { ...community.settings, challenges: community._defaultCommunityChallenges } });
             // edit() recalculates _usingDefaultChallenge via _isDefaultChallengeStructure,
             // which may return false for non-standard defaults (e.g. []).
@@ -240,7 +240,7 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
     await community._dbHandler.createOrMigrateTablesIfNeeded();
     await initSignerProps(community, community.signer); // init this.encryption as well
 
-    if (!community.pubsubTopic) community.pubsubTopic = remeda.clone(community.signer.address);
+    if (!community.pubsubTopic) community.pubsubTopic = clone(community.signer.address);
     if (typeof community.createdAt !== "number") community.createdAt = timestamp();
     if (!community.protocolVersion) community.protocolVersion = env.PROTOCOL_VERSION;
     if (!community.settings?.maxPendingApprovalCount) community.settings = { ...community.settings, maxPendingApprovalCount: 500 };
@@ -318,9 +318,9 @@ export async function initInternalCommunityAfterFirstUpdateNoMerge(
     }
     const keysOfCommunityIpfs = <(keyof CommunityIpfsType)[]>[...CommunitySignedPropertyNames, "signature"];
     community.initRpcInternalCommunityAfterFirstUpdateNoMerge({
-        community: remeda.pick(newProps, keysOfCommunityIpfs) as CommunityIpfsType,
+        community: pick(newProps, keysOfCommunityIpfs) as CommunityIpfsType,
         localCommunity: {
-            signer: remeda.pick(newProps.signer as SignerWithPublicKeyAddress, ["publicKey", "address", "shortAddress", "type"]),
+            signer: pick(newProps.signer as SignerWithPublicKeyAddress, ["publicKey", "address", "shortAddress", "type"]),
             settings: newProps.settings,
             _usingDefaultChallenge: newProps._usingDefaultChallenge,
             address: newProps.address,
@@ -344,8 +344,8 @@ export async function initInternalCommunityBeforeFirstUpdateNoMerge(
 ) {
     community.initRpcInternalCommunityBeforeFirstUpdateNoMerge({
         localCommunity: {
-            ...remeda.omit(newProps, ["signer", "_internalStateUpdateId", "_pendingEditProps"]),
-            signer: remeda.pick(newProps.signer as SignerWithPublicKeyAddress, ["publicKey", "address", "shortAddress", "type"]),
+            ...omit(newProps, ["signer", "_internalStateUpdateId", "_pendingEditProps"]),
+            signer: pick(newProps.signer as SignerWithPublicKeyAddress, ["publicKey", "address", "shortAddress", "type"]),
             started: community.started,
             startedState: community.startedState
         }

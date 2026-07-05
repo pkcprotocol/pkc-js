@@ -14,7 +14,7 @@ import { v4 as uuidv4 } from "uuid";
 import { createMockPubsubClient } from "./mock-ipfs-client.js";
 import { EventEmitter } from "events";
 import Logger from "../logger.js";
-import * as remeda from "remeda";
+import { clone, flat, isEmpty, keys, mergeDeep, omit, pick } from "remeda";
 import { LocalCommunity } from "../runtime/node/community/local-community.js";
 import { RpcLocalCommunity } from "../community/rpc-local-community.js";
 import { findUpdatingComment, findUpdatingCommunity } from "../pkc/tracked-instance-registry-util.js";
@@ -166,7 +166,7 @@ function generateRandomTimestamp(parentTimestamp?: number): number {
 
     let randomTimestamp: number = -1;
     while (randomTimestamp === -1) {
-        const randomTimeframeIndex = (remeda.keys.strict(TIMEFRAMES_TO_SECONDS).length * Math.random()) << 0;
+        const randomTimeframeIndex = (keys(TIMEFRAMES_TO_SECONDS).length * Math.random()) << 0;
         const tempTimestamp = lowerLimit + Object.values(TIMEFRAMES_TO_SECONDS)[randomTimeframeIndex];
         if (tempTimestamp >= lowerLimit && tempTimestamp <= upperLimit) randomTimestamp = tempTimestamp;
     }
@@ -198,7 +198,7 @@ export async function generateMockPost({
         timestamp: postTimestamp
     };
 
-    const finalPostProps = <CreateCommentOptions>remeda.mergeDeep(baseProps, postProps);
+    const finalPostProps = <CreateCommentOptions>mergeDeep(baseProps, postProps);
     const post = await pkc.createComment(finalPostProps);
 
     return post;
@@ -365,7 +365,7 @@ async function _publishVotes(
     votesPerCommentToPublish: number,
     pkc: PKC
 ) {
-    const votes: Vote[] = remeda.flattenDeep(
+    const votes: Vote[] = flat(
         await Promise.all(comments.map((comment) => _publishVotesOnOneComment(comment, votesPerCommentToPublish, pkc)))
     );
 
@@ -453,7 +453,7 @@ export async function startCommunities(props: {
     startOnlineSub: boolean;
 }): Promise<TestServerSubs> {
     const pkc = await _mockCommunityPKC(props.signers, {
-        ...remeda.pick(props, ["noData", "dataPath"]),
+        ...pick(props, ["noData", "dataPath"]),
         publishInterval: 1000,
         updateInterval: 1000
     });
@@ -625,7 +625,7 @@ export async function mockPKC(pkcOptions?: InputPKCOptions, forceMockPubsub = fa
 
     // TODO should have multiple pubsub providers here to emulate a real browser/mobile environment
     if (!pkcOptions?.pubsubKuboRpcClientsOptions || forceMockPubsub)
-        for (const pubsubUrl of remeda.keys.strict(pkc.clients.pubsubKuboRpcClients)) {
+        for (const pubsubUrl of keys(pkc.clients.pubsubKuboRpcClients)) {
             const mockClient = createMockPubsubClient();
             pkc.clients.pubsubKuboRpcClients[pubsubUrl]._client = mockClient;
             pkc.clients.pubsubKuboRpcClients[pubsubUrl].destroy = mockClient.destroy.bind(mockClient);
@@ -821,7 +821,7 @@ async function _publishWithExpectedResultOnce({
             communityAddress: publication.communityAddress,
             signerAddress: (publication as any).signer?.address,
             commentModeration: (publication as any).commentModeration
-                ? remeda.pick((publication as any).commentModeration, ["approved", "reason", "spoiler", "nsfw", "pinned", "removed"])
+                ? pick((publication as any).commentModeration, ["approved", "reason", "spoiler", "nsfw", "pinned", "removed"])
                 : undefined
         });
 
@@ -832,11 +832,11 @@ async function _publishWithExpectedResultOnce({
             if (verificationMsg.challengeSuccess !== expectedChallengeSuccess) {
                 const msg = `Expected challengeSuccess to be (${expectedChallengeSuccess}) and got (${
                     verificationMsg.challengeSuccess
-                }). Reason (${verificationMsg.reason}): ${JSON.stringify(remeda.omit(verificationMsg, ["encrypted", "signature", "challengeRequestId"]))}`;
+                }). Reason (${verificationMsg.reason}): ${JSON.stringify(omit(verificationMsg, ["encrypted", "signature", "challengeRequestId"]))}`;
                 reject(msg);
             } else if (expectedReason && expectedReason !== verificationMsg.reason) {
                 const msg = `Expected reason to be (${expectedReason}) and got (${verificationMsg.reason}): ${JSON.stringify(
-                    remeda.omit(verificationMsg, ["encrypted", "signature", "challengeRequestId"])
+                    omit(verificationMsg, ["encrypted", "signature", "challengeRequestId"])
                 )}`;
                 reject(msg);
             } else resolve(1);
@@ -906,7 +906,7 @@ export async function publishWithExpectedResult({
 export async function iterateThroughPageCidToFindComment(commentCid: string, pageCid: string, pages: PostsPages | RepliesPages) {
     if (!commentCid) throw Error("Can't find comment with undefined commentCid");
     if (!pageCid) throw Error("Can't find comment with undefined pageCid");
-    let currentPageCid: string | undefined = remeda.clone(pageCid);
+    let currentPageCid: string | undefined = clone(pageCid);
     while (currentPageCid) {
         const loadedPage = (await pages.getPage({ cid: currentPageCid })) as PageTypeJson;
         const commentInPage = loadedPage.comments.find((c) => c.cid === commentCid);
@@ -1126,7 +1126,7 @@ export async function overrideCommentInstancePropsAndSign(comment: Comment, prop
     // modify the unsigned options so publish() will sign with the overridden props
     const unsignedOpts = (comment.raw as { unsignedPublicationOptions?: CreateCommentOptions }).unsignedPublicationOptions;
     if (!comment.raw.pubsubMessageToPublish && unsignedOpts) {
-        for (const optionKey of remeda.keys.strict(props)) {
+        for (const optionKey of keys(props)) {
             //@ts-expect-error
             comment[optionKey] = unsignedOpts[optionKey] = props[optionKey];
         }
@@ -1134,9 +1134,9 @@ export async function overrideCommentInstancePropsAndSign(comment: Comment, prop
         return;
     }
 
-    const pubsubPublication = remeda.clone(comment.raw.pubsubMessageToPublish!);
+    const pubsubPublication = clone(comment.raw.pubsubMessageToPublish!);
 
-    for (const optionKey of remeda.keys.strict(props)) {
+    for (const optionKey of keys(props)) {
         //@ts-expect-error
         comment[optionKey] = pubsubPublication[optionKey] = props[optionKey];
     }
@@ -1206,7 +1206,7 @@ export async function setExtraPropOnCommentAndSign(comment: Comment, extraProps:
     const publicationWithExtraProp = { ...comment.raw.pubsubMessageToPublish!, ...extraProps };
     if (includeExtraPropInSignedPropertyNames)
         publicationWithExtraProp.signature = await _signJson(
-            [...comment.signature.signedPropertyNames, ...remeda.keys.strict(extraProps)],
+            [...comment.signature.signedPropertyNames, ...keys(extraProps)],
             cleanUpBeforePublishing(publicationWithExtraProp),
             comment.signer!,
             log
@@ -1299,7 +1299,7 @@ export async function setExtraPropOnCommentModerationAndSign(
     }
 
     const newPubsubPublicationWithExtraProp = <CommentModerationPubsubMessagePublication>(
-        remeda.mergeDeep(commentModeration.raw.pubsubMessageToPublish!, extraProps)
+        mergeDeep(commentModeration.raw.pubsubMessageToPublish!, extraProps)
     );
     if (includeExtraPropInSignedPropertyNames)
         newPubsubPublicationWithExtraProp.signature = await _signJson(
@@ -1369,7 +1369,7 @@ export async function publishChallengeAnswerMessageWithExtraProps({
         protocolVersion: env.PROTOCOL_VERSION,
         timestamp: timestamp()
     });
-    const signedPropertyNames = remeda.keys.strict(toSignAnswer);
+    const signedPropertyNames = keys(toSignAnswer);
     //@ts-expect-error
     if (includeExtraPropsInChallengeSignedPropertyNames) signedPropertyNames.push(...Object.keys(extraProps));
 
@@ -1407,7 +1407,7 @@ export async function publishChallengeMessageWithExtraProps({
         protocolVersion: env.PROTOCOL_VERSION,
         timestamp: timestamp()
     });
-    const signedPropertyNames = remeda.keys.strict(toSignChallenge);
+    const signedPropertyNames = keys(toSignChallenge);
     //@ts-expect-error
     if (includeExtraPropsInChallengeSignedPropertyNames) signedPropertyNames.push(...Object.keys(extraProps));
 
@@ -1445,7 +1445,7 @@ export async function publishChallengeVerificationMessageWithExtraProps({
         protocolVersion: env.PROTOCOL_VERSION,
         timestamp: timestamp()
     });
-    const signedPropertyNames = remeda.keys.strict(toSignChallengeVerification);
+    const signedPropertyNames = keys(toSignChallengeVerification);
     //@ts-expect-error
     if (includeExtraPropsInChallengeSignedPropertyNames) signedPropertyNames.push(...Object.keys(extraProps));
 
@@ -1625,9 +1625,9 @@ export function getAvailablePKCConfigsToTestAgainst(opts?: {
             ? ["remote-kubo-rpc", "remote-libp2pjs", "remote-ipfs-gateway"]
             : ["local-kubo-rpc", "remote-kubo-rpc", "remote-libp2pjs", "remote-ipfs-gateway"];
         if (!isBrowser && isRpcFlagOn()) pkcConfigCodes.push("remote-pkc-rpc");
-        const availableConfigs = remeda.pick(testConfigCodeToPKCInstanceWithHumanName, pkcConfigCodes);
+        const availableConfigs = pick(testConfigCodeToPKCInstanceWithHumanName, pkcConfigCodes);
         if (opts.includeOnlyTheseTests?.length) {
-            return Object.values(remeda.pick(availableConfigs, opts.includeOnlyTheseTests));
+            return Object.values(pick(availableConfigs, opts.includeOnlyTheseTests));
         }
         return Object.values(availableConfigs);
     }
@@ -1653,13 +1653,11 @@ export function getAvailablePKCConfigsToTestAgainst(opts?: {
                     `Config "${config}" does not exist in the mapper. Available configs are: ${pkcConfigs.map((c) => c.name).join(", ")}`
                 );
         });
-        const filteredKeys = remeda.keys
-            .strict(testConfigCodeToPKCInstanceWithHumanName)
-            .filter(
-                (config) =>
-                    opts.includeOnlyTheseTests!.includes(config) &&
-                    pkcConfigs.find((c) => c.name === testConfigCodeToPKCInstanceWithHumanName[config].name)
-            );
+        const filteredKeys = keys(testConfigCodeToPKCInstanceWithHumanName).filter(
+            (config) =>
+                opts.includeOnlyTheseTests!.includes(config) &&
+                pkcConfigs.find((c) => c.name === testConfigCodeToPKCInstanceWithHumanName[config].name)
+        );
         const configs = filteredKeys.map((config) => testConfigCodeToPKCInstanceWithHumanName[config]);
         return configs;
     }
@@ -1954,34 +1952,24 @@ export function jsonifyCommunityAndRemoveInternalProps(community: RemoteCommunit
     // rather than resolves) and a not-yet-resolved instance legitimately have none. It is a runtime
     // resolution artifact (a CommunityIpfs reserved field, like nameResolved), so strip it before
     // comparing community content/identity. See docs/protocol/delegated-ipns.md.
-    return remeda.omit(jsonfied, [
-        "ipnsHops",
-        "startedState",
-        "started",
-        "signer",
-        "settings",
-        "editable",
-        "clients",
-        "updatingState",
-        "state"
-    ]);
+    return omit(jsonfied, ["ipnsHops", "startedState", "started", "signer", "settings", "editable", "clients", "updatingState", "state"]);
 }
 
 export function jsonifyLocalCommunityWithNoInternalProps(community: LocalCommunity) {
     const localJson = <LocalCommunityJson>JSON.parse(JSON.stringify(community));
     //@ts-expect-error
     delete localJson["posts"]["clients"];
-    return remeda.omit(localJson, ["startedState", "started", "clients", "state", "updatingState"]);
+    return omit(localJson, ["startedState", "started", "clients", "state", "updatingState"]);
 }
 
 export function jsonifyCommentAndRemoveInstanceProps(comment: Comment) {
     const jsonfied = cleanUpBeforePublishing(JSON.parse(JSON.stringify(comment)));
     if ("replies" in jsonfied) delete jsonfied["replies"]["clients"];
-    if ("replies" in jsonfied && remeda.isEmpty(jsonfied.replies)) delete jsonfied["replies"];
+    if ("replies" in jsonfied && isEmpty(jsonfied.replies)) delete jsonfied["replies"];
     // nameResolved is runtime-only — strip it like jsonifyCommunityAndRemoveInternalProps does
     if (jsonfied.author?.nameResolved !== undefined) delete jsonfied.author.nameResolved;
     _stripNameResolvedFromPages(jsonfied["replies"]);
-    return remeda.omit(jsonfied, ["clients", "state", "updatingState", "state", "publishingState", "raw"]);
+    return omit(jsonfied, ["clients", "state", "updatingState", "state", "publishingState", "raw"]);
 }
 
 export async function waitUntilPKCCommunitiesIncludeCommunityAddress(pkc: PKC, communityAddress: string) {

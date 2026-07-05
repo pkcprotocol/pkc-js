@@ -1,5 +1,5 @@
 import Logger from "../../../../logger.js";
-import * as remeda from "remeda";
+import { clone, keys, omit, omitBy, pick } from "remeda";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { sha256 } from "js-sha256";
 import { areEquivalentCommunityAddresses, doesDomainAddressHaveCapitalLetter, isStringDomain } from "../../../../util.js";
@@ -58,7 +58,7 @@ export async function parseRolesToEdit(
             if (!resolved) throw new PKCError("ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED", { roleAddress });
         }
     }
-    return <NonNullable<CommunityIpfsType["roles"]>>remeda.omitBy(newRawRoles, (val, key) => val === undefined || val === null);
+    return <NonNullable<CommunityIpfsType["roles"]>>omitBy(newRawRoles, (val, key) => val === undefined || val === null);
 }
 
 export async function parseChallengesToEdit(
@@ -104,7 +104,7 @@ export async function editPropsOnStartedCommunity(
     // 'community' is the started community with state="started"
     // community._pkc._startedCommunities[community.address] === community
     const log = Logger("pkc-js:local-community:start:editPropsOnStartedCommunity");
-    const oldAddress = remeda.clone(community.address);
+    const oldAddress = clone(community.address);
     if (typeof parsedEditOptions.address === "string" && community.address !== parsedEditOptions.address) {
         await validateNewAddressBeforeEditing(community, parsedEditOptions.address, log);
 
@@ -134,8 +134,8 @@ export async function editPropsOnStartedCommunity(
         });
     community._communityUpdateTrigger = true;
     log(
-        `Community (${community.address}) props (${remeda.keys.strict(parsedEditOptions)}) has been edited. Will be including edited props in next update: `,
-        remeda.pick(community, remeda.keys.strict(parsedEditOptions))
+        `Community (${community.address}) props (${keys(parsedEditOptions)}) has been edited. Will be including edited props in next update: `,
+        pick(community, keys(parsedEditOptions))
     );
     community.emit("update", community);
     if (community.address !== oldAddress) {
@@ -151,7 +151,7 @@ export async function editPropsOnNotStartedCommunity(
 ): Promise<LocalCommunity> {
     // sceneario 3, the community is not running anywhere, we need to edit the db and update this instance
     const log = Logger("pkc-js:local-community:edit:editPropsOnNotStartedCommunity");
-    const oldAddress = remeda.clone(community.address);
+    const oldAddress = clone(community.address);
     await community.initDbHandlerIfNeeded();
     await community._dbHandler.initDbIfNeeded();
     if (typeof parsedEditOptions.address === "string" && community.address !== parsedEditOptions.address) {
@@ -224,7 +224,7 @@ export async function edit(community: LocalCommunity, newCommunityOptions: Commu
     };
 
     const newProps = <ParsedCommunityEditOptions>{
-        ...remeda.omit(editWithDerivedName, ["roles"]), // we omit here to make tsc shut up
+        ...omit(editWithDerivedName, ["roles"]), // we omit here to make tsc shut up
         ...newInternalProps
     };
 

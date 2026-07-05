@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { CID } from "kubo-rpc-client";
 import { messages } from "../errors.js";
-import * as remeda from "remeda";
+import { difference, keys } from "remeda";
 
 export const nonNegativeIntStringSchema = z
     .string()
@@ -183,10 +183,10 @@ export const AuthorWithOptionalCommentUpdateSchema = AuthorPubsubSchema.extend({
     community: CommunityAuthorSchema.optional() // (added by CommentUpdate) up to date author properties specific to the community it's in
 });
 
-export const AuthorReservedFields = remeda.difference(
-    [...remeda.keys.strict(AuthorWithOptionalCommentUpdateSchema.shape), "address", "publicKey", "shortAddress", "nameResolved"],
-    remeda.keys.strict(AuthorPubsubSchema.shape)
+export const AuthorReservedFields = difference(
+    [...keys(AuthorWithOptionalCommentUpdateSchema.shape), "address", "publicKey", "shortAddress", "nameResolved"],
+    keys(AuthorPubsubSchema.shape)
 );
 
 // Old CommentIpfs records had author.address — exclude it from the CommentIpfs verification check
-export const AuthorCommentIpfsReservedFields = remeda.difference(AuthorReservedFields, ["address"]);
+export const AuthorCommentIpfsReservedFields = difference(AuthorReservedFields, ["address"]);

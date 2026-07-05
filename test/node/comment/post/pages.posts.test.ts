@@ -11,7 +11,7 @@ import {
 } from "../../../../dist/node/test/test-util.js";
 import { POSTS_SORT_TYPES } from "../../../../dist/node/pages/util.js";
 import { testPageCommentsIfSortedCorrectly } from "../../../node-and-browser/pages/pages-test-util.js";
-import * as remeda from "remeda";
+import { groupBy } from "remeda";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { describe, it, beforeAll, afterAll } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
@@ -120,7 +120,7 @@ describe("local community.posts pagination coverage", () => {
                     )) as CommentWithinRepliesPostsPageJson[];
                 }
                 expect(Object.keys(subPostsBySortName)).to.not.be.empty;
-                const pagesByTimeframe = remeda.groupBy(
+                const pagesByTimeframe = groupBy(
                     Object.entries(POSTS_SORT_TYPES),
                     ([_, sort]) => (sort as { timeframe?: string }).timeframe ?? "none"
                 );

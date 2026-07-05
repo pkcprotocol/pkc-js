@@ -7,7 +7,7 @@ import {
     resolveWhenConditionIsTrue,
     getAvailablePKCConfigsToTestAgainst
 } from "../../../../dist/node/test/test-util.js";
-import * as remeda from "remeda";
+import { clone, omit, sample } from "remeda";
 import { messages } from "../../../../dist/node/errors.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
@@ -48,12 +48,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`(vote: Vote) === pkc.createVote(JSON.parse(JSON.stringify(vote)))`, async () => {
-            const vote = await generateMockVote(postToVote as unknown as CommentIpfsWithCidDefined, 1, pkc, remeda.sample(signers, 1)[0]);
+            const vote = await generateMockVote(postToVote as unknown as CommentIpfsWithCidDefined, 1, pkc, sample(signers, 1)[0]);
             const voteFromStringifiedVote = await pkc.createVote(JSON.parse(JSON.stringify(vote)));
             const jsonPropsToOmit = ["clients"];
 
-            const voteJson = remeda.omit(JSON.parse(JSON.stringify(vote)), jsonPropsToOmit) as Record<string, unknown>;
-            const stringifiedVoteJson = remeda.omit(JSON.parse(JSON.stringify(voteFromStringifiedVote)), jsonPropsToOmit) as Record<
+            const voteJson = omit(JSON.parse(JSON.stringify(vote)), jsonPropsToOmit) as Record<string, unknown>;
+            const stringifiedVoteJson = omit(JSON.parse(JSON.stringify(voteFromStringifiedVote)), jsonPropsToOmit) as Record<
                 string,
                 unknown
             >;
@@ -62,7 +62,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential("Can upvote a post", async () => {
-            const originalUpvote = remeda.clone(postToVote.upvoteCount);
+            const originalUpvote = clone(postToVote.upvoteCount);
             const vote = await generateMockVote(postToVote as unknown as CommentIpfsWithCidDefined, 1, pkc);
             await publishWithExpectedResult({ publication: vote, expectedChallengeSuccess: true });
             await resolveWhenConditionIsTrue({
@@ -78,7 +78,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can upvote a reply`, async () => {
-            const originalUpvote = remeda.clone(replyToVote.upvoteCount);
+            const originalUpvote = clone(replyToVote.upvoteCount);
             const vote = await generateMockVote(replyToVote as unknown as CommentIpfsWithCidDefined, 1, pkc);
             await publishWithExpectedResult({ publication: vote, expectedChallengeSuccess: true });
             await resolveWhenConditionIsTrue({
@@ -95,8 +95,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential("Can change post upvote to downvote", async () => {
-            const originalUpvote = remeda.clone(postToVote.upvoteCount);
-            const originalDownvote = remeda.clone(postToVote.downvoteCount);
+            const originalUpvote = clone(postToVote.upvoteCount);
+            const originalDownvote = clone(postToVote.downvoteCount);
             const vote = await pkc.createVote({
                 commentCid: previousVotes[0].commentCid,
                 signer: previousVotes[0].signer,
@@ -117,8 +117,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it.sequential("Can change reply upvote to downvote", async () => {
-            const originalUpvote = remeda.clone(replyToVote.upvoteCount);
-            const originalDownvote = remeda.clone(replyToVote.downvoteCount);
+            const originalUpvote = clone(replyToVote.upvoteCount);
+            const originalDownvote = clone(replyToVote.downvoteCount);
             const vote = await pkc.createVote({
                 commentCid: previousVotes[1].commentCid,
                 signer: previousVotes[1].signer,
@@ -149,7 +149,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can publish a vote that was created from jsonfied vote instance`, async () => {
-            const vote = await generateMockVote(postToVote as unknown as CommentIpfsWithCidDefined, 1, pkc, remeda.sample(signers, 1)[0]);
+            const vote = await generateMockVote(postToVote as unknown as CommentIpfsWithCidDefined, 1, pkc, sample(signers, 1)[0]);
             const voteFromStringifiedVote = await pkc.createVote(JSON.parse(JSON.stringify(vote)));
             const challengeRequestPromise = new Promise<ChallengeRequestWithVote>((resolve) =>
                 voteFromStringifiedVote.once("challengerequest", resolve)

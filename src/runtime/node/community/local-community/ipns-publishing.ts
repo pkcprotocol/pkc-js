@@ -1,5 +1,5 @@
 import Logger from "../../../../logger.js";
-import * as remeda from "remeda";
+import { difference, isEmpty, keys, omit, pick } from "remeda";
 import * as cborg from "cborg";
 import { sha256 } from "js-sha256";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
@@ -36,7 +36,7 @@ export async function calculateNewPostUpdates(community: LocalCommunity): Promis
             if (statRes.blocks !== 0) postUpdates[String(timeBucket)] = String(statRes.cid);
         } catch {}
     }
-    if (remeda.isEmpty(postUpdates)) return undefined;
+    if (isEmpty(postUpdates)) return undefined;
     return postUpdates;
 }
 
@@ -115,7 +115,7 @@ export async function addOldPageCidsToCidsToUnpin(
             pages: newPages,
             clientManager: community._clientsManager
         });
-        const cidsToUnpin = remeda.difference(allPageCidsUnderCurPages, allPageCidsUnderNewPages);
+        const cidsToUnpin = difference(allPageCidsUnderCurPages, allPageCidsUnderNewPages);
         cidsToUnpin.forEach((cid) => {
             community._cidsToUnPin.add(cid);
             if (addToBlockRm) community._blocksToRm.push(cid);
@@ -202,12 +202,12 @@ async function calculateNextCommunityRecord(
     const editIdsToIncludeInNextUpdate = community._pendingEditProps.map((editProps) => editProps.editId);
     const pendingCommunityIpfsEditProps = Object.assign(
         {}, //@ts-expect-error
-        ...community._pendingEditProps.map((editProps) => remeda.pick(editProps, remeda.keys.strict(CommunityIpfsSchema.shape)))
+        ...community._pendingEditProps.map((editProps) => pick(editProps, keys(CommunityIpfsSchema.shape)))
     );
     if (community._pendingEditProps.length > 0) log("Including edit props in next IPNS update", community._pendingEditProps);
     const newIpns: Omit<CommunityIpfsType, "signature"> = {
         ...cleanUpBeforePublishing({
-            ...remeda.omit(community._toJSONIpfsBaseNoPosts(), ["signature"]),
+            ...omit(community._toJSONIpfsBaseNoPosts(), ["signature"]),
             ...pendingCommunityIpfsEditProps,
             lastPostCid: latestPost?.cid,
             lastCommentCid: latestComment?.cid,
@@ -241,7 +241,7 @@ async function calculateNextCommunityRecord(
             // multiple pages
             newIpns.posts = {
                 pageCids: generatedPosts.pageCids,
-                pages: remeda.pick(generatedPosts.pages, [preloadedPostsPages])
+                pages: pick(generatedPosts.pages, [preloadedPostsPages])
             };
         }
     } else {
@@ -354,7 +354,7 @@ async function publishCommunityRecordToIpns(
     if (community._pendingEditProps.length > 0) {
         const remainingEditProps = Object.assign(
             {}, //@ts-expect-error
-            ...community._pendingEditProps.map((editProps) => remeda.pick(editProps, remeda.keys.strict(CommunityIpfsSchema.shape)))
+            ...community._pendingEditProps.map((editProps) => pick(editProps, keys(CommunityIpfsSchema.shape)))
         );
         Object.assign(community, remainingEditProps);
     }

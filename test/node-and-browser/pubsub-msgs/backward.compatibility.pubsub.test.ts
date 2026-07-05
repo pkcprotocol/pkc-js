@@ -10,7 +10,7 @@ import {
 } from "../../../dist/node/test/test-util.js";
 import validCommentUpdateFixture from "../../fixtures/signatures/comment/commentUpdate/valid_comment_update.json" with { type: "json" };
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
-import * as remeda from "remeda";
+import { keys, omit } from "remeda";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 
 import { _signJson, _signPubsubMsg } from "../../../dist/node/signer/signatures.js";
@@ -325,12 +325,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 const extraPropsInEncrypted = { extraProp: 1234 };
 
                 const log = Logger("pkc-js:test:backward-compat-pubsub");
-                commentUpdate.signature = await _signJson(
-                    remeda.keys.strict(remeda.omit(commentUpdate, ["signature"])),
-                    commentUpdate,
-                    pubsubSigner,
-                    log
-                );
+                commentUpdate.signature = await _signJson(keys(omit(commentUpdate, ["signature"])), commentUpdate, pubsubSigner, log);
 
                 await post.publish();
 

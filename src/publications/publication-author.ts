@@ -1,4 +1,4 @@
-import * as remeda from "remeda";
+import { isEmpty, omit } from "remeda";
 import type { AuthorPubsubType, RuntimeAuthorType, RuntimeAuthorWithCommentUpdateType } from "../types.js";
 import { getPKCAddressFromPublicKeySync } from "../signer/util.js";
 import { isStringDomain } from "../util.js";
@@ -11,12 +11,12 @@ export function omitRuntimeAuthorFields<Author extends LooseAuthor | undefined>(
     author: Author
 ): Partial<AuthorPubsubType> & Record<string, unknown> {
     if (!author) return {};
-    return remeda.omit(author, runtimeOnlyAuthorFields) as Partial<AuthorPubsubType> & Record<string, unknown>;
+    return omit(author, runtimeOnlyAuthorFields) as Partial<AuthorPubsubType> & Record<string, unknown>;
 }
 
 export function cleanWireAuthor(author?: LooseAuthor): AuthorPubsubType | undefined {
     const wireAuthor = omitRuntimeAuthorFields(author);
-    if (remeda.isEmpty(wireAuthor)) return undefined;
+    if (isEmpty(wireAuthor)) return undefined;
     return wireAuthor as AuthorPubsubType;
 }
 

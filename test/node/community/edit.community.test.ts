@@ -17,7 +17,7 @@ import { timestamp } from "../../../dist/node/util.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import fs from "fs";
 import path from "path";
-import * as remeda from "remeda";
+import { isDeepEqual, pick } from "remeda";
 
 import { v4 as uuidV4 } from "uuid";
 
@@ -364,12 +364,12 @@ describeSkipIfRpc(`Concurrency with community.edit`, async () => {
             const editKeys = Object.keys(editArgs) as (keyof CommunityEditOptions)[];
 
             const hasLatestEditProps = (community: LocalCommunity | RpcLocalCommunity): boolean => {
-                const picked = remeda.pick(community, editKeys);
-                return remeda.isDeepEqual(picked, editArgs as typeof picked);
+                const picked = pick(community, editKeys);
+                return isDeepEqual(picked, editArgs as typeof picked);
             };
 
             const expectSubToHaveLatestEditProps = (community: LocalCommunity | RpcLocalCommunity) => {
-                expect(remeda.pick(community, editKeys)).to.deep.equal(editArgs);
+                expect(pick(community, editKeys)).to.deep.equal(editArgs);
             };
 
             const updatingCommunity = (await pkc.createCommunity({ address: startedCommunity.address })) as
@@ -433,8 +433,8 @@ describeSkipIfRpc(`Concurrency with community.edit`, async () => {
                 | LocalCommunity
                 | RpcLocalCommunity;
             updatingCommunity.on("update", () => {
-                const picked = remeda.pick(updatingCommunity, editKeys);
-                if (remeda.isDeepEqual(picked, editArgs as typeof picked)) editIsFinished = true; // there's a case where the edit is finished and update is emitted before we get to update editIsFinished
+                const picked = pick(updatingCommunity, editKeys);
+                if (isDeepEqual(picked, editArgs as typeof picked)) editIsFinished = true; // there's a case where the edit is finished and update is emitted before we get to update editIsFinished
             });
 
             expect(updatingCommunity.signer).to.be.a("object");
@@ -448,8 +448,8 @@ describeSkipIfRpc(`Concurrency with community.edit`, async () => {
             await startedCommunity.start();
 
             startedCommunity.on("update", () => {
-                const picked = remeda.pick(startedCommunity, editKeys);
-                if (remeda.isDeepEqual(picked, editArgs as typeof picked)) editIsFinished = true; // there's a case where the edit is finished and update is emitted before we get to update editIsFinished
+                const picked = pick(startedCommunity, editKeys);
+                if (isDeepEqual(picked, editArgs as typeof picked)) editIsFinished = true; // there's a case where the edit is finished and update is emitted before we get to update editIsFinished
             });
 
             expect(startedCommunity.title).to.equal(communityTitle);
@@ -472,8 +472,8 @@ describeSkipIfRpc(`Concurrency with community.edit`, async () => {
                 | LocalCommunity
                 | RpcLocalCommunity;
             await editedCommunity.edit(editArgs); // it should be sent to the started community
-            expect(remeda.pick(editedCommunity, editKeys)).to.deep.equal(editArgs);
-            expect(remeda.pick(startedCommunity, editKeys)).to.deep.equal(editArgs);
+            expect(pick(editedCommunity, editKeys)).to.deep.equal(editArgs);
+            expect(pick(startedCommunity, editKeys)).to.deep.equal(editArgs);
 
             editIsFinished = true;
             expect(editedCommunity.title).to.equal(communityTitle);
@@ -487,8 +487,8 @@ describeSkipIfRpc(`Concurrency with community.edit`, async () => {
             console.log("wait for community update");
             await updateEventPromise;
 
-            expect(remeda.pick(editedCommunity, editKeys)).to.deep.equal(editArgs);
-            expect(remeda.pick(startedCommunity, editKeys)).to.deep.equal(editArgs); // this fails
+            expect(pick(editedCommunity, editKeys)).to.deep.equal(editArgs);
+            expect(pick(startedCommunity, editKeys)).to.deep.equal(editArgs); // this fails
 
             expect(updatingCommunity.title).to.equal(communityTitle);
             for (const [editKey, editValue] of Object.entries(editArgs))
@@ -510,9 +510,9 @@ describeSkipIfRpc(`Concurrency with community.edit`, async () => {
                 );
             }
 
-            expect(remeda.pick(startedCommunity, editKeys)).to.deep.equal(editArgs);
+            expect(pick(startedCommunity, editKeys)).to.deep.equal(editArgs);
             await startedCommunity.stop();
-            expect(remeda.pick(startedCommunity, editKeys)).to.deep.equal(editArgs);
+            expect(pick(startedCommunity, editKeys)).to.deep.equal(editArgs);
 
             expect(communityInstance.rules).to.equal(undefined); // community is not updating, started or editing so it has no way to get the rules
 

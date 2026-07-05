@@ -8,7 +8,7 @@ import type { Multiaddr } from "@multiformats/multiaddr";
 import * as Digest from "multiformats/hashes/digest";
 import { Buffer } from "buffer";
 import { base58btc } from "multiformats/bases/base58";
-import * as remeda from "remeda";
+import { isEmpty, isNonNullish, isPlainObject, keys, mapKeys, omitBy, pickBy } from "remeda";
 import type { KuboRpcClient } from "./types.js";
 import type {
     AddOptions,
@@ -120,14 +120,14 @@ export async function raceAgainstAbort<T>(promise: Promise<T>, signal?: AbortSig
 
 export function replaceXWithY(obj: Record<string, any>, x: any, y: any): any {
     // obj is a JS object
-    if (!remeda.isPlainObject(obj)) return obj;
+    if (!isPlainObject(obj)) return obj;
     const newObj: Record<string, any> = {};
     Object.entries(obj).forEach(([key, value]) => {
         if (obj[key] === x) newObj[key] = y;
         // `typeof`` gives browser transpiling error "Uncaught ReferenceError: exports is not defined"
         // don't know why but it can be fixed by replacing with `instanceof`
         // else if (typeof value === "object" && value !== null) newObj[key] = replaceXWithY(value, x, y);
-        else if (remeda.isPlainObject(value)) newObj[key] = replaceXWithY(value, x, y);
+        else if (isPlainObject(value)) newObj[key] = replaceXWithY(value, x, y);
         else if (Array.isArray(value)) newObj[key] = value.map((iterValue) => replaceXWithY(iterValue, x, y));
         else newObj[key] = value;
     });
@@ -135,37 +135,39 @@ export function replaceXWithY(obj: Record<string, any>, x: any, y: any): any {
 }
 
 export function removeNullUndefinedValues<T extends Object>(obj: T): T {
-    return remeda.pickBy(obj, remeda.isNonNullish) as T;
+    // remeda v2 types pickBy's result as EnumeratedPartialNarrowed<T, ...>, which no longer
+    // overlaps T for a direct cast; go through unknown. Runtime: same object minus null/undefined.
+    return pickBy(obj, isNonNullish) as unknown as T;
 }
 
 function removeUndefinedValues<T extends Object>(obj: T) {
-    return remeda.pickBy(obj, remeda.isDefined.strict);
+    return pickBy(obj, isNonNullish);
 }
 
 function removeNullUndefinedEmptyObjectValues<T extends Object>(obj: T) {
     const firstStep = removeNullUndefinedValues(obj); // remove undefined and null values
-    const secondStep = remeda.omitBy(firstStep, (value) => remeda.isPlainObject(value) && remeda.isEmpty(value)); // remove empty {} values
+    const secondStep = omitBy(firstStep, (value) => isPlainObject(value) && isEmpty(value)); // remove empty {} values
     return secondStep;
 }
 
 // A safe function that you can use that will not modify a JSON by removing null or empty objects
 export function removeUndefinedValuesRecursively<T>(obj: T): T {
     if (Array.isArray(obj)) return <T>obj.map(removeUndefinedValuesRecursively);
-    if (!remeda.isPlainObject(obj)) return obj;
+    if (!isPlainObject(obj)) return obj;
     const cleanedObj: any = removeUndefinedValues(obj);
     for (const [key, value] of Object.entries(cleanedObj))
-        if (remeda.isPlainObject(value) || Array.isArray(value)) cleanedObj[key] = removeUndefinedValuesRecursively(value);
+        if (isPlainObject(value) || Array.isArray(value)) cleanedObj[key] = removeUndefinedValuesRecursively(value);
     return cleanedObj;
 }
 
 export function removeNullUndefinedEmptyObjectsValuesRecursively<T>(obj: T): T {
     if (Array.isArray(obj)) return <T>obj.map(removeNullUndefinedEmptyObjectsValuesRecursively);
-    if (!remeda.isPlainObject(obj)) return obj;
+    if (!isPlainObject(obj)) return obj;
     const cleanedObj: any = removeNullUndefinedEmptyObjectValues(obj);
     for (const key of Object.keys(cleanedObj)) {
-        if (remeda.isPlainObject(cleanedObj[key]) || Array.isArray(cleanedObj[key]))
+        if (isPlainObject(cleanedObj[key]) || Array.isArray(cleanedObj[key]))
             cleanedObj[key] = removeNullUndefinedEmptyObjectsValuesRecursively(cleanedObj[key]);
-        if (remeda.isPlainObject(cleanedObj[key]) && remeda.isEmpty(cleanedObj[key])) delete cleanedObj[key];
+        if (isPlainObject(cleanedObj[key]) && isEmpty(cleanedObj[key])) delete cleanedObj[key];
     }
 
     return cleanedObj;
@@ -186,7 +188,7 @@ export const parseDbResponses = (obj: any): any => {
     if (obj === "[object Object]") throw Error(`Object shouldn't be [object Object]`);
     if (Array.isArray(obj)) return obj.map((o) => parseDbResponses(o));
     const parsedJsonString = parseIfJsonString(obj);
-    if (!remeda.isPlainObject(obj) && !parsedJsonString) return obj;
+    if (!isPlainObject(obj) && !parsedJsonString) return obj;
 
     const newObj = removeNullUndefinedValues(parsedJsonString || obj); // we may need clone here, not sure
     const booleanFields = [
@@ -223,7 +225,7 @@ export const parseDbResponses = (obj: any): any => {
     if (newObj.extraProps) return { ...newObj, ...newObj.extraProps };
     else if (newObj["commentIpfs_extraProps"]) {
         // needed when creating pages
-        const mappedExtraPropsOnCommentIpfs = remeda.mapKeys(newObj["commentIpfs_extraProps"], (key) => `commentIpfs_${String(key)}`);
+        const mappedExtraPropsOnCommentIpfs = mapKeys(newObj["commentIpfs_extraProps"], (key) => `commentIpfs_${String(key)}`);
         return { ...newObj, ...mappedExtraPropsOnCommentIpfs };
     }
 
@@ -254,7 +256,7 @@ export function firstResolve<T>(promises: Promise<T>[]) {
 }
 
 export function getErrorCodeFromMessage(message: string): keyof typeof messages {
-    const codes = remeda.keys.strict(messages);
+    const codes = keys(messages);
     for (const code of codes) if (messages[code] === message) return code;
     throw Error(`No error code was found for message (${message})`);
 }
@@ -268,8 +270,7 @@ export function getPostUpdateTimestampRange(postUpdates: CommunityIpfsType["post
     if (!postUpdates) throw Error("community has no post updates");
     if (!postTimestamp) throw Error("post has no timestamp");
     return (
-        remeda.keys
-            .strict(postUpdates)
+        keys(postUpdates)
             // sort from smallest to biggest
             .sort((a, b) => Number(a) - Number(b))
             // find the smallest timestamp range where comment.timestamp is newer
@@ -560,7 +561,7 @@ export function derivePublicationFromChallengeRequest<
 ): T extends DecryptedChallengeRequestMessageTypeWithCommunityAuthor
     ? PublicationWithCommunityAuthorFromDecryptedChallengeRequest
     : PublicationFromDecryptedChallengeRequest {
-    const publicationFieldNames = remeda.keys.strict(DecryptedChallengeRequestPublicationSchema.shape) as (keyof T)[];
+    const publicationFieldNames = keys(DecryptedChallengeRequestPublicationSchema.shape) as (keyof T)[];
     for (const pubName of publicationFieldNames) {
         const publication = request[pubName];
         if (publication)

@@ -44,7 +44,7 @@ import { PKCError } from "../pkc-error.js";
 import { getHeliaDebugContext, type HeliaDebugContext } from "../helia/util.js";
 import { getBufferedPKCAddressFromPublicKey } from "../signer/util.js";
 import * as cborg from "cborg";
-import * as remeda from "remeda";
+import { isDeepEqual, keys, omit } from "remeda";
 import type { CommunityIpfsType } from "../community/types.js";
 import { findStartedCommunity, findUpdatingCommunity } from "../pkc/tracked-instance-registry-util.js";
 import type { CommentIpfsType } from "./comment/types.js";
@@ -529,7 +529,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             log.trace("Received unrelated pubsub message of type", pubsubMsgParsed.type);
         } else if (
             !Object.values(this._challengeExchanges).some((exchange) =>
-                remeda.isDeepEqual(pubsubMsgParsed.challengeRequestId, exchange.challengeRequest.challengeRequestId)
+                isDeepEqual(pubsubMsgParsed.challengeRequestId, exchange.challengeRequest.challengeRequestId)
             )
         ) {
             log.trace(`Received pubsub message with different challenge request id, ignoring it`);
@@ -703,7 +703,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     protected _setRpcClientState(newState: Publication["clients"]["pkcRpcClients"][""]["state"]) {
-        const currentRpcUrl = remeda.keys.strict(this.clients.pkcRpcClients)[0];
+        const currentRpcUrl = keys(this.clients.pkcRpcClients)[0];
         if (newState === this.clients.pkcRpcClients[currentRpcUrl].state) return;
         this.clients.pkcRpcClients[currentRpcUrl].state = newState;
         this.clients.pkcRpcClients[currentRpcUrl].emit("statechange", newState);
@@ -993,7 +993,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
         const omitEncrypted = <T extends { encrypted?: unknown }>(msg: T | undefined) => {
             if (!msg) return undefined;
-            return remeda.omit(msg, ["encrypted"]);
+            return omit(msg, ["encrypted"]);
         };
 
         return Object.values(this._challengeExchanges).map((exchange) => ({
@@ -1144,9 +1144,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
     private _getPubsubProviders() {
         const providers =
-            this.clients.libp2pJsClients && remeda.keys.strict(this.clients.libp2pJsClients).length > 0
-                ? remeda.keys.strict(this.clients.libp2pJsClients)
-                : remeda.keys.strict(this.clients.pubsubKuboRpcClients);
+            this.clients.libp2pJsClients && keys(this.clients.libp2pJsClients).length > 0
+                ? keys(this.clients.libp2pJsClients)
+                : keys(this.clients.pubsubKuboRpcClients);
         if (providers.length === 0) throw new PKCError("ERR_NO_PUBSUB_PROVIDERS_AVAILABLE_TO_PUBLISH_OVER_PUBSUB", { providers });
         if (providers.length === 1) providers.push(providers[0]); // Same provider should be retried twice if publishing fails
 
@@ -1166,7 +1166,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 const encryptedFields = ["challenges"] as const;
 
                 log("Received a challenge from the local community", challenge);
-                await this._handleIncomingChallengePubsubMessage(remeda.omit(challenge, encryptedFields));
+                await this._handleIncomingChallengePubsubMessage(omit(challenge, encryptedFields));
             }
         };
 
@@ -1180,7 +1180,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 // need to remove publicatioon fields from challenge verification otherwise verifyChallengeVerification will throw
                 const publicationFieldsToRemove = ["comment", "commentUpdate"] as const;
                 await this._handleIncomingChallengeVerificationPubsubMessage(
-                    remeda.omit(decryptedChallengeVerification, publicationFieldsToRemove)
+                    omit(decryptedChallengeVerification, publicationFieldsToRemove)
                 );
             }
         };

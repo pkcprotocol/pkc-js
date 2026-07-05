@@ -11,7 +11,7 @@ import {
     iterateThroughPagesToFindCommentInParentPagesInstance
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
-import * as remeda from "remeda";
+import { sample } from "remeda";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
@@ -116,12 +116,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can't publish vote on deleted post`, async () => {
-            const voteUnderDeletedPost = await generateMockVote(
-                postToDelete as CommentIpfsWithCidDefined,
-                1,
-                pkc,
-                remeda.sample(signers, 1)[0]
-            );
+            const voteUnderDeletedPost = await generateMockVote(postToDelete as CommentIpfsWithCidDefined, 1, pkc, sample(signers, 1)[0]);
             await publishWithExpectedResult({
                 publication: voteUnderDeletedPost,
                 expectedChallengeSuccess: false,
@@ -131,7 +126,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`Can't publish reply under deleted post`, async () => {
             const replyUnderDeletedPost = await generateMockComment(postToDelete as CommentIpfsWithCidDefined, pkc, false, {
-                signer: remeda.sample(signers, 1)[0]
+                signer: sample(signers, 1)[0]
             });
             await publishWithExpectedResult({
                 publication: replyUnderDeletedPost,
@@ -142,7 +137,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`Can't publish a reply under a reply of a deleted post`, async () => {
             const reply = await generateMockComment(postReply as CommentIpfsWithCidDefined, pkc, false, {
-                signer: remeda.sample(signers, 1)[0]
+                signer: sample(signers, 1)[0]
             });
             await publishWithExpectedResult({
                 publication: reply,
@@ -152,7 +147,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can't publish a vote under a reply of a deleted post`, async () => {
-            const vote = await generateMockVote(postReply as CommentIpfsWithCidDefined, 1, pkc, remeda.sample(signers, 1)[0]);
+            const vote = await generateMockVote(postReply as CommentIpfsWithCidDefined, 1, pkc, sample(signers, 1)[0]);
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,

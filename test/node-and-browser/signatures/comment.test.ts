@@ -12,7 +12,7 @@ import {
 import { messages } from "../../../dist/node/errors.js";
 import signers from "../../fixtures/signers.js";
 import { timestamp } from "../../../dist/node/util.js";
-import * as remeda from "remeda";
+import { clone, omit } from "remeda";
 import validCommentFixture from "../../fixtures/signatures/comment/commentUpdate/valid_comment_ipfs.json" with { type: "json" };
 import validCommentAvatarFixture from "../../fixtures/signatures/comment/valid_comment_avatar_fixture.json" with { type: "json" };
 import validCommentAuthorAddressDomainFixture from "../../fixtures/signatures/comment/valid_comment_author_address_as_domain.json" with { type: "json" };
@@ -87,14 +87,14 @@ describe("sign comment", async () => {
         });
         const signature = await signComment({ comment, pkc: pkc });
         expect(signature.publicKey).to.equal(signer.publicKey);
-        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer", "communityAddress"]) };
+        const signedComment: CommentPubsubMessagePublication = { signature, ...omit(comment, ["signer", "communityAddress"]) };
         const verificaiton = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: pkc.resolveAuthorNames,
             clientsManager: pkc._clientsManager
         });
         expect(verificaiton).to.deep.equal({ valid: true });
-        signedCommentClone = remeda.clone(signedComment);
+        signedCommentClone = clone(signedComment);
     });
 
     it("Can sign a comment with an imported key", async () => {
@@ -104,7 +104,7 @@ describe("sign comment", async () => {
             signer
         });
         const signature = await signComment({ comment, pkc: pkc });
-        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer", "communityAddress"]) };
+        const signedComment: CommentPubsubMessagePublication = { signature, ...omit(comment, ["signer", "communityAddress"]) };
         expect(signedComment.signature.publicKey).to.be.equal(signers[1].publicKey, "Generated public key should be same as provided");
         const verificaiton = await verifyCommentPubsubMessage({
             comment: signedComment,
@@ -131,7 +131,7 @@ describe("sign comment", async () => {
     });
 
     it(`signComment throws with author.name not being a domain`, async () => {
-        const cloneComment = remeda.clone(signedCommentClone) as CommentPubsubMessagePublication;
+        const cloneComment = clone(signedCommentClone) as CommentPubsubMessagePublication;
         delete (cloneComment as { signature?: unknown }).signature;
         cloneComment.author = { name: "gibbreish" };
         try {
@@ -156,7 +156,7 @@ describe("sign comment", async () => {
             content: "comment content"
         });
         const signature = await signComment({ comment, pkc: pkc });
-        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer", "communityAddress"]) };
+        const signedComment: CommentPubsubMessagePublication = { signature, ...omit(comment, ["signer", "communityAddress"]) };
         const res = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: pkc.resolveAuthorNames,
@@ -175,7 +175,7 @@ describe("sign comment", async () => {
             content: "comment content"
         });
         const signature = await signComment({ comment, pkc: pkc });
-        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer", "communityAddress"]) };
+        const signedComment: CommentPubsubMessagePublication = { signature, ...omit(comment, ["signer", "communityAddress"]) };
         const res = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: false,
@@ -195,7 +195,7 @@ describe("sign comment", async () => {
         // Override timestamp for deterministic test
         (comment as { timestamp: number }).timestamp = 12345678;
         const signature = await signComment({ comment, pkc: pkc });
-        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(comment, ["signer", "communityAddress"]) };
+        const signedComment: CommentPubsubMessagePublication = { signature, ...omit(comment, ["signer", "communityAddress"]) };
         const res = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: pkc.resolveAuthorNames,
@@ -221,7 +221,7 @@ describeSkipIfRpc("verify Comment", async () => {
         const commentToSign = { ...fixtureComment, signer: signers[1] } as unknown as CommentOptionsToSign;
         const freshSignature = await signComment({ comment: commentToSign, pkc: pkc });
         const fixtureWithSignature = {
-            ...remeda.omit(commentToSign, ["signer", "communityAddress"]),
+            ...omit(commentToSign, ["signer", "communityAddress"]),
             signature: freshSignature
         } as unknown as CommentPubsubMessagePublication;
         const verification = await verifyCommentPubsubMessage({
@@ -233,7 +233,7 @@ describeSkipIfRpc("verify Comment", async () => {
     });
 
     it("verifyCommentPubsubMessage failure with wrong signature", async () => {
-        const invalidSignature = remeda.clone(fixtureSignature);
+        const invalidSignature = clone(fixtureSignature);
         invalidSignature.signature += "1";
 
         // Note: fixtureComment doesn't have protocolVersion
@@ -247,7 +247,7 @@ describeSkipIfRpc("verify Comment", async () => {
     });
 
     it(`Valid Comment fixture from previous pkc-js version is validated correctly`, async () => {
-        const comment = remeda.clone(validCommentFixture) as CommentIpfsType;
+        const comment = clone(validCommentFixture) as CommentIpfsType;
 
         const verification = await verifyCommentIpfs({
             comment,
@@ -259,7 +259,7 @@ describeSkipIfRpc("verify Comment", async () => {
     });
 
     it(`A comment with avatar fixture is validated correctly`, async () => {
-        const comment = remeda.clone(validCommentAvatarFixture) as CommentIpfsType;
+        const comment = clone(validCommentAvatarFixture) as CommentIpfsType;
         const verification = await verifyCommentIpfs({
             comment,
             clientsManager: pkc._clientsManager,
@@ -270,7 +270,7 @@ describeSkipIfRpc("verify Comment", async () => {
     });
 
     it(`verifyCommentPubsubMessage invalidates a comment with tampered author.name`, async () => {
-        const comment = remeda.clone({ ...fixtureComment, signature: fixtureSignature }) as unknown as LegacyCommentPublication;
+        const comment = clone({ ...fixtureComment, signature: fixtureSignature }) as unknown as LegacyCommentPublication;
         comment.author.name = "gibbresish";
         const verification = await verifyCommentPubsubMessage({
             comment: comment as unknown as CommentPubsubMessagePublication,
@@ -289,7 +289,7 @@ describeSkipIfRpc("verify Comment", async () => {
             content: "some content"
         });
         const comment: CommentPubsubMessagePublication = {
-            ...remeda.omit(commentToSign, ["signer", "communityAddress"]),
+            ...omit(commentToSign, ["signer", "communityAddress"]),
             signature: await signComment({ comment: commentToSign, pkc: pkc })
         };
         const verification = await verifyCommentPubsubMessage({
@@ -312,7 +312,7 @@ describeSkipIfRpc("verify Comment", async () => {
             signer
         };
         const signature = await signComment({ comment: commentToSign, pkc: pkc });
-        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(commentToSign, ["signer", "communityAddress"]) };
+        const signedComment: CommentPubsubMessagePublication = { signature, ...omit(commentToSign, ["signer", "communityAddress"]) };
         const verification = await verifyCommentPubsubMessage({
             comment: signedComment,
             resolveAuthorNames: pkc.resolveAuthorNames,
@@ -334,7 +334,7 @@ describeSkipIfRpc("verify Comment", async () => {
             signer
         };
         const signature = await signComment({ comment: commentToSign, pkc: pkc });
-        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(commentToSign, ["signer", "communityAddress"]) };
+        const signedComment: CommentPubsubMessagePublication = { signature, ...omit(commentToSign, ["signer", "communityAddress"]) };
 
         // Tamper with author.flairs
         signedComment.author.flairs = [{ text: "Tampered" }];
@@ -359,7 +359,7 @@ describeSkipIfRpc("verify Comment", async () => {
             signer
         };
         const signature = await signComment({ comment: commentToSign, pkc: pkc });
-        const signedComment: CommentPubsubMessagePublication = { signature, ...remeda.omit(commentToSign, ["signer", "communityAddress"]) };
+        const signedComment: CommentPubsubMessagePublication = { signature, ...omit(commentToSign, ["signer", "communityAddress"]) };
 
         // Tamper with flairs as if a mod changed them
         signedComment.flairs = [{ text: "Mod Changed" }];
@@ -372,7 +372,7 @@ describeSkipIfRpc("verify Comment", async () => {
     });
 
     it(`verifyCommentIpfs rejects a tampered signature even after the same CID was previously verified as valid`, async () => {
-        const validComment = remeda.clone(validCommentFixture) as CommentIpfsType;
+        const validComment = clone(validCommentFixture) as CommentIpfsType;
         const calculatedCommentCid = "QmCacheBugTest";
 
         // First call: valid signature, populates the cache
@@ -385,7 +385,7 @@ describeSkipIfRpc("verify Comment", async () => {
         expect(validVerification).to.deep.equal({ valid: true });
 
         // Second call: same CID but tampered signature — must NOT return cached { valid: true }
-        const tamperedComment = remeda.clone(validCommentFixture) as CommentIpfsType;
+        const tamperedComment = clone(validCommentFixture) as CommentIpfsType;
         tamperedComment.signature.signature += "invalid";
         const tamperedVerification = await verifyCommentIpfs({
             comment: tamperedComment,
@@ -397,7 +397,7 @@ describeSkipIfRpc("verify Comment", async () => {
     });
 
     it(`verifyCommentIpfs passes when communityPublicKey differs from community but communityName matches (key rotation)`, async () => {
-        const comment = remeda.clone(validCommentFixture) as CommentIpfsType;
+        const comment = clone(validCommentFixture) as CommentIpfsType;
         // Simulate key rotation: comment was published under old key, community now has new key.
         // Add new-format fields; old communityAddress stays for signature validity since it's in signedPropertyNames.
         // getCommunityAddressFromRecord returns communityName first, so the address check uses the domain, not the key.
@@ -415,7 +415,7 @@ describeSkipIfRpc("verify Comment", async () => {
     });
 
     it(`verifyCommentIpfs returns invalid when communityName from record mismatches communityNameFromInstance`, async () => {
-        const comment = remeda.clone(validCommentFixture) as CommentIpfsType;
+        const comment = clone(validCommentFixture) as CommentIpfsType;
         (comment as Record<string, unknown>).communityName = "real.eth";
 
         const verification = await verifyCommentIpfs({
@@ -429,7 +429,7 @@ describeSkipIfRpc("verify Comment", async () => {
     });
 
     it(`verifyCommentIpfs passes when communityName aliases match (.eth vs .bso)`, async () => {
-        const comment = remeda.clone(validCommentFixture) as CommentIpfsType;
+        const comment = clone(validCommentFixture) as CommentIpfsType;
         (comment as Record<string, unknown>).communityName = "example.eth";
 
         const verification = await verifyCommentIpfs({
@@ -443,7 +443,7 @@ describeSkipIfRpc("verify Comment", async () => {
     });
 
     it(`verifyCommentIpfs passes when communityPublicKeyFromInstance differs from record`, async () => {
-        const comment = remeda.clone(validCommentFixture) as CommentIpfsType;
+        const comment = clone(validCommentFixture) as CommentIpfsType;
 
         const verification = await verifyCommentIpfs({
             comment,
@@ -456,7 +456,7 @@ describeSkipIfRpc("verify Comment", async () => {
     });
 
     it(`verifyCommentIpfs passes when communityNameFromInstance is set but record has no communityName`, async () => {
-        const comment = remeda.clone(validCommentFixture) as CommentIpfsType;
+        const comment = clone(validCommentFixture) as CommentIpfsType;
         // validCommentFixture has subplebbitAddress (IPNS key), no communityName
 
         const verification = await verifyCommentIpfs({
@@ -490,7 +490,7 @@ describeSkipIfRpc(`Comment with author.name as domain`, async () => {
             content: "domain identity claim"
         });
         const signedPublication = {
-            ...remeda.omit(commentToSign, ["signer", "communityAddress"]),
+            ...omit(commentToSign, ["signer", "communityAddress"]),
             signature: await signComment({ comment: commentToSign, pkc: tempPKC })
         } satisfies CommentPubsubMessagePublication;
 
@@ -504,7 +504,7 @@ describeSkipIfRpc(`Comment with author.name as domain`, async () => {
         await tempPKC.destroy();
     });
     it(`verifyCommentIpfs returns valid when author domain resolves to different address (nameResolved handles display)`, async () => {
-        const comment = remeda.clone(validCommentAuthorAddressDomainFixture) as CommentIpfsType;
+        const comment = clone(validCommentAuthorAddressDomainFixture) as CommentIpfsType;
         const tempPKC = await mockRemotePKC({
             mockResolve: false,
             pkcOptions: {
@@ -571,7 +571,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
     });
 
     it(`Fixture CommentUpdate can be signed by community and validated correctly`, async () => {
-        const update = remeda.clone(validCommentUpdateFixture) as CommentUpdateType;
+        const update = clone(validCommentUpdateFixture) as CommentUpdateType;
         const commentForVerify: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "postCid" | "depth" | "cid"> = {
             cid: update.cid,
             postCid: undefined as unknown as string, // Post has no postCid
@@ -592,7 +592,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
     });
 
     it(`CommentUpdate from previous pkc-js versions can be verified`, async () => {
-        const update = remeda.clone(validCommentUpdateFixture) as CommentUpdateType;
+        const update = clone(validCommentUpdateFixture) as CommentUpdateType;
         const commentForVerify: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "postCid" | "depth" | "cid"> = {
             cid: update.cid,
             postCid: undefined as unknown as string,
@@ -612,7 +612,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
     });
 
     it(`verifyCommentUpdate invalidate commentUpdate if it was signed by other than community key`, async () => {
-        const update = remeda.clone(validCommentUpdateFixture) as CommentUpdateType;
+        const update = clone(validCommentUpdateFixture) as CommentUpdateType;
         const commentForVerify: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "postCid" | "depth" | "cid"> = {
             cid: update.cid,
             postCid: undefined as unknown as string,
@@ -633,7 +633,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
     });
 
     it(`A commentUpdate with an edit signed by other than original author will be rejected`, async () => {
-        const update = remeda.clone(validCommentUpdateWithAuthorEditFixture) as CommentUpdateType & {
+        const update = clone(validCommentUpdateWithAuthorEditFixture) as CommentUpdateType & {
             edit: { author?: { name?: string }; signature?: unknown; signer?: unknown };
         };
         const commentForVerify: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "postCid" | "depth" | "cid"> = {
@@ -675,7 +675,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
     });
 
     it(`commentUpdate.edit is invalidated if any prop is changed and not signed by original author`, async () => {
-        const update = remeda.clone(validCommentUpdateWithAuthorEditFixture) as CommentUpdateType & { edit: { content: string } };
+        const update = clone(validCommentUpdateWithAuthorEditFixture) as CommentUpdateType & { edit: { content: string } };
         const commentForVerify: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "postCid" | "depth" | "cid"> = {
             cid: update.cid,
             postCid: undefined as unknown as string,

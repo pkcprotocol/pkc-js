@@ -112,7 +112,7 @@
         "p-timeout": "7.0.1",
         "probe-image-size": "7.2.3",
         "quick-lru": "5.1.1",
-        "remeda": "1.57.0",
+        "remeda": "^2.39.0",
         "retry": "0.13.1",
         "rpc-websockets": "9.3.8",
         "safe-stable-stringify": "2.4.3",

@@ -36,7 +36,7 @@ import assert from "assert";
 import { BaseClientsManager } from "../clients/base-client-manager.js";
 import type { CommunityIpfsType, CommunitySignature } from "../community/types.js";
 import { sha256 } from "js-sha256";
-import * as remeda from "remeda"; // tree-shaking supported!
+import { intersection, isPlainObject, keys, omit, pick } from "remeda"; // tree-shaking supported!
 import type { JsonSignature, PKCRecordToVerify, PubsubMsgToSign, PubsubSignature, SignerType } from "./types.js";
 import type {
     CommentEditOptionsToSign,
@@ -149,7 +149,7 @@ export async function _signJson(
 
     // we assume here that publication already has been cleaned
     //@ts-expect-error
-    const propsToSign = remeda.pick(cleanedPublication, signedPropertyNames);
+    const propsToSign = pick(cleanedPublication, signedPropertyNames);
     let publicationEncoded: ReturnType<(typeof cborg)["encode"]>;
     try {
         publicationEncoded = cborg.encode(propsToSign, cborgEncodeOptions);
@@ -163,7 +163,7 @@ export async function _signJson(
         signature: signatureData,
         publicKey: signer.publicKey,
         type: signer.type,
-        signedPropertyNames: remeda.keys.strict(propsToSign)
+        signedPropertyNames: keys(propsToSign)
     };
 }
 
@@ -182,7 +182,7 @@ export async function _signPubsubMsg({
 
     // we assume here that pubsub msg already has been cleaned
     //@ts-expect-error
-    const propsToSign = remeda.pick(msg, signedPropertyNames);
+    const propsToSign = pick(msg, signedPropertyNames);
     let publicationEncoded;
     try {
         publicationEncoded = cborg.encode(propsToSign, cborgEncodeOptions); // The comment instances get jsoned over the pubsub, so it makes sense that we would json them before signing, to make sure the data is the same before and after getting jsoned
@@ -196,7 +196,7 @@ export async function _signPubsubMsg({
         signature: signatureData,
         publicKey: publicKeyBuffer,
         type: signer.type,
-        signedPropertyNames: remeda.keys.strict(propsToSign)
+        signedPropertyNames: keys(propsToSign)
     };
 }
 
@@ -543,13 +543,15 @@ export async function verifyCommentIpfs(opts: {
         return { valid: false, reason: messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_RESERVED_FIELD };
 
     // Reject CommentIpfs records where author contains reserved fields (e.g. nameResolved)
-    if (opts.comment.author && remeda.intersection(Object.keys(opts.comment.author), AuthorCommentIpfsReservedFields).length > 0)
+    if (opts.comment.author && intersection(Object.keys(opts.comment.author), AuthorCommentIpfsReservedFields).length > 0)
         return { valid: false, reason: messages.ERR_COMMENT_IPFS_AUTHOR_INCLUDES_RESERVED_FIELD };
 
     const keysCasted = <(keyof CommentPubsubMessagePublication)[]>opts.comment.signature.signedPropertyNames;
 
     const validRes = await verifyCommentPubsubMessage({
-        comment: remeda.pick(opts.comment, ["signature", ...keysCasted]),
+        // remeda v2 infers a partial from the spread (non-literal) key array; the runtime object
+        // has exactly the signed fields + signature, so restore the concrete type.
+        comment: pick(opts.comment, ["signature", ...keysCasted]) as CommentPubsubMessagePublication,
         resolveAuthorNames: opts.resolveAuthorNames,
         clientsManager: opts.clientsManager,
         abortSignal: opts.abortSignal
@@ -569,7 +571,7 @@ function _allFieldsOfRecordInSignedPropertyNames(
         | CommentUpdateType
         | CommentUpdateForChallengeVerification
 ): boolean {
-    const fieldsOfRecord = remeda.keys.strict(remeda.omit(record, ["signature"]));
+    const fieldsOfRecord = keys(omit(record, ["signature"]));
     for (const field of fieldsOfRecord) if (!record.signature.signedPropertyNames.includes(field)) return false;
 
     return true;
@@ -610,10 +612,10 @@ export async function verifyCommunity({
     };
 
     if (community.posts?.pages && validatePages)
-        for (const preloadedPageSortName of remeda.keys.strict(community.posts.pages)) {
+        for (const preloadedPageSortName of keys(community.posts.pages)) {
             const pageCid: string | undefined = community.posts.pageCids?.[preloadedPageSortName];
             const preloadedPage = community.posts.pages[preloadedPageSortName];
-            if (!remeda.isPlainObject(preloadedPage)) throw Error("failed to find page ipfs of community to verify");
+            if (!isPlainObject(preloadedPage)) throw Error("failed to find page ipfs of community to verify");
             const pageValidity = await verifyPage({
                 pageCid,
                 page: preloadedPage,
@@ -660,7 +662,7 @@ function _isThereReservedFieldInRecord(
     record: CommentUpdateType | CommunityIpfsType | CommentUpdateForChallengeVerification | CommentIpfsType,
     reservedFields: readonly string[]
 ) {
-    return remeda.intersection(Object.keys(record), reservedFields).length > 0;
+    return intersection(Object.keys(record), reservedFields).length > 0;
 }
 
 export async function verifyCommentUpdate({
@@ -715,7 +717,7 @@ export async function verifyCommentUpdate({
 
     if ("replies" in update && update.replies && validatePages) {
         // Validate update.replies
-        const replyPageKeys = remeda.keys.strict(update.replies.pages);
+        const replyPageKeys = keys(update.replies.pages);
         for (const replySortName of replyPageKeys) {
             const pageCid: string | undefined = update.replies.pageCids?.[replySortName];
             const page = update.replies.pages[replySortName];

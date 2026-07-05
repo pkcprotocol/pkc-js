@@ -4,7 +4,7 @@ import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "..
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
 import type { ChallengeVerificationMessageType } from "../../dist/node/pubsub-messages/types.js";
 import type { Challenge, ChallengeResult } from "../../dist/node/community/types.js";
-import * as remeda from "remeda";
+import { omit } from "remeda";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
@@ -71,7 +71,7 @@ describe.skip("voucher challenge", () => {
                 ...defaultPublication,
                 ...(overrides.publication || {})
             },
-            ...(remeda.omit(overrides, ["publication"]) || {})
+            ...(omit(overrides, ["publication"]) || {})
         };
     };
 

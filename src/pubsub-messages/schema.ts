@@ -14,7 +14,7 @@ import {
     CommentUpdateForChallengeVerificationSchema
 } from "../publications/comment/schema.js";
 import { ChallengeFileSchema, ChallengeFromGetChallengeSchema } from "../community/schema.js";
-import * as remeda from "remeda";
+import { keys, omit } from "remeda";
 import { CommentModerationPubsubMessagePublicationSchema } from "../publications/comment-moderation/schema.js";
 import { CommunityEditPubsubMessagePublicationSchema } from "../publications/community-edit/schema.js";
 import { Uint8ArraySchema, nonNegativeIntStringSchema } from "../schema.js";
@@ -71,9 +71,7 @@ export const DecryptedChallengeRequestSchema = DecryptedChallengeRequestPublicat
     CreatePublicationUserOptionsSchema.shape.challengeRequest.unwrap()
 );
 
-export const ChallengeRequestMessageSignedPropertyNames = remeda.keys.strict(
-    remeda.omit(ChallengeRequestMessageSchema.shape, ["signature"])
-);
+export const ChallengeRequestMessageSignedPropertyNames = keys(omit(ChallengeRequestMessageSchema.shape, ["signature"]));
 // Challenge message
 
 export const ChallengeInChallengePubsubMessageSchema = z
@@ -94,7 +92,7 @@ export const DecryptedChallengeSchema = z
         challenges: ChallengeInChallengePubsubMessageSchema.array()
     })
     .strict();
-export const ChallengeMessageSignedPropertyNames = remeda.keys.strict(remeda.omit(ChallengeMessageSchema.shape, ["signature"]));
+export const ChallengeMessageSignedPropertyNames = keys(omit(ChallengeMessageSchema.shape, ["signature"]));
 
 // Challenge answer
 
@@ -109,7 +107,7 @@ export const DecryptedChallengeAnswerSchema = z
     })
     .strict();
 
-export const ChallengeAnswerMessageSignedPropertyNames = remeda.keys.strict(remeda.omit(ChallengeAnswerMessageSchema.shape, ["signature"]));
+export const ChallengeAnswerMessageSignedPropertyNames = keys(omit(ChallengeAnswerMessageSchema.shape, ["signature"]));
 
 // Challenge Verification
 
@@ -128,8 +126,6 @@ export const DecryptedChallengeVerificationSchema = z
     })
     .strict();
 
-export const ChallengeVerificationMessageSignedPropertyNames = remeda.keys.strict(
-    remeda.omit(ChallengeVerificationMessageSchema.shape, ["signature"])
-);
+export const ChallengeVerificationMessageSignedPropertyNames = keys(omit(ChallengeVerificationMessageSchema.shape, ["signature"]));
 
 // Handling challenges for community

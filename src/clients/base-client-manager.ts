@@ -32,7 +32,7 @@ import * as cborg from "cborg";
 import { concat as uint8ArrayConcat } from "uint8arrays/concat";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import all from "it-all";
-import * as remeda from "remeda";
+import { keys } from "remeda";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { CidPathSchema } from "../schema/schema.js";
 import { CID } from "kubo-rpc-client";
@@ -111,8 +111,8 @@ export class BaseClientsManager {
 
     constructor(pkc: PKC) {
         this._pkc = pkc;
-        for (const provider of remeda.keys.strict(pkc.clients.pubsubKuboRpcClients)) this.pubsubProviderSubscriptions[provider] = [];
-        for (const provider of remeda.keys.strict(pkc.clients.libp2pJsClients)) this.pubsubProviderSubscriptions[provider] = [];
+        for (const provider of keys(pkc.clients.pubsubKuboRpcClients)) this.pubsubProviderSubscriptions[provider] = [];
+        for (const provider of keys(pkc.clients.libp2pJsClients)) this.pubsubProviderSubscriptions[provider] = [];
 
         hideClassPrivateProps(this);
     }
@@ -122,9 +122,9 @@ export class BaseClientsManager {
     }
 
     getDefaultPubsubKuboRpcClientOrHelia() {
-        const defaultPubsubProviderUrl = remeda.keys.strict(this._pkc.clients.pubsubKuboRpcClients)[0];
+        const defaultPubsubProviderUrl = keys(this._pkc.clients.pubsubKuboRpcClients)[0];
         if (defaultPubsubProviderUrl) return this._pkc.clients.pubsubKuboRpcClients[defaultPubsubProviderUrl];
-        const defaultLibp2pJsClient = remeda.keys.strict(this._pkc.clients.libp2pJsClients)[0];
+        const defaultLibp2pJsClient = keys(this._pkc.clients.libp2pJsClients)[0];
         if (defaultLibp2pJsClient) return this._pkc.clients.libp2pJsClients[defaultLibp2pJsClient];
         throw new PKCError("ERR_NO_DEFAULT_PUBSUB_PROVIDER", {
             pubsubKuboRpcClients: this._pkc.clients.pubsubKuboRpcClients,
@@ -133,9 +133,9 @@ export class BaseClientsManager {
     }
 
     getDefaultKuboRpcClientOrHelia(): PKC["clients"]["kuboRpcClients"][string] | PKC["clients"]["libp2pJsClients"][string] {
-        const defaultKuboRpcClient = remeda.keys.strict(this._pkc.clients.kuboRpcClients)[0];
+        const defaultKuboRpcClient = keys(this._pkc.clients.kuboRpcClients)[0];
         if (defaultKuboRpcClient) return this._pkc.clients.kuboRpcClients[defaultKuboRpcClient];
-        const defaultLibp2pJsClient = remeda.keys.strict(this._pkc.clients.libp2pJsClients)[0];
+        const defaultLibp2pJsClient = keys(this._pkc.clients.libp2pJsClients)[0];
         if (defaultLibp2pJsClient) return this._pkc.clients.libp2pJsClients[defaultLibp2pJsClient];
         throw new PKCError("ERR_NO_DEFAULT_IPFS_PROVIDER", {
             kuboRpcClients: this._pkc.clients.kuboRpcClients,
@@ -144,7 +144,7 @@ export class BaseClientsManager {
     }
 
     getDefaultKuboRpcClient() {
-        const defaultKuboRpcClient = remeda.keys.strict(this._pkc.clients.kuboRpcClients)[0];
+        const defaultKuboRpcClient = keys(this._pkc.clients.kuboRpcClients)[0];
         if (defaultKuboRpcClient) return this._pkc.clients.kuboRpcClients[defaultKuboRpcClient];
         throw new PKCError("ERR_NO_DEFAULT_KUBO_RPC_IPFS_PROVIDER", {
             kuboRpcClients: this._pkc.clients.kuboRpcClients,
@@ -153,7 +153,7 @@ export class BaseClientsManager {
     }
 
     getDefaultKuboPubsubClient() {
-        const defaultKuboPubsubClient = remeda.keys.strict(this._pkc.clients.pubsubKuboRpcClients)[0];
+        const defaultKuboPubsubClient = keys(this._pkc.clients.pubsubKuboRpcClients)[0];
         if (defaultKuboPubsubClient) return this._pkc.clients.pubsubKuboRpcClients[defaultKuboPubsubClient];
         throw new PKCError("ERR_NO_DEFAULT_KUBO_RPC_PUBSUB_PROVIDER", {
             pubsubKuboRpcClients: this._pkc.clients.pubsubKuboRpcClients
@@ -161,9 +161,9 @@ export class BaseClientsManager {
     }
 
     getIpfsClientWithKuboRpcClientFunctions() {
-        const defaultKuboRpcClient = remeda.keys.strict(this._pkc.clients.kuboRpcClients)[0];
+        const defaultKuboRpcClient = keys(this._pkc.clients.kuboRpcClients)[0];
         if (defaultKuboRpcClient) return this._pkc.clients.kuboRpcClients[defaultKuboRpcClient]._client;
-        const defaultLibp2pJsClient = remeda.keys.strict(this._pkc.clients.libp2pJsClients)[0];
+        const defaultLibp2pJsClient = keys(this._pkc.clients.libp2pJsClients)[0];
         if (defaultLibp2pJsClient) return this._pkc.clients.libp2pJsClients[defaultLibp2pJsClient].heliaWithKuboRpcClientFunctions;
         throw new PKCError("ERR_NO_DEFAULT_IPFS_PROVIDER", {
             kuboRpcClients: this._pkc.clients.kuboRpcClients,
@@ -261,7 +261,7 @@ export class BaseClientsManager {
     }
 
     async pubsubUnsubscribe(pubsubTopic: string, handler?: PubsubSubscriptionHandler) {
-        for (const pubsubProviderUrl of remeda.keys.strict(this._pkc.clients.pubsubKuboRpcClients)) {
+        for (const pubsubProviderUrl of keys(this._pkc.clients.pubsubKuboRpcClients)) {
             try {
                 await this.pubsubUnsubscribeOnProvider(pubsubTopic, pubsubProviderUrl, handler);
             } catch (e) {
@@ -517,8 +517,8 @@ export class BaseClientsManager {
 
         // Only sort if we have more than 3 gateways
         const gatewaysSorted =
-            remeda.keys.strict(this._pkc.clients.ipfsGateways).length <= concurrencyLimit
-                ? remeda.keys.strict(this._pkc.clients.ipfsGateways)
+            keys(this._pkc.clients.ipfsGateways).length <= concurrencyLimit
+                ? keys(this._pkc.clients.ipfsGateways)
                 : await this._pkc._stats.sortGatewaysAccordingToScore(loadOpts.recordIpfsType);
 
         const gatewayFetches: GenericGatewayFetch = {};

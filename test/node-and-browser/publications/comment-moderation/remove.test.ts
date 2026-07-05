@@ -11,7 +11,7 @@ import {
     iterateThroughPageCidToFindComment
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
-import * as remeda from "remeda";
+import { sample } from "remeda";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
@@ -91,7 +91,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Sub rejects votes on removed post`, async () => {
-            const vote = await generateMockVote(postToRemove as CommentIpfsWithCidDefined, 1, pkc, remeda.sample(signers, 1)[0]);
+            const vote = await generateMockVote(postToRemove as CommentIpfsWithCidDefined, 1, pkc, sample(signers, 1)[0]);
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
@@ -101,7 +101,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`Sub rejects replies on removed post`, async () => {
             const reply = await generateMockComment(postToRemove as CommentIpfsWithCidDefined, pkc, false, {
-                signer: remeda.sample(signers, 1)[0]
+                signer: sample(signers, 1)[0]
             });
             await publishWithExpectedResult({
                 publication: reply,
@@ -111,7 +111,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Sub rejects votes on a reply of a removed post`, async () => {
-            const vote = await generateMockVote(postReply as CommentIpfsWithCidDefined, 1, pkc, remeda.sample(signers, 1)[0]);
+            const vote = await generateMockVote(postReply as CommentIpfsWithCidDefined, 1, pkc, sample(signers, 1)[0]);
             await publishWithExpectedResult({
                 publication: vote,
                 expectedChallengeSuccess: false,
@@ -121,7 +121,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`Sub rejects replies on a reply of a removed post`, async () => {
             const reply = await generateMockComment(postReply as CommentIpfsWithCidDefined, pkc, false, {
-                signer: remeda.sample(signers, 1)[0]
+                signer: sample(signers, 1)[0]
             });
             await publishWithExpectedResult({
                 publication: reply,
@@ -312,9 +312,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // We're testing publishing under replyUnderRemovedReply
             const [reply, vote] = [
                 await generateMockComment(replyUnderRemovedReply as CommentIpfsWithCidDefined, pkc, false, {
-                    signer: remeda.sample(signers, 1)[0]
+                    signer: sample(signers, 1)[0]
                 }),
-                await generateMockVote(replyUnderRemovedReply as CommentIpfsWithCidDefined, 1, pkc, remeda.sample(signers, 1)[0])
+                await generateMockVote(replyUnderRemovedReply as CommentIpfsWithCidDefined, 1, pkc, sample(signers, 1)[0])
             ];
             await Promise.all([reply, vote].map((pub) => publishWithExpectedResult({ publication: pub, expectedChallengeSuccess: true })));
         });

@@ -3,7 +3,7 @@ import type { PageIpfs, PageTypeJson } from "../../pages/types.js";
 import type { CommunityIpfsType } from "../../community/types.js";
 import { NameResolverClient } from "../../clients/name-resolver-client.js";
 import { Comment } from "./comment.js";
-import * as remeda from "remeda";
+import { clone, keys } from "remeda";
 import type { CommentIpfsType, CommentUpdateType } from "./types.js";
 import {
     parseCommentIpfsSchemaWithPKCErrorIfItFails,
@@ -100,17 +100,17 @@ export class CommentClientsManager extends PublicationClientsManager {
 
     protected override _initKuboRpcClients(): void {
         if (this._pkc.clients.kuboRpcClients)
-            for (const ipfsUrl of remeda.keys.strict(this._pkc.clients.kuboRpcClients))
+            for (const ipfsUrl of keys(this._pkc.clients.kuboRpcClients))
                 this.clients.kuboRpcClients = { ...this.clients.kuboRpcClients, [ipfsUrl]: new CommentKuboRpcClient("stopped") };
     }
 
     protected override _initLibp2pJsClients(): void {
-        for (const libp2pJsClientKey of remeda.keys.strict(this._pkc.clients.libp2pJsClients))
+        for (const libp2pJsClientKey of keys(this._pkc.clients.libp2pJsClients))
             this.clients.libp2pJsClients = { ...this.clients.libp2pJsClients, [libp2pJsClientKey]: new CommentLibp2pJsClient("stopped") };
     }
 
     protected override _initPKCRpcClients() {
-        for (const rpcUrl of remeda.keys.strict(this._pkc.clients.pkcRpcClients))
+        for (const rpcUrl of keys(this._pkc.clients.pkcRpcClients))
             this.clients.pkcRpcClients = { ...this.clients.pkcRpcClients, [rpcUrl]: new CommentPKCRpcStateClient("stopped") };
     }
 
@@ -570,7 +570,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         const cachedComment = this._pkc._memCaches.commentIpfs.get(cid);
         if (cachedComment) {
             fetchCommentLogger.trace("Serving comment CID from cache", cid);
-            return remeda.clone(cachedComment);
+            return clone(cachedComment);
         }
 
         const verifiedComment = await this._pkc._inflightFetchManager.withResource(InflightResourceTypes.COMMENT_IPFS, cid, async () => {

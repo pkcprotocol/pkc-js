@@ -3,7 +3,7 @@ import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { it, vi } from "vitest";
 import { of as calculateIpfsCidV0Lib } from "typestub-ipfs-only-hash";
 import { randomUUID } from "node:crypto";
-import * as remeda from "remeda";
+import { omit } from "remeda";
 import { cleanUpBeforePublishing } from "../../../../dist/node/signer/signatures.js";
 import { calculateExpectedSignatureSize } from "../../../../dist/node/runtime/node/util.js";
 import { calculateStringSizeSameAsIpfsAddCidV0, timestamp } from "../../../../dist/node/util.js";
@@ -523,7 +523,7 @@ async function calculateAvailablePostsSizeForCommunity(community: LocalCommunity
     const updatedAt = timestamp();
 
     const baseCommunity = cleanUpBeforePublishing({
-        ...remeda.omit(community._toJSONIpfsBaseNoPosts(), ["signature"]),
+        ...omit(community._toJSONIpfsBaseNoPosts(), ["signature"]),
         lastPostCid: latestPost?.cid,
         lastCommentCid: latestComment?.cid,
         statsCid,

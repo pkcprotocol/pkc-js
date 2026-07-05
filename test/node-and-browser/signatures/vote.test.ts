@@ -4,7 +4,7 @@ import { mockPKCNoDataPathWithOnlyKuboClient } from "../../../dist/node/test/tes
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { messages } from "../../../dist/node/errors.js";
 import { verifyVote, signVote } from "../../../dist/node/signer/signatures.js";
-import * as remeda from "remeda";
+import { clone, omit } from "remeda";
 import { timestamp } from "../../../dist/node/util.js";
 import validVoteFixture from "../../fixtures/valid_vote.json" with { type: "json" };
 
@@ -38,7 +38,7 @@ describe.concurrent("Sign Vote", async () => {
 
     it(`Can sign and validate Vote correctly`, async () => {
         const verification = await verifyVote({
-            vote: { ...remeda.omit(voteProps, ["communityAddress"]), signature: voteSignature } as VotePubsubMessagePublication,
+            vote: { ...omit(voteProps, ["communityAddress"]), signature: voteSignature } as VotePubsubMessagePublication,
             resolveAuthorNames: pkc.resolveAuthorNames,
             clientsManager: pkc._clientsManager
         });
@@ -46,7 +46,7 @@ describe.concurrent("Sign Vote", async () => {
     });
 
     it(`signVote throws with author.name not being a domain`, async () => {
-        const cloneVote = remeda.clone(voteProps);
+        const cloneVote = clone(voteProps);
         cloneVote.author = { name: "gibbreish" };
         try {
             await signVote({ vote: { ...cloneVote, signer: signers[7] }, pkc: pkc });
@@ -57,7 +57,7 @@ describe.concurrent("Sign Vote", async () => {
     });
     it(`signVote allows author to be omitted`, async () => {
         const signature = await signVote({
-            vote: { ...remeda.omit(voteProps, ["author"]), signer: signers[7] } as VoteOptionsToSign,
+            vote: { ...omit(voteProps, ["author"]), signer: signers[7] } as VoteOptionsToSign,
             pkc: pkc
         });
         expect(signature.publicKey).to.equal(signers[7].publicKey);
@@ -76,7 +76,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
     });
 
     it(`Valid vote signature fixture is validated correctly`, async () => {
-        const vote = remeda.clone(validVoteFixture) as unknown as VotePubsubMessagePublication;
+        const vote = clone(validVoteFixture) as unknown as VotePubsubMessagePublication;
         const verification = await verifyVote({
             vote,
             resolveAuthorNames: pkc.resolveAuthorNames,
@@ -86,7 +86,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
     });
 
     it(`Invalid vote signature gets invalidated correctly`, async () => {
-        const vote = remeda.clone(validVoteFixture) as unknown as VotePubsubMessagePublication;
+        const vote = clone(validVoteFixture) as unknown as VotePubsubMessagePublication;
         vote.commentCid += "1234"; // Should invalidate signature
         const verification = await verifyVote({
             vote,
@@ -97,7 +97,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
     });
 
     it(`verifyVote invalidates a vote with tampered author.name`, async () => {
-        const vote = remeda.clone(validVoteFixture) as unknown as VotePubsubMessagePublication;
+        const vote = clone(validVoteFixture) as unknown as VotePubsubMessagePublication;
         vote.author = { ...(vote.author || {}), name: "gibbresish" };
         const verification = await verifyVote({
             vote,
@@ -118,7 +118,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
             signer
         };
         const vote: VotePubsubMessagePublication = {
-            ...remeda.omit(voteToSign, ["signer", "communityAddress"]),
+            ...omit(voteToSign, ["signer", "communityAddress"]),
             signature: await signVote({ vote: voteToSign, pkc: pkc })
         };
         const verification = await verifyVote({

@@ -11,7 +11,7 @@ import { ResultOfFetchingCommunity } from "../types.js";
 import { NameResolverClient } from "../clients/name-resolver-client.js";
 import type { NameResolveCacheOptions } from "../schema.js";
 import { RemoteCommunity } from "./remote-community.js";
-import * as remeda from "remeda";
+import { keys, mapValues } from "remeda";
 import type { CommunityIpfsType } from "./types.js";
 import { getCommunityNameFromWire } from "./community-wire.js";
 import { getPKCAddressFromPublicKeySync } from "../signer/util.js";
@@ -72,12 +72,12 @@ export class CommunityClientsManager extends PKCClientsManager {
 
     protected override _initKuboRpcClients(): void {
         if (this._pkc.clients.kuboRpcClients)
-            for (const ipfsUrl of remeda.keys.strict(this._pkc.clients.kuboRpcClients))
+            for (const ipfsUrl of keys(this._pkc.clients.kuboRpcClients))
                 this.clients.kuboRpcClients = { ...this.clients.kuboRpcClients, [ipfsUrl]: new CommunityKuboRpcClient("stopped") };
     }
 
     protected override _initPubsubKuboRpcClients(): void {
-        for (const pubsubUrl of remeda.keys.strict(this._pkc.clients.pubsubKuboRpcClients))
+        for (const pubsubUrl of keys(this._pkc.clients.pubsubKuboRpcClients))
             this.clients.pubsubKuboRpcClients = {
                 ...this.clients.pubsubKuboRpcClients,
                 [pubsubUrl]: new CommunityKuboPubsubClient("stopped")
@@ -86,7 +86,7 @@ export class CommunityClientsManager extends PKCClientsManager {
 
     protected override _initLibp2pJsClients(): void {
         if (this._pkc.clients.libp2pJsClients)
-            for (const libp2pJsClientUrl of remeda.keys.strict(this._pkc.clients.libp2pJsClients))
+            for (const libp2pJsClientUrl of keys(this._pkc.clients.libp2pJsClients))
                 this.clients.libp2pJsClients = {
                     ...this.clients.libp2pJsClients,
                     [libp2pJsClientUrl]: new CommunityLibp2pJsClient("stopped")
@@ -94,7 +94,7 @@ export class CommunityClientsManager extends PKCClientsManager {
     }
 
     protected _initPKCRpcClients() {
-        for (const rpcUrl of remeda.keys.strict(this._pkc.clients.pkcRpcClients))
+        for (const rpcUrl of keys(this._pkc.clients.pkcRpcClients))
             this.clients.pkcRpcClients = {
                 ...this.clients.pkcRpcClients,
                 [rpcUrl]: new CommunityPKCRpcStateClient("stopped")
@@ -602,8 +602,8 @@ export class CommunityClientsManager extends PKCClientsManager {
 
         // Only sort if we have more than 3 gateways
         const gatewaysSorted =
-            remeda.keys.strict(this._pkc.clients.ipfsGateways).length <= concurrencyLimit
-                ? remeda.keys.strict(this._pkc.clients.ipfsGateways)
+            keys(this._pkc.clients.ipfsGateways).length <= concurrencyLimit
+                ? keys(this._pkc.clients.ipfsGateways)
                 : await this._pkc._stats.sortGatewaysAccordingToScore("ipns");
 
         // need to handle
@@ -819,9 +819,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                     gatewayPromise
                         .then(async (res) => {
                             if ("error" in res) Object.values(gatewayFetches)[i].error = res.error;
-                            const gatewaysWithError = remeda.keys
-                                .strict(gatewayFetches)
-                                .filter((gatewayUrl) => gatewayFetches[gatewayUrl].error);
+                            const gatewaysWithError = keys(gatewayFetches).filter((gatewayUrl) => gatewayFetches[gatewayUrl].error);
                             if (gatewaysWithError.length === gatewaysSorted.length)
                                 // All gateways failed
                                 reject("All gateways failed to fetch community record " + ipnsName);
@@ -838,7 +836,7 @@ export class CommunityClientsManager extends PKCClientsManager {
         } catch {
             cleanUp();
             throwIfAbortSignalAborted(stopSignal);
-            const gatewayToError = remeda.mapValues(gatewayFetches, (gatewayFetch) => gatewayFetch.error!);
+            const gatewayToError = mapValues(gatewayFetches, (gatewayFetch) => gatewayFetch.error!);
             const hasGatewayConfirmingCurrentRecord = Object.keys(gatewayFetches)
                 .map((gatewayUrl) => gatewayFetches[gatewayUrl].error!)
                 .some(

@@ -1,6 +1,6 @@
 import { BaseClientsManager, OptionsToLoadFromGateway } from "../clients/base-client-manager.js";
 import type { ModQueuePageIpfs, ModQueueSortName, PageIpfs } from "./types.js";
-import * as remeda from "remeda";
+import { isEmpty, keys, unique } from "remeda";
 import Logger from "../logger.js";
 import { BasePages, ModQueuePages, PostsPages, RepliesPages } from "./pages.js";
 import { POSTS_SORT_TYPES, POST_REPLIES_SORT_TYPES, type PageRuntimeFields } from "./util.js";
@@ -44,7 +44,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
         if (!this.clients.ipfsGateways) this.clients.ipfsGateways = {};
         for (const sortType of sortTypes) {
             if (!this.clients.ipfsGateways[sortType]) this.clients.ipfsGateways[sortType] = {};
-            for (const gatewayUrl of remeda.keys.strict(this._pkc.clients.ipfsGateways))
+            for (const gatewayUrl of keys(this._pkc.clients.ipfsGateways))
                 if (!this.clients.ipfsGateways[sortType][gatewayUrl])
                     this.clients.ipfsGateways[sortType][gatewayUrl] = new PagesIpfsGatewayClient("stopped");
         }
@@ -54,7 +54,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
         if (this._pkc.clients.kuboRpcClients && !this.clients.kuboRpcClients) this.clients.kuboRpcClients = {};
         for (const sortType of sortTypes) {
             if (!this.clients.kuboRpcClients[sortType]) this.clients.kuboRpcClients[sortType] = {};
-            for (const kuboRpcUrl of remeda.keys.strict(this._pkc.clients.kuboRpcClients))
+            for (const kuboRpcUrl of keys(this._pkc.clients.kuboRpcClients))
                 if (!this.clients.kuboRpcClients[sortType][kuboRpcUrl])
                     this.clients.kuboRpcClients[sortType][kuboRpcUrl] = new PagesKuboRpcClient("stopped");
         }
@@ -64,7 +64,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
         if (this._pkc.clients.libp2pJsClients && !this.clients.libp2pJsClients) this.clients.libp2pJsClients = {};
         for (const sortType of sortTypes) {
             if (!this.clients.libp2pJsClients[sortType]) this.clients.libp2pJsClients[sortType] = {};
-            for (const libp2pJsClientKey of remeda.keys.strict(this._pkc.clients.libp2pJsClients))
+            for (const libp2pJsClientKey of keys(this._pkc.clients.libp2pJsClients))
                 if (!this.clients.libp2pJsClients[sortType][libp2pJsClientKey])
                     this.clients.libp2pJsClients[sortType][libp2pJsClientKey] = new PagesLibp2pJsClient("stopped");
         }
@@ -74,7 +74,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
         if (this._pkc.clients.pkcRpcClients && !this.clients.pkcRpcClients) this.clients.pkcRpcClients = {};
         for (const sortType of sortTypes) {
             if (!this.clients.pkcRpcClients[sortType]) this.clients.pkcRpcClients[sortType] = {};
-            for (const rpcUrl of remeda.keys.strict(this._pkc.clients.pkcRpcClients))
+            for (const rpcUrl of keys(this._pkc.clients.pkcRpcClients))
                 if (!this.clients.pkcRpcClients[sortType][rpcUrl])
                     this.clients.pkcRpcClients[sortType][rpcUrl] = new PagesPKCRpcStateClient("stopped");
         }
@@ -109,7 +109,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
         if (!curSortTypes) {
             this._pkc._memCaches.pageCidToSortTypes.set(pageCid, sortTypes);
         } else {
-            const newSortTypes = remeda.unique([...curSortTypes, ...sortTypes]);
+            const newSortTypes = unique([...curSortTypes, ...sortTypes]);
             this._pkc._memCaches.pageCidToSortTypes.set(pageCid, newSortTypes);
         }
     }
@@ -128,9 +128,9 @@ export class BasePagesClientsManager extends BaseClientsManager {
     }
 
     updatePagesMaxSizeCache(newPageCids: string[], pageMaxSizeBytes: number) {
-        remeda
-            .unique(newPageCids)
-            .forEach((pageCid) => this._pkc._memCaches.pagesMaxSize.set(this._calculatePageMaxSizeCacheKey(pageCid), pageMaxSizeBytes));
+        unique(newPageCids).forEach((pageCid) =>
+            this._pkc._memCaches.pagesMaxSize.set(this._calculatePageMaxSizeCacheKey(pageCid), pageMaxSizeBytes)
+        );
     }
 
     updatePageCidsToSortTypesToIncludeSubsequent(nextPageCid: string, previousPageCid: string) {
@@ -285,15 +285,13 @@ export class BasePagesClientsManager extends BaseClientsManager {
     }): Promise<{ page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
         const { pageCid } = opts;
         const log = Logger("pkc-js:pages:getPage");
-        const sortTypesFromPageCids = remeda.keys
-            .strict(this._pages.pageCids)
-            .filter((sortType) => this._pages.pageCids[sortType] === pageCid);
+        const sortTypesFromPageCids = keys(this._pages.pageCids).filter((sortType) => this._pages.pageCids[sortType] === pageCid);
         if (sortTypesFromPageCids.length > 0) {
             this.updatePageCidsToSortTypes(this._pages.pageCids);
         }
         const sortTypesFromMemcache: string[] | undefined = this._pkc._memCaches.pageCidToSortTypes.get(pageCid);
 
-        const isFirstPage = Object.values(this._pages.pageCids).includes(pageCid) || remeda.isEmpty(this._pages.pageCids);
+        const isFirstPage = Object.values(this._pages.pageCids).includes(pageCid) || isEmpty(this._pages.pageCids);
         const pageMaxSize = opts.pageMaxSize
             ? opts.pageMaxSize
             : this._pkc._memCaches.pagesMaxSize.get(this._calculatePageMaxSizeCacheKey(pageCid))
@@ -356,7 +354,7 @@ export class RepliesPagesClientsManager extends BasePagesClientsManager {
     };
 
     protected override getSortTypes() {
-        return remeda.keys.strict(POST_REPLIES_SORT_TYPES);
+        return keys(POST_REPLIES_SORT_TYPES);
     }
 
     protected override preFetchPage(): void {
@@ -390,7 +388,7 @@ export class CommunityPostsPagesClientsManager extends BasePagesClientsManager {
     };
 
     protected override getSortTypes() {
-        return remeda.keys.strict(POSTS_SORT_TYPES);
+        return keys(POSTS_SORT_TYPES);
     }
 
     protected override preFetchPage(): void {

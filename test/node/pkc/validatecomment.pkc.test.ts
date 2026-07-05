@@ -12,7 +12,7 @@ import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { PKCError } from "../../../dist/node/pkc-error.js";
 import signers from "../../fixtures/signers.js";
-import * as remeda from "remeda";
+import { clone as remedaClone } from "remeda";
 import pRetry from "p-retry";
 import { describe, beforeAll, afterAll, beforeEach, afterEach, it } from "vitest";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
@@ -36,7 +36,7 @@ const cloneCommentInstance = (source: Comment): Comment => {
     const clone = proto ? Object.assign(Object.create(proto), source) : { ...source };
     if (typeof clone.toJSON === "function") {
         // shallow clone for nested refs; tests mutate only top-level props
-        clone.raw = remeda.clone(source.raw);
+        clone.raw = remedaClone(source.raw);
     } else {
         clone.raw = JSON.parse(JSON.stringify(source.raw));
     }
@@ -164,7 +164,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
 
             it("should validate a valid Post pageComment object (validateReplies=false)", async () => {
                 try {
-                    await remotePKC.validateComment(remeda.clone(postPageComment), { validateReplies: false });
+                    await remotePKC.validateComment(remedaClone(postPageComment), { validateReplies: false });
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill, but it rejected with: ${e}`);
                 }
@@ -172,7 +172,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
 
             it("should validate a valid Post pageComment object (validateReplies=true)", async () => {
                 try {
-                    await remotePKC.validateComment(remeda.clone(postPageComment), { validateReplies: true });
+                    await remotePKC.validateComment(remedaClone(postPageComment), { validateReplies: true });
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill, but it rejected with: ${e}`);
                 }
@@ -181,7 +181,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
             // --- Tests for Reply Page Comment (from Flat Page) ---
             it("should validate a valid Reply pageComment object from flat page (validateReplies=undefined)", async () => {
                 try {
-                    await remotePKC.validateComment(remeda.clone(replyFromFlatPage));
+                    await remotePKC.validateComment(remedaClone(replyFromFlatPage));
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill for replyFromFlatPage, but it rejected with: ${e}`);
                 }
@@ -189,7 +189,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
 
             it("should validate a valid Reply pageComment object from flat page (validateReplies=false)", async () => {
                 try {
-                    await remotePKC.validateComment(remeda.clone(replyFromFlatPage), { validateReplies: false });
+                    await remotePKC.validateComment(remedaClone(replyFromFlatPage), { validateReplies: false });
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill for replyFromFlatPage, but it rejected with: ${e}`);
                 }
@@ -198,7 +198,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
             it("should validate a valid Reply pageComment object from flat page (validateReplies=true)", async () => {
                 // Since this reply might itself have replies (even though fetched via flat page), validating them is valid
                 try {
-                    await remotePKC.validateComment(remeda.clone(replyFromFlatPage), { validateReplies: true });
+                    await remotePKC.validateComment(remedaClone(replyFromFlatPage), { validateReplies: true });
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill for replyFromFlatPage, but it rejected with: ${e}`);
                 }
@@ -207,7 +207,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
             // --- Tests for Reply Page Comment (from Best Page) ---
             it("should validate a valid Reply pageComment object from best page (validateReplies=undefined)", async () => {
                 try {
-                    await remotePKC.validateComment(remeda.clone(replyFromBestPage));
+                    await remotePKC.validateComment(remedaClone(replyFromBestPage));
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill for replyFromBestPage, but it rejected with: ${e}`);
                 }
@@ -215,7 +215,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
 
             it("should validate a valid Reply pageComment object from best page (validateReplies=false)", async () => {
                 try {
-                    await remotePKC.validateComment(remeda.clone(replyFromBestPage), { validateReplies: false });
+                    await remotePKC.validateComment(remedaClone(replyFromBestPage), { validateReplies: false });
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill for replyFromBestPage, but it rejected with: ${e}`);
                 }
@@ -224,7 +224,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
             it("should validate a valid Reply pageComment object from best page (validateReplies=true)", async () => {
                 // Since this reply might itself have replies, validating them is valid
                 try {
-                    await remotePKC.validateComment(remeda.clone(replyFromBestPage), { validateReplies: true });
+                    await remotePKC.validateComment(remedaClone(replyFromBestPage), { validateReplies: true });
                 } catch (e) {
                     expect.fail(`Expected promise to fulfill for replyFromBestPage, but it rejected with: ${e}`);
                 }
@@ -261,7 +261,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
                 let invalidComment: Comment | undefined;
                 try {
                     invalidComment = await pkc.createComment(sourcePostCommentInstance); // Use source
-                    invalidComment.raw.comment = remeda.clone(invalidComment.raw.comment);
+                    invalidComment.raw.comment = remedaClone(invalidComment.raw.comment);
                     invalidComment.raw.comment!.signature.signature += "invalid";
                     await pkc.validateComment(invalidComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
@@ -277,7 +277,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
                 let invalidComment: Comment | undefined;
                 try {
                     invalidComment = await pkc.createComment(sourcePostCommentInstance); // Use source
-                    const tamperedUpdate = remeda.clone(invalidComment.raw.commentUpdate);
+                    const tamperedUpdate = remedaClone(invalidComment.raw.commentUpdate);
                     tamperedUpdate!.signature.signature += "invalid"; // Tamper signature directly
                     invalidComment.raw.commentUpdate = tamperedUpdate;
                     await pkc.validateComment(invalidComment);
@@ -293,7 +293,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
             it("should reject Post instance if CommentIpfs data is missing", async () => {
                 let invalidComment: Comment | undefined;
                 try {
-                    invalidComment = await pkc.createComment(remeda.clone(sourcePostCommentInstance)); // Use source
+                    invalidComment = await pkc.createComment(remedaClone(sourcePostCommentInstance)); // Use source
                     invalidComment.raw.comment = undefined;
                     await pkc.validateComment(invalidComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
@@ -379,7 +379,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
             // --- Invalid Post Page Comment Tests ---
             it("should reject Post pageComment if comment signature is invalid", async () => {
                 try {
-                    const invalidPageComment = remeda.clone(postPageComment);
+                    const invalidPageComment = remedaClone(postPageComment);
                     invalidPageComment.raw.comment.signature.signature += "invalid";
                     await pkc.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
@@ -391,8 +391,8 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
 
             it("should reject Post pageComment if commentUpdate signature is invalid", async () => {
                 try {
-                    const invalidPageComment = remeda.clone(postPageComment);
-                    invalidPageComment.raw.commentUpdate = remeda.clone(invalidPageComment.raw.commentUpdate);
+                    const invalidPageComment = remedaClone(postPageComment);
+                    invalidPageComment.raw.commentUpdate = remedaClone(invalidPageComment.raw.commentUpdate);
                     invalidPageComment.raw.commentUpdate.signature.signature += "invalid";
                     await pkc.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
@@ -404,7 +404,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
 
             it("should reject Post pageComment if comment data is missing", async () => {
                 try {
-                    const invalidPageComment = remeda.clone(postPageComment);
+                    const invalidPageComment = remedaClone(postPageComment);
                     (invalidPageComment.raw as { comment: undefined }).comment = undefined;
                     await pkc.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
@@ -416,7 +416,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
 
             it("should reject Post pageComment if commentUpdate data is missing", async () => {
                 try {
-                    const invalidPageComment = remeda.clone(postPageComment);
+                    const invalidPageComment = remedaClone(postPageComment);
                     (invalidPageComment.raw as { commentUpdate: undefined }).commentUpdate = undefined;
                     await pkc.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
@@ -428,7 +428,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
 
             it("should reject Post pageComment if commentUpdate.cid is missing", async () => {
                 try {
-                    const invalidPageComment = remeda.clone(postPageComment);
+                    const invalidPageComment = remedaClone(postPageComment);
                     invalidPageComment.raw.commentUpdate.cid = undefined!;
                     invalidPageComment.cid = undefined!;
                     await pkc.validateComment(invalidPageComment);
@@ -441,7 +441,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
 
             it("should reject Post pageComment if postCid is missing", async () => {
                 try {
-                    const invalidPageComment = remeda.clone(postPageComment);
+                    const invalidPageComment = remedaClone(postPageComment);
                     invalidPageComment.postCid = undefined!;
                     await pkc.validateComment(invalidPageComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
@@ -468,7 +468,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
         });
 
         it("should validate a page comment parsed from an old-format wire record", async () => {
-            const pageJson = parsePageIpfs(remeda.clone(legacyPageIpfsFixture) as PageIpfs);
+            const pageJson = parsePageIpfs(remedaClone(legacyPageIpfsFixture) as PageIpfs);
             const firstComment = pageJson.comments[0];
             // The fixture uses an IPNS-key subplebbitAddress (not a domain), so the page parser
             // should derive communityPublicKey from it while communityName stays undefined

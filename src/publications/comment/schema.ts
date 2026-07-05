@@ -14,7 +14,7 @@ import {
     atLeastOneCommunityIdentifierMessage
 } from "../../schema/schema.js";
 import { CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema } from "../comment-edit/schema.js";
-import * as remeda from "remeda";
+import { difference, keys, mapToObj, omit, unique } from "remeda";
 import { messages } from "../../errors.js";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
 import { RepliesPagesIpfsSchema } from "../../pages/schema.js";
@@ -59,12 +59,10 @@ export const CreateCommentOptionsWithRefinementSchema = CreateCommentOptionsSche
 
 // Below is what's used to initialize a local publication to be published
 
-export const CommentSignedPropertyNames = remeda.keys.strict(
-    remeda.omit(CreateCommentOptionsSchema.shape, keysToOmitFromSignedPropertyNames)
-);
+export const CommentSignedPropertyNames = keys(omit(CreateCommentOptionsSchema.shape, keysToOmitFromSignedPropertyNames));
 
 const commentPubsubKeys = <Record<(typeof CommentSignedPropertyNames)[number] | "signature", true>>(
-    remeda.mapToObj([...CommentSignedPropertyNames, "signature"], (x) => [x, true])
+    mapToObj([...CommentSignedPropertyNames, "signature"], (x) => [x, true])
 );
 
 export const CommentPubsubMessagePublicationSchema = CreateCommentOptionsSchema.merge(PublicationBaseBeforeSigning)
@@ -158,7 +156,7 @@ export const CommentUpdateSchema = z
     })
     .strict();
 
-export const CommentUpdateSignedPropertyNames = remeda.keys.strict(remeda.omit(CommentUpdateSchema.shape, ["signature"]));
+export const CommentUpdateSignedPropertyNames = keys(omit(CommentUpdateSchema.shape, ["signature"]));
 
 // Community-computed fields on CommentUpdate. Challenges may not set these via the `commentUpdate`
 // field on a ChallengeResult; any other key (including new unknown ones invented by external
@@ -202,8 +200,8 @@ export const CommentUpdateForDisapprovedPendingComment = CommentUpdateSchema.pic
     approved: true
 }).strict();
 
-export const CommentUpdateForDisapprovedPendingCommentSignedPropertyNames = remeda.keys.strict(
-    remeda.omit(CommentUpdateForDisapprovedPendingComment.shape, ["signature"])
+export const CommentUpdateForDisapprovedPendingCommentSignedPropertyNames = keys(
+    omit(CommentUpdateForDisapprovedPendingComment.shape, ["signature"])
 );
 
 // Strict for declared fields; challenge-supplied unknown keys (e.g. `reason`, `countryCode`) are
@@ -221,8 +219,8 @@ export const CommentUpdateForChallengeVerificationSchema = CommentUpdateSchema.p
     .merge(z.object({ pendingApproval: z.boolean().optional() }))
     .strict();
 
-export const CommentUpdateForChallengeVerificationSignedPropertyNames = remeda.keys.strict(
-    remeda.omit(CommentUpdateForChallengeVerificationSchema.shape, ["signature"])
+export const CommentUpdateForChallengeVerificationSignedPropertyNames = keys(
+    omit(CommentUpdateForChallengeVerificationSchema.shape, ["signature"])
 );
 
 // Comment table here
@@ -294,21 +292,21 @@ type CommentReservedFieldCandidate =
     | (typeof CommentUpdateForDisapprovedPendingCommentSignedPropertyNames)[number]
     | AdditionalCommentReservedField;
 
-const commentReservedFieldCandidates = remeda.unique<CommentReservedFieldCandidate>([
-    ...remeda.keys.strict(CommentIpfsSchema.shape),
-    ...remeda.keys.strict(CommentsTableRowSchema.shape),
-    ...remeda.keys.strict(CommentUpdateTableRowSchema.shape),
-    ...remeda.keys.strict(CommentChallengeRequestToEncryptSchema.shape),
-    ...remeda.keys.strict(CreateCommentOptionsSchema.shape),
+const commentReservedFieldCandidates = unique([
+    ...keys(CommentIpfsSchema.shape),
+    ...keys(CommentsTableRowSchema.shape),
+    ...keys(CommentUpdateTableRowSchema.shape),
+    ...keys(CommentChallengeRequestToEncryptSchema.shape),
+    ...keys(CreateCommentOptionsSchema.shape),
     ...CommentUpdateForChallengeVerificationSignedPropertyNames,
     ...CommentUpdateSignedPropertyNames,
     ...CommentUpdateForDisapprovedPendingCommentSignedPropertyNames,
     ...additionalCommentReservedFields
-]);
+] as CommentReservedFieldCandidate[]);
 
-export const CommentPubsubMessageReservedFields = remeda.difference<CommentReservedFieldCandidate>(
+export const CommentPubsubMessageReservedFields = difference(
     commentReservedFieldCandidates,
-    remeda.keys.strict(CommentPubsubMessagePublicationSchema.shape) as CommentReservedFieldCandidate[]
+    keys(CommentPubsubMessagePublicationSchema.shape) as CommentReservedFieldCandidate[]
 );
 
 type AssertTrue<T extends true> = T;
@@ -322,14 +320,14 @@ type MissingCommentReservedField = Exclude<CommentJsonFields, CommentPublication
 type _EnsureAllCommentFieldsAreReserved = AssertTrue<MissingCommentReservedField extends never ? true : false>;
 
 // Reserved fields for CommentIpfs — CommentPubsubMessage reserved fields minus fields that are legitimate in CommentIpfs
-export const CommentIpfsReservedFields = remeda.difference(
+export const CommentIpfsReservedFields = difference(
     CommentPubsubMessageReservedFields,
-    remeda.keys.strict(CommentIpfsSchema.shape) as typeof CommentPubsubMessageReservedFields
+    keys(CommentIpfsSchema.shape) as typeof CommentPubsubMessageReservedFields
 );
 
-export const CommentUpdateReservedFields = remeda.difference(CommentPubsubMessageReservedFields, [
-    ...remeda.keys.strict(CommentUpdateSchema.shape),
-    ...remeda.keys.strict(CommentUpdateTableRowSchema.shape),
+export const CommentUpdateReservedFields = difference(CommentPubsubMessageReservedFields, [
+    ...keys(CommentUpdateSchema.shape),
+    ...keys(CommentUpdateTableRowSchema.shape),
     "pendingApproval"
 ]);
 
