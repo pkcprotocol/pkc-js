@@ -43,10 +43,10 @@ import { PKC } from "./pkc/pkc.js";
 import Logger from "./logger.js";
 import retry from "retry";
 import { peerIdFromString } from "@libp2p/peer-id";
-import { unmarshalIPNSRecord, multihashToIPNSRoutingKey, type IPNSRecord } from "ipns";
-import { ipnsValidator } from "ipns/validator";
-import { importFile } from "ipfs-unixfs-importer";
-import { MemoryBlockstore } from "blockstore-core";
+// ipns / ipns/validator / blockstore-core / ipfs-unixfs-importer are dynamic-imported inside the async
+// functions that use them (IPNS-record read/validate + CID-size helpers) so these externals stay off
+// the eager import path — an RPC-only consumer never resolves them at import time.
+import type { IPNSRecord } from "ipns";
 import { findUpdatingCommunity } from "./pkc/tracked-instance-registry-util.js";
 
 export function timestamp() {
@@ -1171,6 +1171,7 @@ export async function getIpnsRecordInLocalKuboNode(kuboRpcClient: KuboRpcClient,
             })
     );
     try {
+        const { unmarshalIPNSRecord } = await import("ipns");
         return unmarshalIPNSRecord(ipnsRecordRaw);
     } catch (e) {
         throw new PKCError("ERR_FAILED_TO_PARSE_LOCAL_RAW_IPNS_RECORD", { ipnsName, ipnsFetchUrl, parseError: e });
@@ -1233,6 +1234,8 @@ export async function fetchAndValidateIpnsRecordFromGateway(
         });
     }
 
+    const { multihashToIPNSRoutingKey, unmarshalIPNSRecord } = await import("ipns");
+    const { ipnsValidator } = await import("ipns/validator");
     // Validate the record's signature AND validity (EOL) against the routing key derived from the
     // IPNS name. This is what makes following the chain through an untrusted gateway safe.
     try {
@@ -1273,6 +1276,8 @@ export async function fetchAndValidateIpnsRecordFromGateway(
 const textEncoder = new TextEncoder();
 
 export async function calculateStringSizeSameAsIpfsAddCidV0(content: string): Promise<number> {
+    const { MemoryBlockstore } = await import("blockstore-core");
+    const { importFile } = await import("ipfs-unixfs-importer");
     const blockstore = new MemoryBlockstore();
     const entry = await importFile({ path: "content.json", content: textEncoder.encode(content) }, blockstore, {
         cidVersion: 0,
