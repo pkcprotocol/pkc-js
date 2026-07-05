@@ -29,7 +29,7 @@ import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { create as CreateKuboRpcClient } from "kubo-rpc-client";
 import Logger from "../../logger.js";
 import retry from "retry";
-import { difference, keys, pick } from "remeda";
+import { difference, keys, pick, unique } from "remeda";
 import type { CommunityIpfsType } from "../../community/types.js";
 import type {
     CommentIpfsType,
@@ -217,7 +217,9 @@ export async function tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc: PKC
                 );
             }
         }
-        const newPersistentDeletedCommunities = difference(deletedPersistentCommunities, communitiesThatWereDeletedSuccessfully);
+        // unique() first: remeda v2's difference is multiset; guard against a duplicated address
+        // leaving a community wrongly marked deleted-pending. This list is conceptually a set.
+        const newPersistentDeletedCommunities = difference(unique(deletedPersistentCommunities), communitiesThatWereDeletedSuccessfully);
         if (newPersistentDeletedCommunities.length === 0) {
             await pkc._storage.removeItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES]);
             log("Removed persistent deleted communities from storage because there are none left");

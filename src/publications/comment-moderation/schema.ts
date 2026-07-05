@@ -11,7 +11,7 @@ import {
     hasAtLeastOneCommunityIdentifier,
     atLeastOneCommunityIdentifierMessage
 } from "../../schema/schema.js";
-import { difference, keys, mapToObj, omit } from "remeda";
+import { difference, keys, mapToObj, omit, unique } from "remeda";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
 
 export const ModeratorOptionsSchema = z
@@ -74,7 +74,10 @@ export const CommentModerationChallengeRequestToEncryptSchema = CreateCommentMod
     });
 
 export const CommentModerationReservedFields = difference(
-    [
+    // unique() because remeda v2's difference is multiset (removes each `other` element once, not
+    // all occurrences); a candidate that appears in both source schemas AND the pubsub schema would
+    // otherwise survive as reserved. v1's difference was set-based. (Matches comment-edit's guard.)
+    unique([
         ...keys(CommentModerationsTableRowSchema.shape),
         ...keys(CommentModerationChallengeRequestToEncryptSchema.shape),
         "shortCommunityAddress",
@@ -88,6 +91,6 @@ export const CommentModerationReservedFields = difference(
         "signer",
         "clients",
         "nameResolved"
-    ],
+    ]),
     keys(CommentModerationPubsubMessagePublicationSchema.shape)
 );

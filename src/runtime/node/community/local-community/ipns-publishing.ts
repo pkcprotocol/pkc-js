@@ -1,5 +1,5 @@
 import Logger from "../../../../logger.js";
-import { difference, isEmpty, keys, omit, pick } from "remeda";
+import { difference, isEmpty, keys, omit, pick, unique } from "remeda";
 import * as cborg from "cborg";
 import { sha256 } from "js-sha256";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
@@ -115,7 +115,10 @@ export async function addOldPageCidsToCidsToUnpin(
             pages: newPages,
             clientManager: community._clientsManager
         });
-        const cidsToUnpin = difference(allPageCidsUnderCurPages, allPageCidsUnderNewPages);
+        // unique() first: remeda v2's difference is multiset, so a cid appearing twice under the
+        // current pages but once under the new pages would otherwise be unpinned despite still being
+        // referenced. Set semantics (v1) is what we want here — only unpin cids absent from newPages.
+        const cidsToUnpin = difference(unique(allPageCidsUnderCurPages), allPageCidsUnderNewPages);
         cidsToUnpin.forEach((cid) => {
             community._cidsToUnPin.add(cid);
             if (addToBlockRm) community._blocksToRm.push(cid);

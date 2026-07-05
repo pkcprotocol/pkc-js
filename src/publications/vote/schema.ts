@@ -11,7 +11,7 @@ import {
     hasAtLeastOneCommunityIdentifier,
     atLeastOneCommunityIdentifierMessage
 } from "../../schema/schema.js";
-import { difference, keys, mapToObj, omit } from "remeda";
+import { difference, keys, mapToObj, omit, unique } from "remeda";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
 
 export const CreateVoteUserOptionsSchema = CreatePublicationUserOptionsSchema.extend({
@@ -52,7 +52,10 @@ export const VoteChallengeRequestToEncryptSchema = CreateVoteUserOptionsSchema.s
 });
 
 export const VotePubsubReservedFields = difference(
-    [
+    // unique() because remeda v2's difference is multiset (removes each `other` element once, not
+    // all occurrences); `vote` appears in both source schemas AND the pubsub schema and would
+    // otherwise survive as reserved. v1's difference was set-based. (Matches comment-edit's guard.)
+    unique([
         ...keys(VoteTablesRowSchema.shape),
         ...keys(VoteChallengeRequestToEncryptSchema.shape),
         "shortCommunityAddress",
@@ -65,6 +68,6 @@ export const VotePubsubReservedFields = difference(
         "signer",
         "clients",
         "nameResolved"
-    ],
+    ]),
     keys(VotePubsubMessagePublicationSchema.shape)
 );
