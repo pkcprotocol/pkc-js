@@ -3,7 +3,7 @@ import { PKCError } from "./pkc-error.js";
 import type { CommunityIpfsType } from "./community/types.js";
 //@ts-expect-error
 import extName from "ext-name";
-import { CID } from "kubo-rpc-client";
+import { CID } from "multiformats/cid"; // re-sourced from kubo-rpc-client (identical class) to keep kubo off the eager import path
 import type { Multiaddr } from "@multiformats/multiaddr";
 import * as Digest from "multiformats/hashes/digest";
 import { Buffer } from "buffer";

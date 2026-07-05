@@ -46,7 +46,7 @@ import type { SignerType } from "../../signer/types.js";
 import type { CreatePublicationOptions } from "../../types.js";
 import { CommentClientsManager } from "./comment-client-manager.js";
 import type { CommunityIpfsType } from "../../community/types.js";
-import { CID } from "kubo-rpc-client";
+import { CID } from "multiformats/cid"; // re-sourced from kubo-rpc-client (identical class) to keep kubo off the eager import path
 import type { PublicationEventArgs, PublicationEvents } from "../types.js";
 import { getAuthorNameFromRuntime } from "../publication-author.js";
 import { sha256 } from "js-sha256";

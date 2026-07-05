@@ -242,6 +242,7 @@ row here so each change shows its delta against the prior one. (Fast 8-core host
 | bundle dist (our files; deps external) | ~245ms | ~196ms          | ~173ms (unbundled) | ~258ms (unbundled) | node_modules ESM closure  | #126 (rolldown -> dist/bundled)  |
 | inline pure-JS deps (zod, undici, ...) | ~253ms | ~195ms          | ~179ms (unbundled) | ~256ms (unbundled) | kubo-rpc-client closure   | #126 (config/bundle-externals.js) |
 | inline kubo-rpc-client + unixfs-importer | ~205ms | ~155ms        | ~176ms (unbundled) | ~256ms (unbundled) | remaining externals + link | #126 (~21% vs deps-external bundle) |
+| defer kubo off the eager path (dynamic import in the client factory + CID re-sourced from `multiformats/cid`) | ~205ms | — | — | — | — | perf/rpc-import-lazy. Structural: the ~371-module kubo chunk left the static closure of `dist/bundled/index.js` (now a lazy chunk, loaded only when a PKC actually constructs a kubo client). Fast-host wall-clock delta is small (~214→205ms, ~4%); the real win is on slow hosts where evaluating the kubo chunk costs a large fraction of the ~1.8s import — pending production re-measurement. |
 
 ### Production validation (2026-06-10)
 

@@ -26,7 +26,8 @@ import type { OpenGraphScraperOptions } from "open-graph-scraper/types";
 import { Agent as HttpAgent } from "http";
 import { Agent as HttpsAgent } from "https";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
-import { create as CreateKuboRpcClient } from "kubo-rpc-client";
+// kubo-rpc-client (~371 modules) is dynamic-imported inside createKuboRpcClient (below) so it stays
+// off the eager import path; only a PKC that actually constructs a kubo client pays for it.
 import Logger from "../../logger.js";
 import retry from "retry";
 import * as remeda from "remeda";
@@ -484,9 +485,12 @@ export async function moveCommunityDbToDeletedDirectory(communityAddress: string
     }
 }
 
-export function createKuboRpcClient(kuboRpcClientOptions: KuboRpcClient["_clientOptions"]): KuboRpcClient["_client"] {
+export async function createKuboRpcClient(
+    kuboRpcClientOptions: KuboRpcClient["_clientOptions"]
+): Promise<KuboRpcClient["_client"]> {
     const log = Logger("pkc-js:pkc:createKuboRpcClient");
     log.trace("Creating a new kubo client on node with options", kuboRpcClientOptions);
+    const { create: CreateKuboRpcClient } = await import("kubo-rpc-client");
     const isHttpsAgent =
         (typeof kuboRpcClientOptions.url === "string" && kuboRpcClientOptions.url.startsWith("https")) ||
         kuboRpcClientOptions?.protocol === "https" ||

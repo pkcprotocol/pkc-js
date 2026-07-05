@@ -1,7 +1,8 @@
 import type { KuboRpcClient, NativeFunctions } from "../../types.js";
 import { default as browserNativeFunctions } from "./native-functions.js";
 import Logger from "../../logger.js";
-import { create as CreateKuboRpcClient } from "kubo-rpc-client";
+// kubo-rpc-client is dynamic-imported inside createKuboRpcClient (below) so it stays off the eager
+// import path; only a PKC that actually constructs a kubo client pays for it.
 import { PKCError } from "../../pkc-error.js";
 
 // Functions should not be called in browser
@@ -52,9 +53,12 @@ export async function importSignerIntoKuboNode(ipnsKeyName: string, ipfsKey: Uin
     return { id: resJson.Id, name: resJson.Name };
 }
 
-export function createKuboRpcClient(kuboRpcClientOptions: KuboRpcClient["_clientOptions"]): KuboRpcClient["_client"] {
+export async function createKuboRpcClient(
+    kuboRpcClientOptions: KuboRpcClient["_clientOptions"]
+): Promise<KuboRpcClient["_client"]> {
     const log = Logger("pkc-js:pkc:createKuboRpcClient");
     log("Creating a new ipfs client on browser with options", kuboRpcClientOptions);
+    const { create: CreateKuboRpcClient } = await import("kubo-rpc-client");
 
     const kuboRpcClient = CreateKuboRpcClient({
         ...kuboRpcClientOptions

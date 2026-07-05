@@ -42,7 +42,7 @@ import {
     CommunityLibp2pJsClient,
     CommunityPKCRpcStateClient
 } from "./community-clients.js";
-import { CID } from "kubo-rpc-client";
+import { CID } from "multiformats/cid"; // re-sourced from kubo-rpc-client (identical class) to keep kubo off the eager import path
 import { getAuthorNameFromRuntime } from "../publications/publication-author.js";
 
 import { type CommunityGatewayFetch, selectWinningGatewayCommunity } from "./community-gateway-selection.js";
