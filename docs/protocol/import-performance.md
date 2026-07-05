@@ -154,6 +154,32 @@ were consolidated into it).
 -   [ ] **Thin client entry point** — e.g. a `./client` export that pulls a minimal graph so RPC-only
         consumers never resolve/link the local-node modules at all. Likely unnecessary now that the
         heavy leaves are lazy; revisit only if the residual is still too high on slow hardware.
+-   [x] **Tree-shake `remeda` (upgrade to v2 + named imports)** — every module did
+        `import * as remeda from "remeda"`, and a namespace import cannot be tree-shaken, so all 164 of
+        remeda's per-function modules landed in every static closure (~53% of the slim `./client`
+        entry's 309 modules). remeda **v1 does not tree-shake even with named imports** — its
+        `export *` barrel plus the TS namespace-merge `.strict` IIFE pattern defeat rolldown (verified
+        with a throwaway rolldown build: named imports of a few functions still pulled all 164). remeda
+        **v2** tree-shakes cleanly, so this bumps to v2 and converts every `import * as remeda` site in
+        `src/` (49) and `test/` (31) to specific named imports (`remeda.pick` → `pick`).
+
+    Result: the `./client` static closure drops from **309 → 167 modules** (remeda 164 → 22) and the
+    `.` index closure from 164 → 32 remeda modules. Wall-clock is a **modest** improvement — remeda's
+    per-module link cost is tiny — so on the slow prod host (Node v22.22.2) the `./client` entry import
+    went ~1274ms → ~1218ms (~4-5%, medians of 6 warm runs) and the full `.` index entry moved only
+    within noise (~2049ms → ~2021ms). The value is the far smaller module graph (fewer files to
+    resolve/link, less memory), which is a prerequisite for pushing `./client` toward sub-second.
+
+    v2 API migration notes: the `.strict` variants were removed (strict is the default), so
+    `keys.strict`/`fromEntries.strict`/`sortBy.strict`/`groupBy.strict` drop `.strict` and
+    `isDefined.strict` (null+undefined) becomes `isNonNullish`; `maxBy(a,fn)`→`firstBy(a,[fn,"desc"])`,
+    `minBy(a,fn)`→`firstBy(a,fn)`, `flatten`/`flattenDeep`→`flat`; the `unique<T>`/`difference<T>` type
+    param is the container in v2 (dropped). Two behavior changes bit at runtime: `omit`/`pick` key
+    params are typed `const Keys extends readonly ...`, so `keysToOmitFromSignedPropertyNames` had to
+    become an `as const` tuple to keep removing keys from the derived zod `.pick()` schema types; and
+    **v2's `difference` is multiset** (removes each `other` element once) where v1's was set-based —
+    the `*ReservedFields` candidate lists (which concatenate multiple key sources) now wrap their first
+    argument in `unique()` so a duplicated-and-signed field is not wrongly retained as reserved.
 -   [x] **Bundle the published `dist` (our files; deps external)** (done in #126) — a rolldown step
         ([`config/build-node-bundle.js`](../../config/build-node-bundle.js)) collapses the compiled
         `dist/node/*.js` graph into a few ESM chunks under `dist/bundled/`, and the package.json
