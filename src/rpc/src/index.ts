@@ -1198,9 +1198,39 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         };
         community.on("error", errorListener);
 
+        // Guards recovery from firing during transitions we initiate on purpose (an unsubscribe
+        // teardown, or the stop()+update() swap in the settings handler below)
+        let intentionalStopInFlight = false;
+        let recovering = false;
+        // The subscription's mirror shares a server-side pkc._updatingCommunities entry with every
+        // other subscription to the same community. That shared entry can be stopped while this
+        // client is still subscribed (its refcount driven to 0 by another subscription's teardown
+        // or setSettings, or a pkc being destroyed), which cascades this mirror to "stopped"
+        // (src/community/remote-community.ts). Nothing else revives it, so the client's websocket
+        // would stay connected but silent forever (issue #129 / #181). The client never asked to
+        // stop, so re-establish updating on a fresh entry.
+        const recoverIfStrandedListener = async (newState: string) => {
+            if (newState !== "stopped" || isStartedCommunity || intentionalStopInFlight || recovering) return;
+            // Client has unsubscribed if the cleanup is gone; don't resurrect a dead subscription
+            if (!this.subscriptionCleanups?.[connectionId]?.[subscriptionId]) return;
+            recovering = true;
+            try {
+                log("Recovering community subscription", community.address, "whose shared updating instance was stopped");
+                await community.update();
+            } catch (e) {
+                log.error("Failed to recover community subscription after its updating instance stopped", community.address, e);
+            } finally {
+                recovering = false;
+            }
+        };
+        community.on("statechange", recoverIfStrandedListener);
+
         // cleanup function
         this.subscriptionCleanups[connectionId][subscriptionId] = async () => {
             log("Cleaning up community", community.address, "client subscription");
+            // Remove the recovery listener FIRST so the stop() below (an intentional teardown) does
+            // not trigger a resurrection
+            community.removeListener("statechange", recoverIfStrandedListener);
             community.removeListener("update", updateListener);
             community.removeListener("updatingstatechange", updatingStateListener);
             community.removeListener("error", errorListener);
@@ -1215,9 +1245,14 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         this._onSettingsChange[connectionId][subscriptionId] = async ({ newPKC }: { newPKC: PKC }) => {
             // TODO this may need changing
             if (!isStartedCommunity) {
-                community._pkc = newPKC;
-                await community.stop();
-                await community.update();
+                intentionalStopInFlight = true;
+                try {
+                    community._pkc = newPKC;
+                    await community.stop();
+                    await community.update();
+                } finally {
+                    intentionalStopInFlight = false;
+                }
             }
         };
 
