@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.63](https://github.com/pkcprotocol/pkc-js/compare/v0.0.62...v0.0.63) (2026-07-06)
+
+### Bug Fixes
+
+* **rpc:** recover community subscription stranded when its shared updating entry stops ([#129](https://github.com/pkcprotocol/pkc-js/issues/129)) ([#182](https://github.com/pkcprotocol/pkc-js/issues/182)) ([b7f22f8](https://github.com/pkcprotocol/pkc-js/commit/b7f22f8ad6b230fa2e9450932b5dcf67d3db2dad)), closes [#181](https://github.com/pkcprotocol/pkc-js/issues/181)
+
+### Performance
+
+* **import:** defer kubo + ipns/blockstore off the eager import path ([#177](https://github.com/pkcprotocol/pkc-js/issues/177)) ([b8bff07](https://github.com/pkcprotocol/pkc-js/commit/b8bff077b918654db23453468e414bb317d4534a)), closes [#120](https://github.com/pkcprotocol/pkc-js/issues/120)
+
 ## [0.0.62](https://github.com/pkcprotocol/pkc-js/compare/v0.0.61...v0.0.62) (2026-06-29)
 
 ### Bug Fixes
