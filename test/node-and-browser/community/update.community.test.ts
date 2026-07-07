@@ -13,7 +13,7 @@ import {
 import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { convertBase58IpnsNameToBase36Cid } from "../../../dist/node/signer/util.js";
 
-import * as remeda from "remeda";
+import { clone } from "remeda";
 import { _signJson } from "../../../dist/node/signer/signatures.js";
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 
@@ -99,7 +99,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`community.update() works correctly with community.address as domain`, async () => {
             const community = await pkc.getCommunity({ address: "plebbit.bso" }); // 'plebbit.eth' is part of test-server.js
             expect(community.address).to.equal("plebbit.bso");
-            const oldUpdatedAt = remeda.clone(community.updatedAt);
+            const oldUpdatedAt = clone(community.updatedAt);
             await community.update();
             await publishRandomPost({ communityAddress: community.address, pkc: pkc }); // Invoke an update
             await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => oldUpdatedAt !== community.updatedAt });

@@ -5,7 +5,6 @@ import { signVote, verifyVote } from "../../signer/signatures.js";
 import { hideClassPrivateProps } from "../../util.js";
 import { PKCError } from "../../pkc-error.js";
 import type { CreateVoteOptions, VoteOptionsToSign, VotePubsubMessagePublication } from "./types.js";
-import * as remeda from "remeda";
 import type { SignerType } from "../../signer/types.js";
 import type { CreatePublicationOptions } from "../../types.js";
 

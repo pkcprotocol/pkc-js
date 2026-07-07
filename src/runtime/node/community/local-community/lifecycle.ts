@@ -1,5 +1,5 @@
 import Logger from "../../../../logger.js";
-import * as remeda from "remeda";
+import { clone, keys } from "remeda";
 import { LRUCache } from "lru-cache";
 import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
@@ -229,7 +229,7 @@ export async function initMirroringStartedOrUpdatingCommunity(community: LocalCo
     );
     community._mirroredStartedOrUpdatingCommunity.community.on("challenge", community._mirroredStartedOrUpdatingCommunity.challenge);
 
-    const clientKeys = remeda.keys.strict(community.clients);
+    const clientKeys = keys(community.clients);
     for (const clientType of clientKeys)
         if (community.clients[clientType])
             for (const clientUrl of Object.keys(community.clients[clientType]))
@@ -277,7 +277,7 @@ export async function cleanUpMirroredStartedOrUpdatingCommunity(community: Local
         community._mirroredStartedOrUpdatingCommunity.challenge
     );
 
-    const clientKeys = remeda.keys.strict(community.clients);
+    const clientKeys = keys(community.clients);
 
     for (const clientType of clientKeys)
         if (community.clients[clientType])
@@ -310,7 +310,7 @@ export async function updateOnce(community: LocalCommunity) {
         }
         // this community is not started or updated anywhere, but maybe another process will call edit() on it
         trackUpdatingCommunity(community._pkc, community);
-        const oldUpdateId = remeda.clone(community._internalStateUpdateId);
+        const oldUpdateId = clone(community._internalStateUpdateId);
         await updateInstancePropsWithStartedCommunityOrDb(community); // will update this instance props with DB
         if (community._internalStateUpdateId !== oldUpdateId) {
             log(

@@ -31,7 +31,7 @@ import { verifyCommunity } from "../../../signer/signatures.js";
 import { deriveCommentIpfsFromCommentTableRow } from "../util.js";
 import { SignerWithPublicKeyAddress } from "../../../signer/index.js";
 import { RpcLocalCommunity } from "../../../community/rpc-local-community.js";
-import * as remeda from "remeda";
+import { omit, pick } from "remeda";
 import type { CommentsTableRow } from "../../../publications/comment/types.js";
 import { CommunityIpfsSchema } from "../../../community/schema.js";
 import { MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS } from "../../../community/community-client-manager.js";
@@ -180,9 +180,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const rpcJson = this.toJSONInternalRpcAfterFirstUpdate();
         return {
             ...rpcJson.community,
-            ...remeda.omit(rpcJson.localCommunity, ["started", "startedState"]),
+            ...omit(rpcJson.localCommunity, ["started", "startedState"]),
             updateCid: rpcJson.runtimeFields.updateCid,
-            signer: remeda.pick(this.signer, ["privateKey", "type", "address", "shortAddress", "publicKey"]),
+            signer: pick(this.signer, ["privateKey", "type", "address", "shortAddress", "publicKey"]),
             _internalStateUpdateId: this._internalStateUpdateId,
             _cidsToUnPin: [...this._cidsToUnPin],
             _mfsPathsToRemove: [...this._mfsPathsToRemove],
@@ -193,8 +193,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     toJSONInternalBeforeFirstUpdate(): InternalCommunityRecordBeforeFirstUpdateType {
         const rpcJson = this.toJSONInternalRpcBeforeFirstUpdate();
         return {
-            ...remeda.omit(rpcJson.localCommunity, ["started", "startedState"]),
-            signer: remeda.pick(this.signer, ["privateKey", "type", "address", "shortAddress", "publicKey"]),
+            ...omit(rpcJson.localCommunity, ["started", "startedState"]),
+            signer: pick(this.signer, ["privateKey", "type", "address", "shortAddress", "publicKey"]),
             _internalStateUpdateId: this._internalStateUpdateId,
             _pendingEditProps: this._pendingEditProps
         };
@@ -206,7 +206,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             ...base,
             localCommunity: {
                 ...base.localCommunity,
-                signer: remeda.pick(this.signer, ["publicKey", "address", "shortAddress", "type"])
+                signer: pick(this.signer, ["publicKey", "address", "shortAddress", "type"])
             }
         };
     }
@@ -216,7 +216,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         return {
             localCommunity: {
                 ...base.localCommunity,
-                signer: remeda.pick(this.signer, ["publicKey", "address", "shortAddress", "type"])
+                signer: pick(this.signer, ["publicKey", "address", "shortAddress", "type"])
             }
         };
     }

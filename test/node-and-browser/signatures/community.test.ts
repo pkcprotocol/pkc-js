@@ -4,7 +4,7 @@ import { createMockNameResolver, mockRemotePKC, resolveWhenConditionIsTrue, mock
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { messages } from "../../../dist/node/errors.js";
 import { verifyCommunity, signCommunity, cleanUpBeforePublishing, _signJson } from "../../../dist/node/signer/signatures.js";
-import * as remeda from "remeda";
+import { clone } from "remeda";
 import validCommunityFixture from "../../fixtures/signatures/community/valid_community_ipfs.json" with { type: "json" };
 import newFormatFixture from "../../fixtures/signatures/community/valid_community_ipfs_new_format.json" with { type: "json" };
 import newFormatWithNameFixture from "../../fixtures/signatures/community/valid_community_ipfs_new_format_with_name.json" with { type: "json" };
@@ -27,8 +27,8 @@ describeSkipIfRpc.concurrent("Sign community", async () => {
     });
 
     it(`Can sign and validate fixture community correctly`, async () => {
-        const subFixture = remeda.clone(validCommunityFixture) as CommunityIpfsType;
-        const subFixtureClone = remeda.clone(subFixture) as Record<string, unknown>;
+        const subFixture = clone(validCommunityFixture) as CommunityIpfsType;
+        const subFixtureClone = clone(subFixture) as Record<string, unknown>;
         delete subFixtureClone["signature"];
         const signature = await signCommunity({
             community: subFixtureClone as Omit<CommunityIpfsType, "signature">,
@@ -68,8 +68,8 @@ describeSkipIfRpc.concurrent("Sign community", async () => {
     });
 
     it(`Can sign new-format record without address`, async () => {
-        const subFixture = remeda.clone(newFormatFixture) as CommunityIpfsType;
-        const subFixtureClone = remeda.clone(subFixture) as Record<string, unknown>;
+        const subFixture = clone(newFormatFixture) as CommunityIpfsType;
+        const subFixtureClone = clone(subFixture) as Record<string, unknown>;
         delete subFixtureClone["signature"];
         const signature = await signCommunity({
             community: subFixtureClone as Omit<CommunityIpfsType, "signature">,
@@ -80,8 +80,8 @@ describeSkipIfRpc.concurrent("Sign community", async () => {
     });
 
     it(`Can sign new-format record with name`, async () => {
-        const subFixture = remeda.clone(newFormatWithNameFixture) as CommunityIpfsType;
-        const subFixtureClone = remeda.clone(subFixture) as Record<string, unknown>;
+        const subFixture = clone(newFormatWithNameFixture) as CommunityIpfsType;
+        const subFixtureClone = clone(subFixture) as Record<string, unknown>;
         delete subFixtureClone["signature"];
         const signature = await signCommunity({
             community: subFixtureClone as Omit<CommunityIpfsType, "signature">,
@@ -125,7 +125,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         ).to.deep.equal({ valid: true });
     });
     it(`Valid community fixture is validated correctly`, async () => {
-        const community = remeda.clone(validCommunityFixture) as CommunityIpfsType;
+        const community = clone(validCommunityFixture) as CommunityIpfsType;
         expect(
             await verifyCommunity({
                 community: community,
@@ -139,7 +139,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
     });
 
     it(`Old-format fixture with address in signedPropertyNames still verifies`, async () => {
-        const community = remeda.clone(validCommunityFixture) as CommunityIpfsType;
+        const community = clone(validCommunityFixture) as CommunityIpfsType;
         expect(community.signature.signedPropertyNames).to.include("address");
         expect(
             await verifyCommunity({
@@ -154,7 +154,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
     });
 
     it(`New-format fixture without address verifies`, async () => {
-        const community = remeda.clone(newFormatFixture) as CommunityIpfsType;
+        const community = clone(newFormatFixture) as CommunityIpfsType;
         expect(community.signature.signedPropertyNames).to.not.include("address");
         expect((community as Record<string, unknown>).address).to.be.undefined;
         expect(
@@ -170,7 +170,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
     });
 
     it(`New-format fixture with name verifies`, async () => {
-        const community = remeda.clone(newFormatWithNameFixture) as CommunityIpfsType;
+        const community = clone(newFormatWithNameFixture) as CommunityIpfsType;
         expect(community.signature.signedPropertyNames).to.include("name");
         expect(community.signature.signedPropertyNames).to.not.include("address");
         expect(community.name).to.equal("test-sub.eth");
@@ -220,7 +220,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         });
 
         await loadedCommunity.stop();
-        const communityJson = remeda.clone(loadedCommunity.raw.communityIpfs!);
+        const communityJson = clone(loadedCommunity.raw.communityIpfs!);
         expect(
             await verifyCommunity({
                 community: communityJson,
@@ -251,7 +251,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
     it(`community signature is valid if community.posts has a comment.author.address who resolves to an invalid address`, async () => {
         // Publish a comment with ENS domain here
 
-        const subIpfs = remeda.clone(validCommunityFixture) as CommunityIpfsType; // This json has only one comment with plebbit.eth
+        const subIpfs = clone(validCommunityFixture) as CommunityIpfsType; // This json has only one comment with plebbit.eth
         const commentWithEnsCid = subIpfs.posts.pages.hot.comments.find(
             (commentPage) => commentPage.comment.author.address === "plebbit.eth"
         )!.commentUpdate.cid;
@@ -293,8 +293,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         const tempPKC: PKCType = await mockRemotePKC();
 
         // Use new-format fixture (no address) to avoid signature mismatch due to format change
-        const subFixture = remeda.clone(newFormatFixture) as CommunityIpfsType;
-        const subFixtureClone = remeda.clone(subFixture) as CommunityIpfsType & { extraProp?: string };
+        const subFixture = clone(newFormatFixture) as CommunityIpfsType;
+        const subFixtureClone = clone(subFixture) as CommunityIpfsType & { extraProp?: string };
         subFixtureClone.extraProp = "1234";
         const signature = await signCommunity({
             community: subFixtureClone as Omit<CommunityIpfsType, "signature">,
@@ -323,8 +323,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
     it(`A community record is accepted if it includes an extra prop as long as it's in signature.signedPropertyNames`, async () => {
         const tempPKC: PKCType = await mockRemotePKC();
 
-        const subFixture = remeda.clone(validCommunityFixture) as CommunityIpfsType;
-        const subFixtureClone = remeda.clone(subFixture) as CommunityIpfsType & { extraProp?: string };
+        const subFixture = clone(validCommunityFixture) as CommunityIpfsType;
+        const subFixtureClone = clone(subFixture) as CommunityIpfsType & { extraProp?: string };
         subFixtureClone.extraProp = "1234";
         const signature = await _signJson([...subFixture.signature.signedPropertyNames, "extraProp"], subFixtureClone, signers[0], log);
         expect(signature.signedPropertyNames).to.include("extraProp");
@@ -347,8 +347,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
     it(`A community record is rejected if it includes runtime-only nameResolved even when signed`, async () => {
         const tempPKC: PKCType = await mockRemotePKC();
 
-        const subFixture = remeda.clone(newFormatFixture) as CommunityIpfsType;
-        const subFixtureClone = remeda.clone(subFixture) as CommunityIpfsType & { nameResolved?: boolean };
+        const subFixture = clone(newFormatFixture) as CommunityIpfsType;
+        const subFixtureClone = clone(subFixture) as CommunityIpfsType & { nameResolved?: boolean };
         subFixtureClone.nameResolved = true;
         const signature = await _signJson([...subFixture.signature.signedPropertyNames, "nameResolved"], subFixtureClone, signers[0], log);
 

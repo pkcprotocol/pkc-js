@@ -10,7 +10,7 @@ import {
 import type { GetChallengeAnswers } from "../../dist/node/runtime/node/community/challenges/index.js";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
-import * as remeda from "remeda";
+import { isPlainObject } from "remeda";
 import { PKC, communities, authors, communityAuthors, challengeAnswers, challengeCommentCids, results } from "./fixtures/fixtures.ts";
 
 // Type for challenge verification results (union of success, pending, failure)
@@ -24,9 +24,9 @@ const parsePubsubMsgFixture = (json: Record<string, unknown>): Record<string, un
     const isBuffer = (obj: Record<string, unknown>): boolean => Object.keys(obj).every((key) => /\d/.test(key));
     const parsed: Record<string, unknown> = {};
     for (const key of Object.keys(json)) {
-        if (remeda.isPlainObject(json[key]) && isBuffer(json[key] as Record<string, unknown>))
+        if (isPlainObject(json[key]) && isBuffer(json[key] as Record<string, unknown>))
             parsed[key] = Uint8Array.from(Object.values(json[key] as Record<string, number>));
-        else if (remeda.isPlainObject(json[key])) parsed[key] = parsePubsubMsgFixture(json[key] as Record<string, unknown>);
+        else if (isPlainObject(json[key])) parsed[key] = parsePubsubMsgFixture(json[key] as Record<string, unknown>);
         else parsed[key] = json[key];
     }
     return parsed;

@@ -7,7 +7,7 @@ import {
 import { addToRateLimiter } from "../../dist/node/runtime/node/community/challenges/exclude/rate-limiter.js";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
-import * as remeda from "remeda";
+import { clone } from "remeda";
 import { PKC, authors } from "./fixtures/fixtures.ts";
 import validCommentEditFixture from "../fixtures/signatures/commentEdit/valid_comment_edit.json" with { type: "json" };
 import validCommentFixture from "..//fixtures/signatures/comment/commentUpdate/valid_comment_ipfs.json" with { type: "json" };
@@ -362,17 +362,17 @@ describe("shouldExcludePublication", () => {
         // high-karma.bso is a mod
         const modAuthor = { address: "high-karma.bso", displayName: "Mod User" };
 
-        const commentEditOfMod = remeda.clone(validCommentEditFixture);
+        const commentEditOfMod = clone(validCommentEditFixture);
         commentEditOfMod.author = modAuthor;
 
-        const postOfMod = remeda.clone(validCommentFixture);
+        const postOfMod = clone(validCommentFixture);
         postOfMod.author = modAuthor;
 
         const replyOfMod = {
             ...postOfMod,
             parentCid: "Qm..."
         };
-        const voteOfMod = remeda.clone(validVoteFixture);
+        const voteOfMod = clone(validVoteFixture);
         voteOfMod.author = modAuthor;
 
         // Mock community with roles - high-karma.bso is a moderator

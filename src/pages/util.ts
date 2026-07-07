@@ -14,7 +14,7 @@ import { Comment } from "../publications/comment/comment.js";
 import assert from "assert";
 import { BasePages, PostsPages, RepliesPages } from "./pages.js";
 
-import * as remeda from "remeda";
+import { find, fromEntries, keys as remedaKeys, omit, pick, round } from "remeda";
 import type { CommentWithinModQueuePageJson, CommentWithinRepliesPostsPageJson, CommentUpdateType } from "../publications/comment/types.js";
 import { shortifyAddress, shortifyCid } from "../util.js";
 import { RemoteCommunity } from "../community/remote-community.js";
@@ -57,7 +57,7 @@ export const POSTS_SORT_TYPES: PostSort = {
 };
 
 export const POST_REPLIES_SORT_TYPES: ReplySort = {
-    ...remeda.pick(POSTS_SORT_TYPES, ["new"]),
+    ...pick(POSTS_SORT_TYPES, ["new"]),
     best: { score: (...args) => bestScore(...args) },
     old: { score: (...args) => oldScore(...args) },
     newFlat: { ...POSTS_SORT_TYPES["new"], flat: true },
@@ -65,7 +65,7 @@ export const POST_REPLIES_SORT_TYPES: ReplySort = {
 };
 
 export const REPLY_REPLIES_SORT_TYPES: ReplySort = {
-    ...remeda.pick(POSTS_SORT_TYPES, ["new"]),
+    ...pick(POSTS_SORT_TYPES, ["new"]),
     best: { score: (...args) => bestScore(...args) },
     old: { score: (...args) => oldScore(...args) }
 };
@@ -84,7 +84,7 @@ export function hotScore(comment: CommentToSort) {
     const order = Math.log10(Math.max(Math.abs(score), 1));
     const sign = score > 0 ? 1 : score < 0 ? -1 : 0;
     const seconds = comment.comment.timestamp - 1134028003;
-    return remeda.round(sign * order + seconds / 45000, 7);
+    return round(sign * order + seconds / 45000, 7);
 }
 
 export function bestScore(comment: CommentToSort) {
@@ -243,18 +243,18 @@ export function mapPageIpfsCommentToPageJsonComment(pageComment: PageIpfs["comme
 export function parsePageIpfs(pageIpfs: PageIpfs): PageTypeJson {
     const finalComments = pageIpfs.comments.map(mapPageIpfsCommentToPageJsonComment);
 
-    return { comments: finalComments, ...remeda.omit(pageIpfs, ["comments"]) };
+    return { comments: finalComments, ...omit(pageIpfs, ["comments"]) };
 }
 
 export function parseModQueuePageIpfs(modqueuePageIpfs: ModQueuePageIpfs): ModQueuePageTypeJson {
     const finalComments = modqueuePageIpfs.comments.map(mapModqueuePageIpfsCommentToModQueuePageJsonComment);
-    return { comments: finalComments, ...remeda.omit(modqueuePageIpfs, ["comments"]) };
+    return { comments: finalComments, ...omit(modqueuePageIpfs, ["comments"]) };
 }
 
 export function parsePagesIpfs(pagesRaw: PagesTypeIpfs): Omit<PagesTypeJson, "clients"> {
-    const keys = remeda.keys.strict(pagesRaw.pages);
+    const keys = remedaKeys(pagesRaw.pages);
     const parsedPages = Object.values(pagesRaw.pages).map((pageIpfs) => parsePageIpfs(pageIpfs));
-    const pagesType = remeda.fromEntries.strict(keys.map((key, i) => [key, parsedPages[i]]));
+    const pagesType = fromEntries(keys.map((key, i) => [key, parsedPages[i]]));
     return { pages: pagesType, pageCids: pagesRaw.pageCids || {} };
 }
 
@@ -327,7 +327,7 @@ export function findCommentInParsedPages(pageJson: PageTypeJson, targetCommentCi
     if (!pageJson) throw Error("should define page json");
     if (!targetCommentCid) throw Error("should define target comment cid");
 
-    return remeda.find(pageJson.comments, (comment) => comment.cid === targetCommentCid);
+    return find(pageJson.comments, (comment) => comment.cid === targetCommentCid);
 }
 
 export function findCommentInHierarchicalPageIpfsRecursively(page: PageIpfs, targetCid: string): PageIpfs["comments"][0] | undefined {

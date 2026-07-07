@@ -1,4 +1,4 @@
-import * as remeda from "remeda";
+import { isEmpty, omit } from "remeda";
 import type { CommunityIpfsType } from "./types.js";
 import { getPKCAddressFromPublicKeySync } from "../signer/util.js";
 import { isStringDomain } from "../util.js";
@@ -16,12 +16,12 @@ export function omitRuntimeCommunityFields<Community extends LooseCommunityIpfs 
     community: Community
 ): Partial<CommunityIpfsType> & Record<string, unknown> {
     if (!community) return {};
-    return remeda.omit(community, runtimeOnlyCommunityFields) as Partial<CommunityIpfsType> & Record<string, unknown>;
+    return omit(community, runtimeOnlyCommunityFields) as Partial<CommunityIpfsType> & Record<string, unknown>;
 }
 
 export function cleanWireCommunity(community?: LooseCommunityIpfs): Partial<CommunityIpfsType> | undefined {
     const wireCommunity = omitRuntimeCommunityFields(community);
-    if (remeda.isEmpty(wireCommunity)) return undefined;
+    if (isEmpty(wireCommunity)) return undefined;
     return wireCommunity as Partial<CommunityIpfsType>;
 }
 

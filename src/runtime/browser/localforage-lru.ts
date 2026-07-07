@@ -1,5 +1,5 @@
 import localForage from "localforage";
-import * as remeda from "remeda";
+import { omit } from "remeda";
 
 type ForageOptions = {
     size: number;
@@ -10,7 +10,7 @@ function createLocalForageInstance(localForageLruOptions: ForageOptions) {
     if (typeof localForageLruOptions?.size !== "number") {
         throw Error(`LocalForageLru.createInstance localForageLruOptions.size '${localForageLruOptions?.size}' not a number`);
     }
-    const localForageOptions = remeda.omit(localForageLruOptions, ["size"]);
+    const localForageOptions = omit(localForageLruOptions, ["size"]);
     let database1: LocalForage,
         database2: LocalForage,
         databaseSize: number,

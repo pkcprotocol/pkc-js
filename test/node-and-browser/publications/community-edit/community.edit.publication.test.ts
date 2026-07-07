@@ -5,7 +5,7 @@ import {
     resolveWhenConditionIsTrue
 } from "../../../../dist/node/test/test-util.js";
 import signers from "../../../fixtures/signers.js";
-import * as remeda from "remeda";
+import { omit } from "remeda";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 
@@ -61,11 +61,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const communityEditPubFromStringified = await pkc.createCommunityEdit(JSON.parse(JSON.stringify(communityEditPub)));
             const jsonPropsToOmit = ["clients"];
 
-            const communityEditPubJson = remeda.omit(JSON.parse(JSON.stringify(communityEditPub)), jsonPropsToOmit) as Record<
-                string,
-                unknown
-            >;
-            const stringifiedCommunityEditJson = remeda.omit(
+            const communityEditPubJson = omit(JSON.parse(JSON.stringify(communityEditPub)), jsonPropsToOmit) as Record<string, unknown>;
+            const stringifiedCommunityEditJson = omit(
                 JSON.parse(JSON.stringify(communityEditPubFromStringified)),
                 jsonPropsToOmit
             ) as Record<string, unknown>;

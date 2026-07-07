@@ -11,7 +11,7 @@ import {
     hasAtLeastOneCommunityIdentifier,
     atLeastOneCommunityIdentifierMessage
 } from "../../schema/schema.js";
-import * as remeda from "remeda";
+import { difference, keys, mapToObj, omit, unique } from "remeda";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
 
 export const CreateVoteUserOptionsSchema = CreatePublicationUserOptionsSchema.extend({
@@ -24,12 +24,10 @@ export const CreateVoteUserOptionsWithRefinementSchema = CreateVoteUserOptionsSc
     atLeastOneCommunityIdentifierMessage
 );
 
-export const VoteSignedPropertyNames = remeda.keys.strict(
-    remeda.omit(CreateVoteUserOptionsSchema.shape, keysToOmitFromSignedPropertyNames)
-);
+export const VoteSignedPropertyNames = keys(omit(CreateVoteUserOptionsSchema.shape, keysToOmitFromSignedPropertyNames));
 
 const votePickOptions = <Record<(typeof VoteSignedPropertyNames)[number] | "signature", true>>(
-    remeda.mapToObj([...VoteSignedPropertyNames, "signature"], (x) => [x, true])
+    mapToObj([...VoteSignedPropertyNames, "signature"], (x) => [x, true])
 );
 
 // Will be used by the community when parsing request.publication
@@ -53,10 +51,13 @@ export const VoteChallengeRequestToEncryptSchema = CreateVoteUserOptionsSchema.s
     vote: VotePubsubMessagePublicationSchema.loose()
 });
 
-export const VotePubsubReservedFields = remeda.difference(
-    [
-        ...remeda.keys.strict(VoteTablesRowSchema.shape),
-        ...remeda.keys.strict(VoteChallengeRequestToEncryptSchema.shape),
+export const VotePubsubReservedFields = difference(
+    // unique() because remeda v2's difference is multiset (removes each `other` element once, not
+    // all occurrences); `vote` appears in both source schemas AND the pubsub schema and would
+    // otherwise survive as reserved. v1's difference was set-based. (Matches comment-edit's guard.)
+    unique([
+        ...keys(VoteTablesRowSchema.shape),
+        ...keys(VoteChallengeRequestToEncryptSchema.shape),
         "shortCommunityAddress",
         "shortCommunityAddress",
         "communityAddress",
@@ -67,6 +68,6 @@ export const VotePubsubReservedFields = remeda.difference(
         "signer",
         "clients",
         "nameResolved"
-    ],
-    remeda.keys.strict(VotePubsubMessagePublicationSchema.shape)
+    ]),
+    keys(VotePubsubMessagePublicationSchema.shape)
 );

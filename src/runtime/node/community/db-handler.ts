@@ -29,7 +29,7 @@ import { isDefaultChallengeStructure } from "./local-community/defaults.js";
 import { addAllCidsUnderPurgedCommentToBeRemoved } from "./local-community/cleanup.js";
 import { updateDbInternalState } from "./local-community/db-state.js";
 import { getPKCAddressFromPublicKey, getPKCAddressFromPublicKeySync } from "../../../signer/util.js";
-import * as remeda from "remeda";
+import { clone, entries as remedaEntries, firstBy, isPlainObject, keys, mapToObj, mapValues, omit, pick, sumBy, uniqueBy } from "remeda";
 import type {
     CommentEditPubsubMessagePublication,
     CommentEditSignature,
@@ -447,7 +447,7 @@ export class DbHandler {
 
     _migrateOldSettings(oldSettings: InternalCommunityRecordBeforeFirstUpdateType["settings"]) {
         const fieldsToRemove = ["post", "reply", "vote"] as const;
-        const newSettings = remeda.clone(oldSettings);
+        const newSettings = clone(oldSettings);
         if (Array.isArray(newSettings.challenges)) {
             // Filter out challenges that reference removed built-in names
             newSettings.challenges = newSettings.challenges.filter((cs) => !cs.name || cs.path || cs.name in pkcJsChallenges);
@@ -752,7 +752,7 @@ export class DbHandler {
                     srcRecord["isAuthorEdit"] = parsedSig.publicKey === commentToBeEdited.signature.publicKey;
 
                     const commentEditFieldsNotIncludedAnymore = ["removed"];
-                    const extraProps = removeNullUndefinedValues(remeda.pick(srcRecord, commentEditFieldsNotIncludedAnymore)) as Record<
+                    const extraProps = removeNullUndefinedValues(pick(srcRecord, commentEditFieldsNotIncludedAnymore)) as Record<
                         string,
                         any
                     >;
@@ -765,7 +765,7 @@ export class DbHandler {
                 }
                 if (srcTable === TABLES.COMMENTS) {
                     const commentIpfsFieldsNotIncludedAnymore = ["ipnsName"];
-                    const extraProps = removeNullUndefinedValues(remeda.pick(srcRecord, commentIpfsFieldsNotIncludedAnymore)) as Record<
+                    const extraProps = removeNullUndefinedValues(pick(srcRecord, commentIpfsFieldsNotIncludedAnymore)) as Record<
                         string,
                         any
                     >;
@@ -931,7 +931,7 @@ export class DbHandler {
             }
 
             const commentEditWithExtraProps = this._spreadExtraProps({ ...commentEditRecord });
-            const commentEditPubsub = remeda.pick(commentEditWithExtraProps, [
+            const commentEditPubsub = pick(commentEditWithExtraProps, [
                 ...(commentEditWithExtraProps.signature.signedPropertyNames as CommentEditSignature["signedPropertyNames"]),
                 "signature"
             ]) as CommentEditPubsubMessagePublication;
@@ -1051,7 +1051,7 @@ export class DbHandler {
         `);
 
         // Create default object with null values for all columns
-        const defaults = remeda.mapToObj(columnNames, (column) => [column, null]);
+        const defaults = mapToObj(columnNames, (column) => [column, null]);
 
         const insertMany = this._db.transaction((items: CommentsTableRowInsert[]) => {
             for (const comment of items) {
@@ -1102,7 +1102,7 @@ export class DbHandler {
                 insertedAt = excluded.insertedAt
         `);
 
-        const defaults = remeda.mapToObj(columnNames, (column) => [column, null]);
+        const defaults = mapToObj(columnNames, (column) => [column, null]);
 
         const upsertMany = this._db.transaction((items: CommentUpdatesTableRowInsert[]) => {
             for (const update of items) {
@@ -1130,7 +1130,7 @@ export class DbHandler {
             VALUES (@commentCid, @author, @signature, @modSignerAddress, @protocolVersion, @communityPublicKey, @communityName, @timestamp, @commentModeration, @insertedAt, @extraProps, @targetAuthorSignerAddress, @targetAuthorDomain)
         `);
 
-        const defaults = remeda.mapToObj(columnNames, (column) => [column, null]);
+        const defaults = mapToObj(columnNames, (column) => [column, null]);
         const insertMany = this._db.transaction((items: CommentModerationsTableRowInsert[]) => {
             for (const mod of items) {
                 // Create default object with null values for all columns
@@ -1157,7 +1157,7 @@ export class DbHandler {
             VALUES (@commentCid, @authorSignerAddress, @author, @signature, @protocolVersion, @communityPublicKey, @communityName, @timestamp, @content, @reason, @deleted, @flairs, @spoiler, @nsfw, @isAuthorEdit, @insertedAt, @extraProps)
         `);
 
-        const defaults = remeda.mapToObj(columnNames, (column) => [column, null]);
+        const defaults = mapToObj(columnNames, (column) => [column, null]);
         const insertMany = this._db.transaction((items: CommentEditsTableRowInsert[]) => {
             for (const edit of items) {
                 // Create default object with null values for all columns
@@ -1292,13 +1292,13 @@ export class DbHandler {
     }
 
     queryPageComments(options: Omit<PageOptions, "firstPageSizeBytes">): PageIpfs["comments"] {
-        const commentUpdateCols = remeda.keys.strict(
+        const commentUpdateCols = keys(
             options.commentUpdateFieldsToExclude
-                ? remeda.omit(CommentUpdateSchema.shape, options.commentUpdateFieldsToExclude)
+                ? omit(CommentUpdateSchema.shape, options.commentUpdateFieldsToExclude)
                 : CommentUpdateSchema.shape
         );
         const commentUpdateSelects = commentUpdateCols.map((col) => `${TABLES.COMMENT_UPDATES}.${col} AS commentUpdate_${col}`);
-        const commentIpfsCols = [...remeda.keys.strict(CommentIpfsSchema.shape), "extraProps"];
+        const commentIpfsCols = [...keys(CommentIpfsSchema.shape), "extraProps"];
         const commentIpfsSelects = commentIpfsCols.map((col) => `${TABLES.COMMENTS}.${col} AS commentIpfs_${col}`);
 
         const { whereClauses, params } = this._buildPageQueryParts(options);
@@ -1322,8 +1322,8 @@ export class DbHandler {
         // Recursive case: follow $.best.commentCids from each node's replies JSON.
         // Returns flat rows with tree_parent for JS tree assembly.
 
-        const commentUpdateCols = remeda.keys.strict(CommentUpdateSchema.shape);
-        const commentIpfsCols = [...remeda.keys.strict(CommentIpfsSchema.shape), "extraProps"];
+        const commentUpdateCols = keys(CommentUpdateSchema.shape);
+        const commentIpfsCols = [...keys(CommentIpfsSchema.shape), "extraProps"];
 
         // Base case uses full table names (not aliases) to match _buildPageQueryParts WHERE clauses
         const baseCommentUpdateSelects = commentUpdateCols.map((col) => `${TABLES.COMMENT_UPDATES}.${col} AS commentUpdate_${col}`);
@@ -1450,8 +1450,8 @@ export class DbHandler {
     resolveRepliesCidRefsForEntries(entries: PageIpfs["comments"]): PageIpfs["comments"] {
         // For entries whose replies are in CID-ref format, resolve them by fetching descendants.
         // Collects all root CIDs from all entries, runs a single recursive query, then distributes results.
-        const commentUpdateCols = remeda.keys.strict(CommentUpdateSchema.shape);
-        const commentIpfsCols = [...remeda.keys.strict(CommentIpfsSchema.shape), "extraProps"];
+        const commentUpdateCols = keys(CommentUpdateSchema.shape);
+        const commentIpfsCols = [...keys(CommentIpfsSchema.shape), "extraProps"];
 
         // Gather all CIDs from CID-ref replies across all entries
         const allCids: string[] = [];
@@ -1627,14 +1627,14 @@ export class DbHandler {
     }
 
     queryFlattenedPageReplies(options: Omit<PageOptions, "firstPageSizeBytes"> & { parentCid: string }): PageIpfs["comments"] {
-        const commentUpdateCols = remeda.keys.strict(
+        const commentUpdateCols = keys(
             options.commentUpdateFieldsToExclude
-                ? remeda.omit(CommentUpdateSchema.shape, options.commentUpdateFieldsToExclude)
+                ? omit(CommentUpdateSchema.shape, options.commentUpdateFieldsToExclude)
                 : CommentUpdateSchema.shape
         );
         // TODO, is it omitting replies?
         const commentUpdateSelects = commentUpdateCols.map((col) => `c_updates.${col} AS commentUpdate_${col}`);
-        const commentIpfsCols = [...remeda.keys.strict(CommentIpfsSchema.shape), "extraProps"];
+        const commentIpfsCols = [...keys(CommentIpfsSchema.shape), "extraProps"];
         const commentIpfsSelects = commentIpfsCols.map((col) => `comments_alias.${col} AS commentIpfs_${col}`);
 
         let baseWhereClausesStr = "";
@@ -2280,9 +2280,9 @@ export class DbHandler {
 
         const signedKeys = parsed.signature.signedPropertyNames as CommentEditSignature["signedPropertyNames"];
 
-        const commentEditFields = remeda.keys.strict(CommentEditPubsubMessagePublicationSchema.shape);
+        const commentEditFields = keys(CommentEditPubsubMessagePublicationSchema.shape);
 
-        return remeda.pick(parsed, ["signature", ...signedKeys, ...commentEditFields]) as CommentEditPubsubMessagePublication;
+        return pick(parsed, ["signature", ...signedKeys, ...commentEditFields]) as CommentEditPubsubMessagePublication;
     }
 
     removeCommentFromPendingApproval(comment: Pick<CommentsTableRow, "cid">): void {
@@ -2492,7 +2492,7 @@ export class DbHandler {
             | undefined;
         if (!flags) return {};
 
-        return remeda.mapValues(removeNullUndefinedValues(flags), Boolean);
+        return mapValues(removeNullUndefinedValues(flags), Boolean);
     }
 
     queryAuthorEditDeleted(cid: string): Pick<CommentEditsTableRow, "deleted"> | undefined {
@@ -2845,11 +2845,11 @@ export class DbHandler {
 
         const authorPosts = authorCommentsData.filter((c) => c.depth === 0);
         const authorReplies = authorCommentsData.filter((c) => c.depth > 0);
-        const postScore = remeda.sumBy(authorPosts, (p) => p.upvoteCount) - remeda.sumBy(authorPosts, (p) => p.downvoteCount);
-        const replyScore = remeda.sumBy(authorReplies, (r) => r.upvoteCount) - remeda.sumBy(authorReplies, (r) => r.downvoteCount);
-        const lastCommentCid = remeda.maxBy(authorCommentsData, (c) => c.rowid)?.cid;
+        const postScore = sumBy(authorPosts, (p) => p.upvoteCount) - sumBy(authorPosts, (p) => p.downvoteCount);
+        const replyScore = sumBy(authorReplies, (r) => r.upvoteCount) - sumBy(authorReplies, (r) => r.downvoteCount);
+        const lastCommentCid = firstBy(authorCommentsData, [(c) => c.rowid, "desc"])?.cid;
         if (!lastCommentCid) throw Error("Failed to query communityAuthor.lastCommentCid");
-        const firstCommentTimestamp = remeda.minBy(authorCommentsData, (c) => c.rowid)?.timestamp;
+        const firstCommentTimestamp = firstBy(authorCommentsData, (c) => c.rowid)?.timestamp;
         if (typeof firstCommentTimestamp !== "number") throw Error("Failed to query communityAuthor.firstCommentTimestamp");
         return { postScore, replyScore, lastCommentCid, ...modAuthorEdits, firstCommentTimestamp };
     }
@@ -3007,7 +3007,7 @@ export class DbHandler {
             }
 
             if (!isNestedCall) this.commitTransaction();
-            const uniquePurgedRecords = remeda.uniqueBy(purgedRecords, (record) => record.commentTableRow.cid);
+            const uniquePurgedRecords = uniqueBy(purgedRecords, (record) => record.commentTableRow.cid);
             return uniquePurgedRecords;
         } catch (error) {
             log.error(`Error during comment purge for ${cid}: ${error}`);
@@ -3220,13 +3220,13 @@ export class DbHandler {
                 ${activeScoreDescendantWhere}
             ) SELECT post_cid, MAX(timestamp) as active_score FROM descendants GROUP BY post_cid
         `;
-        const commentUpdateCols = remeda.keys.strict(
+        const commentUpdateCols = keys(
             pageOptions.commentUpdateFieldsToExclude
-                ? remeda.omit(CommentUpdateSchema.shape, pageOptions.commentUpdateFieldsToExclude)
+                ? omit(CommentUpdateSchema.shape, pageOptions.commentUpdateFieldsToExclude)
                 : CommentUpdateSchema.shape
         );
         const commentUpdateSelects = commentUpdateCols.map((col) => `cu.${col} AS commentUpdate_${col}`);
-        const commentIpfsCols = [...remeda.keys.strict(CommentIpfsSchema.shape), "extraProps"];
+        const commentIpfsCols = [...keys(CommentIpfsSchema.shape), "extraProps"];
         const commentIpfsSelects = commentIpfsCols.map((col) => `c.${col} AS commentIpfs_${col}`);
 
         let postsQueryStr = `
@@ -3263,8 +3263,8 @@ export class DbHandler {
     private _processRecordsForDbBeforeInsert<T extends Record<string, any>>(records: T[]): T[] {
         return records.map((record) => {
             const processed = { ...record };
-            for (const [key, value] of remeda.entries(processed)) {
-                if (remeda.isPlainObject(value) || Array.isArray(value)) (processed as any)[key] = JSON.stringify(value);
+            for (const [key, value] of remedaEntries(processed)) {
+                if (isPlainObject(value) || Array.isArray(value)) (processed as any)[key] = JSON.stringify(value);
                 else if (typeof value === "boolean") (processed as any)[key] = value ? 1 : 0;
             }
             return processed;

@@ -11,7 +11,7 @@ import {
     getAvailablePKCConfigsToTestAgainst
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
-import * as remeda from "remeda";
+import { firstBy, unique } from "remeda";
 import { POSTS_SORT_TYPES } from "../../../../dist/node/pages/util.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { CommentIpfsWithCidDefined, CommentWithinRepliesPostsPageJson } from "../../../../dist/node/publications/comment/types.js";
@@ -334,7 +334,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const allPosts = community.posts.pageCids.new
                 ? await loadAllPages(community.posts.pageCids.new, community.posts)
                 : community.posts.pages.hot.comments;
-            post = await pkc.createComment(remeda.maxBy(allPosts, (c) => c.replyCount));
+            post = await pkc.createComment(firstBy(allPosts, [(c) => c.replyCount, "desc"]));
             await post.update();
             await populatePost();
             expect(post.replyCount).to.be.greaterThan(5); // Arbitary number
@@ -375,10 +375,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             await postToRecreate.stop();
 
-            const postsPagesNames = remeda.unique([
-                ...Object.keys(postToRecreate.replies.pageCids),
-                ...Object.keys(postToRecreate.replies.pages)
-            ]);
+            const postsPagesNames = unique([...Object.keys(postToRecreate.replies.pageCids), ...Object.keys(postToRecreate.replies.pages)]);
             expect(postsPagesNames.length).to.be.greaterThan(0);
 
             for (const pageSortName of postsPagesNames) {

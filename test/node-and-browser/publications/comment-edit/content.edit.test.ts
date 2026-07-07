@@ -7,7 +7,7 @@ import {
     resolveWhenConditionIsTrue
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
-import * as remeda from "remeda";
+import { clone } from "remeda";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
@@ -31,7 +31,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 pkc: pkc,
                 postProps: { content: "original content" }
             });
-            originalContent = remeda.clone(commentToBeEdited.content);
+            originalContent = clone(commentToBeEdited.content);
             await commentToBeEdited.update();
         });
 
@@ -215,7 +215,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     pkc: pkc,
                     postProps: { signer: roleTest.signer }
                 });
-                const originalContent = remeda.clone(commentToEdit.content);
+                const originalContent = clone(commentToEdit.content);
                 await commentToEdit.update();
                 const editedText = `${roleTest.role} role testing CommentEdit`;
                 const editReason = `For ${roleTest.role} role to test editing a comment`;

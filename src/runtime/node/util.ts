@@ -30,7 +30,7 @@ import { stringify as deterministicStringify } from "safe-stable-stringify";
 // off the eager import path; only a PKC that actually constructs a kubo client pays for it.
 import Logger from "../../logger.js";
 import retry from "retry";
-import * as remeda from "remeda";
+import { difference, keys, pick, unique } from "remeda";
 import type { CommunityIpfsType } from "../../community/types.js";
 import type {
     CommentIpfsType,
@@ -218,7 +218,9 @@ export async function tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc: PKC
                 );
             }
         }
-        const newPersistentDeletedCommunities = remeda.difference(deletedPersistentCommunities, communitiesThatWereDeletedSuccessfully);
+        // unique() first: remeda v2's difference is multiset; guard against a duplicated address
+        // leaving a community wrongly marked deleted-pending. This list is conceptually a set.
+        const newPersistentDeletedCommunities = difference(unique(deletedPersistentCommunities), communitiesThatWereDeletedSuccessfully);
         if (newPersistentDeletedCommunities.length === 0) {
             await pkc._storage.removeItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES]);
             log("Removed persistent deleted communities from storage because there are none left");
@@ -568,8 +570,8 @@ export function calculateExpectedSignatureSize(
 }
 
 export function deriveCommentIpfsFromCommentTableRow(commentTableRow: CommentsTableRow): CommentIpfsType {
-    const commentIpfs = remeda.pick(commentTableRow, remeda.keys.strict(CommentIpfsSchema.shape)) as CommentIpfsType;
-    const commentPubsub = remeda.pick(
+    const commentIpfs = pick(commentTableRow, keys(CommentIpfsSchema.shape)) as CommentIpfsType;
+    const commentPubsub = pick(
         commentTableRow,
         (commentTableRow.signature as CommentPubsubMessagPublicationSignature).signedPropertyNames
     ) as CommentPubsubMessagePublication;
@@ -714,8 +716,8 @@ export function resolveDbPostsCidRefs(opts: { dbPosts: DbPostsFormat; dbHandler:
     // For preloaded sorts (with commentCids): query those posts from DB and resolve their nested replies.
     // For non-preloaded sorts (allPageCids only): reconstruct pageCids.
     const { dbPosts, dbHandler } = opts;
-    const commentUpdateCols = remeda.keys.strict(CommentUpdateSchema.shape);
-    const commentIpfsCols = [...remeda.keys.strict(CommentIpfsSchema.shape), "extraProps"];
+    const commentUpdateCols = keys(CommentUpdateSchema.shape);
+    const commentIpfsCols = [...keys(CommentIpfsSchema.shape), "extraProps"];
 
     const pages: Record<string, PageIpfs> = {};
     const pageCids: Record<string, string> = {};

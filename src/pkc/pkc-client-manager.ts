@@ -2,7 +2,7 @@ import { PKC } from "./pkc.js";
 import { hideClassPrivateProps, isIpfsCid, isIpfsPath } from "../util.js";
 import { PKCError } from "../pkc-error.js";
 import assert from "assert";
-import * as remeda from "remeda";
+import { clone, keys } from "remeda";
 import { NameResolverClient } from "../clients/name-resolver-client.js";
 
 import {
@@ -41,19 +41,19 @@ export class PKCClientsManager extends BaseClientsManager {
 
     protected _initIpfsGateways() {
         this.clients.ipfsGateways = {};
-        for (const gatewayUrl of remeda.keys.strict(this._pkc.clients.ipfsGateways))
+        for (const gatewayUrl of keys(this._pkc.clients.ipfsGateways))
             this.clients.ipfsGateways = { ...this.clients.ipfsGateways, [gatewayUrl]: new PKCIpfsGatewayClient("stopped") };
     }
 
     protected _initKuboRpcClients() {
         this.clients.kuboRpcClients = {};
-        for (const kuboRpcUrl of remeda.keys.strict(this._pkc.clients.kuboRpcClients))
+        for (const kuboRpcUrl of keys(this._pkc.clients.kuboRpcClients))
             this.clients.kuboRpcClients = { ...this.clients.kuboRpcClients, [kuboRpcUrl]: new PKCKuboRpcClient("stopped") };
     }
 
     protected _initPubsubKuboRpcClients() {
         this.clients.pubsubKuboRpcClients = {};
-        for (const pubsubUrl of remeda.keys.strict(this._pkc.clients.pubsubKuboRpcClients))
+        for (const pubsubUrl of keys(this._pkc.clients.pubsubKuboRpcClients))
             this.clients.pubsubKuboRpcClients = {
                 ...this.clients.pubsubKuboRpcClients,
                 [pubsubUrl]: new GenericStateClient<string>("stopped")
@@ -62,7 +62,7 @@ export class PKCClientsManager extends BaseClientsManager {
 
     protected _initLibp2pJsClients() {
         this.clients.libp2pJsClients = {};
-        for (const libp2pJsClientKey of remeda.keys.strict(this._pkc.clients.libp2pJsClients))
+        for (const libp2pJsClientKey of keys(this._pkc.clients.libp2pJsClients))
             this.clients.libp2pJsClients = { ...this.clients.libp2pJsClients, [libp2pJsClientKey]: new PKCLibp2pJsClient("stopped") };
     }
 
@@ -159,7 +159,7 @@ export class PKCClientsManager extends BaseClientsManager {
     }
 
     async fetchCid(cid: string): Promise<string> {
-        let finalCid = remeda.clone(cid);
+        let finalCid = clone(cid);
         if (!isIpfsCid(finalCid) && isIpfsPath(finalCid)) finalCid = finalCid.split("/")[2];
         if (!isIpfsCid(finalCid)) throw new PKCError("ERR_CID_IS_INVALID", { cid });
         const timeoutMs = this._pkc._timeouts["generic-ipfs"];

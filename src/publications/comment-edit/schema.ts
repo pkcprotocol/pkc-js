@@ -12,7 +12,7 @@ import {
     hasAtLeastOneCommunityIdentifier,
     atLeastOneCommunityIdentifierMessage
 } from "../../schema/schema.js";
-import * as remeda from "remeda";
+import { difference, keys, mapToObj, omit, unique } from "remeda";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
 
 export const AuthorCommentEditOptionsSchema = z
@@ -34,11 +34,9 @@ export const CreateCommentEditOptionsWithRefinementSchema = CreateCommentEditOpt
     atLeastOneCommunityIdentifierMessage
 );
 
-export const CommentEditSignedPropertyNames = remeda.keys.strict(
-    remeda.omit(CreateCommentEditOptionsSchema.shape, keysToOmitFromSignedPropertyNames)
-);
+export const CommentEditSignedPropertyNames = keys(omit(CreateCommentEditOptionsSchema.shape, keysToOmitFromSignedPropertyNames));
 const editPubsubPickOptions = <Record<(typeof CommentEditSignedPropertyNames)[number] | "signature", true>>(
-    remeda.mapToObj([...CommentEditSignedPropertyNames, "signature"], (x) => [x, true])
+    mapToObj([...CommentEditSignedPropertyNames, "signature"], (x) => [x, true])
 );
 
 // ChallengeRequest.commentEdit
@@ -65,10 +63,10 @@ export const CommentEditChallengeRequestToEncryptSchema = CreateCommentEditOptio
     commentEdit: CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema.loose()
 });
 
-export const CommentEditReservedFields = remeda.difference(
-    remeda.unique([
-        ...remeda.keys.strict(CommentEditsTableRowSchema.shape),
-        ...remeda.keys.strict(CommentEditChallengeRequestToEncryptSchema.shape),
+export const CommentEditReservedFields = difference(
+    unique([
+        ...keys(CommentEditsTableRowSchema.shape),
+        ...keys(CommentEditChallengeRequestToEncryptSchema.shape),
         "shortCommentCid",
         "shortCommunityAddress",
         "shortCommunityAddress",
@@ -82,5 +80,5 @@ export const CommentEditReservedFields = remeda.difference(
         "commentEdit",
         "nameResolved"
     ]),
-    remeda.keys.strict(CommentEditPubsubMessagePublicationSchema.shape)
+    keys(CommentEditPubsubMessagePublicationSchema.shape)
 );

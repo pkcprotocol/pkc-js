@@ -2,7 +2,7 @@ import http from "node:http";
 import https from "node:https";
 import path from "node:path";
 import Logger from "../../logger.js";
-import * as remeda from "remeda";
+import { flat, unique } from "remeda";
 import retry from "retry";
 import { PKC } from "../../pkc/pkc.js";
 import { hideClassPrivateProps } from "../../util.js";
@@ -18,7 +18,7 @@ const MAX_BODY_PREVIEW_BYTES = 4096;
 // `/p2p/<peerId>` and dedupe before announcing.
 export function normalizeSelfAddrsForProvider(addrs: string[], peerId: string): string[] {
     const suffix = `/p2p/${peerId}`;
-    return remeda.unique(addrs.map((addr) => (addr.endsWith(suffix) ? addr.slice(0, -suffix.length) : addr)));
+    return unique(addrs.map((addr) => (addr.endsWith(suffix) ? addr.slice(0, -suffix.length) : addr)));
 }
 
 type AddressesRewriterOptions = {
@@ -397,9 +397,7 @@ export class AddressesRewriterProxyServer {
                         const addresses: string[] = normalizeSelfAddrsForProvider(
                             [
                                 ...idRes.addresses.map((addr) => addr.toString()),
-                                ...remeda.flatten(
-                                    swarmListeningAddresses.map((swarmAddr) => swarmAddr.addrs.map((addr) => addr.toString()))
-                                )
+                                ...flat(swarmListeningAddresses.map((swarmAddr) => swarmAddr.addrs.map((addr) => addr.toString())))
                             ],
                             peerId
                         );

@@ -20,7 +20,7 @@ import type { CreatePKCWsServerOptions } from "../../../dist/node/rpc/src/types.
 
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 
-import * as remeda from "remeda";
+import { omit, pick } from "remeda";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
@@ -44,7 +44,7 @@ describe(`pkc.createCommunity (local)`, async () => {
         const newCommunity = (await pkc.createCommunity(communityArgs)) as LocalCommunity | RpcLocalCommunity;
         if (!("signer" in communityArgs))
             // signer shape changes after createCommunity
-            expect(remeda.pick(newCommunity, Object.keys(communityArgs) as (keyof typeof communityArgs)[])).to.deep.equal(communityArgs); // the args should exist after creating immedietely
+            expect(pick(newCommunity, Object.keys(communityArgs) as (keyof typeof communityArgs)[])).to.deep.equal(communityArgs); // the args should exist after creating immedietely
         await newCommunity.start();
         await resolveWhenConditionIsTrue({ toUpdate: newCommunity, predicate: async () => typeof newCommunity.updatedAt === "number" });
         await newCommunity.stop();
@@ -132,8 +132,8 @@ describe(`pkc.createCommunity (local)`, async () => {
         const clonedCommunity = (await pkc.createCommunity(community)) as LocalCommunity | RpcLocalCommunity;
         expect(clonedCommunity.posts).to.be.a("object");
         const internalProps = ["clients", "state", "startedState"] as const;
-        const clonedCommunityJson = JSON.parse(JSON.stringify(remeda.omit(clonedCommunity, internalProps)));
-        const localCommunityJson = JSON.parse(JSON.stringify(remeda.omit(community, internalProps)));
+        const clonedCommunityJson = JSON.parse(JSON.stringify(omit(clonedCommunity, internalProps)));
+        const localCommunityJson = JSON.parse(JSON.stringify(omit(community, internalProps)));
         delete clonedCommunityJson["raw"]["localCommunity"];
         delete localCommunityJson["raw"]["localCommunity"];
         expect(localCommunityJson).to.deep.equal(clonedCommunityJson);

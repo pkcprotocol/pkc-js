@@ -19,7 +19,7 @@ import { PKC } from "../../pkc/pkc.js";
 import { signComment, verifyCommentIpfs, verifyCommentPubsubMessage, verifyCommentUpdate } from "../../signer/signatures.js";
 import assert from "assert";
 import { FailedToFetchCommentIpfsFromGatewaysError, PKCError } from "../../pkc-error.js";
-import * as remeda from "remeda";
+import { difference, isDeepEqual, keys, omit, pick } from "remeda";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 
 import type {
@@ -238,9 +238,9 @@ export class Comment
         this.raw.comment = props;
         this._initProps(props);
 
-        const unknownProps = remeda.difference(remeda.keys.strict(props), remeda.keys.strict(CommentIpfsSchema.shape));
+        const unknownProps = difference(keys(props), keys(CommentIpfsSchema.shape));
         if (unknownProps.length > 0) {
-            const unknownPropsWithValues = remeda.pick(props, unknownProps);
+            const unknownPropsWithValues = pick(props, unknownProps);
             log(
                 `Found unknown props on loaded CommentIpfs (cid: ${this.cid})`,
                 unknownPropsWithValues,
@@ -351,10 +351,10 @@ export class Comment
             // CommentUpdate
             this.raw.commentUpdate = props;
 
-            const unknownProps = remeda.difference(remeda.keys.strict(props), remeda.keys.strict(CommentUpdateSchema.shape));
+            const unknownProps = difference(keys(props), keys(CommentUpdateSchema.shape));
             if (unknownProps.length > 0) {
                 log("Found unknown props on CommentUpdate record", unknownProps, "Will set them on Comment instance");
-                Object.assign(this, remeda.pick(props, unknownProps));
+                Object.assign(this, pick(props, unknownProps));
             }
         }
 
@@ -431,7 +431,7 @@ export class Comment
             });
         } else if ("pages" in newReplies && newReplies.pages && "pageCids" in newReplies && newReplies.pageCids) {
             // both pageCids and pages are provided
-            const shouldUpdateReplies = !remeda.isDeepEqual(this.replies.pageCids, newReplies.pageCids);
+            const shouldUpdateReplies = !isDeepEqual(this.replies.pageCids, newReplies.pageCids);
 
             if (shouldUpdateReplies) {
                 log.trace(`Updating the props of comment instance (${this.cid}) replies`);
@@ -454,11 +454,11 @@ export class Comment
 
         if (!this.raw.pubsubMessageToPublish) throw Error("comment._pubsubMsgToPublish should be defined at this point");
         // verify that the community did not change any props that we published
-        const keysToCompare = remeda.keys.strict(remeda.omit(this.raw.pubsubMessageToPublish, ["signature", "author"])); // we're omitting these two because that would fail because of anonymity features in community
-        const pubsubMsgFromCommentIpfs = remeda.pick(decryptedVerification.comment, keysToCompare);
-        const pubsubMsgFromPublishedPubsubMsg = remeda.pick(this.raw.pubsubMessageToPublish, keysToCompare);
+        const keysToCompare = keys(omit(this.raw.pubsubMessageToPublish, ["signature", "author"])); // we're omitting these two because that would fail because of anonymity features in community
+        const pubsubMsgFromCommentIpfs = pick(decryptedVerification.comment, keysToCompare);
+        const pubsubMsgFromPublishedPubsubMsg = pick(this.raw.pubsubMessageToPublish, keysToCompare);
 
-        if (!remeda.isDeepEqual(pubsubMsgFromCommentIpfs, pubsubMsgFromPublishedPubsubMsg)) {
+        if (!isDeepEqual(pubsubMsgFromCommentIpfs, pubsubMsgFromPublishedPubsubMsg)) {
             const error = new PKCError("ERR_COMMUNITY_CHANGED_COMMENT_PUBSUB_PUBLICATION_PROPS", {
                 pubsubMsgFromSub: pubsubMsgFromCommentIpfs,
                 originalPubsubMsg: this.raw.pubsubMessageToPublish
@@ -580,13 +580,10 @@ export class Comment
         this._initCommentUpdateFromChallengeVerificationProps(decryptedVerification.commentUpdate);
 
         // handle extra props here
-        const unknownProps = remeda.difference(
-            remeda.keys.strict(decryptedVerification.commentUpdate),
-            remeda.keys.strict(CommentUpdateForChallengeVerificationSchema.shape)
-        );
+        const unknownProps = difference(keys(decryptedVerification.commentUpdate), keys(CommentUpdateForChallengeVerificationSchema.shape));
         if (unknownProps.length > 0) {
             log("Found unknown props on decryptedVerification.commentUpdate record", unknownProps, "Will set them on Comment instance");
-            Object.assign(this, remeda.pick(decryptedVerification.commentUpdate, unknownProps));
+            Object.assign(this, pick(decryptedVerification.commentUpdate, unknownProps));
         }
         this.emit("update", this);
         // RPC clients rely on the server for name resolution (sent via runtimeFields)
@@ -845,7 +842,7 @@ export class Comment
         this.emit("updatingstatechange", this._updatingState);
     }
     protected override _setRpcClientState(newState: Comment["clients"]["pkcRpcClients"][""]["state"]) {
-        const currentRpcUrl = remeda.keys.strict(this.clients.pkcRpcClients)[0];
+        const currentRpcUrl = keys(this.clients.pkcRpcClients)[0];
         if (newState === this.clients.pkcRpcClients[currentRpcUrl].state) return;
         this.clients.pkcRpcClients[currentRpcUrl].state = newState;
         this.clients.pkcRpcClients[currentRpcUrl].emit("statechange", newState);
@@ -1129,7 +1126,7 @@ export class Comment
         updatingCommentInstance.on("updatingstatechange", this._updatingCommentInstance.updatingstatechange);
         updatingCommentInstance.on("statechange", this._updatingCommentInstance.statechange);
 
-        const clientKeys = remeda.keys.strict(this.clients);
+        const clientKeys = keys(this.clients);
         for (const clientType of clientKeys)
             if (this.clients[clientType])
                 for (const clientUrl of Object.keys(this.clients[clientType]))
@@ -1232,7 +1229,7 @@ export class Comment
             this._updatingCommentInstance.comment.removeListener("update", this._updatingCommentInstance.update);
             this._updatingCommentInstance.comment.removeListener("error", this._updatingCommentInstance.error);
 
-            const clientKeys = remeda.keys.strict(this.clients);
+            const clientKeys = keys(this.clients);
 
             for (const clientType of clientKeys)
                 if (this.clients[clientType])

@@ -4,7 +4,7 @@ import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { verifyPage } from "../../../dist/node/signer/signatures.js";
 import { messages } from "../../../dist/node/errors.js";
 import signers from "../../fixtures/signers.js";
-import * as remeda from "remeda";
+import { clone } from "remeda";
 import { v4 as uuidV4 } from "uuid";
 
 import validPageIpfsFixture from "../../fixtures/valid_page.json" with { type: "json" };
@@ -81,14 +81,14 @@ describeSkipIfRpc(`verify pages`, async () => {
     });
 
     it(`Page from previous pkc-js versions can be validated`, async () => {
-        const page = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
+        const page = clone(legacyPageIpfsFixture) as PageIpfs;
         const verification = await verifyPageJsonAlongWithObject(page, pkc, community, undefined);
         expect(verification).to.deep.equal({ valid: true });
     });
 
     it(`verifyPage will return valid when comment.author.name (domain) resolves to address different than the signer's`, async () => {
         // verifyPage would override the incorrect domain
-        const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+        const invalidPage = clone(validPageIpfsFixture) as PageIpfs;
         // New wire format uses author.name for domains
         const commentWithDomainIndex = invalidPage.comments.findIndex(
             (pageComment) => typeof pageComment.comment.author?.name === "string"
@@ -116,13 +116,13 @@ describeSkipIfRpc(`verify pages`, async () => {
 
     describe(`A community owner changing any of comment fields in page will invalidate`, async () => {
         beforeAll(async () => {
-            const page = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            const page = clone(validPageIpfsFixture) as PageIpfs;
             const verificaiton = await verifyPageJsonAlongWithObject(page, pkc, community, undefined);
             expect(verificaiton).to.deep.equal({ valid: true });
         });
 
         it(`comment.flairs (original)`, async () => {
-            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            const invalidPage = clone(validPageIpfsFixture) as PageIpfs;
             // Add flairs to a comment that had none — changing the comment object changes its CID hash,
             // so the commentUpdate.cid no longer matches
             invalidPage.comments[0].comment.flairs = [{ text: "Injected Flair" }];
@@ -130,7 +130,7 @@ describeSkipIfRpc(`verify pages`, async () => {
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_UPDATE_DIFFERENT_CID_THAN_COMMENT });
         });
         it("comment.content (author has never modified comment.content before))", async () => {
-            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            const invalidPage = clone(validPageIpfsFixture) as PageIpfs;
             const commentWithNoEditIndex = invalidPage.comments.findIndex((pageComment) => !pageComment.commentUpdate.edit?.content);
             invalidPage.comments[commentWithNoEditIndex].comment.content = "Content modified by community illegally";
             const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
@@ -139,7 +139,7 @@ describeSkipIfRpc(`verify pages`, async () => {
 
         it(`comment.content (when author has modified comment.content before)`, async () => {
             // Use legacy fixture which has comments with commentUpdate.edit.content
-            const invalidPage = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
+            const invalidPage = clone(legacyPageIpfsFixture) as PageIpfs;
             const commentWithEditIndex = invalidPage.comments.findIndex((pageComment) => pageComment.commentUpdate.edit?.content);
             expect(commentWithEditIndex).to.be.greaterThanOrEqual(0);
             invalidPage.comments[commentWithEditIndex].comment.content = "Content modified by community illegally";
@@ -149,7 +149,7 @@ describeSkipIfRpc(`verify pages`, async () => {
 
         it(`commentUpdate.edit.content`, async () => {
             // Use legacy fixture which has comments with commentUpdate.edit.content
-            const invalidPage = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
+            const invalidPage = clone(legacyPageIpfsFixture) as PageIpfs;
             const commentWithEditIndex = invalidPage.comments.findIndex((pageComment) => pageComment.commentUpdate.edit?.content);
             invalidPage.comments[commentWithEditIndex].commentUpdate.edit!.content = "Content modified by community illegally";
             const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
@@ -158,7 +158,7 @@ describeSkipIfRpc(`verify pages`, async () => {
 
         it(`commentUpdate.edit.spoiler`, async () => {
             // Use legacy fixture which has comments with commentUpdate.edit.spoiler
-            const invalidPage = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
+            const invalidPage = clone(legacyPageIpfsFixture) as PageIpfs;
             const commentWithSpoilerIndex = invalidPage.comments.findIndex((pageComment) => pageComment.commentUpdate.edit?.spoiler);
             expect(commentWithSpoilerIndex).to.be.greaterThanOrEqual(0);
             invalidPage.comments[commentWithSpoilerIndex].commentUpdate.edit!.spoiler =
@@ -169,7 +169,7 @@ describeSkipIfRpc(`verify pages`, async () => {
 
         it(`commentUpdate.edit.deleted`, async () => {
             // Use legacy fixture which has comments with commentUpdate.edit
-            const invalidPage = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
+            const invalidPage = clone(legacyPageIpfsFixture) as PageIpfs;
             const commentWithDeletedIndex = invalidPage.comments.findIndex((pageComment) => pageComment.commentUpdate.edit);
             expect(commentWithDeletedIndex).to.be.greaterThanOrEqual(0);
             invalidPage.comments[commentWithDeletedIndex].commentUpdate.edit!.deleted = !Boolean(
@@ -180,7 +180,7 @@ describeSkipIfRpc(`verify pages`, async () => {
         });
 
         it(`comment.link`, async () => {
-            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            const invalidPage = clone(validPageIpfsFixture) as PageIpfs;
             const commentWithLinkIndex = invalidPage.comments.findIndex((pageComment) => pageComment.comment.link);
             expect(commentWithLinkIndex).to.be.greaterThanOrEqual(0);
             invalidPage.comments[commentWithLinkIndex].comment.link = "https://differentLinkzz.com";
@@ -188,7 +188,7 @@ describeSkipIfRpc(`verify pages`, async () => {
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
         it(`comment.parentCid`, async () => {
-            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            const invalidPage = clone(validPageIpfsFixture) as PageIpfs;
             const commentWithRepliesIndex = invalidPage.comments.findIndex(
                 (pageComment) => pageComment.commentUpdate.replyCount > 0 && pageComment.commentUpdate.replies?.pages
             );
@@ -201,14 +201,14 @@ describeSkipIfRpc(`verify pages`, async () => {
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
         it(`comment.communityPublicKey (tampered signed field)`, async () => {
-            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            const invalidPage = clone(validPageIpfsFixture) as PageIpfs;
             (invalidPage.comments[0].comment as Record<string, unknown>).communityPublicKey += "1234";
             const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
         });
         it(`comment.communityName (tampered signed field)`, async () => {
             // Use fixture with communityName in signedPropertyNames (domain-based community)
-            const invalidPage = remeda.clone(validPageWithNameFixture) as PageIpfs;
+            const invalidPage = clone(validPageWithNameFixture) as PageIpfs;
             (invalidPage.comments[0].comment as Record<string, unknown>).communityName = "fake.eth";
             const domainCommunity = {
                 publicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR",
@@ -230,32 +230,32 @@ describeSkipIfRpc(`verify pages`, async () => {
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
         });
         it("comment.timestamp", async () => {
-            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            const invalidPage = clone(validPageIpfsFixture) as PageIpfs;
             invalidPage.comments[0].comment.timestamp += 1;
             const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
         it(`comment.author.address (ed25519)`, async () => {
-            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            const invalidPage = clone(validPageIpfsFixture) as PageIpfs;
             (invalidPage.comments[0].comment.author as { address: string }).address =
                 "12D3KooWJJcSwMHrFvsFL7YCNDLD93kBczEfkHpPNdxcjZwR2X2Y"; // Random address
             const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
         it(`comment.author.previousCommentCid`, async () => {
-            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            const invalidPage = clone(validPageIpfsFixture) as PageIpfs;
             invalidPage.comments[0].comment.author.previousCommentCid! += "1";
             const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
         it(`comment.author.displayName`, async () => {
-            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            const invalidPage = clone(validPageIpfsFixture) as PageIpfs;
             invalidPage.comments[0].comment.author.displayName! += "1";
             const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
         it("comment.author.wallets", async () => {
-            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            const invalidPage = clone(validPageIpfsFixture) as PageIpfs;
             const commentWithWalletsIndex = invalidPage.comments.findIndex((comment) => comment.comment.author.wallets);
             expect(commentWithWalletsIndex).to.be.greaterThanOrEqual(0);
             // Corrupt the wallets by converting to string (this is intentional to test signature validation)
@@ -265,7 +265,7 @@ describeSkipIfRpc(`verify pages`, async () => {
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
         it("comment.author.avatar", async () => {
-            const invalidPage = remeda.clone(validPageIpfsFixture) as PageIpfs;
+            const invalidPage = clone(validPageIpfsFixture) as PageIpfs;
             const commentWithAvatarIndex = invalidPage.comments.findIndex((comment) => comment.comment.author.avatar);
             expect(commentWithAvatarIndex).to.be.greaterThanOrEqual(0);
             invalidPage.comments[commentWithAvatarIndex].comment.author.avatar!.id += "12234";
@@ -275,7 +275,7 @@ describeSkipIfRpc(`verify pages`, async () => {
     });
 
     it(`Page is invalid when verifying key-only community has different publicKey`, async () => {
-        const page = remeda.clone(validPageIpfsFixture) as PageIpfs;
+        const page = clone(validPageIpfsFixture) as PageIpfs;
         const verification = await verifyPage({
             pageCid: uuidV4(),
             pageSortName: "hot",
@@ -291,7 +291,7 @@ describeSkipIfRpc(`verify pages`, async () => {
     });
 
     it(`Page is invalid when verifying community has different name than comment's communityName`, async () => {
-        const page = remeda.clone(validPageIpfsFixture) as PageIpfs;
+        const page = clone(validPageIpfsFixture) as PageIpfs;
         // Add communityName to the record — name check in verifyCommentIpfs fires before signature check
         (page.comments[0].comment as Record<string, unknown>).communityName = "real.eth";
         const verification = await verifyPage({
@@ -309,7 +309,7 @@ describeSkipIfRpc(`verify pages`, async () => {
     });
 
     it(`Domain fixture is valid when verified against matching domain community`, async () => {
-        const page = remeda.clone(validPageWithNameFixture) as PageIpfs;
+        const page = clone(validPageWithNameFixture) as PageIpfs;
         const domainCommunity = {
             publicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR",
             name: "testcommunity.eth",
@@ -332,7 +332,7 @@ describeSkipIfRpc(`verify pages`, async () => {
     it(`Key rotation is allowed for domain communities (different publicKey, same name)`, async () => {
         // Domain fixture has communityName: "testcommunity.eth" and communityPublicKey: "12D3KooWN5..."
         // Verify with a community that has the same name but a DIFFERENT publicKey
-        const page = remeda.clone(validPageWithNameFixture) as PageIpfs;
+        const page = clone(validPageWithNameFixture) as PageIpfs;
         const rotatedKeyCommunity = {
             publicKey: "12D3KooWJJcSwMHrFvsFL7YCNDLD93kBczEfkHpPNdxcjZwR2X2Y", // different key
             name: "testcommunity.eth", // same name
@@ -354,7 +354,7 @@ describeSkipIfRpc(`verify pages`, async () => {
 
     it(`Legacy subplebbitAddress page is invalid when community has different publicKey`, async () => {
         // Legacy fixture uses subplebbitAddress: "12D3KooWN5..." (non-domain = publicKey)
-        const page = remeda.clone(legacyPageIpfsFixture) as PageIpfs;
+        const page = clone(legacyPageIpfsFixture) as PageIpfs;
         const verification = await verifyPage({
             pageCid: uuidV4(),
             pageSortName: "hot",
@@ -372,7 +372,7 @@ describeSkipIfRpc(`verify pages`, async () => {
     it(`Domain community: tampered communityPublicKey with matching name is caught by CID mismatch`, async () => {
         // When a domain community checks pages, it only validates name (key rotation allowed).
         // Tampering communityPublicKey passes the community check, but changes the CID since it's signed.
-        const page = remeda.clone(validPageWithNameFixture) as PageIpfs;
+        const page = clone(validPageWithNameFixture) as PageIpfs;
         (page.comments[0].comment as Record<string, unknown>).communityPublicKey = "12D3KooWJJcSwMHrFvsFL7YCNDLD93kBczEfkHpPNdxcjZwR2X2Y";
         const domainCommunity = {
             publicKey: "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR",

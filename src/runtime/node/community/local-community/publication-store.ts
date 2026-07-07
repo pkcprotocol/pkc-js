@@ -1,5 +1,5 @@
 import Logger from "../../../../logger.js";
-import * as remeda from "remeda";
+import { clone, difference, keys, pick } from "remeda";
 import { default as lodashDeepMerge } from "lodash.merge";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { calculateIpfsCidV0, isStringDomain, retryKuboIpfsAddAndProvide, timestamp } from "../../../../util.js";
@@ -136,7 +136,7 @@ export async function prepareCommentWithAnonymity(
     const displayName = originalComment.author?.displayName;
     const sanitizedAuthor = cleanWireAuthor(displayName !== undefined ? { displayName } : undefined);
 
-    const anonymizedComment = remeda.clone(originalComment);
+    const anonymizedComment = clone(originalComment);
 
     if (sanitizedAuthor !== undefined) {
         anonymizedComment.author = sanitizedAuthor;
@@ -167,7 +167,7 @@ export async function prepareCommentEditWithAlias(community: LocalCommunity, ori
         privateKey: aliasSignerOfComment.aliasPrivateKey,
         type: "ed25519"
     });
-    const commentEditSignedByAlias = remeda.clone(originalEdit);
+    const commentEditSignedByAlias = clone(originalEdit);
     delete commentEditSignedByAlias.author;
     commentEditSignedByAlias.signature = await signCommentEdit({
         edit: { ...commentEditSignedByAlias, signer: aliasSigner, communityAddress: community.address },
@@ -204,12 +204,12 @@ export async function storeCommentEdit(
         insertedAt: timestamp()
     };
 
-    const extraPropsInEdit = remeda
-        .difference(remeda.keys.strict(commentEditRaw), remeda.keys.strict(CommentEditPubsubMessagePublicationSchema.shape))
-        .filter((key) => (key as string) !== "communityAddress"); // communityAddress is excluded because it's been converted to communityPublicKey/communityName above
+    const extraPropsInEdit = difference(keys(commentEditRaw), keys(CommentEditPubsubMessagePublicationSchema.shape)).filter(
+        (key) => (key as string) !== "communityAddress"
+    ); // communityAddress is excluded because it's been converted to communityPublicKey/communityName above
     if (extraPropsInEdit.length > 0) {
         log("Found extra props on CommentEdit", extraPropsInEdit, "Will be adding them to extraProps column");
-        editTableRow.extraProps = remeda.pick(commentEditRaw, extraPropsInEdit);
+        editTableRow.extraProps = pick(commentEditRaw, extraPropsInEdit);
     }
 
     const isEditDuplicate = community._dbHandler.hasCommentEditWithSignatureEncoded(editTableRow.signature.signature);
@@ -279,12 +279,12 @@ export async function storeCommentModeration(
         throw new PKCError("ERR_DUPLICATE_COMMENT_MODERATION", { modTableRow });
     }
 
-    const extraPropsInMod = remeda
-        .difference(remeda.keys.strict(commentModRaw), remeda.keys.strict(CommentModerationPubsubMessagePublicationSchema.shape))
-        .filter((key) => (key as string) !== "communityAddress"); // communityAddress is excluded because it's been converted to communityPublicKey/communityName above
+    const extraPropsInMod = difference(keys(commentModRaw), keys(CommentModerationPubsubMessagePublicationSchema.shape)).filter(
+        (key) => (key as string) !== "communityAddress"
+    ); // communityAddress is excluded because it's been converted to communityPublicKey/communityName above
     if (extraPropsInMod.length > 0) {
         log("Found extra props on CommentModeration", extraPropsInMod, "Will be adding them to extraProps column");
-        modTableRow.extraProps = remeda.pick(commentModRaw, extraPropsInMod);
+        modTableRow.extraProps = pick(commentModRaw, extraPropsInMod);
     }
 
     if (modTableRow.commentModeration.purged) {
@@ -349,17 +349,14 @@ export async function storeVote(
     const authorSignerAddress = await getPKCAddressFromPublicKey(newVoteProps.signature.publicKey);
     community._dbHandler.deleteVote(authorSignerAddress, newVoteProps.commentCid);
     const voteTableRow = <VotesTableRow>{
-        ...remeda.pick(newVoteProps, ["vote", "commentCid", "protocolVersion", "timestamp"]),
+        ...pick(newVoteProps, ["vote", "commentCid", "protocolVersion", "timestamp"]),
         authorSignerAddress,
         insertedAt: timestamp()
     };
-    const extraPropsInVote = remeda.difference(
-        remeda.keys.strict(newVoteProps),
-        remeda.keys.strict(VotePubsubMessagePublicationSchema.shape)
-    );
+    const extraPropsInVote = difference(keys(newVoteProps), keys(VotePubsubMessagePublicationSchema.shape));
     if (extraPropsInVote.length > 0) {
         log("Found extra props on Vote", extraPropsInVote, "Will be adding them to extraProps column");
-        voteTableRow.extraProps = remeda.pick(newVoteProps, extraPropsInVote);
+        voteTableRow.extraProps = pick(newVoteProps, extraPropsInVote);
     }
 
     community._dbHandler.insertVotes([voteTableRow]);
@@ -386,7 +383,7 @@ export async function storeCommunityEditPublication(
         "Will be using these props to edit the community props"
     );
 
-    const propsAfterEdit = remeda.pick(community, remeda.keys.strict(editProps.communityEdit));
+    const propsAfterEdit = pick(community, keys(editProps.communityEdit));
     log("Current props from community edit (not edited yet)", propsAfterEdit);
     lodashDeepMerge(propsAfterEdit, editProps.communityEdit);
     await community.edit(propsAfterEdit);
@@ -473,13 +470,13 @@ export async function storeComment(
     // challengeAggregate.aggregatedComment extras spread on top of commentPubsub above — must
     // round-trip through extraProps so deriveCommentIpfsFromCommentTableRow can reconstruct the
     // original CID for page generation.
-    const unknownProps = remeda
-        .difference(remeda.keys.strict(commentIpfs), remeda.keys.strict(CommentIpfsSchema.shape))
-        .filter((key) => (key as string) !== "communityAddress"); // communityAddress is excluded because it's been converted to communityPublicKey/communityName above
+    const unknownProps = difference(keys(commentIpfs), keys(CommentIpfsSchema.shape)).filter(
+        (key) => (key as string) !== "communityAddress"
+    ); // communityAddress is excluded because it's been converted to communityPublicKey/communityName above
 
     if (unknownProps.length > 0) {
         log("Found extra props on Comment", unknownProps, "Will be adding them to extraProps column");
-        commentRow.extraProps = remeda.pick(commentIpfs, unknownProps);
+        commentRow.extraProps = pick(commentIpfs, unknownProps);
     }
     if (challengeAggregate?.aggregatedCommentUpdate && Object.keys(challengeAggregate.aggregatedCommentUpdate).length > 0) {
         commentRow.challengeCommentUpdate = challengeAggregate.aggregatedCommentUpdate;

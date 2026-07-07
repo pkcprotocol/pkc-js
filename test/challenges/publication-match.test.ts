@@ -5,7 +5,7 @@ import {
 } from "../../dist/node/runtime/node/community/challenges/index.js";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
-import * as remeda from "remeda";
+import { omit } from "remeda";
 
 import type { ChallengeVerificationMessageType } from "../../dist/node/pubsub-messages/types.js";
 import type { Challenge } from "../../dist/node/community/types.js";
@@ -63,7 +63,7 @@ describe("publication-match challenge", () => {
                 ...defaultPublication,
                 ...(overrides.publication || {})
             },
-            ...(remeda.omit(overrides, ["publication"]) || {})
+            ...(omit(overrides, ["publication"]) || {})
         };
     };
 

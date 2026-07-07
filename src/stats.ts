@@ -1,6 +1,6 @@
 import { PKC } from "./pkc/pkc.js";
 import assert from "assert";
-import * as remeda from "remeda";
+import { keys, sortBy } from "remeda";
 
 type StatTypes = "ipns" | "ipfs" | "pubsub-publish" | "pubsub-subscribe" | "pubsub-unsubscribe";
 export default class Stats {
@@ -64,14 +64,14 @@ export default class Stats {
             type === "ipfs" || type === "ipns"
                 ? "ipfsGateways"
                 : type === "pubsub-publish" || type === "pubsub-subscribe"
-                  ? remeda.keys.strict(this._pkc.clients.pubsubKuboRpcClients).length > 0
+                  ? keys(this._pkc.clients.pubsubKuboRpcClients).length > 0
                       ? "pubsubKuboRpcClients"
-                      : remeda.keys.strict(this._pkc.clients.libp2pJsClients).length > 0
+                      : keys(this._pkc.clients.libp2pJsClients).length > 0
                         ? "libp2pJsClients"
                         : undefined
                   : undefined;
         assert(gatewayType, "Can't find the gateway type to sort");
-        const gateways = remeda.keys.strict(this._pkc.clients[gatewayType]);
+        const gateways = keys(this._pkc.clients[gatewayType]);
 
         const score = async (gatewayUrl: string) => {
             const failureCounts: number = (await this._pkc._storage.getItem(this._getFailuresCountKey(gatewayUrl, type))) || 0;
@@ -81,7 +81,7 @@ export default class Stats {
             return this._gatewayScore(failureCounts, successCounts, successAverageMs);
         };
 
-        const gatewaysSorted = remeda.sortBy.strict(gateways, score);
+        const gatewaysSorted = sortBy(gateways, score);
         return gatewaysSorted;
     }
 }

@@ -6,7 +6,7 @@ import type {
     CommunityChallengeSetting
 } from "../../../../../community/types.js";
 import { derivePublicationFromChallengeRequest } from "../../../../../util.js";
-import * as remeda from "remeda";
+import { pathOr, stringToPath } from "remeda";
 
 // Define the match object structure
 interface Match {
@@ -91,10 +91,10 @@ const getChallenge = async ({ challengeSettings, challengeRequestMessage }: GetC
     for (const match of matches) {
         const { propertyName, regexp } = match;
 
-        // Get the property value using remeda.pathOr with stringToPath to handle nested properties
-        const pathSegments = remeda.stringToPath(propertyName);
+        // Get the property value using pathOr with stringToPath to handle nested properties
+        const pathSegments = stringToPath(propertyName);
         //@ts-expect-error
-        const value = remeda.pathOr(publication, pathSegments, undefined);
+        const value = pathOr(publication, pathSegments, undefined);
 
         // If property doesn't exist, consider it a failure
         if (value === undefined) {

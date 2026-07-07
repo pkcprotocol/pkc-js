@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import cbor from "cbor";
 import debounce from "debounce";
-import * as remeda from "remeda";
+import { isPlainObject } from "remeda";
 
 export interface SqliteCacheConfiguration {
     /**
@@ -103,7 +103,7 @@ export class SqliteCache<TData = any> {
             now: now()
         });
 
-        if (!remeda.isPlainObject(res) || !("value" in res)) {
+        if (!isPlainObject(res) || !("value" in res)) {
             return undefined;
         }
 

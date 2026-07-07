@@ -1,5 +1,5 @@
 import Logger from "../../../../logger.js";
-import * as remeda from "remeda";
+import { difference, intersection, isDeepEqual, keys } from "remeda";
 import {
     contentContainsMarkdownAudio,
     contentContainsMarkdownImages,
@@ -45,7 +45,7 @@ import type { LocalCommunity } from "../local-community.js";
 import { publishFailedChallengeVerification } from "./challenges.js";
 
 export function isFlairInAllowedList(flair: Flair, allowedFlairs: Flair[]): boolean {
-    return allowedFlairs.some((allowed) => remeda.isDeepEqual(allowed, flair));
+    return allowedFlairs.some((allowed) => isDeepEqual(allowed, flair));
 }
 
 export async function isPublicationAuthorPartOfRoles(
@@ -153,7 +153,7 @@ async function checkAuthorIdentity(
     publication: PublicationFromDecryptedChallengeRequest,
     log: Logger
 ): Promise<messages | undefined> {
-    if (publication.author && remeda.intersection(remeda.keys.strict(publication.author), AuthorReservedFields).length > 0)
+    if (publication.author && intersection(keys(publication.author), AuthorReservedFields).length > 0)
         return messages.ERR_PUBLICATION_AUTHOR_HAS_RESERVED_FIELD;
 
     // Reject publications with non-domain author.name — author.name must be a domain or absent
@@ -263,7 +263,7 @@ async function checkCommentPublication(
 ): Promise<messages | undefined> {
     if (!request.comment) return undefined;
     const commentPublication = request.comment;
-    if (remeda.intersection(remeda.keys.strict(commentPublication), CommentPubsubMessageReservedFields).length > 0)
+    if (intersection(keys(commentPublication), CommentPubsubMessageReservedFields).length > 0)
         return messages.ERR_COMMENT_HAS_RESERVED_FIELD;
     if (
         community.features?.requirePostLink &&
@@ -450,8 +450,7 @@ async function checkVotePublication(
 ): Promise<messages | undefined> {
     if (!request.vote) return undefined;
     const votePublication = request.vote;
-    if (remeda.intersection(VotePubsubReservedFields, remeda.keys.strict(votePublication)).length > 0)
-        return messages.ERR_VOTE_HAS_RESERVED_FIELD;
+    if (intersection(VotePubsubReservedFields, keys(votePublication)).length > 0) return messages.ERR_VOTE_HAS_RESERVED_FIELD;
     if (community.features?.noUpvotes && votePublication.vote === 1) return messages.ERR_NOT_ALLOWED_TO_PUBLISH_UPVOTES;
     if (community.features?.noDownvotes && votePublication.vote === -1) return messages.ERR_NOT_ALLOWED_TO_PUBLISH_DOWNVOTES;
 
@@ -479,7 +478,7 @@ async function checkCommentModerationPublication(
 ): Promise<messages | undefined> {
     if (!request.commentModeration) return undefined;
     const commentModerationPublication = request.commentModeration;
-    if (remeda.intersection(CommentModerationReservedFields, remeda.keys.strict(commentModerationPublication)).length > 0)
+    if (intersection(CommentModerationReservedFields, keys(commentModerationPublication)).length > 0)
         return messages.ERR_COMMENT_MODERATION_HAS_RESERVED_FIELD;
 
     const isAuthorMod = await isPublicationAuthorPartOfRoles(community, commentModerationPublication, ["owner", "moderator", "admin"]);
@@ -506,7 +505,7 @@ async function checkCommunityEditPublication(
 ): Promise<messages | undefined> {
     if (!request.communityEdit) return undefined;
     const communityEdit = request.communityEdit;
-    if (remeda.intersection(CommunityEditPublicationPubsubReservedFields, remeda.keys.strict(communityEdit)).length > 0)
+    if (intersection(CommunityEditPublicationPubsubReservedFields, keys(communityEdit)).length > 0)
         return messages.ERR_COMMUNITY_EDIT_HAS_RESERVED_FIELD;
 
     if (communityEdit.communityEdit.roles || communityEdit.communityEdit.address) {
@@ -519,8 +518,8 @@ async function checkCommunityEditPublication(
         return messages.ERR_COMMUNITY_EDIT_ATTEMPTED_TO_MODIFY_COMMUNITY_WITHOUT_BEING_OWNER_OR_ADMIN;
     }
 
-    const allowedCommunityEditKeys = [...remeda.keys.strict(CommunityIpfsSchema.shape), "address"] as string[];
-    if (remeda.difference(remeda.keys.strict(communityEdit.communityEdit), allowedCommunityEditKeys).length > 0) {
+    const allowedCommunityEditKeys = [...keys(CommunityIpfsSchema.shape), "address"] as string[];
+    if (difference(keys(communityEdit.communityEdit), allowedCommunityEditKeys).length > 0) {
         // should only be allowed to modify public props from CommunityIpfs
         // shouldn't be able to modify settings for example
         return messages.ERR_COMMUNITY_EDIT_ATTEMPTED_TO_NON_PUBLIC_PROPS;
@@ -534,7 +533,7 @@ async function checkCommentEditPublication(
 ): Promise<messages | undefined> {
     if (!request.commentEdit) return undefined;
     const commentEditPublication = request.commentEdit;
-    if (remeda.intersection(CommentEditReservedFields, remeda.keys.strict(commentEditPublication)).length > 0)
+    if (intersection(CommentEditReservedFields, keys(commentEditPublication)).length > 0)
         return messages.ERR_COMMENT_EDIT_HAS_RESERVED_FIELD;
 
     const commentToBeEdited = community._dbHandler.queryComment(commentEditPublication.commentCid); // We assume commentToBeEdited to be defined because we already tested for its existence above

@@ -1,5 +1,5 @@
 import Logger from "../../../../logger.js";
-import * as remeda from "remeda";
+import { clone, keys, omit, pick } from "remeda";
 import * as cborg from "cborg";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { derivePublicationFromChallengeRequest, getErrorCodeFromMessage, timestamp } from "../../../../util.js";
@@ -111,7 +111,7 @@ export async function publishChallenges(
         await community._clientsManager.pubsubPublish(pubsubTopicWithfallback(community), challengeMessage);
     log(
         `Community ${community.address} with pubsub topic ${pubsubTopicWithfallback(community)} published ${challengeMessage.type} over pubsub: `,
-        remeda.pick(toSignChallenge, ["timestamp"]),
+        pick(toSignChallenge, ["timestamp"]),
         toEncryptChallenge.challenges.map((challenge) => challenge.type)
     );
     community._clientsManager.updateKuboRpcPubsubState("waiting-challenge-answers", pubsubClient.url);
@@ -149,7 +149,7 @@ export async function publishFailedChallengeVerification(
     community._clientsManager.updateKuboRpcPubsubState("publishing-challenge-verification", pubsubClient.url);
     log(
         `Will publish ${challengeVerification.type} over pubsub topic ${pubsubTopicWithfallback(community)} on community ${community.address}:`,
-        remeda.omit(toSignVerification, ["challengeRequestId"])
+        omit(toSignVerification, ["challengeRequestId"])
     );
 
     if (!community._challengeExchangesFromLocalPublishers[challengeRequestId.toString()])
@@ -346,7 +346,7 @@ export async function publishChallengeVerification(
         cleanUpChallengeAnswerPromise(community, request.challengeRequestId.toString());
         log.trace(
             `Published ${challengeVerification.type} over pubsub topic ${pubsubTopicWithfallback(community)}:`,
-            remeda.omit(objectToEmit, ["signature", "encrypted", "challengeRequestId"])
+            omit(objectToEmit, ["signature", "encrypted", "challengeRequestId"])
         );
     }
 }
@@ -410,7 +410,7 @@ export function buildRuntimeChallengeRequest({
     authorCommunity?: PublicationWithCommunityAuthorFromDecryptedChallengeRequest["author"]["community"];
 }): DecryptedChallengeRequestMessageTypeWithCommunityAuthor {
     // This function needs to be updated everytime we add a new publication type
-    const runtimeRequest = remeda.clone(request) as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+    const runtimeRequest = clone(request) as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
     if (request.comment)
         runtimeRequest.comment = buildRuntimeChallengeRequestPublication({
@@ -460,7 +460,7 @@ async function parseAndValidateChallengeRequest(
 
     const decryptedRequest = await parseChallengeRequestPublicationOrRespondWithFailure(community, request, decryptedRawString);
 
-    const publicationFieldNames = remeda.keys.strict(DecryptedChallengeRequestPublicationSchema.shape);
+    const publicationFieldNames = keys(DecryptedChallengeRequestPublicationSchema.shape);
     let publication: PublicationFromDecryptedChallengeRequest;
     try {
         publication = derivePublicationFromChallengeRequest(decryptedRequest);
@@ -640,7 +640,7 @@ export async function handleChallengeRequest(community: LocalCommunity, request:
     const requestSignatureValidation = await verifyChallengeRequest({ request, validateTimestampRange: true });
     if (!requestSignatureValidation.valid)
         throw new PKCError(getErrorCodeFromMessage(requestSignatureValidation.reason), {
-            challengeRequest: remeda.omit(request, ["encrypted"])
+            challengeRequest: omit(request, ["encrypted"])
         });
 
     const parsed = await parseAndValidateChallengeRequest(community, request, log);

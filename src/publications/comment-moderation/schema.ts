@@ -11,7 +11,7 @@ import {
     hasAtLeastOneCommunityIdentifier,
     atLeastOneCommunityIdentifierMessage
 } from "../../schema/schema.js";
-import * as remeda from "remeda";
+import { difference, keys, mapToObj, omit, unique } from "remeda";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
 
 export const ModeratorOptionsSchema = z
@@ -42,12 +42,12 @@ export const CreateCommentModerationOptionsWithRefinementSchema = CreateCommentM
 
 // ChallengeRequest.publication
 
-export const CommentModerationSignedPropertyNames = remeda.keys.strict(
-    remeda.omit(CreateCommentModerationOptionsSchema.shape, keysToOmitFromSignedPropertyNames)
+export const CommentModerationSignedPropertyNames = keys(
+    omit(CreateCommentModerationOptionsSchema.shape, keysToOmitFromSignedPropertyNames)
 );
 
 const commentModerationPickOptions = <Record<(typeof CommentModerationSignedPropertyNames)[number] | "signature", true>>(
-    remeda.mapToObj([...CommentModerationSignedPropertyNames, "signature"], (x) => [x, true])
+    mapToObj([...CommentModerationSignedPropertyNames, "signature"], (x) => [x, true])
 );
 
 // Will be used by the community when parsing request.publication
@@ -73,10 +73,13 @@ export const CommentModerationChallengeRequestToEncryptSchema = CreateCommentMod
         commentModeration: CommentModerationPubsubMessagePublicationSchema.loose()
     });
 
-export const CommentModerationReservedFields = remeda.difference(
-    [
-        ...remeda.keys.strict(CommentModerationsTableRowSchema.shape),
-        ...remeda.keys.strict(CommentModerationChallengeRequestToEncryptSchema.shape),
+export const CommentModerationReservedFields = difference(
+    // unique() because remeda v2's difference is multiset (removes each `other` element once, not
+    // all occurrences); a candidate that appears in both source schemas AND the pubsub schema would
+    // otherwise survive as reserved. v1's difference was set-based. (Matches comment-edit's guard.)
+    unique([
+        ...keys(CommentModerationsTableRowSchema.shape),
+        ...keys(CommentModerationChallengeRequestToEncryptSchema.shape),
         "shortCommunityAddress",
         "shortCommunityAddress",
         "communityAddress",
@@ -88,6 +91,6 @@ export const CommentModerationReservedFields = remeda.difference(
         "signer",
         "clients",
         "nameResolved"
-    ],
-    remeda.keys.strict(CommentModerationPubsubMessagePublicationSchema.shape)
+    ]),
+    keys(CommentModerationPubsubMessagePublicationSchema.shape)
 );

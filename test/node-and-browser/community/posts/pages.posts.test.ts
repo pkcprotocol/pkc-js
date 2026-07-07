@@ -12,7 +12,7 @@ import {
 import { itSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { testCommentFieldsInPageJson, testPageCommentsIfSortedCorrectly } from "../../pages/pages-test-util.js";
 import signers from "../../../fixtures/signers.js";
-import * as remeda from "remeda";
+import { clone } from "remeda";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { Buffer } from "buffer";
 import { messages } from "../../../../dist/node/errors.js";
@@ -132,7 +132,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`.getPage will throw if the first page is over 1mb`, async () => {
             const community = await pkc.getCommunity({ address: communityAddress });
-            const page = remeda.clone(community.raw.communityIpfs.posts.pages.hot);
+            const page = clone(community.raw.communityIpfs.posts.pages.hot);
 
             // Make sure the page is over 1MB
             // Keep adding comments until the page exceeds 1MB
@@ -170,7 +170,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 await publishRandomReply({ parentComment: newPost as CommentIpfsWithCidDefined, pkc: pkc });
                 await waitTillPostInCommunityPages(newPost as Comment & { cid: string }, pkc);
                 community = await pkc.getCommunity({ address: communityAddress });
-                validPageJson = remeda.clone(community.posts.pages.hot); // PageTypeJson, not PageIpfs
+                validPageJson = clone(community.posts.pages.hot); // PageTypeJson, not PageIpfs
             });
 
             afterAll(async () => {
@@ -304,7 +304,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 await post.stop();
 
                 // Get a replies page
-                const repliesPage = remeda.clone(post.replies.pages.best);
+                const repliesPage = clone(post.replies.pages.best);
 
                 // This should fail because we're using a replies page with posts.validatePage
                 try {

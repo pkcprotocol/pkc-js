@@ -17,7 +17,7 @@ import { itSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { CID } from "kubo-rpc-client";
 
-import * as remeda from "remeda";
+import { sample, uniqueBy } from "remeda";
 import { findCommentInPageInstanceRecursively } from "../../../../dist/node/pages/util.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
@@ -174,7 +174,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
 
             it(`Sub rejects votes on purged comment with depth ${commentDepth}`, async () => {
-                const vote = await generateMockVote(commentToPurge as CommentIpfsWithCidDefined, 1, pkc, remeda.sample(signers, 1)[0]);
+                const vote = await generateMockVote(commentToPurge as CommentIpfsWithCidDefined, 1, pkc, sample(signers, 1)[0]);
                 await publishWithExpectedResult({
                     publication: vote,
                     expectedChallengeSuccess: false,
@@ -350,7 +350,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                         }))
                     ];
 
-                    const labeledCids = remeda.uniqueBy(cidEntries, (entry) => entry.cid);
+                    const labeledCids = uniqueBy(cidEntries, (entry) => entry.cid);
                     const labeledCidsV1 = labeledCids.map((entry) => ({
                         label: `${entry.label} (v1)`,
                         cid: CID.parse(entry.cid).toV1().toString()

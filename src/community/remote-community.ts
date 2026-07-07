@@ -33,7 +33,7 @@ import type {
     ExportCommunityModLogsOptions
 } from "./types.js";
 import type { CommentModerationTableRow } from "../publications/comment-moderation/types.js";
-import * as remeda from "remeda";
+import { difference, keys, omit, pick } from "remeda";
 import { ModQueuePages, PostsPages } from "../pages/pages.js";
 import type { PostsPagesTypeIpfs } from "../pages/types.js";
 import { parseRawPages } from "../pages/util.js";
@@ -284,10 +284,10 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         const log = Logger("pkc-js:remote-community:initCommunityIpfsPropsNoMerge");
         this.raw.communityIpfs = newProps;
         this.initRemoteCommunityPropsNoMerge(newProps);
-        const unknownProps = remeda.difference(remeda.keys.strict(this.raw.communityIpfs), remeda.keys.strict(CommunityIpfsSchema.shape));
+        const unknownProps = difference(keys(this.raw.communityIpfs), keys(CommunityIpfsSchema.shape));
         if (unknownProps.length > 0) {
             log(`Found unknown props on community (${this.address}) ipfs record`, unknownProps);
-            Object.assign(this, remeda.pick(this.raw.communityIpfs, unknownProps));
+            Object.assign(this, pick(this.raw.communityIpfs, unknownProps));
         }
     }
 
@@ -455,9 +455,12 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         this._assertHasIdentity();
     }
 
-    _toJSONIpfsBaseNoPosts() {
-        const communityIpfsKeys = remeda.keys.strict(remeda.omit(CommunityIpfsSchema.shape, ["posts", "modQueue"]));
-        return remeda.pick(this, communityIpfsKeys);
+    // Explicit return type: remeda v2's pick infers a PickFromArray<this, ...> branded type that
+    // references non-exported remeda symbols, which tsc cannot serialize into the .d.ts. This is
+    // the CommunityIpfs record without the paginated posts/modQueue fields.
+    _toJSONIpfsBaseNoPosts(): Omit<CommunityIpfsType, "posts" | "modQueue"> {
+        const communityIpfsKeys = keys(omit(CommunityIpfsSchema.shape, ["posts", "modQueue"]));
+        return pick(this, communityIpfsKeys) as unknown as Omit<CommunityIpfsType, "posts" | "modQueue">;
     }
 
     toJSONRpcRemote(): RpcRemoteCommunityType {
@@ -708,7 +711,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         this._updatingCommunityInstanceWithListeners.community.on("error", this._updatingCommunityInstanceWithListeners.error);
         this._updatingCommunityInstanceWithListeners.community.on("statechange", this._updatingCommunityInstanceWithListeners.statechange);
 
-        const clientKeys = remeda.keys.strict(this.clients);
+        const clientKeys = keys(this.clients);
         for (const clientType of clientKeys)
             if (this.clients[clientType])
                 for (const clientUrl of Object.keys(this.clients[clientType]))
@@ -762,7 +765,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         );
         this._updatingCommunityInstanceWithListeners.community.removeListener("error", this._updatingCommunityInstanceWithListeners.error);
 
-        const clientKeys = remeda.keys.strict(this.clients);
+        const clientKeys = keys(this.clients);
 
         for (const clientType of clientKeys)
             if (this.clients[clientType])

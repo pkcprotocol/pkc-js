@@ -39,7 +39,7 @@ import { PKCError } from "../../pkc-error.js";
 import { LocalCommunity } from "../../runtime/node/community/local-community.js";
 import { RemoteCommunity } from "../../community/remote-community.js";
 import { hideClassPrivateProps, replaceXWithY } from "../../util.js";
-import * as remeda from "remeda";
+import { keys, mapValues, omit } from "remeda";
 import type { IncomingMessage } from "http";
 import type {
     CommentChallengeRequestToEncryptType,
@@ -926,8 +926,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             ...builtInChallenges, // built-ins first
             ...(pkc.settings?.challenges || {}) // user-defined override
         };
-        const challenges = remeda.mapValues(allChallengeFactories, (challengeFactory) =>
-            remeda.omit(challengeFactory({ challengeSettings: {} }), ["getChallenge"])
+        const challenges = mapValues(allChallengeFactories, (challengeFactory) =>
+            omit(challengeFactory({ challengeSettings: {} }), ["getChallenge"])
         );
 
         return <PKCWsServerSettingsSerialized>{ pkcOptions, challenges };
@@ -988,10 +988,10 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             this._initPKC(newPKC); // swap to new instance first so new RPC calls don't hit a destroyed pkc
 
             // send a settingsNotification to all subscribers
-            for (const connectionId of remeda.keys.strict(this._onSettingsChange)) {
+            for (const connectionId of keys(this._onSettingsChange)) {
                 const connectionHandlers = this._onSettingsChange[connectionId];
                 if (!connectionHandlers) continue;
-                for (const subscriptionId of remeda.keys.strict(connectionHandlers)) {
+                for (const subscriptionId of keys(connectionHandlers)) {
                     const handler = connectionHandlers[subscriptionId];
                     if (!handler) continue;
                     try {
@@ -1273,7 +1273,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     private async _createCommentInstanceFromPublishCommentParams(params: CommentChallengeRequestToEncryptType) {
         const pkc = await this._getPKCInstance();
         const comment = await pkc.createComment(params.comment);
-        comment.challengeRequest = remeda.omit(params, ["comment"]);
+        comment.challengeRequest = omit(params, ["comment"]);
         return comment;
     }
 
@@ -1363,7 +1363,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     private async _createVoteInstanceFromPublishVoteParams(params: VoteChallengeRequestToEncryptType) {
         const pkc = await this._getPKCInstance();
         const vote = await pkc.createVote(params.vote);
-        vote.challengeRequest = remeda.omit(params, ["vote"]);
+        vote.challengeRequest = omit(params, ["vote"]);
         return vote;
     }
     async publishVote(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {
@@ -1431,7 +1431,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     private async _createCommunityEditInstanceFromPublishCommunityEditParams(params: CommunityEditChallengeRequestToEncryptType) {
         const pkc = await this._getPKCInstance();
         const communityEdit = await pkc.createCommunityEdit(params.communityEdit);
-        communityEdit.challengeRequest = remeda.omit(params, ["communityEdit"]);
+        communityEdit.challengeRequest = omit(params, ["communityEdit"]);
         return communityEdit;
     }
 
@@ -1504,7 +1504,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     private async _createCommentEditInstanceFromPublishCommentEditParams(params: CommentEditChallengeRequestToEncryptType) {
         const pkc = await this._getPKCInstance();
         const commentEdit = await pkc.createCommentEdit(params.commentEdit);
-        commentEdit.challengeRequest = remeda.omit(params, ["commentEdit"]);
+        commentEdit.challengeRequest = omit(params, ["commentEdit"]);
         return commentEdit;
     }
 
@@ -1579,7 +1579,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     private async _createCommentModerationInstanceFromPublishCommentModerationParams(params: CommentModerationChallengeRequestToEncrypt) {
         const pkc = await this._getPKCInstance();
         const commentModeration = await pkc.createCommentModeration(params.commentModeration);
-        commentModeration.challengeRequest = remeda.omit(params, ["commentModeration"]);
+        commentModeration.challengeRequest = omit(params, ["commentModeration"]);
         return commentModeration;
     }
 
@@ -1932,15 +1932,15 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     }
 
     async destroy() {
-        for (const connectionId of remeda.keys.strict(this.subscriptionCleanups))
-            for (const subscriptionId of remeda.keys.strict(this.subscriptionCleanups[connectionId]))
+        for (const connectionId of keys(this.subscriptionCleanups))
+            for (const subscriptionId of keys(this.subscriptionCleanups[connectionId]))
                 await this.unsubscribe([{ subscriptionId: Number(subscriptionId) }], connectionId);
 
         this.ws.close();
         if (this._ownsHttpServer && this._httpServer) await new Promise<void>((r) => this._httpServer!.close(() => r()));
         const pkc = await this._getPKCInstance();
         await pkc.destroy(); // this will stop all started communities
-        for (const communityAddress of remeda.keys.strict(this._startedCommunities)) {
+        for (const communityAddress of keys(this._startedCommunities)) {
             delete this._startedCommunities[communityAddress];
         }
         this._exportCommunityInstances.clear();

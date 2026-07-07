@@ -13,7 +13,7 @@ import { itSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { _signJson } from "../../../../dist/node/signer/signatures.js";
 import validCommentUpdateFixture from "../../../fixtures/signatures/comment/commentUpdate/valid_comment_update.json" with { type: "json" };
-import * as remeda from "remeda";
+import { clone, keys, omit } from "remeda";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import Logger from "@pkcprotocol/pkc-logger";
@@ -54,7 +54,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc(`Loading CommentUpdate whose extra props are not in signedPropertyNames should throw`, async () => {
-            const invalidCommentUpdate = remeda.clone(post.raw.commentUpdate);
+            const invalidCommentUpdate = clone(post.raw.commentUpdate);
             Object.assign(invalidCommentUpdate, extraProps);
 
             const postToUpdate = await pkc.getComment({ cid: post.cid });
@@ -96,7 +96,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         });
         itSkipIfRpc(`Can load CommentUpdate with extra props if they're included in signedPropertyNames`, async () => {
-            const commentUpdateWithExtraProps = remeda.clone(post.raw.commentUpdate);
+            const commentUpdateWithExtraProps = clone(post.raw.commentUpdate);
             Object.assign(commentUpdateWithExtraProps, extraProps);
 
             commentUpdateWithExtraProps.signature = await _signJson(
@@ -130,7 +130,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         itSkipIfRpc(`Can load CommentUpdate with extra props in commentUpdate.author`, async () => {
-            const commentUpdateWithExtraProps = remeda.clone(post.raw.commentUpdate);
+            const commentUpdateWithExtraProps = clone(post.raw.commentUpdate);
             Object.assign(commentUpdateWithExtraProps.author, extraProps);
 
             commentUpdateWithExtraProps.signature = await _signJson(
@@ -284,7 +284,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             Object.assign(commentUpdate, extraProps);
 
             commentUpdate.signature = await _signJson(
-                remeda.keys.strict(remeda.omit(commentUpdate, ["signature"])),
+                keys(omit(commentUpdate, ["signature"])),
                 commentUpdate,
                 subWithNoResponseSigner,
                 log
@@ -321,7 +321,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             Object.assign(commentUpdate.author, extraProps);
 
             commentUpdate.signature = await _signJson(
-                remeda.keys.strict(remeda.omit(commentUpdate, ["signature"])),
+                keys(omit(commentUpdate, ["signature"])),
                 commentUpdate,
                 subWithNoResponseSigner,
                 log
