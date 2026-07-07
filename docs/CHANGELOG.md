@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.64](https://github.com/pkcprotocol/pkc-js/compare/v0.0.63...v0.0.64) (2026-07-07)
+
+### Performance
+
+* **import:** tree-shake remeda (v2 + named imports) ([#180](https://github.com/pkcprotocol/pkc-js/issues/180)) ([0707680](https://github.com/pkcprotocol/pkc-js/commit/07076800cdfd7048fb79870e3914f34058cae1ba)), closes [#178](https://github.com/pkcprotocol/pkc-js/issues/178)
+
 ## [0.0.63](https://github.com/pkcprotocol/pkc-js/compare/v0.0.62...v0.0.63) (2026-07-06)
 
 ### Bug Fixes
