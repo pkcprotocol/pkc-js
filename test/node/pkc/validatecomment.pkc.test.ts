@@ -293,7 +293,12 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
             it("should reject Post instance if CommentIpfs data is missing", async () => {
                 let invalidComment: Comment | undefined;
                 try {
-                    invalidComment = await pkc.createComment(remedaClone(sourcePostCommentInstance)); // Use source
+                    // Spread the source into a plain object rather than remeda-cloning the class instance:
+                    // remeda v2's clone() delegates to structuredClone() for class instances, which throws
+                    // DataCloneError on a Comment (it holds functions/EventEmitter internals). The spread keeps
+                    // the own enumerable props (incl. .raw), and createComment() builds a fresh instance from it,
+                    // so nulling raw.comment below cannot corrupt the shared sourcePostCommentInstance.
+                    invalidComment = await pkc.createComment({ ...sourcePostCommentInstance } as Comment);
                     invalidComment.raw.comment = undefined;
                     await pkc.validateComment(invalidComment);
                     expect.fail("Expected promise to reject, but it fulfilled.");
