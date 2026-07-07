@@ -12,8 +12,18 @@ import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { sha256 } from "js-sha256";
 
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
+import type { PKCError } from "../../../../dist/node/pkc-error.js";
 
 const communityAddress = signers[0].address;
+
+// The comment update loop legitimately emits a retriable "failed to fetch CommentUpdate" error while it
+// polls the community's post-updates for the freshly-published comment, whose CommentUpdate may not have
+// propagated to the remote gateway yet. That transient error is orthogonal to the abort behaviour these
+// tests verify, and on slow configs (e.g. firefox + remote-ipfs-gateway) it lands in the window between
+// update() and stop(), so exclude it before asserting the abort itself surfaced no error.
+function errorsExcludingTransientUpdateFetchFailures(errors: Error[]) {
+    return errors.filter((e) => (e as PKCError).code !== "ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_ALL_POST_UPDATES_RANGES");
+}
 
 function createAbortError(message: string) {
     const error = new Error(message);
@@ -140,7 +150,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     expect(blockedResolver.getReceivedSignal()!.aborted).to.equal(true);
                     expect(reader._memCaches.nameResolvedCache.get(sha256("plebbit.bso" + publishedComment.signature.publicKey))).to.be
                         .undefined;
-                    expect(errors).to.have.length(0);
+                    expect(errorsExcludingTransientUpdateFetchFailures(errors)).to.have.length(0);
                 } finally {
                     await Promise.allSettled([reader.destroy(), publisher.destroy()]);
                 }
@@ -183,7 +193,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     expect(blockedResolver.getReceivedSignal()!.aborted).to.equal(true);
                     expect(reader._memCaches.nameResolvedCache.get(sha256("plebbit.bso" + publishedComment.signature.publicKey))).to.be
                         .undefined;
-                    expect(errors).to.have.length(0);
+                    expect(errorsExcludingTransientUpdateFetchFailures(errors)).to.have.length(0);
                 } finally {
                     await Promise.allSettled([reader.destroy(), publisher.destroy()]);
                 }
