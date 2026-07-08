@@ -441,7 +441,13 @@ export async function directFetchIpnsRecordFromProviders({
                             // could otherwise fail with "no addresses for peer" (mirrors connectToPubsubPeers).
                             if ((peer as PeerInfo).multiaddrs?.length)
                                 await helia.libp2p.peerStore.merge(peer.id, { multiaddrs: (peer as PeerInfo).multiaddrs });
-                            await helia.libp2p.dial(peer.id, { signal: options?.signal }); // no-op if already connected
+                            // Bind the dial to the winner signal too, so a losing dial is cancelled the
+                            // moment another peer wins rather than running to its own timeout and delaying
+                            // Promise.allSettled(dialFetchTasks) below.
+                            const dialSignal = options?.signal
+                                ? AbortSignal.any([options.signal, resultController.signal])
+                                : resultController.signal;
+                            await helia.libp2p.dial(peer.id, { signal: dialSignal }); // no-op if already connected
                             await tryFetchFromPeer(peer.id, "provider");
                         } catch (e) {
                             recordErr(peer.id, e);

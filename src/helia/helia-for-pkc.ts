@@ -302,6 +302,9 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                 }
                                 directFetchOutcome = { attempted: true, hit: false, durationMs: Date.now() - directStart };
                             } catch (directErr) {
+                                // A caller-initiated abort should surface as-is, not be masked by the
+                                // fallback path as ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED.
+                                if (options?.signal?.aborted) throw directErr;
                                 directFetchOutcome = {
                                     attempted: true,
                                     hit: false,
