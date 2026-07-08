@@ -1,5 +1,5 @@
 import type { HeliaWithLibp2pPubsub } from "./types.js";
-import type { PeerInfo } from "@libp2p/interface";
+import type { PeerId, PeerInfo } from "@libp2p/interface";
 import { CID } from "multiformats/cid";
 import Logger from "../logger.js";
 import { PKCError } from "../pkc-error.js";
@@ -7,6 +7,10 @@ import { pubsubTopicToDhtKeyCid } from "../util.js";
 
 const TOPIC_SUBSCRIBER_WAIT_TIMEOUT_MS = 10_000;
 const MESH_PEER_WAIT_TIMEOUT_MS = 3_000;
+// Per-peer bound on a single libp2p/fetch request in directFetchIpnsRecordFromProviders. The
+// @helia/ipns pubsub router uses 2.5s once a connection exists; we allow a little more because
+// our provider-branch fetch can race a still-completing dial.
+const DIRECT_FETCH_PER_PEER_TIMEOUT_MS = 5_000;
 
 export interface HeliaDebugContext {
     heliaPeerId: string;
@@ -329,4 +333,146 @@ export async function connectToPubsubPeers({
     }
 
     return connectedPeersWithContent;
+}
+
+export interface DirectFetchResult {
+    recordBytes: Uint8Array; // already passed the injected validator (ipnsValidator)
+    peerId: string; // the subscriber/provider that served it
+    source: "subscriber" | "provider";
+    durationMs: number;
+}
+
+// Fetch an IPNS record over the libp2p fetch protocol (`/libp2p/fetch/0.0.1`) directly and in
+// parallel from BOTH (a) peers already subscribed to the topic on our gossipsub
+// (getSubscribers) and (b) providers freshly discovered from the HTTP routers (findProviders).
+// The first signature-valid record wins; the remaining fetches are aborted.
+//
+// This bypasses the gossipsub subscription handshake that @helia/ipns's PubSubRouting.get()
+// waits on: get() only fetches from getSubscribers(topic) and throws NotFoundError when that
+// list is empty, which is why the resolve path currently blocks on waitForTopicSubscriber (a
+// 10s floor) before it can fetch. The publisher (kubo via go-libp2p-pubsub-router, or another
+// helia via registerLookupFunction) answers a fetch request with the current record regardless
+// of subscription state, so we can fetch the moment a provider connection opens.
+//
+// Returns undefined (not throw) when both branches exhaust without a valid record, so the
+// caller can fall back to the legacy router.get() path. Throws only when the caller's signal
+// aborts with no winner.
+export async function directFetchIpnsRecordFromProviders({
+    helia,
+    pubsubTopic,
+    routingKey,
+    maxPeers,
+    validate,
+    options,
+    log
+}: {
+    helia: HeliaWithLibp2pPubsub;
+    pubsubTopic: string;
+    routingKey: Uint8Array;
+    maxPeers: number; // how many freshly discovered providers to attempt before we stop
+    validate: (routingKey: Uint8Array, bytes: Uint8Array) => Promise<void>; // inject ipnsValidator
+    log: Logger;
+    options?: { signal?: AbortSignal; timeoutMs?: number };
+}): Promise<DirectFetchResult | undefined> {
+    if (options?.signal?.aborted) throw new PKCError("ERR_IPNS_DIRECT_FETCH_ABORTED", { pubsubTopic, ...getHeliaDebugContext(helia) });
+
+    const start = Date.now();
+    const fetchService = helia.libp2p.services.fetch;
+    const pubsub = helia.libp2p.services.pubsub;
+    const contentCid = pubsubTopicToDhtKeyCid(pubsubTopic);
+
+    // Aborted on the first valid record so every losing fetch (and the findProviders iterator)
+    // stops promptly rather than running to its own per-peer timeout.
+    const resultController = new AbortController();
+    let winner: DirectFetchResult | undefined;
+    const peerToError: Record<string, { errorName: string; errorMessage: string }> = {};
+
+    const recordErr = (peerId: PeerId, e: unknown) => {
+        const err = e as Error;
+        peerToError[peerId.toString()] = { errorName: err.name, errorMessage: err.message };
+        log.trace("Direct IPNS fetch failed from peer", peerId.toString(), "due to error", e);
+    };
+
+    // Fetch + validate from an already-connected peer. check-then-set of `winner` is safe on the
+    // single-threaded event loop because there is no await between the guard and the assignment.
+    const tryFetchFromPeer = async (peerId: PeerId, source: DirectFetchResult["source"]): Promise<void> => {
+        if (resultController.signal.aborted || winner) return;
+        // The fetch service's own timeout is fixed at construction, so bound each call via signal.
+        const timeoutSignal = AbortSignal.timeout(options?.timeoutMs ?? DIRECT_FETCH_PER_PEER_TIMEOUT_MS);
+        const signal = options?.signal
+            ? AbortSignal.any([options.signal, resultController.signal, timeoutSignal])
+            : AbortSignal.any([resultController.signal, timeoutSignal]);
+        try {
+            const bytes = await fetchService.fetch(peerId, routingKey, { signal });
+            if (bytes == null) {
+                log.trace("Peer", peerId.toString(), "did not have IPNS record for topic", pubsubTopic);
+                return;
+            }
+            await validate(routingKey, bytes); // throws on bad signature / wrong routing key
+            if (!resultController.signal.aborted && !winner) {
+                winner = { recordBytes: bytes, peerId: peerId.toString(), source, durationMs: Date.now() - start };
+                resultController.abort();
+            }
+        } catch (e) {
+            recordErr(peerId, e);
+        }
+    };
+
+    // Subscriber branch: fetch immediately from every peer gossipsub already reports as
+    // subscribed (they are connected, so no dial needed).
+    const subscriberTasks = pubsub.getSubscribers(pubsubTopic).map((peerId) => tryFetchFromPeer(peerId, "subscriber"));
+
+    // Provider branch: discover providers of the topic CID from the HTTP routers, dial each, then
+    // fetch the moment the dial completes. Stop enqueueing at maxPeers attempts or on a winner.
+    const providerBranch = (async (): Promise<void> => {
+        const findProvidersAbort = new AbortController();
+        const findProvidersSignal = options?.signal
+            ? AbortSignal.any([options.signal, findProvidersAbort.signal, resultController.signal])
+            : AbortSignal.any([findProvidersAbort.signal, resultController.signal]);
+        const dialFetchTasks: Promise<void>[] = [];
+        let attempted = 0;
+        try {
+            for await (const peer of helia.libp2p.contentRouting.findProviders(contentCid, { ...options, signal: findProvidersSignal })) {
+                if (resultController.signal.aborted) break;
+                dialFetchTasks.push(
+                    (async () => {
+                        try {
+                            // Not all routers merge discovered multiaddrs into the peerstore, so dial-by-id
+                            // could otherwise fail with "no addresses for peer" (mirrors connectToPubsubPeers).
+                            if ((peer as PeerInfo).multiaddrs?.length)
+                                await helia.libp2p.peerStore.merge(peer.id, { multiaddrs: (peer as PeerInfo).multiaddrs });
+                            await helia.libp2p.dial(peer.id, { signal: options?.signal }); // no-op if already connected
+                            await tryFetchFromPeer(peer.id, "provider");
+                        } catch (e) {
+                            recordErr(peer.id, e);
+                        }
+                    })()
+                );
+                if (++attempted >= maxPeers) {
+                    findProvidersAbort.abort();
+                    break;
+                }
+            }
+        } catch (e) {
+            // findProviders may throw the abort we caused ourselves (winner found / maxPeers). Any
+            // genuine error is non-fatal here: the subscriber branch may still win, and on total
+            // exhaustion we return undefined so the caller falls back to router.get().
+            if (!findProvidersSignal.aborted) log.trace("findProviders errored during direct IPNS fetch for topic", pubsubTopic, e);
+        }
+        await Promise.allSettled(dialFetchTasks);
+    })();
+
+    // Await both branches so no in-flight fetch/dial leaks past return.
+    await Promise.allSettled([...subscriberTasks, providerBranch]);
+
+    if (winner) {
+        log.trace("Direct IPNS fetch won from", winner.source, winner.peerId, "in", winner.durationMs, "ms for topic", pubsubTopic);
+        return winner;
+    }
+
+    // If the caller aborted us and nobody won, surface the abort rather than a silent miss.
+    if (options?.signal?.aborted)
+        throw new PKCError("ERR_IPNS_DIRECT_FETCH_ABORTED", { pubsubTopic, peerToError, ...getHeliaDebugContext(helia) });
+
+    return undefined;
 }

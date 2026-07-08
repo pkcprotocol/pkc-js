@@ -22,7 +22,7 @@ import { EventEmitter } from "events";
 import type { HeliaWithLibp2pPubsub } from "./types.js";
 import { PKCError } from "../pkc-error.js";
 import { Libp2pJsClient } from "./libp2pjsClient.js";
-import { connectToPubsubPeers, getHeliaDebugContext } from "./util.js";
+import { connectToPubsubPeers, directFetchIpnsRecordFromProviders, getHeliaDebugContext } from "./util.js";
 import { createDefaultDialTransportGater } from "./dial-transport-filter.js";
 import { ipnsNameToIpnsOverPubsubTopic } from "../util.js";
 
@@ -251,11 +251,72 @@ export async function createLibp2pJsClientOrUseExistingOne(
                         const ipnsNameAsPeerId = peerIdFromString(currentName);
                         log.trace("Resolving ipns name", currentName, "with options", options);
 
+                        const ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(ipnsNameAsPeerId.toString());
+                        const routingKey = multihashToIPNSRoutingKey(ipnsNameAsPeerId.toMultihash());
+
+                        // Fast path: fetch the record over libp2p/fetch, in parallel, directly from BOTH
+                        // the topic's current gossipsub subscribers AND providers freshly discovered from
+                        // the HTTP routers — first signature-valid record wins. This skips the
+                        // waitForTopicSubscriber floor (up to 10s) that the legacy path below blocks on,
+                        // because @helia/ipns's PubSubRouting.get() only fetches from getSubscribers() and
+                        // throws when that list is empty. See directFetchIpnsRecordFromProviders.
+                        type DirectFetchOutcome =
+                            | { attempted: false }
+                            | { attempted: true; hit: true; durationMs: number; source: string; peerId: string }
+                            | { attempted: true; hit: false; durationMs: number; error?: Error };
+                        let directFetchOutcome: DirectFetchOutcome = { attempted: false };
+                        {
+                            // Subscribe so pushed record updates keep arriving (the legacy router.get() did
+                            // this as a side effect). Fire-and-forget warmup lets the gossipsub mesh form for
+                            // future pushes; we do NOT await it — the direct fetch does not need the mesh.
+                            if (!helia.libp2p.services.pubsub.getTopics().includes(ipnsPubsubTopic))
+                                helia.libp2p.services.pubsub.subscribe(ipnsPubsubTopic);
+                            void warmupForTopic(ipnsPubsubTopic, options).catch((e) =>
+                                log.trace("Fire-and-forget warmup failed for", ipnsPubsubTopic, e)
+                            );
+
+                            const directStart = Date.now();
+                            try {
+                                const direct = await directFetchIpnsRecordFromProviders({
+                                    helia,
+                                    pubsubTopic: ipnsPubsubTopic,
+                                    routingKey,
+                                    maxPeers: WARMUP_MAX_PEERS,
+                                    validate: ipnsValidator,
+                                    options,
+                                    log: Logger("pkc-js:helia:ipns:direct-fetch")
+                                });
+                                if (direct) {
+                                    directFetchOutcome = {
+                                        attempted: true,
+                                        hit: true,
+                                        durationMs: direct.durationMs,
+                                        source: direct.source,
+                                        peerId: direct.peerId
+                                    };
+                                    // Record already validated inside the helper — unmarshal directly,
+                                    // do NOT re-run ipnsValidator.
+                                    const record = unmarshalIPNSRecord(direct.recordBytes);
+                                    yield record.value;
+                                    return;
+                                }
+                                directFetchOutcome = { attempted: true, hit: false, durationMs: Date.now() - directStart };
+                            } catch (directErr) {
+                                directFetchOutcome = {
+                                    attempted: true,
+                                    hit: false,
+                                    durationMs: Date.now() - directStart,
+                                    error: directErr as Error
+                                };
+                                log.trace("Direct IPNS fetch path errored for", ipnsPubsubTopic, directErr);
+                            }
+                        }
+
+                        // Fallback: legacy warmup + router.get() loop.
                         // @helia/ipns 9.2.x pubsub router throws NotFoundError if zero subscribers exist
                         // for the topic at .get() time. Await peer warmup so the resolver sees a populated
                         // subscriber list (the monkey-patched pubsub.subscribe also kicks off warmup,
                         // but fire-and-forget — too late for the first .get()).
-                        const ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(ipnsNameAsPeerId.toString());
                         type WarmupOutcome =
                             | { attempted: false }
                             | { attempted: true; durationMs: number; subscribersAfterWarmup: number }
@@ -313,7 +374,6 @@ export async function createLibp2pJsClientOrUseExistingOne(
                         // the pubsub router's get() never serves from cache; it always queries peers. Record
                         // caching + ipnsSelector still happen inside the pubsub router's handleRecord
                         // regardless of whether we go through resolve() or call router.get directly.
-                        const routingKey = multihashToIPNSRoutingKey(ipnsNameAsPeerId.toMultihash());
                         let recordBytes: Uint8Array | undefined;
                         const routerErrors: Error[] = [];
                         for (const router of ipnsNameResolver.routers) {
@@ -337,6 +397,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                 currentName,
                                 ipnsPubsubTopic,
                                 ipnsResolveOptions: options,
+                                directFetchOutcome,
                                 warmupOutcome,
                                 routerErrors,
                                 subscribersAtResolveTime: helia.libp2p.services.pubsub.getSubscribers(ipnsPubsubTopic).length,
