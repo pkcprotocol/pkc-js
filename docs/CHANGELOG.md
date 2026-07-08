@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.65](https://github.com/pkcprotocol/pkc-js/compare/v0.0.64...v0.0.65) (2026-07-08)
+
+### Features
+
+* **helia:** fetch IPNS records directly from providers/subscribers ([#185](https://github.com/pkcprotocol/pkc-js/issues/185)) ([#186](https://github.com/pkcprotocol/pkc-js/issues/186)) ([75f03f9](https://github.com/pkcprotocol/pkc-js/commit/75f03f915a455599359165eb9a184a8f5b68a188))
+
 ## [0.0.64](https://github.com/pkcprotocol/pkc-js/compare/v0.0.63...v0.0.64) (2026-07-07)
 
 ### Performance
