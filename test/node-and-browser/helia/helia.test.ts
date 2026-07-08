@@ -14,6 +14,8 @@ import type { Comment } from "../../../dist/node/publications/comment/comment.js
 import type { IpfsHttpClientPubsubMessage } from "../../../dist/node/types.js";
 import { ipnsNameToIpnsOverPubsubTopic } from "../../../dist/node/util.js";
 import { importer } from "ipfs-unixfs-importer";
+import { peerIdFromString } from "@libp2p/peer-id";
+import { multihashToIPNSRoutingKey } from "ipns";
 
 async function firstFromAsyncIterable<T>(iterable: AsyncIterable<T>): Promise<T> {
     for await (const value of iterable) return value;
@@ -254,7 +256,14 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             }
         });
 
-        it("name.resolve populates pubsub subscribers before @helia/ipns inspects them", async () => {
+        // The direct-fetch fast path (issue #185) resolves the record over libp2p/fetch without
+        // blocking on the gossipsub subscriber floor (TOPIC_SUBSCRIBER_WAIT_TIMEOUT_MS, up to 10s),
+        // so it intentionally does NOT wait for pubsub.getSubscribers(topic) to be populated before
+        // returning. It MUST, however, still subscribe to the IPNS-over-pubsub topic (and kick a
+        // fire-and-forget warmup) so future pushed record updates keep arriving. This asserts that
+        // the subscription survives the resolve — the guarantee that replaced the old
+        // warmup-before-first-get behavior.
+        it("name.resolve keeps the pubsub topic subscribed so pushed updates keep flowing", async () => {
             const { communityAddress } = await createMockedCommunityIpns({});
             const resolverPKC = await config.pkcInstancePromise();
             try {
@@ -263,25 +272,17 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 const pubsubSvc = heliaClient._helia.libp2p.services.pubsub;
                 const topic = ipnsNameToIpnsOverPubsubTopic(communityAddress);
 
-                expect(pubsubSvc.getSubscribers(topic).length).to.equal(0);
+                expect(pubsubSvc.getTopics(), "topic must not be subscribed before resolve").to.not.include(topic);
 
-                let lastReadCount: number | undefined;
-                const original = pubsubSvc.getSubscribers.bind(pubsubSvc);
-                pubsubSvc.getSubscribers = (t: string) => {
-                    const list = original(t);
-                    if (t === topic) lastReadCount = list.length;
-                    return list;
-                };
+                const resolved = await firstFromAsyncIterable(
+                    heliaShape.name.resolve(communityAddress, { nocache: true, recursive: true })
+                );
+                expect(resolved).to.be.a("string");
+                expect(resolved).to.match(/^\/ipfs\//);
 
-                try {
-                    await firstFromAsyncIterable(heliaShape.name.resolve(communityAddress, { nocache: true, recursive: true }));
-                } finally {
-                    pubsubSvc.getSubscribers = original;
-                }
-
-                // The @helia/ipns pubsub router's final read (the for-loop over peers) must see
-                // a populated subscriber list — that's what the warmup is for.
-                expect(lastReadCount, "subscribers must be populated by the time @helia/ipns reads them").to.be.greaterThan(0);
+                expect(pubsubSvc.getTopics(), "resolve must leave the IPNS pubsub topic subscribed for future pushed updates").to.include(
+                    topic
+                );
             } finally {
                 await resolverPKC.destroy();
             }
@@ -392,10 +393,6 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             const { communityAddress } = await createMockedCommunityIpns({});
             const pkc = await config.pkcInstancePromise();
             const heliaClient = Object.values(pkc.clients.libp2pJsClients)[0];
-            const heliaShape = heliaClient.heliaWithKuboRpcClientFunctions;
-
-            // Trigger an IPNS resolve so the pubsub router records a subscription internally.
-            await firstFromAsyncIterable(heliaShape.name.resolve(communityAddress, { nocache: true, recursive: true }));
 
             // Find the pubsub router by class name (matches the shape pinned in the
             // "IPNS router shape" suite above).
@@ -405,13 +402,28 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             expect(pubsubRouter, "expected to find a PubSubRouting in _heliaIpnsRouter.routers").to.exist;
 
             const routerWithLifecycle = pubsubRouter as {
+                get: (routingKey: Uint8Array, options?: { signal?: AbortSignal }) => Promise<unknown>;
                 getSubscriptions: () => string[];
                 stop: () => void | Promise<void>;
             };
+
+            // Seed a router-level subscription. name.resolve() no longer records one on its own:
+            // the direct-fetch fast path (issue #185) pre-subscribes the topic on gossipsub and
+            // returns before PubSubRouting.get() ever runs, and even the legacy fallback's get()
+            // skips adding the subscription because the topic is already in pubsub.getTopics().
+            // So we call the router's get() directly on a not-yet-subscribed topic to create the
+            // leak surface this test guards. get() subscribes and records the subscription before
+            // it awaits/fetches, so it is recorded even though get() then throws NotFoundError.
+            const routingKey = multihashToIPNSRoutingKey(peerIdFromString(communityAddress).toMultihash());
+            await routerWithLifecycle.get(routingKey, { signal: AbortSignal.timeout(2000) }).catch(() => {
+                // NotFoundError (no subscriber serves the record) or abort — the subscription is
+                // still recorded before get() rejects, which is all this test needs.
+            });
+
             const subsBeforeDestroy = routerWithLifecycle.getSubscriptions();
             expect(
                 subsBeforeDestroy.length,
-                `pubsub router should track at least one subscription after a successful resolve, got ${subsBeforeDestroy.length}`
+                `pubsub router should track at least one subscription after get(), got ${subsBeforeDestroy.length}`
             ).to.be.greaterThan(0);
 
             const stopSpy = vi.spyOn(routerWithLifecycle, "stop");
