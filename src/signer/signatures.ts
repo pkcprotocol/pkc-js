@@ -114,6 +114,21 @@ export const signBufferEd25519 = async (bufferToSign: Uint8Array, privateKeyBase
     return signature;
 };
 
+let webCryptoEd25519Supported: boolean | undefined;
+
+const _isWebCryptoEd25519Supported = async (): Promise<boolean> => {
+    if (webCryptoEd25519Supported === undefined) {
+        try {
+            const knownValidPublicKey = ed25519.getPublicKey(new Uint8Array(32).fill(1));
+            await globalThis.crypto.subtle.importKey("raw", knownValidPublicKey, { name: "Ed25519" }, false, ["verify"]);
+            webCryptoEd25519Supported = true;
+        } catch {
+            webCryptoEd25519Supported = false;
+        }
+    }
+    return webCryptoEd25519Supported;
+};
+
 export const verifyBufferEd25519 = async (bufferToSign: Uint8Array, bufferSignature: Uint8Array, publicKeyBase64: string) => {
     if (!isProbablyBuffer(bufferToSign)) throw Error(`verifyBufferEd25519 invalid bufferSignature '${bufferToSign}' not buffer`);
     if (!isProbablyBuffer(bufferSignature)) throw Error(`verifyBufferEd25519 invalid bufferSignature '${bufferSignature}' not buffer`);
@@ -124,6 +139,16 @@ export const verifyBufferEd25519 = async (bufferToSign: Uint8Array, bufferSignat
         throw Error(
             `verifyBufferEd25519 publicKeyBase64 '${publicKeyBase64}' ed25519 public key length not 32 bytes (${publicKeyBuffer.length} bytes)`
         );
+    // WebCrypto (native, off-main-thread, ~13x faster than noble) is a fast-accept path only.
+    // Noble's ZIP215 acceptance is a superset of WebCrypto's, so a WebCrypto reject (or any
+    // WebCrypto error) must be re-checked by noble to keep verification behavior identical
+    // across environments with and without WebCrypto Ed25519.
+    if (await _isWebCryptoEd25519Supported()) {
+        try {
+            const cryptoKey = await globalThis.crypto.subtle.importKey("raw", publicKeyBuffer, { name: "Ed25519" }, false, ["verify"]);
+            if (await globalThis.crypto.subtle.verify("Ed25519", cryptoKey, bufferSignature, bufferToSign)) return true;
+        } catch {}
+    }
     const isValid = ed25519.verify(bufferSignature, bufferToSign, publicKeyBuffer);
     return isValid;
 };
