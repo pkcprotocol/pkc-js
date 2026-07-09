@@ -423,7 +423,8 @@ export async function directFetchIpnsRecordFromProviders({
     const subscriberTasks = pubsub.getSubscribers(pubsubTopic).map((peerId) => tryFetchFromPeer(peerId, "subscriber"));
 
     // Provider branch: discover providers of the topic CID from the HTTP routers, dial each, then
-    // fetch the moment the dial completes. Stop enqueueing at maxPeers attempts or on a winner.
+    // fetch the moment the dial completes. Stop enqueueing after maxPeers dialable providers or on
+    // a winner.
     const providerBranch = (async (): Promise<void> => {
         const findProvidersAbort = new AbortController();
         const findProvidersSignal = options?.signal
@@ -434,6 +435,16 @@ export async function directFetchIpnsRecordFromProviders({
         try {
             for await (const peer of helia.libp2p.contentRouting.findProviders(contentCid, { ...options, signal: findProvidersSignal })) {
                 if (resultController.signal.aborted) break;
+                // Providers whose announced addrs are all undialable must not consume one of the
+                // maxPeers attempt slots (issue #188): in a browser with a WSS-only connection
+                // gater, some routers consistently serve records with only tcp/quic addrs (or none)
+                // and answer fast, so their instantly-failing dials would otherwise burn every slot
+                // and force the caller back onto the ~10s legacy warmup path. We still dial them —
+                // the peerstore may know dialable addrs the record lacks — but only providers with
+                // at least one dialable announced addr count toward maxPeers. isDialable is a local
+                // check (gater + transport match), not a network round-trip.
+                const announcedAddrs = (peer as PeerInfo).multiaddrs ?? [];
+                const hasDialableAddr = announcedAddrs.length > 0 && (await helia.libp2p.isDialable(announcedAddrs));
                 dialFetchTasks.push(
                     (async () => {
                         try {
@@ -454,7 +465,7 @@ export async function directFetchIpnsRecordFromProviders({
                         }
                     })()
                 );
-                if (++attempted >= maxPeers) {
+                if (hasDialableAddr && ++attempted >= maxPeers) {
                     findProvidersAbort.abort();
                     break;
                 }
