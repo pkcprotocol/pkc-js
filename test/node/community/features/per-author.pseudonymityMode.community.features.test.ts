@@ -638,14 +638,18 @@ describeSkipIfRpc('community.features.pseudonymityMode="per-author"', () => {
                 const aggregatedAuthor = (localContext.community as LocalCommunity)._dbHandler.queryCommunityAuthor(localAuthor.address);
                 expect(aggregatedAuthor?.lastCommentCid).to.equal(followUpReply.cid);
 
-                const replyUpdate = (localContext.community as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
-                    cid: followUpReply.cid
-                }) as StoredCommentUpdate;
+                const replyUpdate = await waitForStoredCommentUpdate(
+                    localContext.community as LocalCommunity,
+                    followUpReply.cid!,
+                    (stored) => stored.author?.community?.lastCommentCid === followUpReply.cid
+                );
                 expect(replyUpdate?.author?.community?.lastCommentCid).to.equal(followUpReply.cid);
 
-                const postUpdate = (localContext.community as LocalCommunity)._dbHandler.queryStoredCommentUpdate({
-                    cid: firstPost.cid
-                }) as StoredCommentUpdate;
+                const postUpdate = await waitForStoredCommentUpdate(
+                    localContext.community as LocalCommunity,
+                    firstPost.cid!,
+                    (stored) => stored.author?.community?.lastCommentCid === followUpReply.cid
+                );
                 expect(postUpdate?.author?.community?.lastCommentCid).to.equal(followUpReply.cid);
 
                 await firstPost.stop();
@@ -2037,12 +2041,19 @@ async function waitForStoredCommentUpdateWithAssertions(community: LocalCommunit
     return storedUpdate;
 }
 
-async function waitForStoredCommentUpdate(community: LocalCommunity, cid: string): Promise<StoredCommentUpdate> {
+// Comment updates are upserted per depth batch (replies before their ancestors), so waiting for one
+// comment's row to exist doesn't mean another comment's row has been regenerated yet. Pass a predicate
+// to wait until the stored update reflects the expected values instead of just existing.
+async function waitForStoredCommentUpdate(
+    community: LocalCommunity,
+    cid: string,
+    predicate?: (stored: StoredCommentUpdate) => boolean
+): Promise<StoredCommentUpdate> {
     const timeoutMs = 60000;
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
         const stored = community._dbHandler.queryStoredCommentUpdate({ cid }) as StoredCommentUpdate | undefined;
-        if (stored) return stored;
+        if (stored && (!predicate || predicate(stored))) return stored;
         await new Promise((resolve) => setTimeout(resolve, 50));
     }
     throw new Error(`Timed out waiting for stored comment update for ${cid}`);
