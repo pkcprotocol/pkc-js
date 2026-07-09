@@ -2,6 +2,7 @@ import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { mockPKCNoDataPathWithOnlyKuboClient } from "../../dist/node/test/test-util.js";
 import fixtureSigners from "../fixtures/signers.js";
 import { signBufferEd25519, verifyBufferEd25519 } from "../../dist/node/signer/signatures.js";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { Buffer } from "buffer";
 import type { PKC } from "../../dist/node/pkc/pkc.js";
@@ -71,6 +72,31 @@ describe("signer (node and browser)", async () => {
             expect(await verifyBufferEd25519(uint8array, uint8arraySignature, authorSigner.publicKey!)).to.equal(true);
             expect(await verifyBufferEd25519(buffer, bufferSignature, authorSigner.publicKey!)).to.equal(true);
             expect(await verifyBufferEd25519(buffer, bufferSignature, randomSigner.publicKey!)).to.equal(false);
+        });
+
+        it("rejects a tampered message", async () => {
+            const tamperedMessage = new Uint8Array(uint8array);
+            tamperedMessage[0] ^= 1;
+            expect(await verifyBufferEd25519(tamperedMessage, uint8arraySignature, authorSigner.publicKey!)).to.equal(false);
+        });
+
+        it("rejects a corrupted signature of valid length", async () => {
+            const corruptedSignature = new Uint8Array(uint8arraySignature);
+            corruptedSignature[0] ^= 1;
+            expect(await verifyBufferEd25519(uint8array, corruptedSignature, authorSigner.publicKey!)).to.equal(false);
+        });
+
+        it("agrees with @noble/curves verify on many messages", async () => {
+            // parity check between the WebCrypto Ed25519 fast path (used when available) and @noble/curves
+            const publicKeyBuffer = uint8ArrayFromString(authorSigner.publicKey!, "base64");
+            for (let i = 0; i < 50; i++) {
+                const message = crypto.getRandomValues(new Uint8Array(100 + i));
+                const signature = await signBufferEd25519(message, authorSigner.privateKey);
+                if (i % 2 === 1) signature[i % 64] ^= 1; // corrupt half of them
+                expect(await verifyBufferEd25519(message, signature, authorSigner.publicKey!)).to.equal(
+                    ed25519.verify(signature, message, publicKeyBuffer)
+                );
+            }
         });
     });
 });
