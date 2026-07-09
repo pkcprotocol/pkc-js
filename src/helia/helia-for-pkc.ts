@@ -227,17 +227,26 @@ export async function createLibp2pJsClientOrUseExistingOne(
             });
         };
 
-        // kubo-rpc-client style timeout ("30000ms"/"30s" or a number of ms) — @helia/unixfs
-        // ignores it, but the session MUST be bounded by it: AbstractSession's fallback loop
-        // keeps evicting providers and re-querying routing "until the abort signal fires", and
-        // _fetchCidP2P's outer pTimeout only abandons the promise without aborting the fetch.
+        // kubo-rpc-client style timeout (a number of ms, or a Go duration string like "30000ms",
+        // "30s", "2m", "1h30m") — @helia/unixfs ignores it, but the session MUST be bounded by
+        // it: AbstractSession's fallback loop keeps evicting providers and re-querying routing
+        // "until the abort signal fires", and _fetchCidP2P's outer pTimeout only abandons the
+        // promise without aborting the fetch. A string we can't parse throws instead of silently
+        // running unbounded.
+        const KUBO_DURATION_UNIT_TO_MS: Record<string, number> = { ns: 1e-6, us: 1e-3, µs: 1e-3, ms: 1, s: 1e3, m: 6e4, h: 3.6e6 };
         const parseKuboStyleTimeoutMs = (timeout: unknown): number | undefined => {
+            if (timeout === undefined || timeout === null) return undefined;
             if (typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0) return timeout;
             if (typeof timeout === "string") {
-                const match = /^(\d+(?:\.\d+)?)(ms|s)$/.exec(timeout);
-                if (match) return parseFloat(match[1]) * (match[2] === "s" ? 1000 : 1);
+                let totalMs = 0;
+                let matchedLength = 0;
+                for (const component of timeout.matchAll(/(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h)/g)) {
+                    totalMs += parseFloat(component[1]) * KUBO_DURATION_UNIT_TO_MS[component[2]];
+                    matchedLength += component[0].length;
+                }
+                if (matchedLength === timeout.length && totalMs > 0) return totalMs;
             }
-            return undefined;
+            throw new PKCError("ERR_INVALID_KUBO_STYLE_TIMEOUT", { invalidTimeout: timeout });
         };
 
         // Base delay before re-running a session's provider search after it found zero
@@ -504,23 +513,26 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 // needs a blockstore, and blocks fetched through the session land in the same
                 // underlying blockstore helia uses, so nothing else changes.
                 const rootCid = CID.parse(ipfsPath.split("/")[0]);
-
-                // Bound the fetch's lifetime: honor the caller's signal AND the kubo-style
-                // timeout option, via one internal controller whose listeners/timer are always
-                // detached in the finally below (long-lived caller signals must not accumulate
-                // abort listeners across fetches).
-                const controller = new AbortController();
-                const callerSignal = options?.signal;
-                const abortFromCallerSignal = () => controller.abort(callerSignal?.reason);
-                if (callerSignal?.aborted) abortFromCallerSignal();
-                else callerSignal?.addEventListener("abort", abortFromCallerSignal, { once: true });
-                const timeoutMs = parseKuboStyleTimeoutMs(options?.timeout);
-                const timeoutTimer =
-                    timeoutMs !== undefined
-                        ? setTimeout(() => controller.abort(new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { ipfsPath, timeoutMs })), timeoutMs)
-                        : undefined;
+                const timeoutMs = parseKuboStyleTimeoutMs(options?.timeout); // throws on unparseable timeout at call time
 
                 return (async function* () {
+                    // Bound the fetch's lifetime: honor the caller's signal AND the kubo-style
+                    // timeout option, via one internal controller whose listeners/timer are always
+                    // detached in the finally below (long-lived caller signals must not accumulate
+                    // abort listeners across fetches). Set up inside the generator so the timer
+                    // starts on first read, and nothing leaks if the iterable is never iterated.
+                    const controller = new AbortController();
+                    const callerSignal = options?.signal;
+                    const abortFromCallerSignal = () => controller.abort(callerSignal?.reason);
+                    if (callerSignal?.aborted) abortFromCallerSignal();
+                    else callerSignal?.addEventListener("abort", abortFromCallerSignal, { once: true });
+                    const timeoutTimer =
+                        timeoutMs !== undefined
+                            ? setTimeout(
+                                  () => controller.abort(new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { ipfsPath, timeoutMs })),
+                                  timeoutMs
+                              )
+                            : undefined;
                     try {
                         for (let attempt = 0; ; attempt++) {
                             const session = helia.blockstore.createSession(rootCid, { providers: getBitswapSessionSeedPeers() });

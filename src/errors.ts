@@ -72,6 +72,7 @@ export enum messages {
     ERR_REMOTE_COMMUNITY_RECEIVED_ALREADY_PROCCESSED_RECORD = "We loaded a community record but it's a record we already consumed before",
     ERR_COMMENT_RECEIVED_ALREADY_PROCESSED_COMMENT_UPDATE = "We loaded a CommentUpdate but it's a record we already consumed",
     ERR_FETCH_CID_P2P_TIMEOUT = "Fetching CID via Kubo-rpc-client/helia P2P has timed out",
+    ERR_INVALID_KUBO_STYLE_TIMEOUT = 'The timeout option is not a number of milliseconds or a kubo-style duration string (e.g. "30s", "2m")',
     ERR_FETCH_CID_P2P_TIMEOUT_AFTER_RETRIES = "Fetching CID via Kubo-rpc-client/helia P2P has timed out after all retry attempts",
     ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED = "Resolved IPNS name to undefined. Does this IPNS name exist?",
     ERR_IPNS_RESOLUTION_P2P_TIMEOUT = "IPNS resolution P2P timed out",
