@@ -575,4 +575,76 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             }
         }, 15000);
     });
+
+    // Issue #189: every block fetched over the helia transport used to go through
+    // @helia/bitswap's want(), which fires network.findAndConnect(cid) — a routing
+    // findProviders query against ALL configured HTTP routers — once PER BLOCK (aborted when
+    // the block arrives). A multi-block DAG therefore multiplied router load by its block
+    // count. cat() now fetches each DAG through a bitswap session seeded with
+    // already-connected peers: per-block wants go only to session peers (wantSessionBlock),
+    // and routing is queried at most once per DAG (the session's initial provider search).
+    describe(`Helia cat() fetches DAGs through a bitswap session - ${config.name}`, () => {
+        // Build content large enough to span multiple unixfs blocks (kubo's default chunker
+        // is 256KiB). Randomized so leaf blocks are unique — repeating chunks would dedupe
+        // into a single block and defeat the multi-block setup.
+        const generateMultiBlockContent = (): string => {
+            let content = "";
+            while (content.length < 700 * 1024) content += Math.random().toString(36).slice(2);
+            return content;
+        };
+
+        it("fetching a multi-block DAG issues at most one routing findProviders query, not one per block", async () => {
+            const testPKC = await config.pkcInstancePromise({ forceMockPubsub: true });
+            const heliaClient = Object.values(testPKC.clients.libp2pJsClients)[0];
+            const routing = heliaClient._helia.routing;
+            const originalFindProviders = routing.findProviders.bind(routing);
+            try {
+                const content = generateMultiBlockContent();
+                const cid = await addStringToIpfs(content);
+
+                let findProvidersCalls = 0;
+                routing.findProviders = function (...args: Parameters<typeof originalFindProviders>) {
+                    findProvidersCalls++;
+                    return originalFindProviders(...args);
+                };
+
+                const { content: fetched } = await testPKC.fetchCid({ cid });
+                expect(fetched).to.equal(content);
+                expect(
+                    findProvidersCalls,
+                    `a ${Math.ceil((700 * 1024) / (256 * 1024)) + 1}-block DAG must not trigger a routing lookup per block — expected at most 1 per-DAG session query, got ${findProvidersCalls}`
+                ).to.be.at.most(1);
+            } finally {
+                routing.findProviders = originalFindProviders;
+                await testPKC.destroy();
+            }
+        }, 90000);
+
+        it("an already-connected peer seeds the session: multi-block fetch succeeds even when routing finds no providers", async () => {
+            const testPKC = await config.pkcInstancePromise({ forceMockPubsub: true });
+            const heliaClient = Object.values(testPKC.clients.libp2pJsClients)[0];
+            const routing = heliaClient._helia.routing;
+            const originalFindProviders = routing.findProviders.bind(routing);
+            try {
+                // First fetch discovers + dials the kubo node that serves test content, so the
+                // client has a connected peer that provides the blocks of the second fetch.
+                const firstCid = await addStringToIpfs("session-seed-connection " + Math.random());
+                const { content: first } = await testPKC.fetchCid({ cid: firstCid });
+                expect(first).to.include("session-seed-connection");
+                expect(heliaClient._helia.libp2p.getPeers().length).to.be.greaterThan(0);
+
+                // Blind the routing layer entirely: only a session seeded with the
+                // already-connected kubo peer can serve the blocks now.
+                routing.findProviders = async function* () {};
+
+                const content = generateMultiBlockContent();
+                const cid = await addStringToIpfs(content);
+                const { content: fetched } = await testPKC.fetchCid({ cid });
+                expect(fetched).to.equal(content);
+            } finally {
+                routing.findProviders = originalFindProviders;
+                await testPKC.destroy();
+            }
+        }, 90000);
+    });
 });
