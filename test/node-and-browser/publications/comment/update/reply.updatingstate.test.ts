@@ -201,17 +201,26 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
                 await mockReply.stop();
 
-                const expectedUpdateStates = [
+                // Only the first two states are deterministic. Whether "fetching-community-ipfs" is
+                // observed depends on a race: the community update loop (shared via
+                // pkc._updatingCommunities) fetches and verifies the community record on its own
+                // schedule, and its state is mirrored onto the comment's updatingState. If the
+                // invalid-signature failure lands while the mirrored state is still
+                // "fetching-community-ipns" (stripped by cleanupStateArray), the comment goes
+                // straight from "succeeded" to "failed". Same race class as issue #138.
+                const expectedDeterministicPrefix = [
                     "fetching-ipfs", // fetching comment ipfs of reply
-                    "succeeded", // succeeded loading comment ipfs of reply
-                    // "fetching-community-ipns" is stripped by cleanupStateArray (parallel pkc.getCommunity may have already left this state)
-                    "fetching-community-ipfs", // fetching community ipfs
-                    "failed", // community ipfs record is invalid
-                    "stopped" // called post.stop()
+                    "succeeded" // succeeded loading comment ipfs of reply
                 ];
-                const filteredExpectedStates = cleanupStateArray(expectedUpdateStates);
                 const filteredRecordedStates = cleanupStateArray(recordedStates);
-                expect(filteredRecordedStates).to.deep.equal(filteredExpectedStates);
+                expect(filteredRecordedStates.slice(0, expectedDeterministicPrefix.length)).to.deep.equal(
+                    expectedDeterministicPrefix,
+                    "recorded states: " + recordedStates.join(", ")
+                );
+                const restOfStates = filteredRecordedStates.slice(expectedDeterministicPrefix.length);
+                for (const state of restOfStates) expect(state).to.be.oneOf(["fetching-community-ipfs", "failed", "stopped"]);
+                expect(restOfStates).to.include("failed"); // community ipfs record is invalid
+                expect(filteredRecordedStates[filteredRecordedStates.length - 1]).to.equal("stopped"); // called mockReply.stop()
             } finally {
                 await pkc.destroy();
             }
