@@ -263,14 +263,18 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
             res.end("Not found");
         });
 
-        // Newer gateway - always returns a newer valid record
-        await createServer(NEWER_GATEWAY_PORT, (req, res) => {
+        // Newer gateway - always returns a newer valid record. Requests without If-None-Match
+        // (the initial getCommunity() load, where the first 200 wins the gateway race) are
+        // delayed so the conditional304 gateway deterministically loads first; update fetches
+        // carry If-None-Match and get the newer record immediately.
+        await createServer(NEWER_GATEWAY_PORT, async (req, res) => {
             res.setHeader("Access-Control-Allow-Origin", "*");
             if (!isRequestForTestSub(req)) {
                 res.statusCode = 404;
                 res.end("Not found");
                 return;
             }
+            if (!req.headers["if-none-match"]) await new Promise<void>((resolve) => setTimeout(resolve, 700));
             res.setHeader("x-ipfs-roots", newerRecordCid);
             res.setHeader("etag", `"${newerRecordCid}"`);
             res.end(newerRecordJson);
