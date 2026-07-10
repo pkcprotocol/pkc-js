@@ -77,6 +77,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     private _callTimeoutMs: number;
     private _openConnectionPromise?: Promise<any>;
     private _destroyRequested: boolean;
+    private _notificationSocket?: unknown; // the socket our notification handler is currently attached to
     constructor(rpcServerUrl: string) {
         super();
         assert(rpcServerUrl, "pkc.pkcRpcClientsOptions needs to be defined to create a new rpc client");
@@ -131,8 +132,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
 
             this._webSocketClient = new WebSocketClient(this._websocketServerUrl);
             log("Created a new WebSocket instance with url " + this._websocketServerUrl);
-            //@ts-expect-error
-            this._webSocketClient.socket.on("message", (jsonMessage) => {
+            const handleNotificationMessage = (jsonMessage: string) => {
                 const message = JSON.parse(jsonMessage);
                 const subscriptionId = message?.params?.subscription;
                 if (subscriptionId) {
@@ -143,14 +143,29 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                         message.params.result = this._deserializeRpcError(message.params.result);
                         delete (<any>message.params.result).stack; // Need to delete locally generated stack traces
                     }
-                    if (this._subscriptionEvents[subscriptionId].listenerCount(message?.params?.event) === 0)
-                        this._pendingSubscriptionMsgs[subscriptionId].push(message);
-                    else this._subscriptionEvents[subscriptionId].emit(message?.params?.event, message);
+                    this._emitOrBufferSubscriptionMessage(subscriptionId, message);
                 }
-            });
+            };
+            // rpc-websockets replaces its socket object on every reconnect and only re-attaches its own
+            // internals, so a handler bound to the old socket silently stops receiving notifications
+            // while calls keep working (issue #197). Re-attach to the current socket on every open.
+            const attachNotificationHandler = () => {
+                //@ts-expect-error
+                const currentSocket = this._webSocketClient.socket;
+                if (!currentSocket || currentSocket === this._notificationSocket) return false;
+                this._notificationSocket = currentSocket;
+                currentSocket.on("message", handleNotificationMessage);
+                return true;
+            };
+            attachNotificationHandler();
 
             this._webSocketClient.on("open", () => {
                 log("Connected to RPC server", this._websocketServerUrl);
+                const socketWasReplaced = attachNotificationHandler();
+                // A new socket after we already had one means the connection was re-established. The
+                // server keys subscriptions to the old connection, so existing subscriptions will never
+                // emit again — surface that loudly instead of letting consumers wait forever.
+                if (socketWasReplaced && Object.keys(this._subscriptionEvents).length > 0) this._emitStaleSubscriptionErrors();
                 this.setState("connected");
             });
             // forward errors to PKC
@@ -384,6 +399,34 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     private _initSubscriptionEvent(subscriptionId: number) {
         if (!this._subscriptionEvents[subscriptionId]) this._subscriptionEvents[subscriptionId] = new EventEmitter();
         if (!this._pendingSubscriptionMsgs[subscriptionId]) this._pendingSubscriptionMsgs[subscriptionId] = [];
+    }
+
+    private _emitOrBufferSubscriptionMessage(
+        subscriptionId: number,
+        message: { params: { event: string; subscription: number; result: unknown } }
+    ) {
+        if (this._subscriptionEvents[subscriptionId].listenerCount(message.params.event) === 0)
+            this._pendingSubscriptionMsgs[subscriptionId].push(message);
+        else this._subscriptionEvents[subscriptionId].emit(message.params.event, message);
+    }
+
+    // The server keys subscriptions to a connection; after a reconnect they will never emit again.
+    // Notify every live subscription with an error event shaped like a wire notification so existing
+    // error handlers (e.g. RpcRemoteCommunity._handleRpcErrorEvent) surface it to consumers.
+    private _emitStaleSubscriptionErrors() {
+        const log = Logger("pkc-js:pkc-rpc-client:_emitStaleSubscriptionErrors");
+        for (const subscriptionIdString of Object.keys(this._subscriptionEvents)) {
+            const subscriptionId = Number(subscriptionIdString);
+            log(`Marking RPC subscription (${subscriptionId}) as stale after websocket reconnect`, this._websocketServerUrl);
+            const staleError = new PKCError("ERR_RPC_SUBSCRIPTION_STALE_AFTER_RECONNECT", {
+                subscriptionId,
+                rpcServerUrl: this._websocketServerUrl
+            });
+            this._initSubscriptionEvent(subscriptionId);
+            this._emitOrBufferSubscriptionMessage(subscriptionId, {
+                params: { result: staleError, subscription: subscriptionId, event: "error" }
+            });
+        }
     }
 
     async startCommunity(communityIdentifier: CommunityIdentifierRpcParam): Promise<RpcSubscriptionIdResult> {
