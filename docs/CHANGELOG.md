@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.68](https://github.com/pkcprotocol/pkc-js/compare/v0.0.67...v0.0.68) (2026-07-10)
+
+### Performance
+
+* **helia:** scope bitswap session seed peers to the community being fetched ([#203](https://github.com/pkcprotocol/pkc-js/issues/203)) ([02e7a25](https://github.com/pkcprotocol/pkc-js/commit/02e7a25782f95bc0b1059ab1e799bd1116f74cf1)), closes [#202](https://github.com/pkcprotocol/pkc-js/issues/202)
+
 ## [0.0.67](https://github.com/pkcprotocol/pkc-js/compare/v0.0.66...v0.0.67) (2026-07-10)
 
 ### Bug Fixes
