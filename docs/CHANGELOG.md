@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.66](https://github.com/pkcprotocol/pkc-js/compare/v0.0.65...v0.0.66) (2026-07-10)
+
+### Bug Fixes
+
+* **helia:** don't count undialable providers toward maxPeers in direct IPNS fetch ([#192](https://github.com/pkcprotocol/pkc-js/issues/192)) ([5cebc93](https://github.com/pkcprotocol/pkc-js/commit/5cebc9388e53adc842d442a192c316cfa4530d75)), closes [#186](https://github.com/pkcprotocol/pkc-js/issues/186) [#188](https://github.com/pkcprotocol/pkc-js/issues/188)
+* remove accidentally committed node_modules self-symlink ([9c647d5](https://github.com/pkcprotocol/pkc-js/commit/9c647d59be5f1100dae35d7ad0d2023ed7ebc868)), closes [#177](https://github.com/pkcprotocol/pkc-js/issues/177)
+* **rpc:** add per-call timeout to PKCRpcClient so a lost response can't hang callers forever ([#196](https://github.com/pkcprotocol/pkc-js/issues/196)) ([7cdc6a1](https://github.com/pkcprotocol/pkc-js/commit/7cdc6a14ead60465ad5986a8cd33e179d896cac4)), closes [#195](https://github.com/pkcprotocol/pkc-js/issues/195) [method#N](https://github.com/pkcprotocol/method/issues/N)
+
+### Performance
+
+* **helia:** fetch DAGs through bitswap sessions seeded with connected peers ([#191](https://github.com/pkcprotocol/pkc-js/issues/191)) ([209b846](https://github.com/pkcprotocol/pkc-js/commit/209b84691abee6c66928833b3a693c33e7352ddf)), closes [#189](https://github.com/pkcprotocol/pkc-js/issues/189)
+* **signatures:** use WebCrypto Ed25519 verify when available ([#190](https://github.com/pkcprotocol/pkc-js/issues/190)) ([ddc8a4a](https://github.com/pkcprotocol/pkc-js/commit/ddc8a4a8b6018f5ef164a65ff741ff8f454b1128)), closes [#187](https://github.com/pkcprotocol/pkc-js/issues/187) [#138](https://github.com/pkcprotocol/pkc-js/issues/138)
+
 ## [0.0.65](https://github.com/pkcprotocol/pkc-js/compare/v0.0.64...v0.0.65) (2026-07-08)
 
 ### Features
