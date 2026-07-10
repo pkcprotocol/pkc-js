@@ -74,6 +74,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     private _subscriptionEvents: Record<string, EventEmitter>; // subscription ID -> event emitter
     private _pendingSubscriptionMsgs: Record<string, any[]> = {};
     private _timeoutSeconds: number;
+    private _callTimeoutMs: number;
     private _openConnectionPromise?: Promise<any>;
     private _destroyRequested: boolean;
     constructor(rpcServerUrl: string) {
@@ -82,6 +83,11 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
 
         this._websocketServerUrl = rpcServerUrl; // default to first for now. Will change later
         this._timeoutSeconds = 20;
+        // Generous because some calls do unbounded server-side work (e.g. startCommunity repins a whole
+        // community). Its purpose is turning a lost RPC response into a diagnosable error instead of an
+        // infinite hang (issue #195), not bounding slow calls.
+        const envCallTimeoutMs = typeof process !== "undefined" ? Number(process.env?.["PKC_RPC_CALL_TIMEOUT_MS"]) : Number.NaN;
+        this._callTimeoutMs = envCallTimeoutMs > 0 ? envCallTimeoutMs : 300_000;
         this.communities = [];
         this._subscriptionEvents = {};
 
@@ -180,7 +186,15 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
             this._webSocketClient.call = async (...args) => {
                 try {
                     await this._init();
-                    return await originalWebsocketCall(...args);
+                    // A dropped/unmatched JSON-RPC response would otherwise leave this promise pending
+                    // forever (issue #195) — rpc-websockets applies no timeout of its own
+                    return await pTimeout(originalWebsocketCall(...args), {
+                        milliseconds: this._callTimeoutMs,
+                        message: new PKCError("ERR_RPC_CALL_TIMED_OUT", {
+                            rpcMethod: args[0],
+                            timeoutMs: this._callTimeoutMs
+                        })
+                    });
                 } catch (e) {
                     const typedError = <PKCError | { code: number; message: string } | Error | ZodError>e;
                     //e is an error json representation of PKCError

@@ -497,13 +497,19 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
     // util function to log errors of registered methods
     rpcWebsocketsRegister(method: string, callback: Function) {
+        let invocationCounter = 0; // correlates the two trace lines of one call under concurrent same-method calls
         const callbackWithErrorHandled = async (params: any, connectionId: string) => {
+            const invocationId = `${method}#${++invocationCounter}`;
             try {
+                // Trace receipt and response dispatch so a client hanging on a lost response (issue #195)
+                // can be attributed to either side: dispatched-but-never-matched vs never-dispatched
+                log.trace(`Received RPC call (${invocationId}) from connection (${connectionId})`);
                 const res = await callback(params, connectionId);
+                log.trace(`Dispatching RPC response for call (${invocationId}) to connection (${connectionId})`);
                 return res;
             } catch (e: any) {
                 const typedError = <PKCError | Error>e;
-                log.error(`${callback.name} error`, { params, error: typedError });
+                log.error(`${callback.name} error (${invocationId})`, { params, error: typedError });
                 // We need to stringify the error here because rpc-websocket will remove props from PKCError
                 if (typedError instanceof PKCError) {
                     const seen = new WeakSet();
