@@ -22,7 +22,7 @@ import { EventEmitter } from "events";
 import type { HeliaWithLibp2pPubsub } from "./types.js";
 import { PKCError } from "../pkc-error.js";
 import { Libp2pJsClient } from "./libp2pjsClient.js";
-import { connectToPubsubPeers, directFetchIpnsRecordFromProviders, getHeliaDebugContext } from "./util.js";
+import { connectToPubsubPeers, directFetchIpnsRecordFromProviders, getHeliaDebugContext, selectBitswapSessionSeedPeers } from "./util.js";
 import { createDefaultDialTransportGater } from "./dial-transport-filter.js";
 import { ipnsNameToIpnsOverPubsubTopic } from "../util.js";
 
@@ -194,6 +194,92 @@ export async function createLibp2pJsClientOrUseExistingOne(
             return ipfsPathOrCid as unknown as HeliaCatCid;
         };
 
+        // Issue #189: without a session, every block fetched over bitswap fires its own
+        // network.findAndConnect — a findProviders query against ALL configured HTTP routers per
+        // block, plus stray dials to whatever providers it discovers mid-fetch. cat() therefore
+        // walks each DAG through a bitswap session seeded with already-connected peers: seeded
+        // providers get the first targeted WANT-BLOCK immediately, routing is queried once per
+        // DAG (the session's initial provider search, which also serves as fallback when seeds
+        // don't have the blocks), and per-block wants go only to session peers.
+        //
+        // Cap seeds below the session's maxProviders (default 5) so the background routing query
+        // still tops the session up with independently-discovered providers — seeding all 5 slots
+        // would eliminate router traffic entirely but also all discovery redundancy.
+        const MAX_BITSWAP_SESSION_SEED_PEERS = 3;
+        // Most-recent-first peer ids that served us an IPNS record via the direct-fetch fast path
+        // (see DirectFetchResult). They're the best session seeds: in the pkc topology the record
+        // server essentially always has the blocks its record points to.
+        const RECENT_IPNS_RECORD_SERVERS_MAX = 8;
+        const recentIpnsRecordServerPeerIdStrings: string[] = [];
+        const rememberIpnsRecordServerPeer = (peerIdString: string) => {
+            const existingIndex = recentIpnsRecordServerPeerIdStrings.indexOf(peerIdString);
+            if (existingIndex !== -1) recentIpnsRecordServerPeerIdStrings.splice(existingIndex, 1);
+            recentIpnsRecordServerPeerIdStrings.unshift(peerIdString);
+            if (recentIpnsRecordServerPeerIdStrings.length > RECENT_IPNS_RECORD_SERVERS_MAX) recentIpnsRecordServerPeerIdStrings.pop();
+        };
+        const getBitswapSessionSeedPeers = () => {
+            const pubsub = helia.libp2p.services.pubsub;
+            return selectBitswapSessionSeedPeers({
+                connectedPeers: helia.libp2p.getPeers(),
+                pubsubSubscriberPeerIdStrings: pubsub.getTopics().flatMap((topic) => pubsub.getSubscribers(topic).map(String)),
+                recentIpnsRecordServerPeerIdStrings,
+                maxSeeds: MAX_BITSWAP_SESSION_SEED_PEERS
+            });
+        };
+
+        // kubo-rpc-client style timeout (a number of ms, or a Go duration string like "30000ms",
+        // "30s", "2m", "1h30m") — @helia/unixfs ignores it, but the session MUST be bounded by
+        // it: AbstractSession's fallback loop keeps evicting providers and re-querying routing
+        // "until the abort signal fires", and _fetchCidP2P's outer pTimeout only abandons the
+        // promise without aborting the fetch. A string we can't parse throws instead of silently
+        // running unbounded.
+        const KUBO_DURATION_UNIT_TO_MS: Record<string, number> = { ns: 1e-6, us: 1e-3, µs: 1e-3, ms: 1, s: 1e3, m: 6e4, h: 3.6e6 };
+        const parseKuboStyleTimeoutMs = (timeout: unknown): number | undefined => {
+            if (timeout === undefined || timeout === null) return undefined;
+            if (typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0) return timeout;
+            if (typeof timeout === "string") {
+                let totalMs = 0;
+                let matchedLength = 0;
+                for (const component of timeout.matchAll(/(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h)/g)) {
+                    totalMs += parseFloat(component[1]) * KUBO_DURATION_UNIT_TO_MS[component[2]];
+                    matchedLength += component[0].length;
+                }
+                if (matchedLength === timeout.length && totalMs > 0) return totalMs;
+            }
+            throw new PKCError("ERR_INVALID_KUBO_STYLE_TIMEOUT", { invalidTimeout: timeout });
+        };
+
+        // Base delay before re-running a session's provider search after it found zero
+        // providers; doubles per attempt (capped at 8s) so a CID nobody provides doesn't
+        // hammer the routers with one full fan-out query per retry.
+        const SESSION_NO_PROVIDERS_RETRY_BASE_DELAY_MS = 500;
+
+        // The session's zero-providers failure surfaces as InsufficientProvidersError, wrapped
+        // by @helia/utils' raceBlockRetrievers in LoadBlockFailedError (an AggregateError) —
+        // walk the aggregate/cause chain to recognize it at any depth.
+        const isCausedByInsufficientProviders = (error: unknown): boolean => {
+            if (!(error instanceof Error)) return false;
+            if (error.name === "InsufficientProvidersError") return true;
+            if (error instanceof AggregateError && error.errors.some(isCausedByInsufficientProviders)) return true;
+            return isCausedByInsufficientProviders((error as { cause?: unknown }).cause);
+        };
+
+        // Resolves (never rejects) after ms or as soon as the signal aborts, detaching its
+        // timer + abort listener either way.
+        const delayAbortable = (ms: number, signal: AbortSignal): Promise<void> =>
+            new Promise<void>((resolve) => {
+                if (signal.aborted) return resolve();
+                const onAbort = () => {
+                    clearTimeout(timer);
+                    resolve();
+                };
+                const timer = setTimeout(() => {
+                    signal.removeEventListener("abort", onAbort);
+                    resolve();
+                }, ms);
+                signal.addEventListener("abort", onAbort, { once: true });
+            });
+
         const ipnsNameResolver = ipns(helia, {
             routers: [createIpnsPubusubRouter(helia)]
         });
@@ -294,6 +380,9 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                         source: direct.source,
                                         peerId: direct.peerId
                                     };
+                                    // The record server is the best seed for the bitswap session
+                                    // that will fetch the record's blocks right after this resolve.
+                                    rememberIpnsRecordServerPeer(direct.peerId);
                                     // Record already validated inside the helper — unmarshal directly,
                                     // do NOT re-run ipnsValidator.
                                     const record = unmarshalIPNSRecord(direct.recordBytes);
@@ -419,10 +508,86 @@ export async function createLibp2pJsClientOrUseExistingOne(
             },
             cat(ipfsPath: string, options) {
                 throwIfHeliaIsStoppingOrStopped();
-                // ipfsPath is either a bare cid or a `<root-cid>/sub/path`. Hand the whole thing to
-                // heliaFs.cat as one string and never split out a `path` option — see asHeliaCatCid
-                // above for why the `path` option would re-trip the exporter's CID identity check.
-                return heliaFs.cat(asHeliaCatCid(ipfsPath), options);
+                // Walk the DAG through a per-cat bitswap session seeded with connected peers —
+                // see MAX_BITSWAP_SESSION_SEED_PEERS above for the why. UnixFSComponents only
+                // needs a blockstore, and blocks fetched through the session land in the same
+                // underlying blockstore helia uses, so nothing else changes.
+                const rootCid = CID.parse(ipfsPath.split("/")[0]);
+                const timeoutMs = parseKuboStyleTimeoutMs(options?.timeout); // throws on unparseable timeout at call time
+
+                return (async function* () {
+                    // Bound the fetch's lifetime: honor the caller's signal AND the kubo-style
+                    // timeout option, via one internal controller whose listeners/timer are always
+                    // detached in the finally below (long-lived caller signals must not accumulate
+                    // abort listeners across fetches). Set up inside the generator so the timer
+                    // starts on first read, and nothing leaks if the iterable is never iterated.
+                    const controller = new AbortController();
+                    const callerSignal = options?.signal;
+                    const abortFromCallerSignal = () => controller.abort(callerSignal?.reason);
+                    if (callerSignal?.aborted) abortFromCallerSignal();
+                    else callerSignal?.addEventListener("abort", abortFromCallerSignal, { once: true });
+                    const timeoutTimer =
+                        timeoutMs !== undefined
+                            ? setTimeout(
+                                  () => controller.abort(new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { ipfsPath, timeoutMs })),
+                                  timeoutMs
+                              )
+                            : undefined;
+                    try {
+                        for (let attempt = 0; ; attempt++) {
+                            const session = helia.blockstore.createSession(rootCid, { providers: getBitswapSessionSeedPeers() });
+                            let yieldedAnyBytes = false;
+                            try {
+                                // ipfsPath is either a bare cid or a `<root-cid>/sub/path`. Hand the whole
+                                // thing to cat as one string and never split out a `path` option — see
+                                // asHeliaCatCid above for why the `path` option would re-trip the
+                                // exporter's CID identity check.
+                                const catIterable = unixfs({ blockstore: session }).cat(asHeliaCatCid(ipfsPath), {
+                                    ...options,
+                                    signal: controller.signal
+                                });
+                                for await (const chunk of catIterable) {
+                                    yieldedAnyBytes = true;
+                                    yield chunk;
+                                }
+                                return;
+                            } catch (catError) {
+                                // Aborted (caller signal or our timeout): surface the abort reason so
+                                // _fetchCidP2P sees ERR_FETCH_CID_P2P_TIMEOUT / the caller's reason
+                                // rather than whatever AbortError the exporter threw mid-flight.
+                                if (controller.signal.aborted)
+                                    throw controller.signal.reason instanceof Error ? controller.signal.reason : catError;
+                                // A session fails fast with InsufficientProvidersError when it finds ZERO
+                                // providers (no connected peer to seed with + routing returned nothing).
+                                // The pre-session broadcast want() would instead keep waiting for a
+                                // provider to appear (e.g. a connection formed by a concurrent pubsub
+                                // warmup, or a provider record that hasn't propagated to the routers
+                                // yet) until the caller's timeout fired. Preserve those semantics: back
+                                // off and retry with a fresh session — which re-snapshots connected-peer
+                                // seeds and re-queries routing — until the signal/timeout fires. Never
+                                // retry after bytes were yielded (the consumer already saw them;
+                                // restarting the walk would duplicate output).
+                                if (yieldedAnyBytes || !isCausedByInsufficientProviders(catError)) throw catError;
+                                log.trace("Bitswap session found no providers for", ipfsPath, "- retrying, attempt", attempt + 1);
+                            } finally {
+                                // Also cancels the session's background provider top-up query instead of
+                                // letting it run until maxProviders providers are found.
+                                session.close();
+                            }
+                            await delayAbortable(
+                                Math.min(SESSION_NO_PROVIDERS_RETRY_BASE_DELAY_MS * 2 ** attempt, 8_000),
+                                controller.signal
+                            );
+                            if (controller.signal.aborted) {
+                                if (controller.signal.reason instanceof Error) throw controller.signal.reason;
+                                throw new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { ipfsPath, timeoutMs });
+                            }
+                        }
+                    } finally {
+                        if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
+                        callerSignal?.removeEventListener("abort", abortFromCallerSignal);
+                    }
+                })();
             },
             pubsub: {
                 ls: async () => helia.libp2p.services.pubsub.getTopics(),

@@ -335,6 +335,39 @@ export async function connectToPubsubPeers({
     return connectedPeersWithContent;
 }
 
+// Pick which already-connected peers to seed a bitswap session with (issue #189). Seeded
+// providers are consumed by @helia/utils' AbstractSession before it queries routing, so a good
+// seed means the first WANT-BLOCK goes out immediately and routing is only a background top-up.
+// Priority order mirrors "who most likely has the DAG we're about to walk":
+//   1. peers that recently served us an IPNS record over the direct-fetch path (in the pkc
+//      topology the record server essentially always has the blocks the record points to)
+//   2. gossipsub subscribers of topics we're subscribed to (community-serving peers)
+//   3. any other connected peer
+// The cap must stay below the session's maxProviders (default 5) so the background routing
+// query keeps contributing discovery redundancy instead of being crowded out by seeds.
+export function selectBitswapSessionSeedPeers(args: {
+    connectedPeers: PeerId[];
+    pubsubSubscriberPeerIdStrings: string[];
+    recentIpnsRecordServerPeerIdStrings: string[]; // most recent first
+    maxSeeds: number;
+}): PeerId[] {
+    if (args.connectedPeers.length === 0 || args.maxSeeds <= 0) return [];
+    const connectedByString = new Map(args.connectedPeers.map((peer) => [peer.toString(), peer]));
+    const seeds: PeerId[] = [];
+    const seededStrings = new Set<string>();
+    const pushIfConnected = (peerIdString: string) => {
+        const connectedPeer = connectedByString.get(peerIdString);
+        if (connectedPeer && !seededStrings.has(peerIdString)) {
+            seededStrings.add(peerIdString);
+            seeds.push(connectedPeer);
+        }
+    };
+    args.recentIpnsRecordServerPeerIdStrings.forEach(pushIfConnected);
+    args.pubsubSubscriberPeerIdStrings.forEach(pushIfConnected);
+    for (const peer of args.connectedPeers) pushIfConnected(peer.toString());
+    return seeds.slice(0, args.maxSeeds);
+}
+
 export interface DirectFetchResult {
     recordBytes: Uint8Array; // already passed the injected validator (ipnsValidator)
     peerId: string; // the subscriber/provider that served it

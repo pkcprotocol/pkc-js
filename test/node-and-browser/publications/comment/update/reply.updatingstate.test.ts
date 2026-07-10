@@ -23,6 +23,7 @@ const communityAddress = signers[0].address;
 // 2. All "resolving-author-name" entries (orthogonal to comment update flow; covered by dedicated tests)
 // 3. Adjacent duplicate entries (e.g., ["fetching-community-ipns", "fetching-community-ipns"] -> ["fetching-community-ipns"])
 // 4. Repeating pairs of ["fetching-community-ipns", "fetching-community-ipfs"]
+// 5. All "fetching-community-ipns" and "fetching-community-ipfs" entries (timing-dependent, see below)
 const cleanupStateArray = (states: string[]): string[] => {
     const filteredStates = [...states];
 
@@ -91,21 +92,24 @@ const cleanupStateArray = (states: string[]): string[] => {
         }
     }
 
-    // Drop all "fetching-community-ipns" entries: when the parallel pkc.getCommunity (started
-    // 5s into comment-ipfs cat()) wins the race against the comment-ipfs load, the comment's
-    // updatingstatechange listener attaches after the community has already left "fetching-ipns",
-    // so the comment never observes "fetching-community-ipns". The "fetching-community-ipfs"
-    // milestone still asserts that the community fetch occurred.
+    // Drop all "fetching-community-ipns" and "fetching-community-ipfs" entries: the community
+    // update runs in parallel with the comment's own loads, so the mirrored community states are
+    // timing-dependent. The comment's updatingstatechange listener can attach after the community
+    // has already left "fetching-ipns", and since community DAGs are fetched through bitswap
+    // sessions seeded with already-connected peers, the community can enter and leave
+    // "fetching-ipfs" while the comment is still in "fetching-update-ipfs", where mirrored
+    // community states are swallowed (see handleUpdatingStateChangeEventFromCommunity). The
+    // terminal "succeeded"/"failed" states still assert the outcome of the community fetch.
     for (let i = 0; i < filteredStates.length; i++) {
-        if (filteredStates[i] === patternA) {
+        if (filteredStates[i] === patternA || filteredStates[i] === patternB) {
             filteredStates.splice(i, 1);
             i--;
         }
     }
 
-    // Re-run adjacent-duplicate removal: stripping "fetching-community-ipns" can leave new
+    // Re-run adjacent-duplicate removal: stripping the fetching-community-* entries can leave new
     // adjacent dupes (e.g. ["succeeded", "succeeded"] when the gateway path went
-    // commentIpfs-succeeded → ipns → commentUpdate-succeeded).
+    // commentIpfs-succeeded, then ipns, then commentUpdate-succeeded).
     for (let i = 0; i < filteredStates.length - 1; i++) {
         if (filteredStates[i] === filteredStates[i + 1]) {
             filteredStates.splice(i + 1, 1);
@@ -150,7 +154,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 const expectedStates = [
                     "fetching-ipfs", // fetching comment ipfs of reply
                     "succeeded", // succeeded loading comment ipfs of reply
-                    // "fetching-community-ipns" is stripped by cleanupStateArray (parallel pkc.getCommunity may have already left this state)
+                    // "fetching-community-ipns" and "fetching-community-ipfs" are stripped by cleanupStateArray (mirrored community states are timing-dependent)
                     "fetching-community-ipfs", // found CommentUpdate of reply here
                     "succeeded",
                     "stopped"
@@ -201,13 +205,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
                 await mockReply.stop();
 
-                // Only the first two states are deterministic. Whether "fetching-community-ipfs" is
-                // observed depends on a race: the community update loop (shared via
+                // Only the first two states are deterministic. The mirrored community states
+                // ("fetching-community-ipns"/"fetching-community-ipfs") are timing-dependent and
+                // stripped by cleanupStateArray: the community update loop (shared via
                 // pkc._updatingCommunities) fetches and verifies the community record on its own
-                // schedule, and its state is mirrored onto the comment's updatingState. If the
-                // invalid-signature failure lands while the mirrored state is still
-                // "fetching-community-ipns" (stripped by cleanupStateArray), the comment goes
-                // straight from "succeeded" to "failed". Same race class as issue #138.
+                // schedule, and its state is mirrored onto the comment's updatingState. Same race
+                // class as issue #138.
                 const expectedDeterministicPrefix = [
                     "fetching-ipfs", // fetching comment ipfs of reply
                     "succeeded" // succeeded loading comment ipfs of reply
