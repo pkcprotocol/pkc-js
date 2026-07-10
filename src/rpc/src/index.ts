@@ -499,7 +499,11 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     rpcWebsocketsRegister(method: string, callback: Function) {
         const callbackWithErrorHandled = async (params: any, connectionId: string) => {
             try {
+                // Trace receipt and response dispatch so a client hanging on a lost response (issue #195)
+                // can be attributed to either side: dispatched-but-never-matched vs never-dispatched
+                log.trace(`Received RPC call (${method}) from connection (${connectionId})`);
                 const res = await callback(params, connectionId);
+                log.trace(`Dispatching RPC response for call (${method}) to connection (${connectionId})`);
                 return res;
             } catch (e: any) {
                 const typedError = <PKCError | Error>e;
