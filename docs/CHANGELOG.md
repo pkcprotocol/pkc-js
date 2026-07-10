@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.67](https://github.com/pkcprotocol/pkc-js/compare/v0.0.66...v0.0.67) (2026-07-10)
+
+### Bug Fixes
+
+* **community:** discard fetch results that land after a key migration ([#206](https://github.com/pkcprotocol/pkc-js/issues/206)) ([892aa55](https://github.com/pkcprotocol/pkc-js/commit/892aa559c64ab09e475737b9bc2f221bac0c6e16)), closes [#205](https://github.com/pkcprotocol/pkc-js/issues/205)
+
 ## [0.0.66](https://github.com/pkcprotocol/pkc-js/compare/v0.0.65...v0.0.66) (2026-07-10)
 
 ### Bug Fixes
