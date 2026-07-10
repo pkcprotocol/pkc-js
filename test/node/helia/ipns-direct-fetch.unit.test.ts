@@ -12,6 +12,7 @@ import { ipnsValidator } from "ipns/validator";
 import { CID } from "multiformats/cid";
 import { equals as uint8ArrayEquals } from "uint8arrays/equals";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
+import type { Multiaddr } from "@multiformats/multiaddr";
 
 // Coverage for directFetchIpnsRecordFromProviders (src/helia/util.ts) — the IPNS resolution fast
 // path (issue #185). It fetches the record over libp2p/fetch, in parallel, directly from BOTH the
@@ -46,11 +47,20 @@ describeSkipIfRpc("directFetchIpnsRecordFromProviders (issue #185)", () => {
         }
     });
 
-    const createNode = async (opts: { listen?: boolean; routers?: string[] } = {}): Promise<Libp2pJsClient> => {
+    const createNode = async (
+        opts: {
+            listen?: boolean;
+            routers?: string[];
+            libp2pOptions?: Parameters<typeof createLibp2pJsClientOrUseExistingOne>[0]["libp2pOptions"];
+        } = {}
+    ): Promise<Libp2pJsClient> => {
         const client = (await createLibp2pJsClientOrUseExistingOne({
             key: `direct-fetch-${keyCounter++}`,
             httpRoutersOptions: opts.routers ?? ["http://localhost:1"],
-            libp2pOptions: opts.listen ? { addresses: { listen: ["/ip4/127.0.0.1/tcp/0/ws"] } } : {},
+            libp2pOptions: {
+                ...(opts.listen ? { addresses: { listen: ["/ip4/127.0.0.1/tcp/0/ws"] } } : {}),
+                ...opts.libp2pOptions
+            },
             heliaOptions: {}
         })) as Libp2pJsClient;
         clientsToStop.push(client);
@@ -133,6 +143,65 @@ describeSkipIfRpc("directFetchIpnsRecordFromProviders (issue #185)", () => {
         const elapsed = Date.now() - start;
 
         expect(result, "should have fetched a record from the provider").to.not.equal(undefined);
+        expect(result!.source).to.equal("provider");
+        expect(result!.peerId).to.equal(publisher.ID);
+        expect(uint8ArrayEquals(result!.recordBytes, marshalled), "served record bytes must match").to.equal(true);
+        expect(elapsed, `direct fetch took ${elapsed}ms, expected well under the 10s floor`).to.be.lessThan(FAST_FETCH_MAX_MS);
+    });
+
+    // Issue #188: undialable providers must not consume maxPeers attempt slots. In a browser with
+    // a WSS-only connection gater, some routers consistently serve provider records whose addrs
+    // are all tcp/quic (no WSS). Those dials fail instantly with DialDeniedError, but each one
+    // used to count toward maxPeers (4), so when the first 4 providers yielded were undialable
+    // the provider branch exhausted itself without a single real fetch attempt and resolution
+    // fell back to the ~10s legacy warmup path. Reproduce with a ws-only gater on the
+    // node-under-test and a router that yields maxPeers tcp-only providers BEFORE the one real
+    // ws publisher: the publisher must still be dialed and its record fetched.
+    it("does not count undialable (gater-denied) providers toward maxPeers (issue #188)", async () => {
+        const maxPeers = 4;
+        const { routingKey, marshalled, topic, cid } = await makeRecord();
+        const publisher = await startPublisherNode({ routingKey, recordToServe: marshalled });
+
+        const router = new MockHttpRouter();
+        await router.start();
+        startedRouters.push(router);
+        // MockHttpRouter serves providers newest-first, so seed the dialable publisher FIRST and
+        // the undialable providers AFTER: the node-under-test then discovers all maxPeers
+        // undialable providers before the publisher, mirroring production where fast routers
+        // serving records without WSS addrs are yielded first.
+        router.addProviderForTesting(cid, publisher);
+        for (let i = 0; i < maxPeers; i++) {
+            const fakePeerId = peerIdFromPrivateKey(await generateKeyPair("Ed25519")).toString();
+            router.addProviderForTesting(cid, { ID: fakePeerId, Addrs: [`/ip4/127.0.0.1/tcp/${40100 + i}`] });
+        }
+
+        // Mirror the browser's WSS-only connection gater: deny any multiaddr without a ws/wss
+        // component, so the tcp-only providers fail instantly with DialDeniedError.
+        const node = await createNode({
+            routers: [router.url],
+            libp2pOptions: {
+                connectionGater: {
+                    denyDialMultiaddr: (multiaddr: Multiaddr) =>
+                        !multiaddr.getComponents().some((component) => component.name === "ws" || component.name === "wss")
+                }
+            }
+        });
+
+        const start = Date.now();
+        const result = await directFetchIpnsRecordFromProviders({
+            helia: node._helia,
+            pubsubTopic: topic,
+            routingKey,
+            maxPeers,
+            validate: ipnsValidator,
+            log
+        });
+        const elapsed = Date.now() - start;
+
+        expect(
+            result,
+            "the dialable publisher must still be fetched from even when maxPeers undialable providers are yielded first"
+        ).to.not.equal(undefined);
         expect(result!.source).to.equal("provider");
         expect(result!.peerId).to.equal(publisher.ID);
         expect(uint8ArrayEquals(result!.recordBytes, marshalled), "served record bytes must match").to.equal(true);
