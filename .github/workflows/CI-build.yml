@@ -65,4 +65,7 @@ jobs:
 
       - name: Publish to npm
         if: steps.release.outputs.released == 'true'
-        run: npx --yes npm@latest publish --access public --provenance
+        # npm 12.0.0 fails `publish --provenance` with MODULE_NOT_FOUND for 'sigstore'
+        # (packaging regression: the tarball no longer bundles it where libnpmpublish can
+        # resolve it). Pin to npm 11 (trusted publishing needs >= 11.5.1) until npm 12 is fixed.
+        run: npx --yes npm@11 publish --access public --provenance
