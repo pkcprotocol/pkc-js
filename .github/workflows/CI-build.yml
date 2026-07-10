@@ -33,6 +33,7 @@ jobs:
         with:
           node-version: 22
           cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
 
       - run: npm ci
       - run: npm run build
@@ -51,18 +52,29 @@ jobs:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: npm run release -- --ci || true
 
-      - name: Check if released
+      - name: Check if npm publish is needed
         id: release
+        env:
+          NODE_AUTH_TOKEN: ''
         run: |
           AFTER=$(node -p "require('./package.json').version")
           if [ "${{ steps.before.outputs.version }}" != "$AFTER" ]; then
             echo "Released v$AFTER"
-            echo "released=true" >> $GITHUB_OUTPUT
+            echo "publish=true" >> $GITHUB_OUTPUT
+          elif npm view @pkcprotocol/pkc-js@$AFTER version 2>/dev/null; then
+            echo "Version $AFTER already on npm"
+            echo "publish=false" >> $GITHUB_OUTPUT
           else
-            echo "No new version to release"
-            echo "released=false" >> $GITHUB_OUTPUT
+            echo "Version $AFTER missing on npm, will publish"
+            echo "publish=true" >> $GITHUB_OUTPUT
           fi
 
+      - name: Upgrade npm for trusted publishing
+        if: steps.release.outputs.publish == 'true'
+        run: npm install -g npm@11
+
       - name: Publish to npm
-        if: steps.release.outputs.released == 'true'
-        run: npx --yes npm@latest publish --access public --provenance
+        if: steps.release.outputs.publish == 'true'
+        env:
+          NODE_AUTH_TOKEN: ''
+        run: npm publish --access public --provenance
