@@ -116,10 +116,18 @@ for (const commentMod of commentModProps) {
                 });
 
                 it.sequential(`Rejecting a pending comment will purge it from modQueue`, async () => {
+                    // The sync loop that clears modQueue.pageCids.pendingApproval may have snapshotted its
+                    // comment-update batch before the rejection was stored, publishing a torn update where the
+                    // rejected comment has no commentUpdates row yet: it still counts as lastCommentCid and is
+                    // invisible to page generation until the next loop. The rejected comment is always the
+                    // newest row, so as long as it lacks a commentUpdates row with approved=false (and isn't
+                    // purged) it must equal lastCommentCid. Waiting for lastCommentCid to move off it therefore
+                    // guarantees the rejection reached the comment's CommentUpdate before the tests below assert.
                     await resolveWhenConditionIsTrue({
                         toUpdate: community,
-                        predicate: async () => !community.modQueue.pageCids.pendingApproval
-                    }); // wait until we publish a new mod queue with this new comment
+                        predicate: async () =>
+                            !community.modQueue.pageCids.pendingApproval && community.lastCommentCid !== commentToBeRejected.cid
+                    });
                     expect(community.modQueue.pageCids.pendingApproval).to.be.undefined;
                 });
 
