@@ -7,7 +7,15 @@ import type { Fetch } from "@libp2p/fetch";
 export interface HeliaWithKuboRpcClientFunctions extends Pick<NonNullable<KuboRpcClient["_client"]>, "add" | "cat" | "pubsub" | "stop"> {
     add: KuboRpcClient["_client"]["add"];
     name: Pick<KuboRpcClient["_client"]["name"], "resolve">;
-    cat: KuboRpcClient["_client"]["cat"];
+    // cat accepts one extra option on top of kubo-rpc-client's: the IPNS-over-pubsub record
+    // topic of the community whose CID is being fetched, used to scope bitswap session seed
+    // peers to that community's subscribers (issue #202). Kubo-rpc-client callers never pass it.
+    // Method syntax (not an arrow-function property) so the implementation's narrower string
+    // ipfsPath stays assignable via bivariant parameter checking, same as the original Pick.
+    cat(
+        ipfsPath: Parameters<KuboRpcClient["_client"]["cat"]>[0],
+        options?: Parameters<KuboRpcClient["_client"]["cat"]>[1] & { bitswapSessionSeedScopeIpnsPubsubTopic?: string }
+    ): ReturnType<KuboRpcClient["_client"]["cat"]>;
     pubsub: KuboRpcClient["_client"]["pubsub"];
     stop: KuboRpcClient["_client"]["stop"];
 }

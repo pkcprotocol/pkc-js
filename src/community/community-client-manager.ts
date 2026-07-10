@@ -550,7 +550,8 @@ export class CommunityClientsManager extends PKCClientsManager {
             rawCommunityJsonString = await this._fetchCidP2P(latestCommunityCid, {
                 maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS,
                 timeoutMs: this._pkc._timeouts["community-ipfs"],
-                abortSignal: this._community._getStopAbortSignal()
+                abortSignal: this._community._getStopAbortSignal(),
+                bitswapSessionSeedScopeIpnsPubsubTopic: this._community.ipnsPubsubTopic
             });
         } catch (e) {
             //@ts-expect-error

@@ -14,7 +14,14 @@ import { FailedToFetchCommentUpdateFromGatewaysError, PKCError } from "../../pkc
 import { verifyCommentIpfs, verifyCommentUpdate } from "../../signer/signatures.js";
 import { getPKCAddressFromPublicKeySync } from "../../signer/util.js";
 import Logger from "../../logger.js";
-import { getPostUpdateTimestampRange, hideClassPrivateProps, isAbortError, resolveWhenPredicateIsTrue } from "../../util.js";
+import {
+    getPostUpdateTimestampRange,
+    hideClassPrivateProps,
+    ipnsNameToIpnsOverPubsubTopic,
+    isAbortError,
+    isIpns,
+    resolveWhenPredicateIsTrue
+} from "../../util.js";
 import { PublicationClientsManager } from "../publication-client-manager.js";
 import { RemoteCommunity } from "../../community/remote-community.js";
 import { findCommentInPageInstance, findCommentInPageInstanceRecursively, findCommentInParsedPages } from "../../pages/util.js";
@@ -140,6 +147,18 @@ export class CommentClientsManager extends PublicationClientsManager {
         return `${folderCid}/` + postCid + "/update";
     }
 
+    // IPNS-over-pubsub record topic of the comment's community, used to scope bitswap session
+    // seed peers when fetching this comment's CIDs through helia (issue #202). Prefer the
+    // updating community instance (anchor-aware for delegated/domain communities); otherwise an
+    // IPNS community address IS the anchor IPNS name, so the topic is derivable directly.
+    // Undefined (unscoped fetch) for a bare cid-only comment whose community isn't known yet.
+    private _bitswapSessionSeedScopeIpnsPubsubTopic(): string | undefined {
+        if (this._communityForUpdating?.community?.ipnsPubsubTopic) return this._communityForUpdating.community.ipnsPubsubTopic;
+        const communityAddress = this._comment.communityAddress;
+        if (communityAddress && isIpns(communityAddress)) return ipnsNameToIpnsOverPubsubTopic(communityAddress);
+        return undefined;
+    }
+
     _updateKuboRpcClientOrHeliaState(
         newState: CommentKuboRpcClient["state"] | CommentLibp2pJsClient["state"],
         kuboRpcOrHelia: PKC["clients"]["kuboRpcClients"][string] | PKC["clients"]["libp2pJsClients"][string]
@@ -187,7 +206,8 @@ export class CommentClientsManager extends PublicationClientsManager {
                         this._fetchCidP2P(path, {
                             maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE,
                             timeoutMs: commentUpdateTimeoutMs,
-                            abortSignal
+                            abortSignal,
+                            bitswapSessionSeedScopeIpnsPubsubTopic: this._bitswapSessionSeedScopeIpnsPubsubTopic()
                         }),
                     { abortSignal, log, context: `post-update ${path}` }
                 );
@@ -429,7 +449,8 @@ export class CommentClientsManager extends PublicationClientsManager {
             commentRawString = await this._fetchCidP2P(cid, {
                 maxFileSizeBytes: 1024 * 1024,
                 timeoutMs: commentTimeoutMs,
-                abortSignal: this._comment._getStopAbortSignal()
+                abortSignal: this._comment._getStopAbortSignal(),
+                bitswapSessionSeedScopeIpnsPubsubTopic: this._bitswapSessionSeedScopeIpnsPubsubTopic()
             });
         } catch (e) {
             //@ts-expect-error

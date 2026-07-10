@@ -8,6 +8,7 @@ import {
     createMockedCommunityIpns
 } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
+import validPageFixture from "../../fixtures/valid_page.json" with { type: "json" };
 import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
@@ -646,5 +647,99 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 await testPKC.destroy();
             }
         }, 90000);
+    });
+
+    // Issue #202: every CID fetched over the helia transport belongs to a community, and that
+    // community's record server (a subscriber of its IPNS-over-pubsub topic) by construction
+    // provides every block under it. Fetch call sites therefore pass the community's IPNS record
+    // pubsub topic through _fetchCidP2P -> cat() as a seed scope, so the bitswap session seeds
+    // subscribers of THAT topic first instead of a global recent-record-servers list that can
+    // point at another community's server in multi-community apps.
+    describe(`Bitswap session seeds are scoped to the community being fetched (issue #202) - ${config.name}`, () => {
+        const getScopeOfCatCall = (options: unknown): string | undefined =>
+            (options as { bitswapSessionSeedScopeIpnsPubsubTopic?: string } | undefined)?.bitswapSessionSeedScopeIpnsPubsubTopic;
+
+        it("fetching a page passes the community's IPNS record pubsub topic as the session seed scope", async () => {
+            const testPKC = await config.pkcInstancePromise({ forceMockPubsub: true });
+            try {
+                const heliaClient = Object.values(testPKC.clients.libp2pJsClients)[0];
+                const mockCommunity = await testPKC.createCommunity({ address: signers[0].address });
+                expect(mockCommunity.ipnsPubsubTopic).to.be.a("string");
+
+                const pageCid = await addStringToIpfs(JSON.stringify(validPageFixture));
+                mockCommunity.posts.pageCids = { ...mockCommunity.posts.pageCids, hot: pageCid };
+
+                const catSpy = vi.spyOn(heliaClient.heliaWithKuboRpcClientFunctions, "cat");
+                try {
+                    await mockCommunity.posts.getPage({ cid: pageCid });
+                    const pageCatCall = catSpy.mock.calls.find(([path]) => path === pageCid);
+                    expect(pageCatCall, `expected a cat() call for page cid ${pageCid}`).to.exist;
+                    expect(getScopeOfCatCall(pageCatCall![1])).to.equal(mockCommunity.ipnsPubsubTopic);
+                } finally {
+                    catSpy.mockRestore();
+                }
+            } finally {
+                await testPKC.destroy();
+            }
+        }, 90000);
+
+        it("fetching the community record CID passes the community's IPNS record pubsub topic as the session seed scope", async () => {
+            const testPKC = await config.pkcInstancePromise({ forceMockPubsub: false });
+            try {
+                const heliaClient = Object.values(testPKC.clients.libp2pJsClients)[0];
+                const catSpy = vi.spyOn(heliaClient.heliaWithKuboRpcClientFunctions, "cat");
+                try {
+                    const community = await testPKC.createCommunity({ address: mathCliNoMockedPubsubCommunityAddress });
+                    await community.update();
+                    await resolveWhenConditionIsTrue({
+                        toUpdate: community,
+                        predicate: async () => typeof community.updatedAt === "number"
+                    });
+                    await community.stop();
+                    expect(community.updateCid).to.be.a("string");
+                    const recordCatCall = catSpy.mock.calls.find(([path]) => path === community.updateCid);
+                    expect(recordCatCall, `expected a cat() call for community record cid ${community.updateCid}`).to.exist;
+                    expect(getScopeOfCatCall(recordCatCall![1])).to.equal(community.ipnsPubsubTopic);
+                } finally {
+                    catSpy.mockRestore();
+                }
+            } finally {
+                await testPKC.destroy();
+            }
+        }, 90000);
+
+        it("fetching CommentIpfs and the postUpdates CommentUpdate walk pass the community's session seed scope", async () => {
+            const testPKC = await config.pkcInstancePromise({ forceMockPubsub: false });
+            try {
+                const post = await generatePostToAnswerMathQuestion({ communityAddress: mathCliNoMockedPubsubCommunityAddress }, testPKC);
+                await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+                expect(post.cid).to.be.a("string");
+
+                const heliaClient = Object.values(testPKC.clients.libp2pJsClients)[0];
+                const comment = await testPKC.createComment({ cid: post.cid!, communityAddress: mathCliNoMockedPubsubCommunityAddress });
+                const catSpy = vi.spyOn(heliaClient.heliaWithKuboRpcClientFunctions, "cat");
+                try {
+                    await comment.update();
+                    await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
+                    await comment.stop();
+
+                    const expectedScope = ipnsNameToIpnsOverPubsubTopic(mathCliNoMockedPubsubCommunityAddress);
+
+                    const commentIpfsCatCall = catSpy.mock.calls.find(([path]) => path === post.cid);
+                    expect(commentIpfsCatCall, `expected a cat() call for CommentIpfs cid ${post.cid}`).to.exist;
+                    expect(getScopeOfCatCall(commentIpfsCatCall![1])).to.equal(expectedScope);
+
+                    const updateWalkCatCall = catSpy.mock.calls.find(
+                        ([path]) => typeof path === "string" && path.endsWith(`/${post.cid}/update`)
+                    );
+                    expect(updateWalkCatCall, `expected a cat() call for the postUpdates walk of ${post.cid}`).to.exist;
+                    expect(getScopeOfCatCall(updateWalkCatCall![1])).to.equal(expectedScope);
+                } finally {
+                    catSpy.mockRestore();
+                }
+            } finally {
+                await testPKC.destroy();
+            }
+        }, 120000);
     });
 });

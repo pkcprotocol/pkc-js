@@ -715,7 +715,15 @@ export class BaseClientsManager {
 
     async _fetchCidP2P(
         cidV0: string,
-        loadOpts: { maxFileSizeBytes: number; timeoutMs: number; abortSignal?: AbortSignal }
+        loadOpts: {
+            maxFileSizeBytes: number;
+            timeoutMs: number;
+            abortSignal?: AbortSignal;
+            // IPNS-over-pubsub record topic of the community the CID belongs to, used to scope
+            // bitswap session seed peers when fetching through helia (issue #202). Ignored (and
+            // never forwarded) when the fetch goes through kubo-rpc-client.
+            bitswapSessionSeedScopeIpnsPubsubTopic?: string;
+        }
     ): Promise<string> {
         const log = Logger("pkc-js:clients-manager:_fetchCidP2P");
         throwIfAbortSignalAborted(loadOpts.abortSignal);
@@ -724,7 +732,13 @@ export class BaseClientsManager {
         const ipfsClient = this.getIpfsClientWithKuboRpcClientFunctions();
 
         const fetchPromise = async () => {
-            const rawData = await all(ipfsClient.cat(cidV0, { length: loadOpts.maxFileSizeBytes, timeout: `${loadOpts.timeoutMs}ms` }));
+            const seedScopeOptions =
+                "_helia" in kuboRpcOrHelia && loadOpts.bitswapSessionSeedScopeIpnsPubsubTopic
+                    ? { bitswapSessionSeedScopeIpnsPubsubTopic: loadOpts.bitswapSessionSeedScopeIpnsPubsubTopic }
+                    : undefined;
+            const rawData = await all(
+                ipfsClient.cat(cidV0, { length: loadOpts.maxFileSizeBytes, timeout: `${loadOpts.timeoutMs}ms`, ...seedScopeOptions })
+            );
             const data = uint8ArrayConcat(rawData);
             const fileContent = uint8ArrayToString(data);
 

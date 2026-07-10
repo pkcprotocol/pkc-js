@@ -3,7 +3,9 @@ import {
     createAbortError,
     deepMergeRuntimeFields,
     hideClassPrivateProps,
+    ipnsNameToIpnsOverPubsubTopic,
     isAbortError,
+    isIpns,
     retryKuboIpfsAdd,
     shortifyCid,
     sleepUntilTimeoutOrAbort
@@ -631,6 +633,11 @@ export class Comment
         super.setCommunityAddress(newCommunityAddress);
         this.replies._community.publicKey = this.communityPublicKey;
         this.replies._community.name = this.communityName;
+        // An IPNS community address IS the anchor IPNS name (see names-and-addresses.md), so the
+        // record topic is derivable directly. Domain addresses stay unscoped (issue #202).
+        this.replies._community.ipnsPubsubTopic = isIpns(newCommunityAddress)
+            ? ipnsNameToIpnsOverPubsubTopic(newCommunityAddress)
+            : undefined;
     }
 
     private _isCommentIpfsErrorRetriable(err: PKCError | Error): boolean {

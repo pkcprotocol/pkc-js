@@ -206,23 +206,18 @@ export async function createLibp2pJsClientOrUseExistingOne(
         // still tops the session up with independently-discovered providers — seeding all 5 slots
         // would eliminate router traffic entirely but also all discovery redundancy.
         const MAX_BITSWAP_SESSION_SEED_PEERS = 3;
-        // Most-recent-first peer ids that served us an IPNS record via the direct-fetch fast path
-        // (see DirectFetchResult). They're the best session seeds: in the pkc topology the record
-        // server essentially always has the blocks its record points to.
-        const RECENT_IPNS_RECORD_SERVERS_MAX = 8;
-        const recentIpnsRecordServerPeerIdStrings: string[] = [];
-        const rememberIpnsRecordServerPeer = (peerIdString: string) => {
-            const existingIndex = recentIpnsRecordServerPeerIdStrings.indexOf(peerIdString);
-            if (existingIndex !== -1) recentIpnsRecordServerPeerIdStrings.splice(existingIndex, 1);
-            recentIpnsRecordServerPeerIdStrings.unshift(peerIdString);
-            if (recentIpnsRecordServerPeerIdStrings.length > RECENT_IPNS_RECORD_SERVERS_MAX) recentIpnsRecordServerPeerIdStrings.pop();
-        };
-        const getBitswapSessionSeedPeers = () => {
+        // scopeIpnsPubsubTopic is the IPNS-over-pubsub record topic of the community whose CID is
+        // being fetched (issue #202). Its current subscribers are the best seeds: the community's
+        // record server must be subscribed there to serve records on it, and in the pkc topology
+        // it provides every block under the community. Stateless by design — a per-name
+        // remembered-record-servers list would go stale on disconnect and can point at another
+        // community's server in multi-community apps.
+        const getBitswapSessionSeedPeers = (scopeIpnsPubsubTopic?: string) => {
             const pubsub = helia.libp2p.services.pubsub;
             return selectBitswapSessionSeedPeers({
                 connectedPeers: helia.libp2p.getPeers(),
+                scopedPubsubSubscriberPeerIdStrings: scopeIpnsPubsubTopic ? pubsub.getSubscribers(scopeIpnsPubsubTopic).map(String) : [],
                 pubsubSubscriberPeerIdStrings: pubsub.getTopics().flatMap((topic) => pubsub.getSubscribers(topic).map(String)),
-                recentIpnsRecordServerPeerIdStrings,
                 maxSeeds: MAX_BITSWAP_SESSION_SEED_PEERS
             });
         };
@@ -380,9 +375,6 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                         source: direct.source,
                                         peerId: direct.peerId
                                     };
-                                    // The record server is the best seed for the bitswap session
-                                    // that will fetch the record's blocks right after this resolve.
-                                    rememberIpnsRecordServerPeer(direct.peerId);
                                     // Record already validated inside the helper — unmarshal directly,
                                     // do NOT re-run ipnsValidator.
                                     const record = unmarshalIPNSRecord(direct.recordBytes);
@@ -514,6 +506,8 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 // underlying blockstore helia uses, so nothing else changes.
                 const rootCid = CID.parse(ipfsPath.split("/")[0]);
                 const timeoutMs = parseKuboStyleTimeoutMs(options?.timeout); // throws on unparseable timeout at call time
+                // Our own option, not kubo-rpc-client's — strip it so it never reaches unixfs cat.
+                const { bitswapSessionSeedScopeIpnsPubsubTopic, ...unixfsCatOptions } = options ?? {};
 
                 return (async function* () {
                     // Bound the fetch's lifetime: honor the caller's signal AND the kubo-style
@@ -535,7 +529,9 @@ export async function createLibp2pJsClientOrUseExistingOne(
                             : undefined;
                     try {
                         for (let attempt = 0; ; attempt++) {
-                            const session = helia.blockstore.createSession(rootCid, { providers: getBitswapSessionSeedPeers() });
+                            const session = helia.blockstore.createSession(rootCid, {
+                                providers: getBitswapSessionSeedPeers(bitswapSessionSeedScopeIpnsPubsubTopic)
+                            });
                             let yieldedAnyBytes = false;
                             try {
                                 // ipfsPath is either a bare cid or a `<root-cid>/sub/path`. Hand the whole
@@ -543,7 +539,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                 // asHeliaCatCid above for why the `path` option would re-trip the
                                 // exporter's CID identity check.
                                 const catIterable = unixfs({ blockstore: session }).cat(asHeliaCatCid(ipfsPath), {
-                                    ...options,
+                                    ...unixfsCatOptions,
                                     signal: controller.signal
                                 });
                                 for await (const chunk of catIterable) {
