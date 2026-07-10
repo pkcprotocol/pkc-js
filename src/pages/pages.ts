@@ -20,6 +20,11 @@ import type { PageRuntimeFields } from "./util.js";
 type BaseProps = {
     community: Pick<RemoteCommunity, "publicKey" | "name" | "signature"> & {
         _getStopAbortSignal?: () => AbortSignal | undefined;
+        // IPNS-over-pubsub record topic of the community these pages belong to, used to scope
+        // bitswap session seed peers when fetching page CIDs through helia (issue #202).
+        // PostsPages/ModQueuePages read it off the RemoteCommunity instance itself; RepliesPages
+        // get it propagated by Comment.setCommunityAddress.
+        ipnsPubsubTopic?: RemoteCommunity["ipnsPubsubTopic"];
     };
     pkc: PKC;
 };

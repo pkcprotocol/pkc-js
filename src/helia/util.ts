@@ -335,20 +335,22 @@ export async function connectToPubsubPeers({
     return connectedPeersWithContent;
 }
 
-// Pick which already-connected peers to seed a bitswap session with (issue #189). Seeded
+// Pick which already-connected peers to seed a bitswap session with (issues #189, #202). Seeded
 // providers are consumed by @helia/utils' AbstractSession before it queries routing, so a good
 // seed means the first WANT-BLOCK goes out immediately and routing is only a background top-up.
 // Priority order mirrors "who most likely has the DAG we're about to walk":
-//   1. peers that recently served us an IPNS record over the direct-fetch path (in the pkc
-//      topology the record server essentially always has the blocks the record points to)
-//   2. gossipsub subscribers of topics we're subscribed to (community-serving peers)
+//   1. gossipsub subscribers of the fetched community's IPNS-over-pubsub record topic — the
+//      community's record server must be subscribed there to serve records on it, and in the
+//      pkc topology it provides every block under the community (record, pages, comments,
+//      postUpdates); other subscribers are followers that recently fetched the same blocks
+//   2. gossipsub subscribers of any other topic we're subscribed to (community-serving peers)
 //   3. any other connected peer
 // The cap must stay below the session's maxProviders (default 5) so the background routing
 // query keeps contributing discovery redundancy instead of being crowded out by seeds.
 export function selectBitswapSessionSeedPeers(args: {
     connectedPeers: PeerId[];
+    scopedPubsubSubscriberPeerIdStrings: string[]; // subscribers of the fetched community's IPNS record topic
     pubsubSubscriberPeerIdStrings: string[];
-    recentIpnsRecordServerPeerIdStrings: string[]; // most recent first
     maxSeeds: number;
 }): PeerId[] {
     if (args.connectedPeers.length === 0 || args.maxSeeds <= 0) return [];
@@ -362,7 +364,7 @@ export function selectBitswapSessionSeedPeers(args: {
             seeds.push(connectedPeer);
         }
     };
-    args.recentIpnsRecordServerPeerIdStrings.forEach(pushIfConnected);
+    args.scopedPubsubSubscriberPeerIdStrings.forEach(pushIfConnected);
     args.pubsubSubscriberPeerIdStrings.forEach(pushIfConnected);
     for (const peer of args.connectedPeers) pushIfConnected(peer.toString());
     return seeds.slice(0, args.maxSeeds);

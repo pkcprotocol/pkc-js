@@ -241,7 +241,13 @@ export class BasePagesClientsManager extends BaseClientsManager {
         const pageTimeoutMs = this._pkc._timeouts["page-ipfs"];
         try {
             const rawJson = await this._retryTransientP2PFetch(
-                () => this._fetchCidP2P(pageCid, { maxFileSizeBytes: pageMaxSize, timeoutMs: pageTimeoutMs, abortSignal }),
+                () =>
+                    this._fetchCidP2P(pageCid, {
+                        maxFileSizeBytes: pageMaxSize,
+                        timeoutMs: pageTimeoutMs,
+                        abortSignal,
+                        bitswapSessionSeedScopeIpnsPubsubTopic: this._pages._community.ipnsPubsubTopic
+                    }),
                 { log, context: `page ${pageCid}`, abortSignal }
             );
             return this.parsePageJson(parseJsonWithPKCErrorIfFails(rawJson)) as PageIpfs;
