@@ -223,9 +223,24 @@ export class CommunityClientsManager extends PKCClientsManager {
     async updateOnce() {
         const log = Logger("pkc-js:remote-community:update");
 
+        // Capture the identity and stop signal this fetch starts under. A key migration mid-fetch
+        // (_resolveNameInBackground) switches publicKey and aborts the stop controller, but the
+        // abort can't cancel a gateway response whose body was already received; the migration also
+        // clears raw.communityIpfs, so the freshness check below would accept the stale old-key
+        // record. Discard the result instead of applying it to the migrated community.
+        const publicKeyAtFetchStart = this._community.publicKey;
+        const stopSignalAtFetchStart = this._community._getStopAbortSignal();
+
         this._ipnsLoadingOperation = retry.operation({ forever: true, factor: 2, maxTimeout: 30000 });
         const communityLoadingRes = await this._retryLoadingCommunityAddress(this._community.address); // will return undefined if no new community CID is found
         this._ipnsLoadingOperation.stop();
+
+        if (stopSignalAtFetchStart?.aborted || this._community.publicKey !== publicKeyAtFetchStart) {
+            log(
+                `Community ${this._community.address} fetch result discarded: it was fetched under public key ${publicKeyAtFetchStart} but the community's operations were aborted or its public key changed to ${this._community.publicKey} mid-fetch (key migration)`
+            );
+            return;
+        }
 
         if (communityLoadingRes && "aborted" in communityLoadingRes) {
             return;
