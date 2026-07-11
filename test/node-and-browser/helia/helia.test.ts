@@ -14,6 +14,7 @@ import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { IpfsHttpClientPubsubMessage } from "../../../dist/node/types.js";
 import { ipnsNameToIpnsOverPubsubTopic } from "../../../dist/node/util.js";
+import { CommentClientsManager } from "../../../dist/node/publications/comment/comment-client-manager.js";
 import { importer } from "ipfs-unixfs-importer";
 import { peerIdFromString } from "@libp2p/peer-id";
 import { multihashToIPNSRoutingKey } from "ipns";
@@ -718,6 +719,14 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 const heliaClient = Object.values(testPKC.clients.libp2pJsClients)[0];
                 const comment = await testPKC.createComment({ cid: post.cid!, communityAddress: mathCliNoMockedPubsubCommunityAddress });
                 const catSpy = vi.spyOn(heliaClient.heliaWithKuboRpcClientFunctions, "cat");
+                // The update loop takes the CommentUpdate from the updating community's preloaded
+                // posts pages when the post happens to be in them, skipping the postUpdates walk
+                // entirely — whether that shortcut hits depends on how many posts the shared test
+                // community has accumulated, so without stubbing it out this test is racy. Force
+                // the walk so the scope assertion below is deterministic.
+                const findInPagesSpy = vi
+                    .spyOn(CommentClientsManager.prototype, "_findCommentInPagesOfUpdatingCommentsOrCommunity")
+                    .mockReturnValue(undefined);
                 try {
                     await comment.update();
                     await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
@@ -735,6 +744,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                     expect(updateWalkCatCall, `expected a cat() call for the postUpdates walk of ${post.cid}`).to.exist;
                     expect(getScopeOfCatCall(updateWalkCatCall![1])).to.equal(expectedScope);
                 } finally {
+                    findInPagesSpy.mockRestore();
                     catSpy.mockRestore();
                 }
             } finally {
