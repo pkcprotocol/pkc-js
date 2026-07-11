@@ -1,4 +1,5 @@
 import { mockPKC, publishRandomPost, createSubWithNoChallenge, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
+import { timestamp } from "../../../dist/node/util.js";
 import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { describe, beforeAll, afterAll, expect } from "vitest";
 import {
@@ -75,7 +76,7 @@ describe("Purge vs postUpdates sync race", () => {
         //    (updateCommentsThatNeedToBeUpdated → calculateNewCommentUpdate).
         const commentRow = community._dbHandler.queryComment(postCid!);
         expect(commentRow, "post should still be in the DB before purge").to.exist;
-        const capturedRow = await calculateNewCommentUpdate(community, commentRow!);
+        const capturedRow = await calculateNewCommentUpdate({ community, comment: commentRow!, batchStartTimestamp: timestamp() });
         expect(capturedRow.localMfsPath, "captured row should target the post's postUpdates MFS path").to.equal(mfsPath);
 
         // 2. A purge moderation arrives and runs to completion (what storeCommentModeration does
