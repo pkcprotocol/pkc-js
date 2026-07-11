@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.69](https://github.com/pkcprotocol/pkc-js/compare/v0.0.68...v0.0.69) (2026-07-11)
+
+### Bug Fixes
+
+* **community:** stamp CommentUpdate insertedAt before the batch reads the DB ([#211](https://github.com/pkcprotocol/pkc-js/issues/211)) ([49ddc90](https://github.com/pkcprotocol/pkc-js/commit/49ddc9015cfd0adc7be4649ba343f073118f730d)), closes [#209](https://github.com/pkcprotocol/pkc-js/issues/209) [#209](https://github.com/pkcprotocol/pkc-js/issues/209)
+* **helia:** cache direct-fetched IPNS records at the pubsub routing layer ([#212](https://github.com/pkcprotocol/pkc-js/issues/212)) ([4986f35](https://github.com/pkcprotocol/pkc-js/commit/4986f35b8f0db4aa802d59c966cf0518c173cfd0)), closes [#210](https://github.com/pkcprotocol/pkc-js/issues/210) [#210](https://github.com/pkcprotocol/pkc-js/issues/210) [#202](https://github.com/pkcprotocol/pkc-js/issues/202)
+
 ## [0.0.68](https://github.com/pkcprotocol/pkc-js/compare/v0.0.67...v0.0.68) (2026-07-10)
 
 ### Performance
