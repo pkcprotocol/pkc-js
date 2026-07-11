@@ -22,7 +22,14 @@ import { EventEmitter } from "events";
 import type { HeliaWithLibp2pPubsub } from "./types.js";
 import { PKCError } from "../pkc-error.js";
 import { Libp2pJsClient } from "./libp2pjsClient.js";
-import { connectToPubsubPeers, directFetchIpnsRecordFromProviders, getHeliaDebugContext, selectBitswapSessionSeedPeers } from "./util.js";
+import {
+    cacheIpnsRecordInPubsubLocalStore,
+    connectToPubsubPeers,
+    directFetchIpnsRecordFromProviders,
+    getHeliaDebugContext,
+    selectBitswapSessionSeedPeers
+} from "./util.js";
+import type { IpnsPubsubLocalStore } from "./util.js";
 import { createDefaultDialTransportGater } from "./dial-transport-filter.js";
 import { ipnsNameToIpnsOverPubsubTopic } from "../util.js";
 
@@ -275,8 +282,13 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 signal.addEventListener("abort", onAbort, { once: true });
             });
 
+        const ipnsPubsubRouter = createIpnsPubusubRouter(helia);
+        // The router's localStore is where gossipsub-delivered records get cached (handleRecord).
+        // It's declared private but is a plain class field at runtime; the direct-fetch path below
+        // writes to it to keep the cached-record invariant (issue #210).
+        const ipnsPubsubLocalStore = (ipnsPubsubRouter as unknown as { localStore: IpnsPubsubLocalStore }).localStore;
         const ipnsNameResolver = ipns(helia, {
-            routers: [createIpnsPubusubRouter(helia)]
+            routers: [ipnsPubsubRouter]
         });
 
         // @helia/ipns constructs routers as [LocalStoreRouting, HeliaRouting, ...userRouters].
@@ -378,6 +390,26 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                     // Record already validated inside the helper — unmarshal directly,
                                     // do NOT re-run ipnsValidator.
                                     const record = unmarshalIPNSRecord(direct.recordBytes);
+                                    // Direct fetch bypasses the pubsub router's handleRecord, which is
+                                    // where gossipsub-delivered records get cached at the routing layer.
+                                    // Persist the record there ourselves (newer-only, issue #210) so
+                                    // offline/fallback resolves and handleRecord's ipnsSelector see the
+                                    // freshest record we hold. Awaited so callers observe the cache as
+                                    // soon as this resolve returns; a cache failure must not fail the
+                                    // resolve itself.
+                                    try {
+                                        await cacheIpnsRecordInPubsubLocalStore({
+                                            localStore: ipnsPubsubLocalStore,
+                                            routingKey,
+                                            marshalledRecord: direct.recordBytes
+                                        });
+                                    } catch (cacheErr) {
+                                        log.trace(
+                                            "Failed to cache direct-fetched IPNS record at the pubsub routing layer for",
+                                            ipnsPubsubTopic,
+                                            cacheErr
+                                        );
+                                    }
                                     yield record.value;
                                     return;
                                 }
@@ -456,8 +488,10 @@ export async function createLibp2pJsClientOrUseExistingOne(
                         // so that path is inert — the old resolve()-based code skipped it too. IPNS here is
                         // pubsub-only (HTTP routers have getIPNS disabled in getDelegatedRoutingFields), and
                         // the pubsub router's get() never serves from cache; it always queries peers. Record
-                        // caching + ipnsSelector still happen inside the pubsub router's handleRecord
-                        // regardless of whether we go through resolve() or call router.get directly.
+                        // caching + ipnsSelector happen inside the pubsub router's handleRecord for
+                        // gossipsub-delivered records and router.get() fetches; the direct-fetch fast path
+                        // above bypasses handleRecord, so it writes the record to the router's localStore
+                        // itself (cacheIpnsRecordInPubsubLocalStore, issue #210).
                         let recordBytes: Uint8Array | undefined;
                         const routerErrors: Error[] = [];
                         for (const router of ipnsNameResolver.routers) {
