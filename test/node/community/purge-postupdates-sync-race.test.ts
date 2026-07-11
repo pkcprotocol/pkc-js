@@ -76,7 +76,7 @@ describe("Purge vs postUpdates sync race", () => {
         //    (updateCommentsThatNeedToBeUpdated → calculateNewCommentUpdate).
         const commentRow = community._dbHandler.queryComment(postCid!);
         expect(commentRow, "post should still be in the DB before purge").to.exist;
-        const capturedRow = await calculateNewCommentUpdate(community, commentRow!, timestamp());
+        const capturedRow = await calculateNewCommentUpdate({ community, comment: commentRow!, batchStartTimestamp: timestamp() });
         expect(capturedRow.localMfsPath, "captured row should target the post's postUpdates MFS path").to.equal(mfsPath);
 
         // 2. A purge moderation arrives and runs to completion (what storeCommentModeration does

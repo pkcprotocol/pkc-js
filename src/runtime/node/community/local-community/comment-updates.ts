@@ -32,9 +32,9 @@ export function calculateLocalMfsPathForCommentUpdate(
     return ["/" + community.address, "postUpdates", timestampRange, postDbComment.cid, "update"].join("/");
 }
 
-export async function calculateNewCommentUpdate(
-    community: LocalCommunity,
-    comment: CommentsTableRow,
+export async function calculateNewCommentUpdate(opts: {
+    community: LocalCommunity;
+    comment: CommentsTableRow;
     // Captured BEFORE the batch's queryCommentsToBeUpdated() DB read and used as the row's
     // insertedAt (issue #209). queryCommentsToBeUpdated flags a comment when a publication row
     // satisfies pub.insertedAt >= cu.insertedAt (second granularity), so the stamp must not
@@ -42,8 +42,9 @@ export async function calculateNewCommentUpdate(
     // row-build time (after async page generation + signing) let a publication inserted after
     // the aggregate read compare as "older" forever, wedging it out of the update pipeline.
     // Worst case of the earlier stamp is one redundant recalculation next cycle.
-    batchStartTimestamp: number
-): Promise<CommentUpdateToWriteToDbAndPublishToIpfs> {
+    batchStartTimestamp: number;
+}): Promise<CommentUpdateToWriteToDbAndPublishToIpfs> {
+    const { community, comment, batchStartTimestamp } = opts;
     const log = Logger("pkc-js:local-community:_calculateNewCommentUpdate");
 
     // If we're here that means we're gonna calculate the new update and publish it
@@ -222,7 +223,7 @@ export async function updateCommentsThatNeedToBeUpdated(community: LocalCommunit
 
                     // Calculate updates for all comments at this depth in parallel
                     const depthUpdatePromises = commentsAtDepth.map((comment) =>
-                        depthLimit(async () => await calculateNewCommentUpdate(community, comment, batchStartTimestamp))
+                        depthLimit(async () => await calculateNewCommentUpdate({ community, comment, batchStartTimestamp }))
                     );
 
                     // Wait for all comments at this depth to be calculated

@@ -114,7 +114,11 @@ async function createPublishingTestContext({ targetDepth }: { targetDepth: numbe
         rowsByDepth,
         expectedUpdates: calculatedUpdates,
         calculateUpdate: (commentRow: CommentsTableRowInsert) =>
-            calculateNewCommentUpdate(fakeSub as never, commentRow as never, timestamp()) as Promise<{
+            calculateNewCommentUpdate({
+                community: fakeSub as never,
+                comment: commentRow as never,
+                batchStartTimestamp: timestamp()
+            }) as Promise<{
                 newCommentUpdate: CommentUpdateType & { replies?: { pages?: { best?: { comments: { cid: string }[] } } } };
                 localMfsPath: string | undefined;
             }>,
