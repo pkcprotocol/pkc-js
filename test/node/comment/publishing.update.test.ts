@@ -2,6 +2,7 @@ import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import signers from "../../fixtures/signers.js";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { calculateNewCommentUpdate } from "../../../dist/node/runtime/node/community/local-community/comment-updates.js";
+import { timestamp } from "../../../dist/node/util.js";
 import { createSigner } from "../../../dist/node/signer/index.js";
 import { of as calculateIpfsCidV0Lib } from "typestub-ipfs-only-hash";
 import type {
@@ -113,7 +114,7 @@ async function createPublishingTestContext({ targetDepth }: { targetDepth: numbe
         rowsByDepth,
         expectedUpdates: calculatedUpdates,
         calculateUpdate: (commentRow: CommentsTableRowInsert) =>
-            calculateNewCommentUpdate(fakeSub as never, commentRow as never) as Promise<{
+            calculateNewCommentUpdate(fakeSub as never, commentRow as never, timestamp()) as Promise<{
                 newCommentUpdate: CommentUpdateType & { replies?: { pages?: { best?: { comments: { cid: string }[] } } } };
                 localMfsPath: string | undefined;
             }>,

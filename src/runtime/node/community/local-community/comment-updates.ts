@@ -34,7 +34,15 @@ export function calculateLocalMfsPathForCommentUpdate(
 
 export async function calculateNewCommentUpdate(
     community: LocalCommunity,
-    comment: CommentsTableRow
+    comment: CommentsTableRow,
+    // Captured BEFORE the batch's queryCommentsToBeUpdated() DB read and used as the row's
+    // insertedAt (issue #209). queryCommentsToBeUpdated flags a comment when a publication row
+    // satisfies pub.insertedAt >= cu.insertedAt (second granularity), so the stamp must not
+    // postdate any publication inserted while this calculation is running — stamping at
+    // row-build time (after async page generation + signing) let a publication inserted after
+    // the aggregate read compare as "older" forever, wedging it out of the update pipeline.
+    // Worst case of the earlier stamp is one redundant recalculation next cycle.
+    batchStartTimestamp: number
 ): Promise<CommentUpdateToWriteToDbAndPublishToIpfs> {
     const log = Logger("pkc-js:local-community:_calculateNewCommentUpdate");
 
@@ -141,7 +149,7 @@ export async function calculateNewCommentUpdate(
         postUpdatesBucket: newPostUpdateBucket,
         publishedToPostUpdatesMFS: false,
 
-        insertedAt: timestamp()
+        insertedAt: batchStartTimestamp
     };
     return {
         newCommentUpdate,
@@ -177,6 +185,10 @@ export async function validateCommentUpdateSignature(
 export async function updateCommentsThatNeedToBeUpdated(community: LocalCommunity): Promise<CommentUpdateToWriteToDbAndPublishToIpfs[]> {
     const log = Logger(`pkc-js:local-community:_updateCommentsThatNeedToBeUpdated`);
 
+    // Must be captured before the flag query below reads the DB — see the batchStartTimestamp
+    // param of calculateNewCommentUpdate (issue #209).
+    const batchStartTimestamp = timestamp();
+
     // Get all comments that need to be updated
     const commentsToUpdate = community._dbHandler.queryCommentsToBeUpdated();
 
@@ -210,7 +222,7 @@ export async function updateCommentsThatNeedToBeUpdated(community: LocalCommunit
 
                     // Calculate updates for all comments at this depth in parallel
                     const depthUpdatePromises = commentsAtDepth.map((comment) =>
-                        depthLimit(async () => await calculateNewCommentUpdate(community, comment))
+                        depthLimit(async () => await calculateNewCommentUpdate(community, comment, batchStartTimestamp))
                     );
 
                     // Wait for all comments at this depth to be calculated
