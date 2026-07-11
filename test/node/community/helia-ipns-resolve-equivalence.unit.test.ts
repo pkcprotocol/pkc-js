@@ -39,6 +39,32 @@ describeSkipIfRpc("Helia IPNS single-hop resolution equivalence", () => {
         if (heliaPKC) await heliaPKC.destroy();
     });
 
+    // Regression test for issue #210: the direct-fetch fast path used to return the record without
+    // writing it to the pubsub router's local store (handleRecord only caches gossipsub-delivered
+    // records and router.get() fetches), so an offline resolve right after a wrapper resolve only
+    // succeeded when kubo's gossipsub push happened to race in before it. A fresh IPNS name makes
+    // the direct fetch the only possible source of the record at assert time.
+    it("a direct-fetched record is cached at the pubsub routing layer before resolve returns (issue #210)", async () => {
+        const freshIpns = await createNewIpns();
+        await freshIpns.publishToIpns("helia ipns direct-fetch cache - fresh single hop content");
+        const freshName = freshIpns.signer.address;
+        await freshIpns.pkc.destroy();
+
+        const client = heliaPKC.clients.libp2pJsClients[Object.keys(heliaPKC.clients.libp2pJsClients)[0]];
+
+        const wrapperValues: string[] = [];
+        for await (const value of client.heliaWithKuboRpcClientFunctions.name.resolve(freshName, { nocache: true }))
+            wrapperValues.push(value as string);
+        const wrapperValue = wrapperValues[wrapperValues.length - 1];
+        expect(wrapperValue).to.be.a("string");
+        const wrapperCid = CID.parse(wrapperValue.split("/")[2]).toV1().toString();
+
+        // Immediately after the wrapper resolve returns, the record must be readable offline: the
+        // fast path must persist it itself instead of depending on the gossipsub push racing in.
+        const offlineResult = await client._heliaIpnsRouter.resolve(peerIdFromString(freshName), { offline: true });
+        expect(offlineResult.cid.toV1().toString()).to.equal(wrapperCid);
+    });
+
     it("wrapper single-hop resolve matches resolver.resolve() and the record is cached at the pubsub layer", async () => {
         const client = heliaPKC.clients.libp2pJsClients[Object.keys(heliaPKC.clients.libp2pJsClients)[0]];
         const ipnsNameAsPeerId = peerIdFromString(ipnsName);

@@ -1,6 +1,8 @@
 import type { HeliaWithLibp2pPubsub } from "./types.js";
 import type { PeerId, PeerInfo } from "@libp2p/interface";
 import { CID } from "multiformats/cid";
+import { ipnsSelector } from "ipns/selector";
+import { equals as uint8ArrayEquals } from "uint8arrays/equals";
 import Logger from "../logger.js";
 import { PKCError } from "../pkc-error.js";
 import { pubsubTopicToDhtKeyCid } from "../util.js";
@@ -527,4 +529,38 @@ export async function directFetchIpnsRecordFromProviders({
         throw new PKCError("ERR_IPNS_DIRECT_FETCH_ABORTED", { pubsubTopic, peerToError, ...getHeliaDebugContext(helia) });
 
     return undefined;
+}
+
+// The subset of @helia/ipns's internal localStore (local-store.js) the direct-fetch path needs.
+// The pubsub router exposes it as a plain class field at runtime but declares it private, so
+// callers access it through this structural type.
+export interface IpnsPubsubLocalStore {
+    has(routingKey: Uint8Array, options?: { signal?: AbortSignal }): Promise<boolean>;
+    get(routingKey: Uint8Array, options?: { signal?: AbortSignal }): Promise<{ record: Uint8Array; created: Date }>;
+    put(routingKey: Uint8Array, marshalledRecord: Uint8Array, options?: { signal?: AbortSignal }): Promise<void>;
+}
+
+// Persist a validated IPNS record at the pubsub routing layer (issue #210). The pubsub router's
+// handleRecord only caches records that arrive over gossipsub or through its own router.get()
+// fetch, so a direct-fetch win (directFetchIpnsRecordFromProviders) would otherwise leave the
+// datastore empty or stale: offline/fallback resolves and handleRecord's ipnsSelector comparison
+// would then act on older state than the freshest record we just validated. Mirrors
+// handleRecord's newer-only semantics (minus the gossipsub re-publish): an identical or older
+// record than the cached one is never written. The caller must have validated the record.
+export async function cacheIpnsRecordInPubsubLocalStore({
+    localStore,
+    routingKey,
+    marshalledRecord
+}: {
+    localStore: IpnsPubsubLocalStore;
+    routingKey: Uint8Array;
+    marshalledRecord: Uint8Array;
+}): Promise<void> {
+    if (await localStore.has(routingKey)) {
+        const { record: currentRecord } = await localStore.get(routingKey);
+        if (uint8ArrayEquals(currentRecord, marshalledRecord)) return;
+        // ipnsSelector returns the index of the best record: 0 means the cached one is newer
+        if (ipnsSelector(routingKey, [currentRecord, marshalledRecord]) === 0) return;
+    }
+    await localStore.put(routingKey, marshalledRecord);
 }

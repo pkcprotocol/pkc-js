@@ -5,7 +5,8 @@ import {
     resolveWhenConditionIsTrue,
     mockPKCV2,
     addStringToIpfs,
-    createMockedCommunityIpns
+    createMockedCommunityIpns,
+    mockCommentToNotUsePagesForUpdates
 } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
 import validPageFixture from "../../fixtures/valid_page.json" with { type: "json" };
@@ -729,6 +730,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                     .mockReturnValue(undefined);
                 try {
                     await comment.update();
+                    // If the freshly published post has already landed in the community's regenerated
+                    // preloaded pages, the CommentUpdate is taken from there and the postUpdates walk
+                    // (and its cat() call asserted below) never runs — force the walk path.
+                    mockCommentToNotUsePagesForUpdates(comment);
                     await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => typeof comment.updatedAt === "number" });
                     await comment.stop();
 
