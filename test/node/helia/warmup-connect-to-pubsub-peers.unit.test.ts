@@ -8,6 +8,7 @@ import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { generateKeyPair } from "@libp2p/crypto/keys";
 import { peerIdFromPrivateKey } from "@libp2p/peer-id";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
+import type { Multiaddr } from "@multiformats/multiaddr";
 
 // Warmup-level coverage for src/helia/util.ts connectToPubsubPeers — the production consumer of the
 // content-routing layer that the findProviders fault-tolerance suite (content-router-fault-tolerance.unit.test.ts)
@@ -59,11 +60,20 @@ describeSkipIfRpc("connectToPubsubPeers warmup (issue #171 follow-up)", () => {
     // Build a libp2p-js helia node. `listen` makes it bind a WebSocket listener (so it can be dialed and
     // serve as the subscriber); the node-under-test stays listen-less (the production default). The dummy
     // router keeps creation from throwing and is never expected to serve anything.
-    const createNode = async (opts: { listen?: boolean; routers?: string[] } = {}): Promise<Libp2pJsClient> => {
+    const createNode = async (
+        opts: {
+            listen?: boolean;
+            routers?: string[];
+            libp2pOptions?: Parameters<typeof createLibp2pJsClientOrUseExistingOne>[0]["libp2pOptions"];
+        } = {}
+    ): Promise<Libp2pJsClient> => {
         const client = (await createLibp2pJsClientOrUseExistingOne({
             key: `warmup-${keyCounter++}`,
             httpRoutersOptions: opts.routers ?? ["http://localhost:1"],
-            libp2pOptions: opts.listen ? { addresses: { listen: ["/ip4/127.0.0.1/tcp/0/ws"] } } : {},
+            libp2pOptions: {
+                ...(opts.listen ? { addresses: { listen: ["/ip4/127.0.0.1/tcp/0/ws"] } } : {}),
+                ...opts.libp2pOptions
+            },
             heliaOptions: {}
         })) as Libp2pJsClient;
         clientsToStop.push(client);
@@ -123,6 +133,53 @@ describeSkipIfRpc("connectToPubsubPeers warmup (issue #171 follow-up)", () => {
             FAST_WARMUP_MAX_MS
         );
         expect(connections.length, "should have connected to the dialable subscriber").to.be.greaterThan(0);
+        expect(node._helia.libp2p.services.pubsub.getSubscribers(topic).map((p) => p.toString())).to.include(subscriber.ID);
+    });
+
+    // Issue #213: libp2p's CompoundContentRouting.findProviders dedupes providers by peer id
+    // across routers — the first router's record for a peer is the only one ever yielded. If a
+    // fast router serves the subscriber's record with its WSS addr stripped (tcp-only), the one
+    // dial fails instantly with DialDeniedError under a ws-only gater; the slower router's record
+    // with the real /ws addr is merged into the peerstore but never yielded, so warmup used to
+    // eat the full 10s floor and throw ERR_FAILED_TO_DIAL_ANY_PEERS_PROVIDING_CID even though a
+    // dialable addr was in the peerstore moments after the failed dial. Warmup must retry
+    // dial-by-id (re-reading the peerstore) once the provider stream completes.
+    it("retries a gater-denied provider after a slower router contributes dialable addrs (issue #213)", async () => {
+        const topic = topicFor("retry-denied");
+        const cid = pubsubTopicToDhtKeyCid(topic).toString();
+        const subscriber = await startSubscriberNode(topic);
+
+        // Fast router: the subscriber's peer id with its WSS addr stripped (tcp-only), mirroring
+        // the poisoned production router. Responds immediately, so it always wins the first dial.
+        const fastPoisonedUrl = await startRouterServing(cid, { ID: subscriber.ID, Addrs: ["/ip4/127.0.0.1/tcp/40198"] });
+        // Slow router: the SAME peer with its real /ws addrs, delayed so its record only ever
+        // reaches the peerstore via the compound router's merge (deduped, never yielded).
+        const slowGoodRouter = new MockHttpRouter({ providerGetDelayMs: 800 });
+        await slowGoodRouter.start();
+        startedRouters.push(slowGoodRouter);
+        slowGoodRouter.addProviderForTesting(cid, subscriber);
+
+        // Mirror the browser's WSS-only connection gater, so the tcp-only record is undialable.
+        const node = await createNode({
+            routers: [fastPoisonedUrl, slowGoodRouter.url],
+            libp2pOptions: {
+                connectionGater: {
+                    denyDialMultiaddr: (multiaddr: Multiaddr) =>
+                        !multiaddr.getComponents().some((component) => component.name === "ws" || component.name === "wss")
+                }
+            }
+        });
+
+        const start = Date.now();
+        const connections = await connectToPubsubPeers({ helia: node._helia, pubsubTopic: topic, maxPeers: 4, log });
+        const elapsed = Date.now() - start;
+
+        expect(
+            elapsed,
+            `warmup took ${elapsed}ms, expected well under the ${TOPIC_SUBSCRIBER_WAIT_TIMEOUT_MS}ms floor via the retry dial`
+        ).to.be.lessThan(FAST_WARMUP_MAX_MS);
+        expect(connections.length, "the retry dial must have connected to the subscriber").to.be.greaterThan(0);
+        expect(connections.map((c) => c.remotePeer.toString())).to.include(subscriber.ID);
         expect(node._helia.libp2p.services.pubsub.getSubscribers(topic).map((p) => p.toString())).to.include(subscriber.ID);
     });
 

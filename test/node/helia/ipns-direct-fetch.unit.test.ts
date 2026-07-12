@@ -208,6 +208,66 @@ describeSkipIfRpc("directFetchIpnsRecordFromProviders (issue #185)", () => {
         expect(elapsed, `direct fetch took ${elapsed}ms, expected well under the 10s floor`).to.be.lessThan(FAST_FETCH_MAX_MS);
     });
 
+    // Issue #213: when multiple routers serve records for the SAME peer, libp2p's
+    // CompoundContentRouting.findProviders dedupes by peer id — the first router's record is the
+    // only one ever yielded. A slower router's record with BETTER addrs (the browser-dialable
+    // /ws one) is merged into the peerstore but never yielded, so if the fast router's record
+    // had its WSS addrs stripped (in prod: an old router build strips dns4/WSS from every
+    // record), the one dial fails instantly with DialDeniedError and the record is never
+    // fetched even though a dialable addr is sitting in the peerstore moments later.
+    // The helper must retry dial-by-id (which re-reads the peerstore) after the provider
+    // stream completes, so the slower router's merged addrs get used.
+    it("retries a gater-denied provider after a slower router contributes dialable addrs (issue #213)", async () => {
+        const { routingKey, marshalled, topic, cid } = await makeRecord();
+        const publisher = await startPublisherNode({ routingKey, recordToServe: marshalled });
+
+        // Fast router: serves the publisher's peer id with its WSS addr stripped (tcp-only),
+        // mirroring the poisoned production router. Responds immediately.
+        const fastPoisonedRouter = new MockHttpRouter();
+        await fastPoisonedRouter.start();
+        startedRouters.push(fastPoisonedRouter);
+        fastPoisonedRouter.addProviderForTesting(cid, { ID: publisher.ID, Addrs: ["/ip4/127.0.0.1/tcp/40199"] });
+
+        // Slow router: serves the SAME peer with its real /ws addrs after a delay, so the
+        // poisoned record deterministically wins the first (denied) dial and the good record
+        // only ever reaches the peerstore via the compound router's merge (never yielded).
+        const slowGoodRouter = new MockHttpRouter({ providerGetDelayMs: 800 });
+        await slowGoodRouter.start();
+        startedRouters.push(slowGoodRouter);
+        slowGoodRouter.addProviderForTesting(cid, publisher);
+
+        // Mirror the browser's WSS-only connection gater, so the tcp-only record is undialable.
+        const node = await createNode({
+            routers: [fastPoisonedRouter.url, slowGoodRouter.url],
+            libp2pOptions: {
+                connectionGater: {
+                    denyDialMultiaddr: (multiaddr: Multiaddr) =>
+                        !multiaddr.getComponents().some((component) => component.name === "ws" || component.name === "wss")
+                }
+            }
+        });
+
+        const start = Date.now();
+        const result = await directFetchIpnsRecordFromProviders({
+            helia: node._helia,
+            pubsubTopic: topic,
+            routingKey,
+            maxPeers: 4,
+            validate: ipnsValidator,
+            log
+        });
+        const elapsed = Date.now() - start;
+
+        expect(
+            result,
+            "the record must be fetched via a retry dial once the slower router's dialable addrs are in the peerstore"
+        ).to.not.equal(undefined);
+        expect(result!.source).to.equal("provider");
+        expect(result!.peerId).to.equal(publisher.ID);
+        expect(uint8ArrayEquals(result!.recordBytes, marshalled), "served record bytes must match").to.equal(true);
+        expect(elapsed, `direct fetch took ${elapsed}ms, expected well under the 10s floor`).to.be.lessThan(FAST_FETCH_MAX_MS);
+    });
+
     // Subscriber branch: the publisher is already in getSubscribers(topic) and there is NO router
     // record. The helper must still fetch from it — proving both sources are queried in parallel.
     it("fetches from a peer already in getSubscribers when no router record exists", async () => {
