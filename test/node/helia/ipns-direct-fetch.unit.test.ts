@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
+import net from "node:net";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/helia-for-pkc.js";
 import { directFetchIpnsRecordFromProviders } from "../../../dist/node/helia/util.js";
 import { MockHttpRouter } from "../../../dist/node/runtime/node/test/mock-http-router.js";
@@ -44,6 +45,31 @@ describeSkipIfRpc("directFetchIpnsRecordFromProviders (issue #185)", () => {
             } catch {
                 // already destroyed
             }
+        }
+    });
+
+    // A "tarpit" peer for issue #215: a raw TCP server that accepts connections and never speaks,
+    // so a libp2p /ws dial to it hangs (the WebSocket upgrade request is never answered) until
+    // connectionManager.addressDialTimeout aborts it. Stands in for the production relay-circuit
+    // dials that take 2-5s to fail (PR #214 benchmark) — a dial that is SLOW to settle, unlike the
+    // instantly-failing gater-denied dials the #213 tests use.
+    const tarpitServers: net.Server[] = [];
+    const tarpitSockets: net.Socket[] = [];
+    const startTarpitWsAddr = async (): Promise<string> => {
+        const server = net.createServer((socket) => {
+            tarpitSockets.push(socket);
+        });
+        tarpitServers.push(server);
+        await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+        const port = (server.address() as net.AddressInfo).port;
+        return `/ip4/127.0.0.1/tcp/${port}/ws`;
+    };
+
+    afterEach(async () => {
+        while (tarpitSockets.length) tarpitSockets.pop()!.destroy();
+        while (tarpitServers.length) {
+            const server = tarpitServers.pop()!;
+            await new Promise<void>((resolve) => server.close(() => resolve()));
         }
     });
 
@@ -266,6 +292,117 @@ describeSkipIfRpc("directFetchIpnsRecordFromProviders (issue #185)", () => {
         expect(result!.peerId).to.equal(publisher.ID);
         expect(uint8ArrayEquals(result!.recordBytes, marshalled), "served record bytes must match").to.equal(true);
         expect(elapsed, `direct fetch took ${elapsed}ms, expected well under the 10s floor`).to.be.lessThan(FAST_FETCH_MAX_MS);
+    });
+
+    // Issue #215 (follow-up to #213): the retry pass must be gated on the provider STREAM
+    // completing (that is when every router's addrs are merged into the peerstore), NOT on every
+    // initial dial settling. The PR #214 benchmark showed the production 6-router mix gains no
+    // latency from the retry because relay-circuit dials take 2-5s to fail, and the retry waits
+    // for them via Promise.allSettled(dialFetchTasks) even though the addrs it needs were merged
+    // seconds earlier. Reproduce with the #213 fast-poisoned/slow-good router pair PLUS a tarpit
+    // provider whose dial only settles at addressDialTimeout: the record must still be fetched at
+    // provider-stream-completion time (~SLOW_ROUTER_DELAY_MS), well before the tarpit dial settles.
+    it("retry of a gater-denied provider is not delayed by an unrelated slow dial still in flight (issue #215)", async () => {
+        const SLOW_ROUTER_DELAY_MS = 800; // provider stream completes here — all addrs merged
+        const TARPIT_DIAL_SETTLE_MS = 5_000; // connectionManager.addressDialTimeout — when the tarpit dial fails
+        const RETRY_UNGATED_MAX_MS = 3_500; // between the two: red waits for the tarpit (~5.2s), green needs only the stream (~1.2s)
+
+        const { routingKey, marshalled, topic, cid } = await makeRecord();
+        const publisher = await startPublisherNode({ routingKey, recordToServe: marshalled });
+
+        // Fast router: the publisher with its WSS addr stripped (tcp-only, gater-denied → enters
+        // the retry set) plus the tarpit peer (dialable /ws addr, dial hangs until timeout).
+        const fastPoisonedRouter = new MockHttpRouter();
+        await fastPoisonedRouter.start();
+        startedRouters.push(fastPoisonedRouter);
+        fastPoisonedRouter.addProviderForTesting(cid, { ID: publisher.ID, Addrs: ["/ip4/127.0.0.1/tcp/40199"] });
+        const tarpitPeerId = peerIdFromPrivateKey(await generateKeyPair("Ed25519")).toString();
+        fastPoisonedRouter.addProviderForTesting(cid, { ID: tarpitPeerId, Addrs: [await startTarpitWsAddr()] });
+
+        // Slow router: the SAME publisher with its real /ws addrs — merged into the peerstore at
+        // ~SLOW_ROUTER_DELAY_MS when the provider stream completes (deduped, never yielded).
+        const slowGoodRouter = new MockHttpRouter({ providerGetDelayMs: SLOW_ROUTER_DELAY_MS });
+        await slowGoodRouter.start();
+        startedRouters.push(slowGoodRouter);
+        slowGoodRouter.addProviderForTesting(cid, publisher);
+
+        const node = await createNode({
+            routers: [fastPoisonedRouter.url, slowGoodRouter.url],
+            libp2pOptions: {
+                connectionGater: {
+                    denyDialMultiaddr: (multiaddr: Multiaddr) =>
+                        !multiaddr.getComponents().some((component) => component.name === "ws" || component.name === "wss")
+                },
+                // Bound the tarpit dial deterministically: it has a single addr, and the
+                // per-address timeout applies even when the dial carries its own abort signal.
+                connectionManager: { addressDialTimeout: TARPIT_DIAL_SETTLE_MS }
+            }
+        });
+
+        const start = Date.now();
+        const result = await directFetchIpnsRecordFromProviders({
+            helia: node._helia,
+            pubsubTopic: topic,
+            routingKey,
+            maxPeers: 4,
+            validate: ipnsValidator,
+            log
+        });
+        const elapsed = Date.now() - start;
+
+        expect(result, "the record must be fetched via the retry dial despite the tarpit dial still hanging").to.not.equal(undefined);
+        expect(result!.source).to.equal("provider");
+        expect(result!.peerId).to.equal(publisher.ID);
+        expect(uint8ArrayEquals(result!.recordBytes, marshalled), "served record bytes must match").to.equal(true);
+        expect(
+            elapsed,
+            `direct fetch took ${elapsed}ms: the retry needs only the completed provider stream (~${SLOW_ROUTER_DELAY_MS}ms), so ` +
+                `taking ~${TARPIT_DIAL_SETTLE_MS}ms means the retry pass is gated on the unrelated tarpit dial settling (issue #215)`
+        ).to.be.lessThan(RETRY_UNGATED_MAX_MS);
+    });
+
+    // Issue #215: a provider whose ONLY addrs are /p2p-circuit must not be dialed by the
+    // direct-fetch path at all. /libp2p/fetch over a limited (relayed) connection always fails
+    // with LimitedConnectionError, so the dial can never produce a record — it only burns 2-5s
+    // (the production relay dials measured in the PR #214 benchmark) and, today, delays the
+    // issue #213 retry pass that waits for it to settle. The dial outcome is irrelevant here
+    // (the relay is dead so it fails fast): the assertion is that no dial is ATTEMPTED.
+    it("does not dial a provider whose only addrs are p2p-circuit (issue #215)", async () => {
+        const { routingKey, marshalled, topic, cid } = await makeRecord();
+        const publisher = await startPublisherNode({ routingKey, recordToServe: marshalled });
+
+        const router = new MockHttpRouter();
+        await router.start();
+        startedRouters.push(router);
+        router.addProviderForTesting(cid, publisher);
+        const relayPeerId = peerIdFromPrivateKey(await generateKeyPair("Ed25519")).toString();
+        const circuitOnlyPeerId = peerIdFromPrivateKey(await generateKeyPair("Ed25519")).toString();
+        router.addProviderForTesting(cid, {
+            ID: circuitOnlyPeerId,
+            Addrs: [`/ip4/127.0.0.1/tcp/1/ws/p2p/${relayPeerId}/p2p-circuit`]
+        });
+
+        const node = await createNode({ routers: [router.url] });
+        const dialSpy = vi.spyOn(node._helia.libp2p, "dial");
+
+        const result = await directFetchIpnsRecordFromProviders({
+            helia: node._helia,
+            pubsubTopic: topic,
+            routingKey,
+            maxPeers: 4,
+            validate: ipnsValidator,
+            log
+        });
+
+        expect(result, "the dialable publisher must still be fetched from").to.not.equal(undefined);
+        expect(result!.peerId).to.equal(publisher.ID);
+
+        const dialedTargets = dialSpy.mock.calls.flatMap(([target]) => (Array.isArray(target) ? target : [target])).map(String);
+        expect(
+            dialedTargets.some((target) => target === circuitOnlyPeerId || target.includes(`/p2p/${circuitOnlyPeerId}`)),
+            `a p2p-circuit-only provider must not be dialed in the direct-fetch path (fetch over a limited connection always ` +
+                `fails with LimitedConnectionError); dialed targets: ${dialedTargets.join(", ")}`
+        ).to.equal(false);
     });
 
     // Subscriber branch: the publisher is already in getSubscribers(topic) and there is NO router
