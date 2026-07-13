@@ -61,8 +61,19 @@ jobs:
             sleep 15
           done
           exit 1
-      # install playwright browsers
-      - run: npx playwright install --with-deps chromium firefox
+      # Install playwright browsers. A slow Azure apt mirror has stalled the
+      # --with-deps download past the job timeout before (issue #217); the
+      # per-attempt `timeout` + retry keeps one stalled mirror from eating the job.
+      - name: Install Playwright browsers (with retry)
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            timeout 300 npx playwright install --with-deps chromium firefox && exit 0
+            echo "playwright install attempt $attempt failed or stalled; retrying in 15s..."
+            sudo dpkg --configure -a || true
+            sleep 15
+          done
+          exit 1
       # disable hosts we shouldn't use
       - run: sudo echo "255.255.255.255 cloudflare-ipfs.com" | sudo tee -a /etc/hosts
       - run: sudo echo "255.255.255.255 pubsubprovider.xyz" | sudo tee -a /etc/hosts

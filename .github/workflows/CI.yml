@@ -204,6 +204,13 @@ jobs:
             matrix:
                 environment: [chrome, firefox]
                 config: [remote-kubo-rpc, remote-ipfs-gateway, remote-libp2pjs]
+                include:
+                    # test/run-test-config.js launches Playwright's chromium for
+                    # the "chrome" environment, so that's the browser to install.
+                    - environment: chrome
+                      playwright-browser: chromium
+                    - environment: firefox
+                      playwright-browser: firefox
         steps:
             - uses: actions/checkout@v4
             - uses: actions/setup-node@v4
@@ -227,9 +234,21 @@ jobs:
 
             - run: DEBUG="pkc*" npm run test:server:node 2>&1 | tee test_server.log & npm run test:server:wait-on
 
-            # Install Chrome
-            - name: Install Playwright browsers
-              run: npx playwright install --with-deps && npx playwright install --with-deps ${{ matrix.environment }}
+            # Install only the browser this job runs. A blanket
+            # `npx playwright install --with-deps` also pulls webkit's ~180 apt
+            # packages, and a slow Azure apt mirror has stalled that download
+            # past the 30-minute job timeout (issue #217). The per-attempt
+            # `timeout` + retry keeps one stalled mirror from eating the job.
+            - name: Install Playwright browsers (with retry)
+              shell: bash
+              run: |
+                  for attempt in 1 2 3; do
+                    timeout 300 npx playwright install --with-deps ${{ matrix.playwright-browser }} && exit 0
+                    echo "playwright install attempt $attempt failed or stalled; retrying in 15s..."
+                    sudo dpkg --configure -a || true
+                    sleep 15
+                  done
+                  exit 1
 
             # Run tests based on environment and config
             - name: Run browser tests with config
