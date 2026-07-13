@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.70](https://github.com/pkcprotocol/pkc-js/compare/v0.0.69...v0.0.70) (2026-07-13)
+
+### Bug Fixes
+
+* **helia:** retry addr-limited provider dials once the provider stream completes ([#214](https://github.com/pkcprotocol/pkc-js/issues/214)) ([68e3e5f](https://github.com/pkcprotocol/pkc-js/commit/68e3e5fcdfd0a720c0a24f743bcf218738847614)), closes [#213](https://github.com/pkcprotocol/pkc-js/issues/213) [#216](https://github.com/pkcprotocol/pkc-js/issues/216) [#215](https://github.com/pkcprotocol/pkc-js/issues/215) [#213](https://github.com/pkcprotocol/pkc-js/issues/213) [#215](https://github.com/pkcprotocol/pkc-js/issues/215)
+
 ## [0.0.69](https://github.com/pkcprotocol/pkc-js/compare/v0.0.68...v0.0.69) (2026-07-11)
 
 ### Bug Fixes
