@@ -209,6 +209,38 @@ describeSkipIfRpc("connectToPubsubPeers warmup (issue #171 follow-up)", () => {
         expect(node._helia.libp2p.services.pubsub.getSubscribers(topic).map((p) => p.toString())).to.include(subscriber.ID);
     });
 
+    // Issue #215 / CodeRabbit on PR #214: pins the second retryable error name for warmup,
+    // "NoValidAddressesError" — thrown when every known addr is filtered out BEFORE the gater
+    // runs, i.e. a record whose addrs all use transports the node does not have (what a browser
+    // sees on a tcp/quic-only record; this Node client has no QUIC transport, so a quic-v1-only
+    // record reproduces it). The retry set matches by error NAME, so a libp2p rename would
+    // silently disable this retry class — this test goes red instead. Same topology as the
+    // gater-denied test above, but no gater is needed: the transport filter does the denying.
+    it("retries a provider whose record only has untransportable addrs after a slower router contributes dialable ones (issue #215)", async () => {
+        const topic = topicFor("retry-no-addrs");
+        const cid = pubsubTopicToDhtKeyCid(topic).toString();
+        const subscriber = await startSubscriberNode(topic);
+
+        const fastEmptyUrl = await startRouterServing(cid, { ID: subscriber.ID, Addrs: ["/ip4/127.0.0.1/udp/40198/quic-v1"] });
+        const slowGoodRouter = new MockHttpRouter({ providerGetDelayMs: 800 });
+        await slowGoodRouter.start();
+        startedRouters.push(slowGoodRouter);
+        slowGoodRouter.addProviderForTesting(cid, subscriber);
+
+        const node = await createNode({ routers: [fastEmptyUrl, slowGoodRouter.url] });
+
+        const start = Date.now();
+        const connections = await connectToPubsubPeers({ helia: node._helia, pubsubTopic: topic, maxPeers: 4, log });
+        const elapsed = Date.now() - start;
+
+        expect(
+            elapsed,
+            `warmup took ${elapsed}ms, expected well under the ${TOPIC_SUBSCRIBER_WAIT_TIMEOUT_MS}ms floor via the retry dial`
+        ).to.be.lessThan(FAST_WARMUP_MAX_MS);
+        expect(connections.length, "the retry dial must have connected to the subscriber").to.be.greaterThan(0);
+        expect(connections.map((c) => c.remotePeer.toString())).to.include(subscriber.ID);
+    });
+
     // Issue #215 (follow-up to #213): warmup's retry pass must be gated on the provider STREAM
     // completing (when every router's addrs are merged into the peerstore), NOT on every initial
     // dial settling. The retry task currently awaits Promise.allSettled over ALL initial dials

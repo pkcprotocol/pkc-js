@@ -79,7 +79,13 @@ const ParsedKuboRpcClientOptionsSchema = z.custom<z.output<typeof TransformKuboR
 // I guess {libp2pOptions, heliaOptions, key} for now, this way we can experiment with passing any config to libp2pJsClientOptions. we can test different libp2p transport and stuff like that
 
 type heliaOptions = Parameters<typeof createHelia>[0];
-type libp2pOptions = ReturnType<typeof libp2pDefaults>;
+type libp2pDefaultOptions = ReturnType<typeof libp2pDefaults>;
+// helia-for-pkc spreads `libp2pOptions.services` ON TOP of its own explicit service map, so
+// callers may pass any subset of the default services — or additional ones (e.g. tests injecting
+// a circuit-relay server) — rather than the full map the helia default type demands.
+type libp2pOptions = Partial<Omit<libp2pDefaultOptions, "services">> & {
+    services?: Partial<libp2pDefaultOptions["services"]> & Record<string, unknown>;
+};
 
 export const PKCUserOptionBaseSchema = z.object({
     ipfsGatewayUrls: IpfsGatewayUrlSchema.array().optional(),
@@ -93,7 +99,7 @@ export const PKCUserOptionBaseSchema = z.object({
     libp2pJsClientsOptions: z
         .object({
             key: z.string().min(1),
-            libp2pOptions: z.custom<Partial<libp2pOptions>>().default({}),
+            libp2pOptions: z.custom<libp2pOptions>().default({}),
             heliaOptions: z.custom<Partial<heliaOptions>>().default({})
         })
         .array()
