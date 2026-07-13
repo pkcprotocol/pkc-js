@@ -1,5 +1,6 @@
 import type { HeliaWithLibp2pPubsub } from "./types.js";
-import type { PeerId, PeerInfo } from "@libp2p/interface";
+import type { PeerId, PeerInfo, PeerUpdate } from "@libp2p/interface";
+import type { Multiaddr } from "@multiformats/multiaddr";
 import { CID } from "multiformats/cid";
 import { ipnsSelector } from "ipns/selector";
 import { equals as uint8ArrayEquals } from "uint8arrays/equals";
@@ -40,6 +41,88 @@ interface PeerDialFailure {
     errorName: string;
     errorMessage: string;
     errorStack?: string;
+}
+
+// Dial failures that a later-arriving provider record can cure (issue #213). libp2p's
+// CompoundContentRouting.findProviders dedupes providers by peer id across routers: the first
+// router's record for a peer is the only one ever yielded, and a slower router's record with
+// better addrs (e.g. the browser-dialable /tls/ws one) is merged into the peerstore but never
+// re-yielded. So a dial that failed because the connection gater denied every addr known at dial
+// time (DialDeniedError), or because no valid addrs were known at all (NoValidAddressesError),
+// can succeed on a dial-by-id retry once the provider stream has completed — dial-by-id re-reads
+// the peerstore, which by then holds the merged addrs, at zero extra router traffic.
+const DIAL_ERROR_NAMES_RETRYABLE_AFTER_ADDR_MERGE = new Set(["DialDeniedError", "NoValidAddressesError"]);
+
+function isDialRetryableAfterAddrMerge(error: unknown): boolean {
+    return DIAL_ERROR_NAMES_RETRYABLE_AFTER_ADDR_MERGE.has((error as Error)?.name);
+}
+
+function multiaddrIsCircuitRelay(addr: Multiaddr): boolean {
+    return addr.getComponents().some((component) => component.name === "p2p-circuit");
+}
+
+// Per-peer scheduler for the addr-merge retries (issues #213/#215). A peer marked retryable is
+// re-attempted the moment new data for it lands in the peerstore ('peer:update' — fired when a
+// slower router's merged record or identify contributes addrs), with provider-stream completion
+// as the fallback sweep for peers whose update fired before they were marked. Crucially the
+// retry NEVER waits for unrelated dials to settle: the old batch pass ran after
+// Promise.allSettled over every initial dial, so one slow-to-fail dial (production: 2-5s
+// relay-circuit dials, PR #214 benchmark) delayed a retry whose addrs had been sitting in the
+// peerstore since the slower router responded (~hundreds of ms). Each peer is retried once;
+// runRetry returning "not-ready" releases the slot so a later peer:update can try again.
+function createAddrMergeRetryScheduler({
+    helia,
+    runRetry
+}: {
+    helia: HeliaWithLibp2pPubsub;
+    runRetry: (peerId: PeerId) => Promise<"done" | "not-ready">;
+}) {
+    const retryablePeers = new Map<string, PeerId>();
+    const inFlightOrDone = new Set<string>();
+    const retryTasks: Promise<void>[] = [];
+    let providerStreamEnded = false;
+    let listenerRemoved = false;
+
+    const trigger = (peerId: PeerId): void => {
+        const key = peerId.toString();
+        if (inFlightOrDone.has(key)) return;
+        inFlightOrDone.add(key);
+        retryTasks.push(
+            runRetry(peerId).then(
+                (outcome) => {
+                    if (outcome === "not-ready") inFlightOrDone.delete(key);
+                },
+                () => undefined // runRetry does its own error recording; never reject the task
+            )
+        );
+    };
+
+    const onPeerUpdate = (evt: CustomEvent<PeerUpdate>): void => {
+        const peerId = evt.detail.peer.id;
+        if (retryablePeers.has(peerId.toString())) trigger(peerId);
+    };
+    helia.libp2p.addEventListener("peer:update", onPeerUpdate);
+
+    return {
+        // Register a peer as curable by a later addr merge. If the provider stream has already
+        // ended (all router records merged), retry immediately.
+        markRetryable(peerId: PeerId): void {
+            retryablePeers.set(peerId.toString(), peerId);
+            if (providerStreamEnded) trigger(peerId);
+        },
+        // The findProviders stream ended (or was aborted): every router's addrs that will ever
+        // arrive have been merged. Sweep the peers whose qualifying update fired before they
+        // were marked retryable, and stop listening.
+        onProviderStreamEnded(): void {
+            providerStreamEnded = true;
+            for (const peerId of retryablePeers.values()) trigger(peerId);
+            if (!listenerRemoved) {
+                listenerRemoved = true;
+                helia.libp2p.removeEventListener("peer:update", onPeerUpdate);
+            }
+        },
+        retryTasks
+    };
 }
 
 // Event-based wait for a remote peer to subscribe to `topic` on our gossipsub.
@@ -221,6 +304,29 @@ export async function connectToPubsubPeers({
     // even after this function returns — they populate bitswap's peer set as they finish.
     const inflightDialPromises: Promise<void>[] = [];
     const dialOptions = { ...options };
+    // Peers whose dial failed only for lack of dialable addrs (see isDialRetryableAfterAddrMerge):
+    // re-dialed by id (re-reading the peerstore) the moment a later record/identify merges addrs
+    // for them, or at provider-stream completion (issues #213/#215). Dial-by-id keeps the circuit
+    // fallback here on purpose: a relayed connection is still useful to warmup (DCUtR upgrade,
+    // mesh discovery), unlike in the direct-fetch path.
+    const retryScheduler = createAddrMergeRetryScheduler({
+        helia,
+        runRetry: async (peerId) => {
+            if (options?.signal?.aborted) return "done";
+            try {
+                const conn = await helia.libp2p.dial(peerId, dialOptions);
+                connectedPeersWithContent.push(conn);
+                log.trace("Addr-merge retry dial connected to peer", peerId.toString());
+                return "done";
+            } catch (e) {
+                // Keep the original failure in peerDialToError; the retry failing adds no
+                // information. A still-addr-limited failure releases the retry slot so a later
+                // qualifying addr merge can try again.
+                log.trace("Addr-merge retry dial failed for peer", peerId.toString(), "due to error", e);
+                return isDialRetryableAfterAddrMerge(e) ? "not-ready" : "done";
+            }
+        }
+    });
     try {
         for await (const peer of helia.libp2p.contentRouting.findProviders(contentCid, { ...options, signal: findProvidersSignal })) {
             peersWithContent.push(peer as PeerInfo);
@@ -240,6 +346,7 @@ export async function connectToPubsubPeers({
                     }
                 } catch (e) {
                     const err = e as Error;
+                    if (isDialRetryableAfterAddrMerge(err)) retryScheduler.markRetryable(peer.id);
                     peerDialToError[peer.id.toString()] = {
                         multiaddrs: peer.multiaddrs.map(String),
                         errorName: err.name,
@@ -272,6 +379,16 @@ export async function connectToPubsubPeers({
             throw e;
         }
     }
+
+    // Provider stream ended (all router records merged, or the stream was aborted): sweep any
+    // retryable peers not already re-dialed via peer:update, and detach the listener. The
+    // retries run in the background like the initial dials — a successful retry fires
+    // peer:connected/subscription-change, which resolves the subscriber wait below without
+    // delaying it — and crucially they do NOT wait for the initial dials to settle (issue #215):
+    // most peer:update-triggered retries have already fired mid-stream, seconds before a slow
+    // relay-circuit dial would have released the old batch pass.
+    retryScheduler.onProviderStreamEnded();
+    inflightDialPromises.push(...retryScheduler.retryTasks);
 
     // Wait for the gossipsub subscription-change event — this is the signal that bitswap can
     // see at least one peer subscribed to the topic, so the subsequent IPNS resolve won't walk
@@ -468,6 +585,42 @@ export async function directFetchIpnsRecordFromProviders({
             ? AbortSignal.any([options.signal, findProvidersAbort.signal, resultController.signal])
             : AbortSignal.any([findProvidersAbort.signal, resultController.signal]);
         const dialFetchTasks: Promise<void>[] = [];
+        // Peers with no fetch-usable addr right now (issues #213/#215): gater denied every addr
+        // known at dial time, no valid addrs were known at all, or every announced addr is
+        // /p2p-circuit (a relayed connection cannot serve /libp2p/fetch — it fails with
+        // LimitedConnectionError — so we never dial those here). All are curable the same way: a
+        // slower router's record for the deduped peer merges better addrs into the peerstore.
+        // Retried the moment that merge fires peer:update, dialing ONLY the direct addrs so the
+        // dial cannot fall back to a circuit addr and burn seconds on a connection the fetch
+        // cannot use.
+        const retryScheduler = createAddrMergeRetryScheduler({
+            helia,
+            runRetry: async (peerId) => {
+                if (winner || resultController.signal.aborted || options?.signal?.aborted) return "done";
+                const peerData = await helia.libp2p.peerStore.get(peerId).catch(() => undefined);
+                const directAddrs = (peerData?.addresses ?? [])
+                    .map(({ multiaddr }) => multiaddr)
+                    .filter((addr) => !multiaddrIsCircuitRelay(addr));
+                // No fetch-usable addr yet: release the slot so a later qualifying merge retries.
+                if (directAddrs.length === 0 || !(await helia.libp2p.isDialable(directAddrs))) return "not-ready";
+                try {
+                    const dialSignal = options?.signal
+                        ? AbortSignal.any([options.signal, resultController.signal])
+                        : resultController.signal;
+                    // Peerstore addrs are usually bare; the /p2p suffix associates the dial with
+                    // the peer so libp2p's per-peer dedupe/existing-connection reuse applies.
+                    const dialTargets = directAddrs.map((addr) => {
+                        const components = addr.getComponents();
+                        return components[components.length - 1]?.name === "p2p" ? addr : addr.encapsulate(`/p2p/${peerId.toString()}`);
+                    });
+                    await helia.libp2p.dial(dialTargets, { signal: dialSignal }); // no-op if already connected
+                    await tryFetchFromPeer(peerId, "provider");
+                } catch (e) {
+                    recordErr(peerId, e);
+                }
+                return "done";
+            }
+        });
         let attempted = 0;
         try {
             for await (const peer of helia.libp2p.contentRouting.findProviders(contentCid, { ...options, signal: findProvidersSignal })) {
@@ -481,6 +634,19 @@ export async function directFetchIpnsRecordFromProviders({
                 // at least one dialable announced addr count toward maxPeers. isDialable is a local
                 // check (gater + transport match), not a network round-trip.
                 const announcedAddrs = (peer as PeerInfo).multiaddrs ?? [];
+                // Circuit-only provider (issue #215): never dial it here — /libp2p/fetch cannot
+                // run over the limited relayed connection the dial would produce, so the dial
+                // only burns 2-5s. Merge its addrs (useful to warmup/identify, and a later direct
+                // addr must land on the same peerstore entry) and park it in the retry set: if a
+                // slower router or identify ever contributes a direct addr, it is dialed then.
+                // Does not consume a maxPeers slot for the same reason gater-denied providers
+                // don't (issue #188).
+                if (announcedAddrs.length > 0 && announcedAddrs.every(multiaddrIsCircuitRelay)) {
+                    await helia.libp2p.peerStore.merge(peer.id, { multiaddrs: announcedAddrs }).catch(() => undefined);
+                    log.trace("Skipping dial to circuit-only provider", peer.id.toString(), "for topic", pubsubTopic);
+                    retryScheduler.markRetryable(peer.id);
+                    continue;
+                }
                 const hasDialableAddr = announcedAddrs.length > 0 && (await helia.libp2p.isDialable(announcedAddrs));
                 dialFetchTasks.push(
                     (async () => {
@@ -498,6 +664,7 @@ export async function directFetchIpnsRecordFromProviders({
                             await helia.libp2p.dial(peer.id, { signal: dialSignal }); // no-op if already connected
                             await tryFetchFromPeer(peer.id, "provider");
                         } catch (e) {
+                            if (isDialRetryableAfterAddrMerge(e)) retryScheduler.markRetryable(peer.id);
                             recordErr(peer.id, e);
                         }
                     })()
@@ -513,7 +680,18 @@ export async function directFetchIpnsRecordFromProviders({
             // exhaustion we return undefined so the caller falls back to router.get().
             if (!findProvidersSignal.aborted) log.trace("findProviders errored during direct IPNS fetch for topic", pubsubTopic, e);
         }
+        // Provider stream ended (all router records merged, or the stream was aborted): sweep
+        // any retryable peers not already re-dialed via peer:update BEFORE waiting for the
+        // initial dials — a slow-to-settle dial (e.g. 2-5s relay-circuit) must not delay a retry
+        // whose addrs have been in the peerstore for seconds (issue #215). Most retries have
+        // already fired mid-stream, the moment the slower router's merge fired peer:update.
+        retryScheduler.onProviderStreamEnded();
         await Promise.allSettled(dialFetchTasks);
+        // Drain retry tasks (they can grow while draining: a late initial-dial failure after
+        // stream end triggers its retry inline) so no in-flight fetch/dial leaks past return.
+        while (retryScheduler.retryTasks.length > 0) {
+            await Promise.allSettled(retryScheduler.retryTasks.splice(0));
+        }
     })();
 
     // Await both branches so no in-flight fetch/dial leaks past return.

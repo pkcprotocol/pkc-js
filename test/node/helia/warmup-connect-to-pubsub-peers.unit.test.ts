@@ -1,3 +1,4 @@
+import net from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/helia-for-pkc.js";
 import { connectToPubsubPeers } from "../../../dist/node/helia/util.js";
@@ -8,6 +9,7 @@ import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { generateKeyPair } from "@libp2p/crypto/keys";
 import { peerIdFromPrivateKey } from "@libp2p/peer-id";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
+import type { Multiaddr } from "@multiformats/multiaddr";
 
 // Warmup-level coverage for src/helia/util.ts connectToPubsubPeers — the production consumer of the
 // content-routing layer that the findProviders fault-tolerance suite (content-router-fault-tolerance.unit.test.ts)
@@ -59,11 +61,20 @@ describeSkipIfRpc("connectToPubsubPeers warmup (issue #171 follow-up)", () => {
     // Build a libp2p-js helia node. `listen` makes it bind a WebSocket listener (so it can be dialed and
     // serve as the subscriber); the node-under-test stays listen-less (the production default). The dummy
     // router keeps creation from throwing and is never expected to serve anything.
-    const createNode = async (opts: { listen?: boolean; routers?: string[] } = {}): Promise<Libp2pJsClient> => {
+    const createNode = async (
+        opts: {
+            listen?: boolean;
+            routers?: string[];
+            libp2pOptions?: Parameters<typeof createLibp2pJsClientOrUseExistingOne>[0]["libp2pOptions"];
+        } = {}
+    ): Promise<Libp2pJsClient> => {
         const client = (await createLibp2pJsClientOrUseExistingOne({
             key: `warmup-${keyCounter++}`,
             httpRoutersOptions: opts.routers ?? ["http://localhost:1"],
-            libp2pOptions: opts.listen ? { addresses: { listen: ["/ip4/127.0.0.1/tcp/0/ws"] } } : {},
+            libp2pOptions: {
+                ...(opts.listen ? { addresses: { listen: ["/ip4/127.0.0.1/tcp/0/ws"] } } : {}),
+                ...opts.libp2pOptions
+            },
             heliaOptions: {}
         })) as Libp2pJsClient;
         clientsToStop.push(client);
@@ -104,6 +115,31 @@ describeSkipIfRpc("connectToPubsubPeers warmup (issue #171 follow-up)", () => {
         return router.url;
     };
 
+    // A "tarpit" peer for issue #215: a raw TCP server that accepts connections and never speaks,
+    // so a libp2p /ws dial to it hangs (the WebSocket upgrade request is never answered) until
+    // connectionManager.addressDialTimeout aborts it. Stands in for the production relay-circuit
+    // dials that take 2-5s to fail (PR #214 benchmark) — a dial that is SLOW to settle, unlike the
+    // instantly-failing gater-denied dials the #213 test uses.
+    const tarpitServers: net.Server[] = [];
+    const tarpitSockets: net.Socket[] = [];
+    const startTarpitWsAddr = async (): Promise<string> => {
+        const server = net.createServer((socket) => {
+            tarpitSockets.push(socket);
+        });
+        tarpitServers.push(server);
+        await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+        const port = (server.address() as net.AddressInfo).port;
+        return `/ip4/127.0.0.1/tcp/${port}/ws`;
+    };
+
+    afterEach(async () => {
+        while (tarpitSockets.length) tarpitSockets.pop()!.destroy();
+        while (tarpitServers.length) {
+            const server = tarpitServers.pop()!;
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+        }
+    });
+
     const topicFor = (suffix: string) => `warmup-test-topic-${suffix}-${keyCounter}`;
 
     // The happy path: one router serving a dialable, subscribed peer. Warmup must dial it, observe the
@@ -123,6 +159,145 @@ describeSkipIfRpc("connectToPubsubPeers warmup (issue #171 follow-up)", () => {
             FAST_WARMUP_MAX_MS
         );
         expect(connections.length, "should have connected to the dialable subscriber").to.be.greaterThan(0);
+        expect(node._helia.libp2p.services.pubsub.getSubscribers(topic).map((p) => p.toString())).to.include(subscriber.ID);
+    });
+
+    // Issue #213: libp2p's CompoundContentRouting.findProviders dedupes providers by peer id
+    // across routers — the first router's record for a peer is the only one ever yielded. If a
+    // fast router serves the subscriber's record with its WSS addr stripped (tcp-only), the one
+    // dial fails instantly with DialDeniedError under a ws-only gater; the slower router's record
+    // with the real /ws addr is merged into the peerstore but never yielded, so warmup used to
+    // eat the full 10s floor and throw ERR_FAILED_TO_DIAL_ANY_PEERS_PROVIDING_CID even though a
+    // dialable addr was in the peerstore moments after the failed dial. Warmup must retry
+    // dial-by-id (re-reading the peerstore) once the provider stream completes.
+    it("retries a gater-denied provider after a slower router contributes dialable addrs (issue #213)", async () => {
+        const topic = topicFor("retry-denied");
+        const cid = pubsubTopicToDhtKeyCid(topic).toString();
+        const subscriber = await startSubscriberNode(topic);
+
+        // Fast router: the subscriber's peer id with its WSS addr stripped (tcp-only), mirroring
+        // the poisoned production router. Responds immediately, so it always wins the first dial.
+        const fastPoisonedUrl = await startRouterServing(cid, { ID: subscriber.ID, Addrs: ["/ip4/127.0.0.1/tcp/40198"] });
+        // Slow router: the SAME peer with its real /ws addrs, delayed so its record only ever
+        // reaches the peerstore via the compound router's merge (deduped, never yielded).
+        const slowGoodRouter = new MockHttpRouter({ providerGetDelayMs: 800 });
+        await slowGoodRouter.start();
+        startedRouters.push(slowGoodRouter);
+        slowGoodRouter.addProviderForTesting(cid, subscriber);
+
+        // Mirror the browser's WSS-only connection gater, so the tcp-only record is undialable.
+        const node = await createNode({
+            routers: [fastPoisonedUrl, slowGoodRouter.url],
+            libp2pOptions: {
+                connectionGater: {
+                    denyDialMultiaddr: (multiaddr: Multiaddr) =>
+                        !multiaddr.getComponents().some((component) => component.name === "ws" || component.name === "wss")
+                }
+            }
+        });
+
+        const start = Date.now();
+        const connections = await connectToPubsubPeers({ helia: node._helia, pubsubTopic: topic, maxPeers: 4, log });
+        const elapsed = Date.now() - start;
+
+        expect(
+            elapsed,
+            `warmup took ${elapsed}ms, expected well under the ${TOPIC_SUBSCRIBER_WAIT_TIMEOUT_MS}ms floor via the retry dial`
+        ).to.be.lessThan(FAST_WARMUP_MAX_MS);
+        expect(connections.length, "the retry dial must have connected to the subscriber").to.be.greaterThan(0);
+        expect(connections.map((c) => c.remotePeer.toString())).to.include(subscriber.ID);
+        expect(node._helia.libp2p.services.pubsub.getSubscribers(topic).map((p) => p.toString())).to.include(subscriber.ID);
+    });
+
+    // Issue #215 / CodeRabbit on PR #214: pins the second retryable error name for warmup,
+    // "NoValidAddressesError" — thrown when every known addr is filtered out BEFORE the gater
+    // runs, i.e. a record whose addrs all use transports the node does not have (what a browser
+    // sees on a tcp/quic-only record; this Node client has no QUIC transport, so a quic-v1-only
+    // record reproduces it). The retry set matches by error NAME, so a libp2p rename would
+    // silently disable this retry class — this test goes red instead. Same topology as the
+    // gater-denied test above, but no gater is needed: the transport filter does the denying.
+    it("retries a provider whose record only has untransportable addrs after a slower router contributes dialable ones (issue #215)", async () => {
+        const topic = topicFor("retry-no-addrs");
+        const cid = pubsubTopicToDhtKeyCid(topic).toString();
+        const subscriber = await startSubscriberNode(topic);
+
+        const fastEmptyUrl = await startRouterServing(cid, { ID: subscriber.ID, Addrs: ["/ip4/127.0.0.1/udp/40198/quic-v1"] });
+        const slowGoodRouter = new MockHttpRouter({ providerGetDelayMs: 800 });
+        await slowGoodRouter.start();
+        startedRouters.push(slowGoodRouter);
+        slowGoodRouter.addProviderForTesting(cid, subscriber);
+
+        const node = await createNode({ routers: [fastEmptyUrl, slowGoodRouter.url] });
+
+        const start = Date.now();
+        const connections = await connectToPubsubPeers({ helia: node._helia, pubsubTopic: topic, maxPeers: 4, log });
+        const elapsed = Date.now() - start;
+
+        expect(
+            elapsed,
+            `warmup took ${elapsed}ms, expected well under the ${TOPIC_SUBSCRIBER_WAIT_TIMEOUT_MS}ms floor via the retry dial`
+        ).to.be.lessThan(FAST_WARMUP_MAX_MS);
+        expect(connections.length, "the retry dial must have connected to the subscriber").to.be.greaterThan(0);
+        expect(connections.map((c) => c.remotePeer.toString())).to.include(subscriber.ID);
+    });
+
+    // Issue #215 (follow-up to #213): warmup's retry pass must be gated on the provider STREAM
+    // completing (when every router's addrs are merged into the peerstore), NOT on every initial
+    // dial settling. The retry task currently awaits Promise.allSettled over ALL initial dials
+    // first, so one slow-to-settle dial (production: relay-circuit dials failing after 2-5s, per
+    // the PR #214 benchmark) delays the re-dial — and with it the subscription-change that resolves
+    // warmup — by seconds, even though the addrs the retry needs were merged much earlier.
+    // Reproduce with the #213 fast-poisoned/slow-good router pair PLUS a tarpit provider whose
+    // dial only settles at addressDialTimeout: warmup must still resolve via the retry at
+    // provider-stream-completion time (~SLOW_ROUTER_DELAY_MS), well before the tarpit dial settles.
+    it("retry of a gater-denied provider is not delayed by an unrelated slow dial still in flight (issue #215)", async () => {
+        const SLOW_ROUTER_DELAY_MS = 800; // provider stream completes here — all addrs merged
+        const TARPIT_DIAL_SETTLE_MS = 5_000; // connectionManager.addressDialTimeout — when the tarpit dial fails
+        const RETRY_UNGATED_MAX_MS = 3_500; // between the two: red waits for the tarpit (~5.3s), green needs only the stream (~1.3s)
+
+        const topic = topicFor("retry-gate");
+        const cid = pubsubTopicToDhtKeyCid(topic).toString();
+        const subscriber = await startSubscriberNode(topic);
+
+        // Fast router: the subscriber with its WSS addr stripped (tcp-only, gater-denied → enters
+        // the retry set) plus the tarpit peer (dialable /ws addr, dial hangs until timeout).
+        const fastPoisonedRouter = new MockHttpRouter();
+        await fastPoisonedRouter.start();
+        startedRouters.push(fastPoisonedRouter);
+        fastPoisonedRouter.addProviderForTesting(cid, { ID: subscriber.ID, Addrs: ["/ip4/127.0.0.1/tcp/40198"] });
+        fastPoisonedRouter.addProviderForTesting(cid, { ID: await newPeerIdStr(), Addrs: [await startTarpitWsAddr()] });
+
+        // Slow router: the SAME subscriber with its real /ws addrs — merged into the peerstore at
+        // ~SLOW_ROUTER_DELAY_MS when the provider stream completes (deduped, never yielded).
+        const slowGoodRouter = new MockHttpRouter({ providerGetDelayMs: SLOW_ROUTER_DELAY_MS });
+        await slowGoodRouter.start();
+        startedRouters.push(slowGoodRouter);
+        slowGoodRouter.addProviderForTesting(cid, subscriber);
+
+        const node = await createNode({
+            routers: [fastPoisonedRouter.url, slowGoodRouter.url],
+            libp2pOptions: {
+                connectionGater: {
+                    denyDialMultiaddr: (multiaddr: Multiaddr) =>
+                        !multiaddr.getComponents().some((component) => component.name === "ws" || component.name === "wss")
+                },
+                // Bound the tarpit dial deterministically: it has a single addr, and the
+                // per-address timeout applies even when the dial carries its own abort signal.
+                connectionManager: { addressDialTimeout: TARPIT_DIAL_SETTLE_MS }
+            }
+        });
+
+        const start = Date.now();
+        const connections = await connectToPubsubPeers({ helia: node._helia, pubsubTopic: topic, maxPeers: 4, log });
+        const elapsed = Date.now() - start;
+
+        expect(
+            elapsed,
+            `warmup took ${elapsed}ms: the retry needs only the completed provider stream (~${SLOW_ROUTER_DELAY_MS}ms), so ` +
+                `taking ~${TARPIT_DIAL_SETTLE_MS}ms means the retry pass is gated on the unrelated tarpit dial settling (issue #215)`
+        ).to.be.lessThan(RETRY_UNGATED_MAX_MS);
+        expect(connections.length, "the retry dial must have connected to the subscriber").to.be.greaterThan(0);
+        expect(connections.map((c) => c.remotePeer.toString())).to.include(subscriber.ID);
         expect(node._helia.libp2p.services.pubsub.getSubscribers(topic).map((p) => p.toString())).to.include(subscriber.ID);
     });
 
