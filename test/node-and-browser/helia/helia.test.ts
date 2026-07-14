@@ -601,6 +601,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             const heliaClient = Object.values(testPKC.clients.libp2pJsClients)[0];
             const routing = heliaClient._helia.routing;
             const originalFindProviders = routing.findProviders.bind(routing);
+            // The stalled-session failover (issue #218) races helia.blockstore.get after 2.5s,
+            // and that broadcast path runs its own findAndConnect routing query. On slow CI
+            // runners (Firefox) a block can legitimately stall, adding a findProviders call this
+            // test would miscount as a per-block leak. Push the stall window beyond the test
+            // timeout so only the session path can query routing here.
+            heliaClient.heliaWithKuboRpcClientFunctions._bitswapSessionStalledGetFailoverMs = 10 * 60 * 1000;
             try {
                 const content = generateMultiBlockContent();
                 const cid = await addStringToIpfs(content);
@@ -619,6 +625,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 ).to.be.at.most(1);
             } finally {
                 routing.findProviders = originalFindProviders;
+                // The libp2p-js client instance is shared/reused across tests — restore the default.
+                delete heliaClient.heliaWithKuboRpcClientFunctions._bitswapSessionStalledGetFailoverMs;
                 await testPKC.destroy();
             }
         }, 90000);

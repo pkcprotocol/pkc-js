@@ -18,6 +18,12 @@ export interface HeliaWithKuboRpcClientFunctions extends Pick<NonNullable<KuboRp
     ): ReturnType<KuboRpcClient["_client"]["cat"]>;
     pubsub: KuboRpcClient["_client"]["pubsub"];
     stop: KuboRpcClient["_client"]["stop"];
+    // Test-only override of BITSWAP_SESSION_STALLED_GET_FAILOVER_MS, read by cat() at each block
+    // get. The issue #189 guard test (at most one routing query per DAG) sets it beyond its own
+    // timeout: on slow CI runners a block can legitimately stall, and the failover's broadcast
+    // want runs a routing query the test would miscount as a per-block leak. Production code
+    // never sets it.
+    _bitswapSessionStalledGetFailoverMs?: number;
 }
 
 type baseHelia = Awaited<ReturnType<typeof createHelia>>;

@@ -489,6 +489,118 @@ export function selectBitswapSessionSeedPeers(args: {
     return seeds.slice(0, args.maxSeeds);
 }
 
+// How long a bitswap session block get may stall before we start racing it against a non-session
+// broadcast want (issue #218). @helia/bitswap's session broker sends a targeted WANT-BLOCK to the
+// session peer that didn't answer DONT_HAVE and then waits on that single peer with NO stall
+// timeout — a slow sole-HAVE seeder (~3Mbps uplink serving 65 communities' blocks over one
+// connection) therefore monopolizes every session: blocks queue 12-20s behind it while other,
+// faster peers may pick up the same blocks within seconds (seeders lag fresh update blocks —
+// DONT_HAVE now, serve the same block moments later). 2.5s sits inside the issue's validated
+// 2-3s window: far above a healthy block round-trip (p90 catSpan on healthy seeders ≈ 2.3s per
+// whole DAG), far below the 15s+ tails the stall produces.
+export const BITSWAP_SESSION_STALLED_GET_FAILOVER_MS = 2_500;
+
+type HeliaSessionBlockstore = ReturnType<HeliaWithLibp2pPubsub["blockstore"]["createSession"]>;
+type FetchBlockCid = Parameters<HeliaSessionBlockstore["get"]>[0];
+type FetchBlockOptions = Parameters<HeliaSessionBlockstore["get"]>[1];
+// Shared shape of both block sources: the per-DAG session's get and helia.blockstore's get (the
+// non-session path whose bitswap broker broadcasts the want to every connected peer, keeps it
+// registered so newly connected peers receive it, and runs one findAndConnect routing query).
+export type FetchBlockFn = (cid: FetchBlockCid, options?: FetchBlockOptions) => ReturnType<HeliaSessionBlockstore["get"]>;
+
+// Fetch one block through the bitswap session, failing over to a broadcast want when the session
+// stalls (issue #218). Semantics, chosen so the existing session retry loop in cat() keeps working:
+//   - The session gets the stall window to itself. If it delivers (or fails) first, the fallback
+//     never starts — so healthy fetches send zero extra wants and cannot reintroduce the per-block
+//     want-flood that sessions were added to prevent (issue #189).
+//   - Once stalled, the fallback broadcast want races the still-live session get; the first source
+//     to produce the block wins and the loser is aborted (bitswap CANCELs its want on receipt).
+//   - A session error always surfaces immediately (aborting any in-flight fallback) so
+//     InsufficientProvidersError keeps driving cat()'s retry-with-fresh-session loop unchanged.
+//   - A fallback error never fails the fetch while the session is still live: it is logged and the
+//     session remains the only pending source (bounded by the caller's signal/timeout, exactly the
+//     pre-failover behavior).
+export async function* fetchBlockWithStalledSessionFailover(args: {
+    cid: FetchBlockCid;
+    sessionGet: FetchBlockFn;
+    fallbackGet: FetchBlockFn;
+    stallTimeoutMs: number;
+    options: FetchBlockOptions;
+    log: Logger;
+}): AsyncGenerator<Uint8Array> {
+    const { cid, sessionGet, fallbackGet, stallTimeoutMs, options, log } = args;
+    const callerSignal = options?.signal;
+    callerSignal?.throwIfAborted();
+
+    // Each source gets its own controller so the winner can abort the loser; the caller's signal
+    // aborts both. The listener is detached in the finally below — cat()'s composed signal lives
+    // for the whole DAG walk, and per-block listeners left behind would accumulate across blocks.
+    const sessionController = new AbortController();
+    const fallbackController = new AbortController();
+    const abortBothFromCallerSignal = () => {
+        sessionController.abort(callerSignal?.reason);
+        fallbackController.abort(callerSignal?.reason);
+    };
+    callerSignal?.addEventListener("abort", abortBothFromCallerSignal, { once: true });
+
+    // Buffering the (single) block's chunks is what lets two sources race as plain promises;
+    // bitswap blocks are at most a few hundred KB so this does not change memory behavior.
+    const collectBlockChunks = async (get: FetchBlockFn, signal: AbortSignal): Promise<Uint8Array[]> => {
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of get(cid, { ...options, signal })) chunks.push(chunk);
+        return chunks;
+    };
+
+    let stallTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        const sessionAttempt = collectBlockChunks(sessionGet, sessionController.signal).then((chunks) => ({
+            source: "session" as const,
+            chunks
+        }));
+        // The finally below aborts the session controller unconditionally; when the fallback won
+        // the race, that abort surfaces here instead of as an unhandled rejection. Separate branch,
+        // so the race still observes the session's real success/error.
+        sessionAttempt.catch(() => {});
+
+        // Phase 1: the session has the stall window to itself.
+        const STALLED = Symbol("bitswap-session-get-stalled");
+        const stallPromise = new Promise<typeof STALLED>((resolve) => {
+            stallTimer = setTimeout(() => resolve(STALLED), stallTimeoutMs);
+        });
+        let winner: Awaited<typeof sessionAttempt> | { source: "fallback"; chunks: Uint8Array[] } | typeof STALLED;
+        try {
+            winner = await Promise.race([sessionAttempt, stallPromise]);
+        } finally {
+            clearTimeout(stallTimer);
+        }
+
+        // Phase 2: stalled — race the broadcast want against the still-live session get.
+        if (winner === STALLED) {
+            log.trace("Bitswap session block get stalled for", stallTimeoutMs, "ms for", String(cid), "- racing a broadcast want");
+            const fallbackAttempt = collectBlockChunks(fallbackGet, fallbackController.signal).then(
+                (chunks) => ({ source: "fallback" as const, chunks }),
+                (fallbackError): Promise<never> => {
+                    // Never settle: the session (bounded by the caller's signal/timeout) stays the
+                    // only pending source, restoring exactly the pre-failover behavior.
+                    log.trace("Broadcast-want failover errored for", String(cid), "- still waiting on the session", fallbackError);
+                    return new Promise<never>(() => {});
+                }
+            );
+            winner = await Promise.race([sessionAttempt, fallbackAttempt]);
+            log.trace("Stalled block", String(cid), "was delivered by the", winner.source, "path");
+        }
+
+        yield* winner.chunks;
+    } finally {
+        callerSignal?.removeEventListener("abort", abortBothFromCallerSignal);
+        // Abort whichever source is still pending (the race loser, or both on caller abort/session
+        // error). Aborting an already-settled source is a no-op.
+        const loserAbortReason = new Error("bitswap block get lost the stalled-session failover race (issue #218)");
+        sessionController.abort(loserAbortReason);
+        fallbackController.abort(loserAbortReason);
+    }
+}
+
 export interface DirectFetchResult {
     recordBytes: Uint8Array; // already passed the injected validator (ipnsValidator)
     peerId: string; // the subscriber/provider that served it
