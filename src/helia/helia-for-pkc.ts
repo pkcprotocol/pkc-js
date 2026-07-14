@@ -593,7 +593,9 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                     cid: blockCid,
                                     sessionGet,
                                     fallbackGet,
-                                    stallTimeoutMs: BITSWAP_SESSION_STALLED_GET_FAILOVER_MS,
+                                    stallTimeoutMs:
+                                        heliaWithKuboRpcClientShape._bitswapSessionStalledGetFailoverMs ??
+                                        BITSWAP_SESSION_STALLED_GET_FAILOVER_MS,
                                     options: blockGetOptions,
                                     log
                                 });
