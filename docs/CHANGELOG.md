@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.71](https://github.com/pkcprotocol/pkc-js/compare/v0.0.70...v0.0.71) (2026-07-14)
+
+### Performance
+
+* **helia:** parallelize delegated-routing lookups and fail over stalled bitswap session blocks ([#220](https://github.com/pkcprotocol/pkc-js/issues/220)) ([603fe4d](https://github.com/pkcprotocol/pkc-js/commit/603fe4d91ac514286ad348c6db9218fd4d05eccb)), closes [#218](https://github.com/pkcprotocol/pkc-js/issues/218) [#189](https://github.com/pkcprotocol/pkc-js/issues/189) [#218](https://github.com/pkcprotocol/pkc-js/issues/218) [#189](https://github.com/pkcprotocol/pkc-js/issues/189) [#218](https://github.com/pkcprotocol/pkc-js/issues/218)
+
 ## [0.0.70](https://github.com/pkcprotocol/pkc-js/compare/v0.0.69...v0.0.70) (2026-07-13)
 
 ### Bug Fixes
