@@ -23,9 +23,11 @@ import type { HeliaWithLibp2pPubsub } from "./types.js";
 import { PKCError } from "../pkc-error.js";
 import { Libp2pJsClient } from "./libp2pjsClient.js";
 import {
+    BITSWAP_SESSION_STALLED_GET_FAILOVER_MS,
     cacheIpnsRecordInPubsubLocalStore,
     connectToPubsubPeers,
     directFetchIpnsRecordFromProviders,
+    fetchBlockWithStalledSessionFailover,
     getHeliaDebugContext,
     selectBitswapSessionSeedPeers
 } from "./util.js";
@@ -41,6 +43,14 @@ const creatingLibp2pJsClients: Partial<Record<string, Promise<Libp2pJsClient>>> 
 // TODO need to call ipnsRouter.cancel when our community stops updating
 // TODO we may need to remove libp2pJsClients and creatingLibp2pJsClients, I actually don't think they're needed
 
+// Issue #218: the delegated-routing client defaults to concurrentRequests: 4 per router, an
+// internal queue that serialized parallel provider lookups — profiling a production-like load
+// (65 communities updating in parallel) measured that queueing as ~65% of the median load time
+// while the routers themselves answered in <500ms. 32 is the benchmark-validated value: it
+// collapsed the lookup phase to a flat ~2.5s for every community with no router-side strain
+// (total request volume per burst is unchanged; only burstiness increases).
+const DELEGATED_ROUTING_CONCURRENT_REQUESTS = 32;
+
 // TODO can you verify if we're already content who has a specific and we fetch the CID even though http router says it has no providers, it should be able to load the CID
 function getDelegatedRoutingFields(routers: string[]) {
     // @helia/delegated-routing-v1-http-api-client 8.x: the raw client returned by
@@ -51,7 +61,10 @@ function getDelegatedRoutingFields(routers: string[]) {
     // so the peer-routing path (client.getPeers) is never registered.
     const routersObj: Record<string, ReturnType<typeof delegatedRoutingV1HttpApiClientContentRouting>> = {};
     for (let i = 0; i < routers.length; i++) {
-        const factory = delegatedRoutingV1HttpApiClientContentRouting({ url: routers[i] });
+        const factory = delegatedRoutingV1HttpApiClientContentRouting({
+            url: routers[i],
+            concurrentRequests: DELEGATED_ROUTING_CONCURRENT_REQUESTS
+        });
         routersObj["delegatedRouting" + i] = (components) => {
             const routing = factory(components);
             // Our HTTP routers only serve provider records — they don't support IPNS get/put.
@@ -566,6 +579,24 @@ export async function createLibp2pJsClientOrUseExistingOne(
                             const session = helia.blockstore.createSession(rootCid, {
                                 providers: getBitswapSessionSeedPeers(bitswapSessionSeedScopeIpnsPubsubTopic)
                             });
+                            // Issue #218: the session broker waits on a single elected HAVE peer per
+                            // block with no stall timeout, so one slow seeder holding the only HAVE
+                            // monopolizes the whole fetch. Route every block get through the
+                            // stalled-session failover: after the stall window, the session get is
+                            // raced against helia.blockstore.get — the non-session bitswap path that
+                            // broadcasts the want to all connected peers — and the first block wins.
+                            // See fetchBlockWithStalledSessionFailover for the full semantics.
+                            const sessionGet = session.get.bind(session);
+                            const fallbackGet = helia.blockstore.get.bind(helia.blockstore);
+                            session.get = (blockCid, blockGetOptions) =>
+                                fetchBlockWithStalledSessionFailover({
+                                    cid: blockCid,
+                                    sessionGet,
+                                    fallbackGet,
+                                    stallTimeoutMs: BITSWAP_SESSION_STALLED_GET_FAILOVER_MS,
+                                    options: blockGetOptions,
+                                    log
+                                });
                             let yieldedAnyBytes = false;
                             try {
                                 // ipfsPath is either a bare cid or a `<root-cid>/sub/path`. Hand the whole

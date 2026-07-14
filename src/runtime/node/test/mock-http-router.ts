@@ -73,6 +73,12 @@ export class MockHttpRouter {
     // prove that aborting findProviders (subscriber found / maxPeers reached / caller signal)
     // actually cancels the in-flight request to a slow/black-hole router rather than leaking it.
     private _abortedProviderGetCount: number;
+    // Concurrency tracking for provider GETs. The delegated-routing client serializes lookups
+    // behind an internal per-router request queue (issue #218), so a test that fires N parallel
+    // findProviders at a slow router can read the observed in-flight ceiling here to prove the
+    // queue is (or is not) the bottleneck.
+    private _inFlightProviderGetCount: number;
+    private _maxConcurrentProviderGetCount: number;
 
     constructor(options: MockHttpRouterOptions = {}) {
         this._hostname = options.hostname ?? "127.0.0.1";
@@ -83,6 +89,8 @@ export class MockHttpRouter {
         this._faultMode = options.faultMode;
         this._errorStatusCode = options.errorStatusCode ?? 500;
         this._abortedProviderGetCount = 0;
+        this._inFlightProviderGetCount = 0;
+        this._maxConcurrentProviderGetCount = 0;
         this._server = http.createServer((req, res) => {
             this._handleRequest(req, res).catch((error) => {
                 if (!res.headersSent) {
@@ -115,6 +123,13 @@ export class MockHttpRouter {
     // > 0 proves an in-flight request to this (slow/black-hole) router was actually cancelled.
     get abortedProviderGetCount(): number {
         return this._abortedProviderGetCount;
+    }
+
+    // Highest number of provider GETs that were in flight at the same time. A client whose
+    // lookups drain through a serialized request queue pins this at the queue's concurrency
+    // regardless of how many lookups were fired in parallel (issue #218).
+    get maxConcurrentProviderGetCount(): number {
+        return this._maxConcurrentProviderGetCount;
     }
 
     async start(): Promise<void> {
@@ -284,6 +299,16 @@ export class MockHttpRouter {
     }
 
     private async _handleProviderGet(url: URL, res: http.ServerResponse, corsHeaders: Record<string, string>) {
+        this._inFlightProviderGetCount++;
+        this._maxConcurrentProviderGetCount = Math.max(this._maxConcurrentProviderGetCount, this._inFlightProviderGetCount);
+        try {
+            await this._handleProviderGetInner(url, res, corsHeaders);
+        } finally {
+            this._inFlightProviderGetCount--;
+        }
+    }
+
+    private async _handleProviderGetInner(url: URL, res: http.ServerResponse, corsHeaders: Record<string, string>) {
         // A black hole accepts the connection then never responds and never closes it — it only
         // unblocks when the client disconnects. Distinct from "slow", which eventually replies.
         if (this._faultMode === "blackHole") {
