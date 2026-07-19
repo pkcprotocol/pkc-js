@@ -139,7 +139,20 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             const numOfPeersAfterSubscribing = libp2pJsClient._helia.libp2p.getConnections().length;
             expect(numOfPeersAfterSubscribing).to.be.greaterThan(numOfPeersBeforeSubscribing);
 
-            await kuboRpc._client.pubsub.publish(mathCliNoMockedPubsubCommunityAddress, new TextEncoder().encode("test"));
+            // Kubo applies go-libp2p-pubsub's BasicSeqnoValidator to all topics and runs it inline for
+            // local publishes. Concurrent publishes from the same daemon (parallel test files and
+            // namesys-pubsub share it) can commit a higher seqno first, making this publish fail with
+            // HTTP 500 "validation ignored" even though the message is valid. A retry gets a fresh
+            // seqno, and the ignored attempt was never delivered so pubsubMsgs still ends up with 1.
+            const maxPublishAttempts = 3;
+            for (let attempt = 1; attempt <= maxPublishAttempts; attempt++) {
+                try {
+                    await kuboRpc._client.pubsub.publish(mathCliNoMockedPubsubCommunityAddress, new TextEncoder().encode("test"));
+                    break;
+                } catch (e) {
+                    if (attempt === maxPublishAttempts || !(e instanceof Error && e.message.includes("validation ignored"))) throw e;
+                }
+            }
 
             await new Promise((resolve) => setTimeout(resolve, 2000));
             expect(pubsubMsgs.length).to.equal(1);
