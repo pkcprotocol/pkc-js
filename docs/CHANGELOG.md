@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.72](https://github.com/pkcprotocol/pkc-js/compare/v0.0.71...v0.0.72) (2026-07-19)
+
+### Features
+
+* **helia:** expose a public, semver-covered accessor for the shared Helia node ([#223](https://github.com/pkcprotocol/pkc-js/issues/223)) ([2d56020](https://github.com/pkcprotocol/pkc-js/commit/2d56020f87d48677d2426d258e51ff3fdaabc301)), closes [#221](https://github.com/pkcprotocol/pkc-js/issues/221)
+
 ## [0.0.71](https://github.com/pkcprotocol/pkc-js/compare/v0.0.70...v0.0.71) (2026-07-14)
 
 ### Performance
