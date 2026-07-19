@@ -44,3 +44,9 @@ export const challenges = PKC.challenges;
 // the root entry instead of deep-importing from "./schema.js".
 export type { NameResolverInterface } from "./schema.js";
 export type { NameResolver } from "./types.js";
+
+// Public re-exports: shared-Helia-node accessor (issue #221) — let consumers that run on the
+// shared node (e.g. @bitsocial/pubsub-voting, bitsocial-seeder) name the accessor's types from
+// the root entry instead of reaching through private fields or deep-importing internals.
+export type { Libp2pJsClient } from "./helia/libp2pjsClient.js";
+export type { HeliaWithLibp2pPubsub } from "./helia/types.js";

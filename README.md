@@ -583,6 +583,29 @@ process.on('uncaughtException', (err) => console.error(err))
 
 Attaching an `'error'` listener directly on a `community`, `comment`, or other publication object stops the bubble-up: in that case the error stays on the child and is not re-emitted on the pkc instance.
 
+### `pkc.clients.libp2pJsClients[key].heliaNode`
+
+> When the instance runs an in-process libp2p/Helia node (`libp2pJsClientsOptions`), `heliaNode` returns the running [Helia](https://github.com/ipfs/helia) node so libraries that share the node (e.g. [@bitsocial/pubsub-voting](https://github.com/bitsocialnet/pubsub-voting), [bitsocial-seeder](https://github.com/bitsocialnet/bitsocial-seeder)) can drive it directly. This accessor is the public, semver-covered surface for reaching the node — a breaking change to what it returns is a breaking pkc-js release. Do not reach through the private `_helia` field.
+
+The returned node is guaranteed to carry, in addition to Helia's own surface:
+
+| Surface | Description |
+| -------- | -------- |
+| `libp2p.services.pubsub` | The [gossipsub](https://github.com/ChainSafe/js-libp2p-gossipsub) service registered at node construction |
+| `libp2p.services.fetch` | The [`@libp2p/fetch`](https://github.com/libp2p/js-libp2p/tree/main/packages/protocol-fetch) service registered at node construction |
+| `blockstore` | The node's block storage (bitswap-backed retrieval) |
+| `libp2p.contentRouting` | The delegated-routing aggregation over `httpRoutersOptions` |
+
+The accessor's return type is exported from the root entry as `HeliaWithLibp2pPubsub`, and the client's type as `Libp2pJsClient`.
+
+#### Example
+
+```js
+const pkc = await PKC({ libp2pJsClientsOptions: [{ key: 'main' }], httpRoutersOptions: ['https://peers.pleb.bot'] })
+const helia = pkc.clients.libp2pJsClients['main'].heliaNode
+helia.libp2p.services.pubsub.subscribe('my-topic')
+```
+
 ### `pkc.getMultisub(multisubAddress)` *(not yet implemented)*
 
 > Get a multisub by its `Address`. A multisub is a list of communities curated by the creator of the multisub. E.g. `'pkc.bso/#/m/john.bso'` would display a feed of the multisub communities curated by `'john.bso'` (multisub `Address` `'john.bso'`).
