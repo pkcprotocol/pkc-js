@@ -26,6 +26,23 @@ export class Libp2pJsClient {
     key: Libp2pJsClientInit["key"];
     countOfUsesOfInstance: number;
 
+    /**
+     * The running Helia node backing this libp2p-js client — the public, semver-covered way for
+     * consumers that share the node (e.g. @bitsocial/pubsub-voting, bitsocial-seeder) to reach it,
+     * instead of the private `_helia` field (issue #221).
+     *
+     * The returned node is guaranteed to carry, in addition to Helia's own surface:
+     * - `libp2p.services.pubsub` — the gossipsub service registered at node construction
+     * - `libp2p.services.fetch` — the `@libp2p/fetch` service registered at node construction
+     * - `blockstore` — the node's block storage (bitswap-backed retrieval)
+     * - `libp2p.contentRouting` — the delegated-routing aggregation over `httpRoutersOptions`
+     *
+     * A breaking change to what this accessor returns is a breaking pkc-js release.
+     */
+    get heliaNode(): HeliaWithLibp2pPubsub {
+        return this._helia;
+    }
+
     constructor(libp2pJsClientOptions: Libp2pJsClientInit) {
         this._helia = libp2pJsClientOptions.helia;
         this._heliaUnixfs = libp2pJsClientOptions.heliaUnixfs;

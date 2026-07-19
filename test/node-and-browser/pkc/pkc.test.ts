@@ -174,6 +174,25 @@ describe("PKC options", async () => {
         await pkc.destroy();
     });
 
+    it(`libp2pJsClient.heliaNode publicly exposes the running Helia node with the semver-covered services (issue #221)`, async () => {
+        const pkc = await PKC({
+            libp2pJsClientsOptions: [{ key: "random" }],
+            httpRoutersOptions: ["https://notexist.com"],
+            dataPath: undefined
+        });
+        const libp2pJsClient = pkc.clients.libp2pJsClients["random"];
+        expect(libp2pJsClient.heliaNode).to.equal(libp2pJsClient._helia); // the running node itself, not a copy
+        // the surfaces the accessor guarantees (issue #221)
+        expect(libp2pJsClient.heliaNode.libp2p.services.pubsub.publish).to.be.a("function");
+        expect(libp2pJsClient.heliaNode.libp2p.services.pubsub.subscribe).to.be.a("function");
+        expect(libp2pJsClient.heliaNode.libp2p.services.fetch.fetch).to.be.a("function");
+        expect(libp2pJsClient.heliaNode.libp2p.services.fetch.registerLookupFunction).to.be.a("function");
+        expect(libp2pJsClient.heliaNode.blockstore.get).to.be.a("function");
+        expect(libp2pJsClient.heliaNode.libp2p.contentRouting.findProviders).to.be.a("function");
+        JSON.stringify(pkc); // the accessor must not reintroduce circular json
+        await pkc.destroy();
+    });
+
     it(`PKC({nameResolvers: [...]}) sets pkc.nameResolvers correctly`, async () => {
         const mockResolver = {
             key: "test-resolver",
