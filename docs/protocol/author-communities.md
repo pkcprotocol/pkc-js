@@ -187,7 +187,9 @@ does everything under `Mn`.
   delegation setup, and re-signed before the anchor EOL lapses. Only the author holds `As`, so this
   step is inherently client-side and cannot be delegated.
 - **Native content signing.** Sign the owner's own `CommentIpfs` with the author's identity key and
-  hand it to the delegate (see [Native content](#native-content-authorcreatecomment)).
+  publish it to the profile like any publication (see [Owner actions](#owner-actions-existing-publication-types)).
+- **Cross-post sync.** Push the owner's cross-network comment list to the minter via the sync RPC pair
+  (see [Syncing cross-posts](#syncing-cross-posts-listauthorcomments--syncauthorcomments)).
 
 **Out of pkc-js (the delegate / profile-node service):**
 
@@ -198,8 +200,10 @@ does everything under `Mn`.
 
 > **Delegation setup handshake.** To point `An → Mn` the author needs the delegate's minter name `Mn`.
 > The delegate generates `Mn`/`Ms` and returns `Mn`; the author then signs `An → Mn` client-side. The
-> handshake surface (how the browser asks bitsocial forge to become its minter) lives in the forge, not
-> pkc-js. See [open questions](#open-questions).
+> handshake response should also return the profile's `pubsubTopic` and `encryption` key, since before
+> the first mint there is no record for the client to resolve them from (bootstrap). The handshake
+> surface (how the browser asks bitsocial forge to become its minter) lives in the forge, not pkc-js.
+> See [open questions](#open-questions).
 
 **No delegate configured → no profile.** Publishing a profile requires a reachable minter. A pure
 in-browser helia node can sign the anchor but has no online party to mint and keep the record alive.
@@ -207,25 +211,115 @@ in-browser helia node can sign the anchor but has no online party to mint and ke
 point their anchor at some minter service. This is the same offline-owner constraint that delegated
 communities already carry, not a bespoke author-community limitation.
 
-### Native content: `author.createComment()`
+### Owner actions (existing publication types)
 
-Posting to your own profile is "publishing to a community you own," with the owner exempt from the
-challenge gate. The owner signs the `CommentIpfs` with their identity key (client-side), and the
-delegate folds it into the record and signs the resulting mod-state (`CommentUpdate`) with the minter
-key, exactly as a community node signs mod-state for any submission.
+Because the minter is a real community node, the existing publication vocabulary already covers every
+owner action on **native** content and on the profile itself — no new publication types. The one twist:
+a publication **signed by the anchor key `An` is an owner action** and skips the challenge gate (the
+signature *is* the auth; nobody else can produce it).
+
+| Owner action | Publication type |
+|---|---|
+| Native post/reply to own profile | `Comment` (challenge-exempt because signed by `An`) |
+| Delete a native post | `CommentEdit` with `deleted` (standard author delete; host = this community) |
+| Moderate a foreign reply under a native post | `CommentModeration` (the owner is the mod) |
+| Profile metadata (displayName, avatar, bio) | `CommunityEdit` (owner editing their own record) |
+| Add/remove/refresh cross-post entries | **not a publication** — the sync RPC pair (below) |
+
+A native `Comment` is signed by the owner's identity key client-side, with `communityPublicKey` = the
+profile's own anchor public key; the minter folds it into the feed and signs the resulting mod-state
+(`CommentUpdate`) with the minter key, exactly as any community node signs mod-state (with the anchor
+key itself in the non-delegated own-node case). Foreign authors replying to a native post go through
+the normal challenge/publication topic; the minter challenge-gates, accepts, and hosts them like any
+community (the profile is their **sole host**).
+
+### Syncing cross-posts: `listAuthorComments` / `syncAuthorComments`
+
+Publishing to a foreign community never involves the minter — a libp2p-js client runs that challenge
+exchange with the foreign community directly. So the minter cannot observe the owner's cross-network
+activity, and **discovery of new entries is client-push only**: the client is the sole party that
+knows "I just posted in community X," and it delivers that knowledge through a pair of RPC methods on
+the minter (method names TBD):
 
 ```ts
-// create + sign a NATIVE comment (post or reply) in the author's own profile
-const entry = await author.createComment({ content, title?, parentCid?, signer })
-// → author-signed CommentIpfs; communityPublicKey = the author-community's own anchor public key.
-//   The delegate mints it into the feed and signs the CommentUpdate with Mn.
+listAuthorComments({ authorPublicKey, authorName? })            // → stored raw CommentIpfs[]
+syncAuthorComments({ authorPublicKey, authorName?, comments })  // comments: raw CommentIpfsType[]
 ```
 
-Creation is kept **separate from the minter's snapshot** (consistent with client-owned timing):
-`createComment()` produces the signed entry and hands it to the delegate, which snapshots it into the
-`new` feed on its next mint. Foreign authors **replying** to a native post go through the normal
-challenge/publication topic the delegate runs; the delegate challenge-gates, accepts, and folds them
-in like any community. (Method name TBD: `createComment` / `publishComment` / `post`.)
+- **Multi-tenant addressing.** The RPC server hosts many author-communities alongside full
+  communities, so both methods are keyed by the target profile. Wire params identify the profile by
+  **`authorPublicKey` plus optional domain `authorName`**, never by address — address is runtime-only
+  (see [wire-vs-runtime.md](wire-vs-runtime.md)).
+- **Declarative snapshot semantics.** `syncAuthorComments` is the owner's full cross-post list. The
+  minter diffs against its DB: CIDs not yet stored are added, stored CIDs omitted from the list are
+  dropped from the feed. Removal is omission — no tombstones, no retraction publication. Idempotent.
+- **Raw comments only, no `CommentUpdate`.** The client ships the raw author-signed `CommentIpfs`
+  bytes (a loaded comment already exposes this as `comment.raw.comment`). Shipping the bytes (not bare
+  CIDs) means sync never depends on the foreign community being reachable, and the minter never
+  fetches anything during the call. The minter derives each CID from the bytes and reads
+  `communityPublicKey` off the comment to learn its canonical community. Mod-state is never pushed —
+  freshness is the minter's job (below).
+- **List-then-merge-then-sync.** `listAuthorComments` exists so a client on a fresh device can read
+  the server's stored set, union it with its local comments by CID, and sync the merged list — a bare
+  sync from a partial view would silently drop the server-only entries.
+- **Decoupled and best-effort.** The entry push is an independent client action that can happen any
+  time after the foreign publish, from any of the author's devices. The profile lags reality until the
+  client next syncs — the accepted consequence of client-owned timing. (When a client happens to have
+  its minter reachable at publish time, pushing right away is a convenience, not a protocol
+  requirement.)
+- **Validation gates.** The minter accepts a synced comment only if it is validly signed by the
+  addressed profile's `authorPublicKey` (`An`), rejects runtime-only fields (raw wire shape enforced),
+  and bounds input size. A sync can therefore never inject content the owner didn't author.
+
+**Sync authorization.** Signature validation stops forgery but not shrinkage: the owner's comments are
+public, so an unauthorized caller could sync a valid *subset* and silently remove entries (omission =
+removal). The access model is therefore transport-level, in two tiers:
+
+- **Private RPC (local): trusted.** The private pkc-js RPC is considered **local-only and trusts its
+  clients**, exactly like the rest of its methods (`createCommunity`, `deleteCommunity`, ...). No
+  per-call ownership proof in v1.
+- **bitsocial forge (multi-tenant): authenticated.** Forge will have auth and access granularity — a
+  caller **cannot invoke `syncAuthorComments` for a profile unless it owns that author key**. That
+  enforcement lives in the forge layer, not in the pkc-js method schema.
+
+### Minter-side freshness of cross-posted entries
+
+The embedded `CommentUpdate` snapshots drift (votes, mod-state). Keeping them fresh is the
+**minter's job** — it is delegated with handling the profile, and the work is bounded to CIDs already
+in its own DB, so the anti-amplification argument against node-side fetching does not apply here:
+
+- The minter periodically re-loads each cross-posted entry's `CommentUpdate` from its canonical
+  community (read from `communityPublicKey`), **verifies the community signature**, and replaces the
+  snapshot on its next mint. An invalid fetch is discarded; an unreachable canonical community leaves
+  the last known snapshot in place (the entry is never dropped for unreachability).
+- The client never pushes mod-state, and never needs to be online for freshness.
+- The boundary stays sharp: refresh known CIDs, yes; **crawl for discovery, never** (new entries only
+  arrive via `syncAuthorComments`).
+
+### Minter rotation and data migration
+
+Rotating the anchor (`An → Mn'`) cleanly revokes the old delegate's *publishing* rights, but the old
+minter's DB holds the only copy of **native** content — including foreign authors' replies, whose sole
+host is this profile. Migration reuses the existing export machinery:
+
+- **Export = `exportCommunity` (already exists, already sqlite).** An author-community runs the same
+  per-community sqlite DB, so `LocalCommunity.exportCommunity()` and the `exportCommunity` RPC work on
+  it kind-blind, producing a sqlite backup under `${dataPath}/exports/`. The owner can always trigger
+  it: the local private RPC trusts its clients, and forge authorizes the caller as the author-key
+  owner (same access model as `syncAuthorComments`).
+- **The DB is portable across minters by construction.** The community address in the DB is the
+  anchor `An` (the immutable identity); the minter key is node-local config and never part of the
+  export. Restore = place the sqlite at the new node's community DB path and start.
+- **No `importCommunity` method is needed.** Mod-state does not require a re-signing import step:
+  `CommentUpdate`s are regenerated and signed by the running node's key as part of the normal update
+  loop, so under the new minter they come out `Mn'`-signed on regeneration. The restore itself is a
+  file-level operation by the node operator (consistent with the private RPC being local-only); at
+  most a CLI convenience for copying the file into place.
+- **Loss only without a backup.** Cross-posts are recoverable regardless (the client re-syncs;
+  canonical copies live in foreign communities), and the owner's own native posts can be re-published
+  by the client that authored them. Foreign replies live only in the DB, so losing them requires the
+  minter dying with no export ever taken — ordinary backup hygiene, not a protocol property. Export
+  regularly if native content matters.
 
 ### Liveness: anchor EOL + minter freshness
 
@@ -292,6 +386,28 @@ history. (The profile record is minter-signed, but the minter signing the *envel
 the *foreign* mod-state inside it; karma still derives only from independently verified cross-posted
 `CommentUpdate`s.)
 
+## Runtime API surface: `kind` is derived, never wire
+
+There is **no `createAuthor` method and no `kind` wire field**. The envelope key *is* the kind: a
+loader reads which field is present (`community` vs `authorCommunity`) and surfaces it as a
+**runtime-only** instance field — `community.kind` (values mirroring the envelope keys; exact spelling
+TBD). It never enters the signed record: a wire discriminator would duplicate what key presence
+already states (the same argument that settled the envelope over a `type` field). Like every
+runtime-only field, it must be accounted for in the corresponding reserved-field list.
+
+Consequences for the method surface:
+
+- **Reading:** `getCommunity` / `communityUpdateSubscribe` and friends stay kind-blind; the returned
+  instance carries `kind` for the client to branch on. A `getAuthor(address)` helper, if it exists at
+  all, is cosmetic client-side sugar narrowing the union — not a separate resolution path.
+- **Lifecycle:** `startCommunity` / `stopCommunity` / `deleteCommunity` / `list` are kind-blind
+  (address-keyed); list output includes the derived `kind`.
+- **Creation** is the one moment with no record to derive from, so the shared `createCommunity` takes
+  the discriminating bit as a **local, non-wire creation option** (persisted in the community's local
+  settings, from which the node knows which envelope key and schema to emit). Exact option shape TBD.
+- The only genuinely author-specific RPC surface is the sync pair
+  (`listAuthorComments` / `syncAuthorComments`).
+
 ## Convergence: both feeds under one name
 
 Because an author-community is already a delegated community, the remaining milestone is small: let a
@@ -314,13 +430,34 @@ architectural.
 - **Record shape.** An **envelope** (`{ authorCommunity? | community? }`), exactly one field in v1,
   resolves read-side dispatch by key presence; no `type` discriminator, `bso-resolver` untouched.
 - **EOL length.** Reuse the delegated-IPNS **anchor EOL** constant, not a new value.
+- **Cross-post sync.** The RPC pair `listAuthorComments` / `syncAuthorComments`, keyed by
+  `{ authorPublicKey, authorName? }` (never address), declarative snapshot of raw `CommentIpfs[]`
+  (no `CommentUpdate`), removal by omission, list-then-merge-then-sync for multi-device.
+- **Sync authorization.** Private RPC is local-only and trusts its clients; bitsocial forge enforces
+  ownership of the author key (auth lives in the forge layer, not the method schema).
+- **Owner actions reuse existing publication types.** `Comment` (challenge-exempt via `An`
+  signature), `CommentEdit`, `CommentModeration`, `CommunityEdit`; no new publication kinds.
+- **Freshness is minter-side.** The minter refreshes known entries' `CommentUpdate`s from their
+  canonical communities; discovery of new entries is client-push only; the client never ships
+  mod-state.
+- **`kind` is runtime-only, derived from the envelope key.** No `createAuthor` method, no wire
+  discriminator; creation passes the bit as a local non-wire option to the shared create.
+- **Rotation migration reuses `exportCommunity`** (sqlite, kind-blind). The DB is portable across
+  minters by construction (address = anchor, minter key is node-local config), restore is file-level,
+  and no `importCommunity` method is needed: the normal update loop re-signs mod-state under the new
+  minter key on regeneration.
 
 ## Open questions
 
 - **`hasAuthorCommunity` field name** and its exact place in the author signed-property list.
+- **Method/option naming.** `listAuthorComments` / `syncAuthorComments`, the `community.kind` value
+  spellings, and the local creation-option shape are all TBD.
 - **Delegation setup handshake.** How a browser author asks bitsocial forge (or another service) to
-  become its minter and obtains `Mn`, and how the author later rotates `An → Mn'` to revoke. Mostly a
-  forge concern, but pkc-js needs the client-side anchor sign/publish + rotate primitives.
+  become its minter and obtains `Mn` (plus the bootstrap `pubsubTopic`/`encryption`), and how the
+  author later rotates `An → Mn'` to revoke. Mostly a forge concern, but pkc-js needs the client-side
+  anchor sign/publish + rotate primitives.
+- **Minter refresh cadence.** How often the minter re-loads cross-posted `CommentUpdate`s and with
+  what backoff — delegate-side policy, mostly out of pkc-js.
 - **Self-liveness-check (pure-P2P escape hatch).** For a future where libp2p-js-only authors can run
   their own minter, the client would verify "is anyone providing my record?" (query routers / the
   record topic) before going dark, and keep republishing if not. Out of scope for v1.
