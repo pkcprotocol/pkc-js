@@ -9,7 +9,7 @@ Concise protocol reference for AI agents and contributors. Each doc covers one d
 | [names-and-addresses.md](names-and-addresses.md) | `address = name \|\| publicKey`, domain resolution, immutability |
 | [delegated-ipns.md](delegated-ipns.md) | Delegated IPNS chains (anchor → minter → /ipfs), client-side loading & verification |
 | [community-architecture.md](community-architecture.md) | Local vs Remote vs RPC variants, state machines |
-| [author-communities.md](author-communities.md) | Profiles as IPNS records (issue #31): `AuthorCommunityIpfs`, `author.publish()`, feed verification, replication |
+| [author-communities.md](author-communities.md) | Profiles as delegated communities (issue #31): `AuthorCommunityIpfs`, anchor → minter publishing, feed verification |
 | [signing.md](signing.md) | Ed25519 signatures, signedPropertyNames, CBORG encoding |
 | [pages.md](pages.md) | Pagination, sort types, ephemeral nature of pages |
 | [challenge-flow.md](challenge-flow.md) | 4-message encrypted challenge exchange |
