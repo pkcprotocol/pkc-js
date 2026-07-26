@@ -7,8 +7,9 @@
 
 An **author-community** lets an author publish their own profile: display metadata plus a feed of
 everything they've posted across the network, resolvable as an IPNS record at `author.publicKey`.
-`getAuthor(address)` resolves that name to an `AuthorCommunityIpfs` record the same way `getCommunity`
-resolves a community.
+`getCommunity({ name?, publicKey?, address? })` resolves it the same way it resolves a normal
+community, returning a community instance populated from the `AuthorCommunityIpfs` record; the
+instance's runtime `kind` field tells the client which one it got.
 
 An author-community **is a full community**. It runs the same `LocalCommunity` machinery, both pubsub
 topics (the IPNS-over-pubsub record topic **and** the challenge/publication topic), challenge
@@ -388,7 +389,8 @@ the *foreign* mod-state inside it; karma still derives only from independently v
 
 ## Runtime API surface: `kind` is derived, never wire
 
-There is **no `createAuthor` method and no `kind` wire field**. The envelope key *is* the kind: a
+There is **no `createAuthor` method, no `getAuthor` method, and no `kind` wire field**. The envelope
+key *is* the kind: a
 loader reads which field is present (`community` vs `authorCommunity`) and surfaces it as a
 **runtime-only** instance field — `community.kind` (values mirroring the envelope keys; exact spelling
 TBD). It never enters the signed record: a wire discriminator would duplicate what key presence
@@ -398,8 +400,9 @@ runtime-only field, it must be accounted for in the corresponding reserved-field
 Consequences for the method surface:
 
 - **Reading:** `getCommunity` / `communityUpdateSubscribe` and friends stay kind-blind; the returned
-  instance carries `kind` for the client to branch on. A `getAuthor(address)` helper, if it exists at
-  all, is cosmetic client-side sugar narrowing the union — not a separate resolution path.
+  instance carries `kind` for the client to branch on. There is no `getAuthor`: since `kind` is a
+  runtime discriminant on the returned union, `community.kind === "authorCommunity"` narrows the type
+  natively, and a dedicated method would just duplicate the resolution path.
 - **Lifecycle:** `startCommunity` / `stopCommunity` / `deleteCommunity` / `list` are kind-blind
   (address-keyed); list output includes the derived `kind`.
 - **Creation** is the one moment with no record to derive from, so the shared `createCommunity` takes
@@ -440,8 +443,9 @@ architectural.
 - **Freshness is minter-side.** The minter refreshes known entries' `CommentUpdate`s from their
   canonical communities; discovery of new entries is client-push only; the client never ships
   mod-state.
-- **`kind` is runtime-only, derived from the envelope key.** No `createAuthor` method, no wire
-  discriminator; creation passes the bit as a local non-wire option to the shared create.
+- **`kind` is runtime-only, derived from the envelope key.** No `createAuthor`, no `getAuthor`, no
+  wire discriminator; creation passes the bit as a local non-wire option to the shared create, and
+  reading narrows on the `kind` discriminant returned by the kind-blind `getCommunity`.
 - **Rotation migration reuses `exportCommunity`** (sqlite, kind-blind). The DB is portable across
   minters by construction (address = anchor, minter key is node-local config), restore is file-level,
   and no `importCommunity` method is needed: the normal update loop re-signs mod-state under the new
