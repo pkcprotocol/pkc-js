@@ -54,13 +54,20 @@ author feed) is then nearly free (see [Convergence](#convergence-both-feeds-unde
 
 ## The record: `AuthorCommunityIpfs`
 
-A sibling of `CommunityIpfs`, minus `challenges` config exposure, `encryption`, and the multi-`roles`
-map (owner is always self), plus profile metadata and a `new`-sorted feed:
+A sibling of `CommunityIpfs`. It **keeps** the fields that make it a working, reply-able community and
+differs only where the profile semantics require it:
 
-- profile metadata: `displayName`, `avatar`, `wallets`, bio/links, ...
+- **Kept, because it runs the challenge topic:** `challenges` (the public challenge requirements a
+  replying author reads), `encryption` (the key a replying author encrypts their publication with; here
+  it is the **delegate/minter's** key, since the minter runs the challenge/publication topic), and
+  `pubsubTopic`. Others reply to the owner's posts through exactly this machinery, so omitting these
+  would break replies.
+- **Collapsed:** the multi-`roles` map reduces to the single owner (self); there is no open multi-author
+  moderation surface.
+- **Added:** profile metadata: `displayName`, `avatar`, `wallets`, bio/links, ...
 - `posts: { pages: { new: <preloaded page> }, pageCids: { new: <cid> } }`, reusing the community
-  `posts` structure verbatim.
-- `stats`, `updatedAt`, `signature`, `protocolVersion`.
+  `posts` structure verbatim, but a single `new` sort rather than the multi-sort community feed.
+- `stats`, `updatedAt`, `signature`, `protocolVersion`, as in `CommunityIpfs`.
 
 **The record is minter-signed.** As with any delegated community, `AuthorCommunityIpfs.signature`
 derives to the **minter** key `Mn` (the online delegate), not the anchor `An` (the author's identity).
