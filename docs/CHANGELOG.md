@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.73](https://github.com/pkcprotocol/pkc-js/compare/v0.0.72...v0.0.73) (2026-07-27)
+
+### Bug Fixes
+
+* **community:** stop stale_replies from re-flagging parents of its own batch ([#230](https://github.com/pkcprotocol/pkc-js/issues/230)) ([#231](https://github.com/pkcprotocol/pkc-js/issues/231)) ([75417f9](https://github.com/pkcprotocol/pkc-js/commit/75417f9f900a8491ebe2b5d0ef64ec2ca841224e)), closes [209/#211](https://github.com/209/pkc-js/issues/211) [#211](https://github.com/pkcprotocol/pkc-js/issues/211)
+
 ## [0.0.72](https://github.com/pkcprotocol/pkc-js/compare/v0.0.71...v0.0.72) (2026-07-19)
 
 ### Features
