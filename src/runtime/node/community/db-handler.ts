@@ -1875,7 +1875,15 @@ export class DbHandler {
                 JOIN ${TABLES.COMMENT_UPDATES} cu_child ON cu_child.cid = child_ref.value
                 WHERE cu_parent.replies IS NOT NULL
                   AND json_type(cu_parent.replies, '$.best.commentCids') = 'array'
-                  AND cu_child.updatedAt > cu_parent.insertedAt
+                  -- Compare against the parent's updatedAt, not its insertedAt (issue #230). insertedAt is
+                  -- the batch's start timestamp, shared by every row the batch writes (issue #209/#211),
+                  -- while updatedAt is stamped when that row is actually calculated. A batch walks a post
+                  -- tree deepest-depth-first, so a child is always calculated before its parent and its
+                  -- updatedAt lands after the batch's start: comparing against insertedAt re-flagged every
+                  -- parent of any batch spanning >= 1 second, which produced another such batch, and the
+                  -- update loop never converged. updatedAt is when the parent's replies page was actually
+                  -- generated, which is the point the child's data could have gone stale relative to.
+                  AND cu_child.updatedAt > cu_parent.updatedAt
             ),
             base_updates AS (
                 SELECT * FROM direct_updates
