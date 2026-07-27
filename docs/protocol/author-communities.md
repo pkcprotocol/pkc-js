@@ -37,7 +37,7 @@ and the policy the schema implies:
 |---|---|---|
 | Class | `LocalCommunity` (+ Remote/RPC variants) | same machinery, author schema/policy |
 | Record schema | `CommunityIpfs` | `AuthorCommunityIpfs` (profile metadata + `new` feed) |
-| Pubsub | record topic **+** challenge/publication topic | **same:** record topic **+** challenge/publication topic |
+| Pubsub | record topic **+** challenge/publication topic | **same:** record topic **+** challenge/publication topic (challenge topic optional, see [read-only mode](#read-only-mode-disabled-challenge-exchange)) |
 | Challenges | yes | yes (others can reply to the owner's posts) |
 | Top-level content | native submissions from many authors (`communityPublicKey` = this community) | the owner's own comments made **to other communities** (references out) + native posts to the profile |
 | Who posts at top level | anyone (challenge-gated) | **only the owner** (a profile feed is the owner's, not open submission) |
@@ -62,7 +62,8 @@ differs only where the profile semantics require it:
   replying author reads), `encryption` (the key a replying author encrypts their publication with; here
   it is the **delegate/minter's** key, since the minter runs the challenge/publication topic), and
   `pubsubTopic`. Others reply to the owner's posts through exactly this machinery, so omitting these
-  would break replies.
+  would break replies. In [read-only mode](#read-only-mode-disabled-challenge-exchange) all three are
+  omitted together, which is precisely the signal that replies are disabled.
 - **Collapsed:** the multi-`roles` map reduces to the single owner (self); there is no open multi-author
   moderation surface.
 - **Added:** profile metadata: `displayName`, `avatar`, `wallets`, bio/links, ...
@@ -342,6 +343,50 @@ record's short cadence handles freshness; the anchor's long EOL handles absence.
 **This is delegated publishing, not self-replication.** The author always owns and signs the anchor;
 the delegate keeps the *minter* record alive and never touches `As`.
 
+## Read-only mode (disabled challenge exchange)
+
+> Tracked in issue [#229](https://github.com/pkcprotocol/pkc-js/issues/229). This is a kind-blind
+> `LocalCommunity` feature, not author-community-specific; it is specced here because feed-only
+> profiles are its main use case.
+
+An owner may not want anybody to reply to their profile (or to post to a broadcast-style normal
+community), in which case running the challenge topic is wasted traffic, per profile, on every
+hosting minter. The private boolean **`community.settings.disablePubsubChallengeExchange`** turns the
+community read-only over the network:
+
+- **Node side.** When `true`, the node does not subscribe to the challenge/publication topic and the
+  published record omits `pubsubTopic` (`cleanUpBeforePublishing` already purges undefined values).
+  When unset or `false`, behavior is unchanged: `pubsubTopic` is backfilled to the signer address at
+  init. A boolean was chosen over encoding the state in `settings.pubsubTopic` itself (e.g. `null`):
+  it is self-describing, it preserves a custom topic string across disable/enable cycles, and it
+  avoids a permanent tri-state falsy hazard at the backfill seam. Toggling takes effect on the next
+  sync-loop iteration; no restart.
+- **Wire rule (new, kind-blind): absence of `pubsubTopic` means the challenge exchange is
+  disabled.** The historical reader fallback "absent topic, use the address" is removed on every
+  path. Publishers fail fast with a dedicated error (`ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED`,
+  name TBD) so clients can disable the reply UI up front instead of timing out.
+- **No flag day.** Every record pkc-js has ever published carries an explicit `pubsubTopic` (the
+  init backfill guarantees it), so no live record relies on the old fallback. Old clients parse a
+  read-only record fine (the field is already optional) and degrade by timing out, the same as for
+  an unreachable community.
+- **Schema.** `AuthorCommunityIpfs` enforces all-or-none from day one: `pubsubTopic` absent implies
+  `challenges` and `encryption` absent (refine). `CommunityIpfs` still requires
+  `challenges`/`encryption`, so a read-only normal community publishes them as unused fields until
+  the envelope flag-day relaxes them to optional.
+- **The owner keeps publishing.** The local publish shortcut (`_publishWithLocalCommunity`) runs the
+  challenge exchange in-process, without pubsub, whenever the target community is started in the
+  same process, and that includes RPC clients, since the RPC server executes `publish()` in the
+  process where the community runs. A self-hosted or RPC-connected owner therefore posts normally
+  with the exchange disabled. The shortcut still evaluates challenges: read-only mode removes the
+  network path, not the challenge pipeline.
+- **Delegated consequence: feed-only profile.** For a forge-hosted author, disabling the exchange
+  also disables the owner's own remote pubsub publications (native posts, `CommentEdit`,
+  `CommentModeration`, `CommunityEdit`). The profile is then feed-only: cross-posts still flow
+  through `syncAuthorComments`, metadata edits go through the minter's authenticated surface, and
+  the owner can toggle the exchange back on at any time (the trio reappears on the next mint).
+- **Replication unaffected.** The IPNS-over-pubsub record topic is a separate derivation
+  (`ipnsPubsubTopic`) and stays on; record distribution, seeders, and reader updates are untouched.
+
 ## Replication (who keeps it alive)
 
 The **delegate is the replicator**, by construction: it is the online, key-holding node that pins the
@@ -369,6 +414,15 @@ failure," absence as "don't bother." It is per-comment (fixed at publish time), 
 `hasAuthorCommunity` / `publishesProfile`.)
 
 ## Read-side verification: three feed states
+
+**Owner-only top level is a verification-time invariant, not just node policy.** Every top-level
+entry in the `new` feed (inline page and every loaded `pageCids` chunk) must have `author.publicKey`
+equal to the profile's anchor `An`. The check lives in the record/page verification step rather than a
+bare schema refine, because the anchor is resolution context (the IPNS name the reader resolved), not
+a field of the record. A record or page chunk violating it is rejected as invalid, so a misbehaving or
+misconfigured minter cannot publish an open profile feed regardless of what its node accepted.
+Replies are unconstrained (anyone, challenge-gated). Write-side acceptance policy on the minter is
+therefore just the honest default; this check is the invariant.
 
 Display source of truth is the author's minter-signed feed; the community's copy is the canonical
 moderated one; **both remain accessible**. Per entry, verifying the embedded `CommentIpfs` +
@@ -446,6 +500,16 @@ architectural.
 - **`kind` is runtime-only, derived from the envelope key.** No `createAuthor`, no `getAuthor`, no
   wire discriminator; creation passes the bit as a local non-wire option to the shared create, and
   reading narrows on the `kind` discriminant returned by the kind-blind `getCommunity`.
+- **Read-only mode.** `settings.disablePubsubChallengeExchange` (private boolean) omits
+  `pubsubTopic` from the record and stops the challenge-topic subscription; absence of `pubsubTopic`
+  now means "no challenge exchange", with no fallback to the address anywhere. No flag day: all
+  published records carry the topic explicitly, and old clients degrade by timeout. The local
+  publish shortcut keeps same-process and RPC owners publishing. Tracked in
+  [#229](https://github.com/pkcprotocol/pkc-js/issues/229).
+- **Owner-only top level is enforced read-side.** Verifiers reject an `AuthorCommunityIpfs` record or
+  page chunk containing a top-level entry whose `author.publicKey` differs from the resolved anchor
+  `An` (checked at verification time, since the anchor is resolution context and not a record field).
+  Node-side write acceptance is only the honest default, not the invariant.
 - **Rotation migration reuses `exportCommunity`** (sqlite, kind-blind). The DB is portable across
   minters by construction (address = anchor, minter key is node-local config), restore is file-level,
   and no `importCommunity` method is needed: the normal update loop re-signs mod-state under the new

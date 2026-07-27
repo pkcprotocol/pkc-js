@@ -26,6 +26,13 @@ describe("AuthorCommunityIpfs schema", () => {
     it.todo("defines AuthorCommunitySignedPropertyNames as all fields minus signature");
 });
 
+describe("read-only mode wire shape (issue #229)", () => {
+    it.todo("parses a record omitting pubsubTopic, challenges, and encryption together");
+    it.todo("rejects a record with pubsubTopic absent but encryption present (all-or-none refine)");
+    it.todo("rejects a record with pubsubTopic absent but challenges present (all-or-none refine)");
+    it.todo("parses a reply-able record with the full pubsubTopic/challenges/encryption trio present");
+});
+
 describe("AuthorCommunityIpfs size caps", () => {
     it.todo("accepts a root object (metadata + inline new page + pageCids) up to 1 MiB");
     it.todo("rejects a root object above 1 MiB, matching the LocalCommunity root cap");

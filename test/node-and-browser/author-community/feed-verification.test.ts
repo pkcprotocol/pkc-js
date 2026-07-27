@@ -11,6 +11,15 @@ describe("embedded feed entry verification (cross-posted entries)", () => {
     it.todo("treats the embedded CommentUpdate as a refreshable snapshot, not the live state");
 });
 
+describe("owner-only top level (verification-time invariant)", () => {
+    it.todo("accepts a feed whose top-level entries are all authored by the resolved anchor key");
+    it.todo("rejects a record whose inline new page contains a top-level entry with author.publicKey !== anchor");
+    it.todo("rejects a loaded pageCids chunk containing a foreign-authored top-level entry (not just the inline page)");
+    it.todo("accepts foreign-authored replies under an owner top-level entry (replies are unconstrained)");
+    it.todo("checks against the resolved anchor from the IPNS name, not any field inside the record");
+    it.todo("a misconfigured minter that accepted a foreign top-level post produces a record readers reject");
+});
+
 describe("three renderable feed states", () => {
     it.todo("state live: CommentIpfs signature valid and live CommentUpdate loads clean");
     it.todo("state removed: live CommentUpdate loads with removed/deleted set");
