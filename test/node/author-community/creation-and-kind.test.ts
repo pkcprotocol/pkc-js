@@ -14,6 +14,23 @@ describe("creating an author-community (shared createCommunity, local non-wire o
     it.todo("rejects creating an author-community for a domain already used by a full community (no shared domains)");
 });
 
+describe("AuthorLocalCommunity subclass (thin subclass of LocalCommunity)", () => {
+    it.todo("createCommunity with the author kind option instantiates AuthorLocalCommunity");
+    it.todo("inherits pubsub, challenge pipeline, DB handler, lifecycle, and export unchanged");
+    it.todo("preloads the new sort in the published record instead of the community default hot");
+    it.todo("validates and signs against AuthorCommunityIpfsSchema and publishes the authorCommunity envelope key");
+    it.todo("the update loop skips cross-posted rows (foreign communityPublicKey) when generating CommentUpdates");
+});
+
+describe("default challenges: owner-only top level via the built-in fail challenge", () => {
+    it.todo("creation seeds settings.challenges with the fail challenge and its two excludes");
+    it.todo("a non-owner top-level Comment over pubsub is rejected by the default fail challenge");
+    it.todo("a non-owner reply is excluded from the fail challenge via the publicationType exclude");
+    it.todo("the owner's top-level Comment passes via the owner-address exclude (signature-backed)");
+    it.todo("owner CommentEdit, CommentModeration, and CommunityEdit pass via the excludes");
+    it.todo("reply challenges (e.g. a captcha) can be configured alongside the seeded fail challenge");
+});
+
 describe("runtime-only community.kind", () => {
     it.todo("a loaded { community } envelope yields a community-kind instance");
     it.todo("a loaded { authorCommunity } envelope yields an author-kind instance");

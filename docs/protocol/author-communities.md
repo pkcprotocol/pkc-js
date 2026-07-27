@@ -35,12 +35,12 @@ and the policy the schema implies:
 
 | | Normal community | Author-community |
 |---|---|---|
-| Class | `LocalCommunity` (+ Remote/RPC variants) | same machinery, author schema/policy |
+| Class | `LocalCommunity` (+ Remote/RPC variants) | `AuthorLocalCommunity`, a thin subclass of `LocalCommunity` |
 | Record schema | `CommunityIpfs` | `AuthorCommunityIpfs` (profile metadata + `new` feed) |
 | Pubsub | record topic **+** challenge/publication topic | **same:** record topic **+** challenge/publication topic (challenge topic optional, see [read-only mode](#read-only-mode-disabled-challenge-exchange)) |
 | Challenges | yes | yes (others can reply to the owner's posts) |
 | Top-level content | native submissions from many authors (`communityPublicKey` = this community) | the owner's own comments made **to other communities** (references out) + native posts to the profile |
-| Who posts at top level | anyone (challenge-gated) | **only the owner** (a profile feed is the owner's, not open submission) |
+| Who posts at top level | anyone (challenge-gated) | **only the owner**: default `fail`-challenge config write-side, verification-time invariant read-side |
 | Replies | anyone (challenge-gated) | anyone (challenge-gated) |
 | Sort types | hot/top/controversial/new, reply trees | single `new` feed, reply trees |
 | Roles/moderation | full role map, moderators | single owner (self) |
@@ -52,6 +52,30 @@ two enduring differences are semantic, not architectural: an author-community's 
 the owner's own cross-network comments (references out), and only the owner may post at top level. The
 future "converged" milestone (a single name that is *both* a multi-author community and its owner's
 author feed) is then nearly free (see [Convergence](#convergence-both-feeds-under-one-name)).
+
+### Implementation shape: `AuthorLocalCommunity`
+
+The machinery is shared via a **thin subclass**: `AuthorLocalCommunity extends LocalCommunity`,
+instantiated by the shared create/load path from the persisted local `kind` option (Remote/RPC
+variants mirror the kind the same way later). A subclass is the same class tree; it overrides a small
+set of seams, most of them data-like (a per-kind descriptor the shared record-build functions
+consult), with real method overrides only where behavior changes:
+
+1. **Base record shape** (`_toJSONIpfsBaseNoPosts`): emits profile metadata (displayName, avatar,
+   wallets, bio) and no roles map.
+2. **Preloaded sort**: `new` (the community record build hardcodes `hot`).
+3. **Schema and envelope**: validates and signs against `AuthorCommunityIpfsSchema` and publishes
+   under the `authorCommunity` envelope key.
+4. **Page generation**: a single-`new` sort table mixing posts and replies in one feed, embedding
+   cross-posted entries' foreign-signed `CommentIpfs` + `CommentUpdate` verbatim.
+5. **Update loop**: skips cross-posted rows (foreign `communityPublicKey`) when generating
+   `CommentUpdate`s; their mod-state is refreshed by the minter's refresh job instead (see
+   [Minter-side freshness](#minter-side-freshness-of-cross-posted-entries)).
+6. **Default challenges**: creation seeds `settings.challenges` so only the owner can post at top
+   level (see [Owner actions](#owner-actions-existing-publication-types)).
+
+Everything else (pubsub topics, challenge pipeline, DB handler, lifecycle, export, IPNS publishing)
+is inherited untouched.
 
 ## The record: `AuthorCommunityIpfs`
 
@@ -216,13 +240,21 @@ communities already carry, not a bespoke author-community limitation.
 ### Owner actions (existing publication types)
 
 Because the minter is a real community node, the existing publication vocabulary already covers every
-owner action on **native** content and on the profile itself — no new publication types. The one twist:
-a publication **signed by the anchor key `An` is an owner action** and skips the challenge gate (the
-signature *is* the auth; nobody else can produce it).
+owner action on **native** content and on the profile itself — no new publication types. The one
+twist is how owner-only top level is enforced on the write side: **default challenge config, not a
+code-level exemption**. `AuthorLocalCommunity` seeds `settings.challenges` at creation with the
+built-in `fail` challenge (which only passes when excluded) carrying two excludes: one matching every
+non-post publication type (replies, votes, edits, and moderation pass on to whatever other challenges
+are configured), and one matching the owner's address. The owner-address exclude is signature-backed:
+a publication's author address is verified against its signature before challenges run, so nobody but
+the anchor key holder can pass it. The owner may edit this config like any community owner edits
+challenges; the invariant itself is enforced read-side (see
+[Read-side verification](#read-side-verification-three-feed-states)), so the default config is the
+honest node's implementation of it, not the guarantee.
 
 | Owner action | Publication type |
 |---|---|
-| Native post/reply to own profile | `Comment` (challenge-exempt because signed by `An`) |
+| Native post/reply to own profile | `Comment` (passes the default `fail` challenge via the owner-address exclude) |
 | Delete a native post | `CommentEdit` with `deleted` (standard author delete; host = this community) |
 | Moderate a foreign reply under a native post | `CommentModeration` (the owner is the mod) |
 | Profile metadata (displayName, avatar, bio) | `CommunityEdit` (owner editing their own record) |
@@ -492,8 +524,14 @@ architectural.
   (no `CommentUpdate`), removal by omission, list-then-merge-then-sync for multi-device.
 - **Sync authorization.** Private RPC is local-only and trusts its clients; bitsocial forge enforces
   ownership of the author key (auth lives in the forge layer, not the method schema).
-- **Owner actions reuse existing publication types.** `Comment` (challenge-exempt via `An`
-  signature), `CommentEdit`, `CommentModeration`, `CommunityEdit`; no new publication kinds.
+- **Owner actions reuse existing publication types.** `Comment`, `CommentEdit`, `CommentModeration`,
+  `CommunityEdit`; no new publication kinds. Owner-only top level on the write side is **default
+  challenge config**: the built-in `fail` challenge seeded at creation with owner-address and
+  non-post publicationType excludes, not a code-level `An` exemption.
+- **`AuthorLocalCommunity` is a thin subclass of `LocalCommunity`**, instantiated from the persisted
+  local kind option. It overrides the schema-facing seams (base record shape, `new` preloaded sort,
+  schema/envelope, single-feed page generation, cross-post handling in the update loop, default
+  challenges) and inherits everything else.
 - **Freshness is minter-side.** The minter refreshes known entries' `CommentUpdate`s from their
   canonical communities; discovery of new entries is client-push only; the client never ships
   mod-state.
