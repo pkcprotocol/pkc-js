@@ -47,6 +47,11 @@ describe("karma", () => {
     it.todo("a transient canonical-community outage (state unknown) does not delete history from the rendered feed");
     it.todo("counts a community-signed embedded snapshot: signature-verified is what independently verified means, not fetched-live");
     it.todo("a stale-but-signed snapshot may lag the live score until refreshed (accepted: embedded snapshots always drift)");
+    it.todo("aggregates over the entries the client has loaded, since there is no signed profile-wide total");
+    it.todo("the record carries no minter-computed karma total (that would be self-attestation by the owner's delegate)");
+    it.todo("iterating every pageCids chunk yields the profile's full karma");
+    it.todo("a sum over the inline first page alone is a partial total, not the profile's karma");
+    it.todo("loading a further pageCids chunk extends the aggregate rather than correcting it");
 });
 
 describe("feed shape", () => {

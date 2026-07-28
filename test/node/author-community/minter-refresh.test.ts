@@ -23,6 +23,20 @@ describe("interplay with client-seeded mod-state", () => {
     it.todo("does not re-fetch on every mint for an entry whose canonical community is permanently gone (backoff)");
 });
 
+// The minter walks each cross-posted reply's parentCid chain up to its post and embeds those
+// comments alongside the entry, so a reader renders thread context from the same fetch. Ancestors
+// are ordinary foreign-signed comments and carry no new trust.
+describe("cross-posted reply ancestors", () => {
+    it.todo("embeds a cross-posted reply's parent chain up to its post when generating pages");
+    it.todo("embeds nothing extra for a cross-posted top-level post (it is its own context)");
+    it.todo("verifies each embedded ancestor against its own author and its own community");
+    it.todo("renders the entry without context rather than rejecting it when an ancestor fails verification");
+    it.todo("keeps the last known ancestors when the foreign community is unreachable");
+    it.todo("refreshes ancestors on the fixed interval, alongside the CommentUpdate refresh job");
+    it.todo("reflects an upstream parent deletion after the next ancestor refresh");
+    it.todo("does not re-fetch ancestors on every mint (interval-bounded work)");
+});
+
 describe("refresh scope limits", () => {
     it.todo("only fetches CommentUpdates for CIDs already stored for hosted profiles (bounded work)");
     it.todo("never crawls foreign communities to discover new author posts (discovery is client-push only)");

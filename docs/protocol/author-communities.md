@@ -9,12 +9,12 @@ An **author-community** lets an author publish their own profile: display metada
 everything they've posted across the network, resolvable as an IPNS record at `author.publicKey`.
 `getCommunity({ name?, publicKey?, address? })` resolves it the same way it resolves a normal
 community, returning a community instance populated from the `AuthorCommunityIpfs` record; the
-instance's runtime `kind` field tells the client which one it got.
+instance's runtime `type` field tells the client which one it got.
 
 An author-community **is a full community**. It runs the same `LocalCommunity` machinery, both pubsub
 topics (the IPNS-over-pubsub record topic **and** the challenge/publication topic), challenge
 processing, and reply threads. Others can reply to the owner's posts, challenge-gated, exactly as in
-any community. The **only difference is the schema**: an author-community carries a profile schema
+any community. The difference is **the schema and what the schema implies**: an author-community carries a profile schema
 (`AuthorCommunityIpfs`) with a single `new`-sorted feed whose top-level entries are the owner's own
 comments (references *out* to other communities), where a normal community carries `CommunityIpfs`
 with a role map and a multi-author, multi-sort feed of native submissions (references *in*).
@@ -25,8 +25,13 @@ delegate keeps the record fresh and runs the challenge topic on the author's beh
 mechanism that lets a browser author (who goes offline) own a live, reply-able community without ever
 handing out their identity key, and without pkc-js needing a bespoke replicator.
 
-Because every comment already carries `author.publicKey` (an IPNS name) and `author.address`, every
-existing comment is already a resolvable pointer to its author's profile. No new index is needed.
+Every comment is already a resolvable pointer to its author's profile, so no new index is needed.
+Note that this works through **derived** identity, not a wire field: `author.publicKey` and
+`author.address` are runtime-only (they are in `AuthorReservedFields` and must never appear on the
+wire, see [wire-vs-runtime.md](wire-vs-runtime.md)). The resolvable anchor is computed from
+`comment.signature.publicKey` via `getPKCAddressFromPublicKeySync()`, with `author.name` carrying the
+optional domain. That derived value *is* an IPNS name, which is what makes the author's identity key
+usable as the anchor `An`.
 
 ## Author-community vs. normal community
 
@@ -43,7 +48,8 @@ and the policy the schema implies:
 | Who posts at top level | anyone (challenge-gated) | **only the owner**: default `fail`-challenge config write-side, verification-time invariant read-side |
 | Replies | anyone (challenge-gated) | anyone (challenge-gated) |
 | Sort types | hot/top/controversial/new, reply trees | single `new` feed, reply trees |
-| Roles/moderation | full role map, moderators | single owner (self) in v1 (see [Future improvement](#future-improvement-delegating-profile-moderation)) |
+| Roles/moderation | full role map, moderators | **same role map**, seeded with the owner alone in v1 (see [Future improvement](#future-improvement-delegating-profile-moderation)) |
+| `postUpdates` | yes (MFS bucket tree) | **no**, updates come from the feed pages (see [Why no `postUpdates`](#why-no-postupdates)) |
 | Publishing | delegated community (anchor → minter) | **same:** delegated community (anchor → minter) |
 
 **Build implication:** an author-community is a **schema/policy variant of the community machinery**,
@@ -53,12 +59,43 @@ the owner's own cross-network comments (references out), and only the owner may 
 future "converged" milestone (a single name that is *both* a multi-author community and its owner's
 author feed) is then nearly free (see [Convergence](#convergence-both-feeds-under-one-name)).
 
+### Prerequisite: a delegated `LocalCommunity` (anchor identity, minter signer)
+
+Everything below assumes a `LocalCommunity` whose **identity is not its signing key**: the record is
+published under the minter name `Mn` (the node's signer) while the community's user-facing identity is
+the anchor `An`. That split does not exist yet on the write side, and it is a **prerequisite, not one
+of the schema seams**. [delegated-ipns.md](delegated-ipns.md) covers **loading only**; the read side
+already does the right thing (`community.publicKey` is derived from `ipnsHops[0]`, the anchor, and
+never from `signature.publicKey`, so a delegated community's identity never becomes `Mn`). The write
+side needs:
+
+- **The anchor is persisted local config, not derived.** A delegated `LocalCommunity` cannot compute
+  its own `publicKey` from its signer (that would yield `Mn`). The anchor `An` is supplied at creation
+  and stored in the community's local settings, alongside the local `type` bit.
+- **Publication acceptance compares against the anchor.** Incoming publications carry
+  `communityPublicKey` = the address the client resolved, which is `An`. The node's check must be
+  `publication.communityPublicKey === community.publicKey` (the anchor), not the current
+  `=== community.signer.address` (the minter). Today the latter rejects **every** remote publication
+  to a delegated community: foreign replies, owner native posts, votes, edits, moderation.
+- **Stored publications keep the anchor.** The publication store currently backfills
+  `communityPublicKey` from `community.signer.address`; it must backfill from `community.publicKey`,
+  or native content ends up attributing itself to the minter and breaks the moment the minter rotates.
+- **Minter-derived things stay minter-derived.** `pubsubTopic`, the `encryption` keypair, and the
+  record signature all belong to `Mn`. Only identity moves to the anchor.
+- **Non-delegated is the degenerate case.** When a profile runs on the author's own node, signer and
+  anchor are the same key and every rule above collapses to current behavior, so the change is a
+  generalization rather than a fork.
+
+This is a type-blind `LocalCommunity` change: any delegated community benefits, not just profiles.
+pkc-js must be able to create, publish, serve, and **load back** a delegated community end to end,
+even though the production minter (forge) is what actually runs it.
+
 ### Implementation shape: `AuthorLocalCommunity`
 
 The machinery is shared via a **thin subclass**: `AuthorLocalCommunity extends LocalCommunity`,
-instantiated by the shared create/load path from the persisted local `kind` option (Remote/RPC
-variants mirror the kind the same way later). A subclass is the same class tree; it overrides a small
-set of seams, most of them data-like (a per-kind descriptor the shared record-build functions
+instantiated by the shared create/load path from the persisted local `type` option (Remote/RPC
+variants mirror the type the same way later). A subclass is the same class tree; it overrides a small
+set of seams, most of them data-like (a per-type descriptor the shared record-build functions
 consult), with real method overrides only where behavior changes:
 
 1. **Base record shape** (`_toJSONIpfsBaseNoPosts`): emits profile metadata (displayName, avatar,
@@ -68,14 +105,21 @@ consult), with real method overrides only where behavior changes:
    under the `authorCommunity` envelope key.
 4. **Page generation**: a single-`new` sort table mixing posts and replies in one feed, embedding
    cross-posted entries' foreign-signed `CommentIpfs` + `CommentUpdate` verbatim.
-5. **Update loop**: skips cross-posted rows (foreign `communityPublicKey`) when generating
-   `CommentUpdate`s; their mod-state is refreshed by the minter's refresh job instead (see
-   [Minter-side freshness](#minter-side-freshness-of-cross-posted-entries)).
-6. **Default challenges**: creation seeds `settings.challenges` so only the owner can post at top
+5. **Page verification**: a dedicated verifier for author-community pages (see
+   [Verifying author-community pages](#verifying-author-community-pages)). The shared page verifier
+   rejects exactly what this feed is made of, so this is a real seam, not a data-like one.
+6. **Storage**: cross-posts live in their own table, never in `comments` (see
+   [Storage](#storage-cross-posts-live-in-their-own-table)).
+7. **Update loop**: only ever generates `CommentUpdate`s for native rows; cross-posts are not in
+   `comments` at all, so there is nothing to skip. Cross-post mod-state is refreshed by the minter's
+   refresh job (see [Minter-side freshness](#minter-side-freshness-of-cross-posted-entries)).
+8. **Default challenges**: creation seeds `settings.challenges` so only the owner can post at top
    level (see [Owner actions](#owner-actions-existing-publication-types)).
+9. **Roles seeding**: creation seeds `roles` with the owner (see [Roles](#roles-kept-seeded-with-the-owner)).
 
-Everything else (pubsub topics, challenge pipeline, DB handler, lifecycle, export, IPNS publishing)
-is inherited untouched.
+Everything else (pubsub topics, challenge pipeline, lifecycle, export, IPNS publishing) is inherited
+untouched, on top of the [delegated `LocalCommunity`](#prerequisite-a-delegated-localcommunity-anchor-identity-minter-signer)
+prerequisite above.
 
 ## The record: `AuthorCommunityIpfs`
 
@@ -88,12 +132,68 @@ differs only where the profile semantics require it:
   `pubsubTopic`. Others reply to the owner's posts through exactly this machinery, so omitting these
   would break replies. In [read-only mode](#read-only-mode-disabled-challenge-exchange) all three are
   omitted together, which is precisely the signal that replies are disabled.
-- **Collapsed:** the multi-`roles` map reduces to the single owner (self); there is no open multi-author
-  moderation surface.
+- **Kept, narrowed by policy:** `roles`, seeded with a single owner entry (see below).
+- **Kept, unchanged:** `features`, `modQueue`, `title`, `description`, `rules`, `suggested`, `flairs`,
+  `lastPostCid`, `lastCommentCid` (see [What the profile keeps from `CommunityIpfs`](#what-the-profile-keeps-from-communityipfs)).
+- **Dropped:** `postUpdates` (see [Why no `postUpdates`](#why-no-postupdates)).
 - **Added:** profile metadata: `displayName`, `avatar`, `wallets`, bio/links, ...
 - `posts: { pages: { new: <preloaded page> }, pageCids: { new: <cid> } }`, reusing the community
   `posts` structure verbatim, but a single `new` sort rather than the multi-sort community feed.
-- `stats`, `updatedAt`, `signature`, `protocolVersion`, as in `CommunityIpfs`.
+- `statsCid`, `createdAt`, `updatedAt`, `signature`, `protocolVersion`, as in `CommunityIpfs`.
+
+### Roles: kept, seeded with the owner
+
+The role map is **not** dropped. Inherited authorization reads it directly:
+`isPublicationAuthorPartOfRoles()` returns `false` when `community.roles` is undefined, and it is what
+gates `CommentModeration` acceptance and `CommunityEdit` (which requires `owner`/`admin`, and `owner`
+for role or address edits). There is no implicit "the signer is the owner" fallback anywhere. Omitting
+the map would therefore leave the owner unable to moderate replies on their own profile or to edit
+their own profile metadata, which are two of the four owner actions below.
+
+So `AuthorCommunityIpfs` carries the same `roles` shape as `CommunityIpfs`, and creation seeds it with
+exactly one entry: the owner (the anchor's address) as `owner`. v1 policy is that the map stays a
+single entry; the capability to open it up is inherited, which is what makes
+[delegated profile moderation](#future-improvement-delegating-profile-moderation) close to free later.
+
+### What the profile keeps from `CommunityIpfs`
+
+The default is **keep**, not drop. An author-community hosts native content and challenge-gates
+replies, so the fields that serve hosting serve it too, and dropping one would only create a branch in
+inherited code for no gain. Concretely:
+
+- **`features`** is required, not optional: `prepareCommentWithAnonymity()` reads
+  `community.features?.pseudonymityMode`, so a profile could not offer pseudonymous replies without
+  it. The whole `CommunityFeaturesSchema` carries over (see [Pseudonymity mode](#pseudonymity-mode)).
+- **`modQueue`** carries over with the pending-approval flow intact: a profile that challenge-gates
+  replies has exactly the same reason to hold a reply for approval as any community, and
+  `settings.maxPendingApprovalCount` and the disapproved-purge setting apply unchanged. The one
+  author-community-specific rule is that **the mod queue only ever holds native content**: cross-posts
+  are not publications to this community, are not in `comments`, and cannot be approved or disapproved
+  here. Removing one from the profile is omission from the next sync.
+- **`title`, `description`, `rules`, `suggested`, `flairs`** are ordinary presentation and policy
+  fields that a profile can use as-is (`rules` for replies to the profile, `flairs` for repliers).
+  They are edited with `CommunityEdit`, like the profile metadata fields.
+- **`lastPostCid` / `lastCommentCid`** carry over but are **native-only**, since they are derived from
+  the `comments` table. They describe the profile as a host, not the author's activity across the
+  network; the feed is what describes that.
+
+### Why no `postUpdates`
+
+A full community publishes a `postUpdates` MFS bucket tree so that a client holding **one comment CID**
+can fetch that comment's `CommentUpdate` directly, by timestamp bucket, without traversing pages. That
+matters when a community has millions of comments: page traversal to find a single update would be
+absurd, so the bucket tree is the index that makes point lookup cheap.
+
+An author-community does not have that problem. A profile's feed is the author's own output, which is
+orders of magnitude smaller, and every entry's `CommentUpdate` is **already embedded in the feed
+pages**. Native content's updates therefore arrive with the page that carries the comment, and
+cross-posted content's canonical update lives in its own community (which has its own `postUpdates`).
+Carrying a second index for a feed that already ships its updates inline would be pure overhead on
+every mint.
+
+If a profile ever does grow large enough that point lookup by CID matters, adding `postUpdates` is
+additive and backward compatible, so it is listed under
+[future good to haves](#future-good-to-haves) rather than designed out.
 
 **The record is minter-signed.** As with any delegated community, `AuthorCommunityIpfs.signature`
 derives to the **minter** key `Mn` (the online delegate), not the anchor `An` (the author's identity).
@@ -166,6 +266,159 @@ Posts and replies are mixed in the single `new` feed (like a Reddit user page).
 
 Both kinds share the single `new` feed. Top-level entries are owner-only; replies are open.
 
+### Verifying author-community pages
+
+The shared page verifier cannot be reused as is: it rejects precisely what this feed is made of. Given
+a page and the community it belongs to, it currently enforces that
+
+1. every entry's `communityPublicKey` equals the page's community (`ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY`) — every cross-post fails this;
+2. an entry with `depth > 0` has parent context, and its `depth` / `parentCid` / `postCid` line up with that parent — a cross-posted reply carried as a top-level feed entry has no local parent, so it fails this;
+3. an entry with `depth === 0` has no `postCid`, which holds fine;
+4. each entry's `CommentUpdate` verifies against **this** community's identity — a cross-post's update is signed by its foreign host, so it fails this too.
+
+**The mod-queue page is the precedent to copy.** `ModQueuePageIpfs` already models the awkward part:
+a page whose entries have **mixed depths, unrelated `parentCid`s, and no shared `postCid`**, and the
+shared verifier already carries an explicit branch for it. So the author feed is not a novel page
+shape, it is the second instance of one that exists. Concretely, `verifyAuthorCommunityPage` is the
+mod-queue branch plus two substitutions:
+
+- **Per-entry community, not per-page community.** Each entry is verified against the community named
+  by its own `comment.communityPublicKey`: the `CommentIpfs` against its author signature, the
+  `CommentUpdate` against that foreign community. The page's own community is only used for native
+  entries. Cross-community mismatch stops being an error and becomes the routing key.
+- **The owner-only invariant replaces the parent-relationship checks.** Feed entries are related to the
+  profile by authorship, not by thread position, so the check that every top-level entry's author key
+  equals the resolved anchor `An` (see [Read-side verification](#read-side-verification-three-feed-states))
+  is what constrains the page. Depth is informational for rendering; parent linkage is only enforced
+  inside a `CommentUpdate`'s own preloaded replies pages, where the shared verifier already applies.
+
+**`communityName` is the strict half of the pair.** The existing rule stands and is applied per entry:
+a `communityPublicKey` mismatch is deliberately **not** fatal, because a community may rotate its key,
+but a `communityName` mismatch **is** fatal, because a domain is the stable identity. Matching uses
+`areEquivalentCommunityAddresses()` in both cases. Per entry that means:
+
+- **Native entry:** if the profile has a domain, `comment.communityName` must equal `community.name`,
+  and an entry naming a different domain invalidates the page. If the profile has no domain, the
+  entry's `communityPublicKey` is matched against the anchor instead.
+- **Cross-posted entry:** the entry names a foreign community, so the pair is checked for internal
+  consistency rather than against the profile. If `communityName` is present it must resolve to the
+  entry's `communityPublicKey`, which is the same name-to-key check a reader does when loading that
+  community directly; a name that resolves to a different key invalidates the entry, and a name that
+  cannot be resolved right now leaves the entry verifiable by key with `nameResolved: false`, exactly
+  as elsewhere. Never silently ignore a present `communityName`: an unchecked name is a free way to
+  make a comment look like it came from a community it never touched.
+
+### Storage: cross-posts live in their own table
+
+Cross-posted entries are **not** rows in the `comments` table. That table is built for content this
+community hosts and enforces it structurally:
+
+- `postCid TEXT NOT NULL REFERENCES comments(cid)` and `parentCid TEXT NULLABLE REFERENCES comments(cid)`. A cross-posted reply's parent and post rows live in a foreign community and do not exist locally, so the insert violates the foreign key.
+- `commentUpdates` is keyed `cid TEXT PRIMARY KEY REFERENCES comments(cid)` and holds updates this node generates and signs. A cross-post's update is foreign-signed and must never be regenerated.
+- Per-community derived state would be silently corrupted: author post/reply counts and scores, `firstCommentTimestamp`, the `number` / `postNumber` counters, `lastPostCid` / `lastCommentCid`, and `statsCid` all count rows in `comments`. Cross-posts would inflate every one of them, including the challenge excludes that read author scores.
+
+So an author-community keeps the standard schema for **native** content (which is ordinary community
+content in every respect) and adds a dedicated table for cross-posts.
+
+#### The cross-post table is not a mirror of `comments`
+
+This is the heart of it: we cannot fill in a `comments` row for a cross-post, and we do not need to.
+`comments` and `commentUpdates` are **decomposed** tables. They explode a publication into ~30 typed
+columns (`link`, `linkWidth`, `thumbnailUrl`, `previousCid`, `number`, `postNumber`, `pendingApproval`,
+`challengeCommentUpdate`, `extraProps`, ...) because the node **owns** that content: it computes
+aggregates over the columns, regenerates and re-signs `CommentUpdate`s from them, and rebuilds the
+wire record on the way out via `deriveCommentIpfsFromCommentTableRow()`. Every one of those columns
+exists to serve something the node does *to* the content.
+
+For a cross-post the node does none of that. It never scores it, never generates its mod-state, never
+edits it. It does exactly two things: order it in the feed, and embed it verbatim. So the table stores
+the **raw wire records as JSON**, plus only the columns needed to order, route, and refresh:
+
+**The rule is: store the records verbatim plus node-local bookkeeping, and derive everything else.**
+Anything already stated by the JSON gets no column of its own, because a copy is a second source of
+truth that can drift. The two values that need an index are **generated columns** over the JSON, so
+they are queryable and indexable without being stored twice:
+
+```sql
+CREATE TABLE IF NOT EXISTS crossPostedComments (
+    -- the records, verbatim
+    cid TEXT NOT NULL PRIMARY KEY UNIQUE,       -- derived from the raw comment bytes, never client-supplied
+    comment TEXT NOT NULL,                      -- JSON: the author-signed CommentIpfs, verbatim
+    commentUpdate TEXT NULLABLE,                -- JSON: the community-signed CommentUpdate, verbatim
+    ancestors TEXT NULLABLE,                    -- JSON array: embedded parent chain of a cross-posted reply
+
+    -- node-local bookkeeping, stated nowhere in the records
+    ancestorsRefreshedAt INTEGER NULLABLE,
+    lastRefreshAttemptAt INTEGER NULLABLE,
+    lastRefreshSuccessAt INTEGER NULLABLE,
+    refreshFailureCount INTEGER NOT NULL DEFAULT 0,
+    insertedAt INTEGER NOT NULL,
+
+    -- derived from the records, not duplicated
+    timestamp INTEGER GENERATED ALWAYS AS (json_extract(comment, '$.timestamp')) VIRTUAL,
+    communityPublicKey TEXT GENERATED ALWAYS AS (json_extract(comment, '$.communityPublicKey')) VIRTUAL
+);
+CREATE INDEX IF NOT EXISTS crossPostedComments_timestamp ON crossPostedComments(timestamp DESC);
+CREATE INDEX IF NOT EXISTS crossPostedComments_communityPublicKey ON crossPostedComments(communityPublicKey);
+```
+
+`timestamp` earns a generated column because it is the feed's `ORDER BY` on the page-generation hot
+path; `communityPublicKey` because the refresh job batches by it. Both are `VIRTUAL`, so nothing is
+written twice while the index still stores the value. `cid` is the one derived value SQLite cannot
+compute (it is a hash of the bytes, not a field of them), which is why it is a real column.
+
+Deliberately **not** columns, since nothing queries them:
+
+- **`communityName`** is read only during verification, which is parsing the record anyway. It never
+  appears in a `WHERE` or `ORDER BY`.
+- **`depth`** is rendering information. The ancestor job's "does this need a parent chain" filter runs
+  periodically over a small table and can read it from the JSON like anything else.
+- **`commentUpdateUpdatedAt`** answers a strictly per-row question: the monotonicity check happens
+  while holding the row, whose `commentUpdate` JSON is right there. No bulk query compares
+  `updatedAt` across rows, and if one ever does, it is another generated column at that point.
+
+**No foreign keys.** Every reference a cross-post makes (`parentCid`, `postCid`, its community) points
+outside this database by definition, which is exactly why these rows cannot live in `comments`.
+`parentCid` and `postCid` are not columns either: they live in the raw JSON, used for rendering and
+for walking ancestors, never for local linkage.
+
+**Why raw JSON rather than exploded columns**, beyond "we have no use for them":
+
+- **Byte fidelity.** The entry is embedded into the feed verbatim and its signature covers exactly
+  those bytes. Decomposing into columns and reassembling on the way out is precisely the fragile step
+  `deriveCommentIpfsFromCommentTableRow()` represents (see
+  [db-community-address-migration.md](db-community-address-migration.md)); it is worth the fragility for
+  content we sign ourselves, and not worth it for content we merely carry.
+- **Forward compatibility.** A foreign community may run a newer protocol version with fields this
+  node has never heard of. Stored raw, such a comment round-trips byte-exact and keeps verifying;
+  exploded, its unknown fields land in `extraProps` and survive only as well as the reassembly logic
+  does.
+- **One source of truth.** With the records stored whole and the query surface generated from them,
+  there is no copy to fall out of sync with the bytes that were actually signed. `json_extract()` is
+  already used throughout `db-handler.ts`, so this is the existing idiom rather than a new one.
+
+The row gets a zod schema alongside the other table-row schemas, with `comment`, `commentUpdate`, and
+`ancestors` as parsed JSON columns, which means a case in the DB parsing test per the repo rules.
+
+The table is exactly the declarative snapshot `syncAuthorComments` maintains: add on presence, drop on
+omission, replace mod-state monotonically.
+
+**Extend `db-handler.ts` and the shared schema.** The cross-post table is a normal addition to the
+existing schema: declared in `createOrMigrateTablesIfNeeded()` alongside every other table, with its
+queries added to `db-handler.ts` itself. There is no separate author-only handler, no subclassed
+handler, and no second database.
+
+It is created **unconditionally**, in every community DB, and stays empty for normal communities. The
+alternative (create it only when the community is an author-community) would make the schema depend on
+a *local setting*, so one `DB_VERSION` could describe two different databases and every later
+migration would have to branch on it. An empty table costs nothing and keeps migrations linear.
+
+Native content is ordinary community content in every respect, so the standard tables serve an
+author-community unchanged; only the cross-post surface is new. `exportCommunity`, the restore path,
+and rotation migration therefore stay file-level and type-blind, which is what makes moving a profile
+between minters a copy rather than a protocol. Adding the table is a `DB_VERSION` bump and needs the
+usual migration test, including migrating an existing normal community DB.
+
 ### Size cap
 
 The **root object** (profile metadata + inline `new` page + `pageCids` list) is capped at **1 MiB**,
@@ -175,14 +428,21 @@ that limit is on a *comment's publication bytes*, not on an IPNS-pointed record 
 itself only carries the signed name→CID pointer, ~10 KiB spec cap; the `AuthorCommunityIpfs` content
 is a normal IPFS DAG with no hard protocol cap).
 
+An embedded `CommentUpdate` is carried **whole**, including any preloaded `replies` page it came with:
+stripping fields would break the community signature that makes the entry verifiable in the first
+place. Entries are therefore not comment-sized, and the inline first page may hold relatively few of
+them before the root cap forces a spill. That is the intended trade: bounded fetches, with depth
+reached through `pageCids`.
+
 ## Publishing: delegated (anchor → minter)
 
 An author-community is published **exactly like a delegated community**
 ([delegated-ipns.md](delegated-ipns.md)), with two keypairs:
 
-- **`An` / `As`** — the **anchor**. `An` is `author.publicKey` (the immutable identity a reader
-  resolves); `As` is held **offline by the author**, in the browser, and only ever signs the anchor
-  record.
+- **`An` / `As`** — the **anchor**. `An` is the author's identity IPNS name (the runtime
+  `author.publicKey`, derived from `signature.publicKey`, immutable per
+  [names-and-addresses.md](names-and-addresses.md)); `As` is the author's identity signing key, held
+  **offline by the author**, in the browser, and here it only ever signs the anchor record.
 - **`Mn` / `Ms`** — the **minter**. `Ms` is held by the **online delegate** (bitsocial forge, or a
   profile-node service). It signs the `AuthorCommunityIpfs` content, runs the challenge/publication
   topic, folds in foreign replies, and keeps the record fresh.
@@ -203,29 +463,46 @@ moderate the profile record, but can never impersonate the author elsewhere, and
 
 ### Division of responsibility (what is / is not in pkc-js)
 
-Mirroring [delegated-ipns.md](delegated-ipns.md), **delegate-side publishing is intentionally not part
-of pkc-js**. pkc-js does resolution, verification, and the owner's own-key actions; the minter service
-does everything under `Mn`.
+**pkc-js ships the machinery; the forge runs it.** The minter is an ordinary pkc-js community node
+driving `AuthorLocalCommunity`, so the community-side code (schema, page generation and verification,
+the sync RPC pair, the refresh job, `exportCommunity`) all lives in this repo. What is *not* in pkc-js
+is the **service layer** the forge wraps around it: multi-tenant authentication, the
+delegation-setup handshake, `Ms` custody, and hosting policy. This is a narrower boundary than
+[delegated-ipns.md](delegated-ipns.md)'s, which is scoped to client-side *loading*; the two are
+consistent because that doc's "publishing is not part of pkc-js" refers to operating a delegate, not
+to the community implementation the delegate runs.
 
-**In pkc-js (owner's client, own keys only):**
+pkc-js must therefore be able to create, publish, and load back a delegated community entirely on its
+own, under test, with no forge involved. The list below splits by **which key acts**, which is the
+distinction that actually matters:
 
-- **Resolve + verify** an author-community by resolving `author.publicKey` (the anchor), walking the
-  single `An → Mn` hop, and verifying the minter-signed content against the chain's terminal, using the
-  delegated-loading path that already exists (issue #93).
-- **Anchor publish.** Sign the anchor record `An → Mn` with `As` (in-browser) and publish it: once at
-  delegation setup, and re-signed before the anchor EOL lapses. Only the author holds `As`, so this
-  step is inherently client-side and cannot be delegated.
+**Acts with `As` (owner's client, pkc-js):**
+
+- **Resolve + verify** an author-community by resolving the anchor (the runtime `author.publicKey`),
+  walking the single `An → Mn` hop, and verifying the minter-signed content against the chain's
+  terminal, using the delegated-loading path that already exists (issue #93).
+- **Anchor publish and rotate.** Sign the anchor record `An → Mn` with `As` (in-browser) and publish
+  it at delegation setup; re-sign it only to point at a different minter. Only the author holds `As`,
+  so this step is inherently client-side and cannot be delegated. With an
+  [effectively infinite EOL](#liveness-anchor-eol--minter-freshness) there is no renewal obligation.
 - **Native content signing.** Sign the owner's own `CommentIpfs` with the author's identity key and
   publish it to the profile like any publication (see [Owner actions](#owner-actions-existing-publication-types)).
 - **Cross-post sync.** Push the owner's cross-network comment list to the minter via the sync RPC pair
   (see [Syncing cross-posts](#syncing-cross-posts-listauthorcomments--syncauthorcomments)).
 
-**Out of pkc-js (the delegate / profile-node service):**
+**Acts with `Ms` (the minter node, also pkc-js):**
 
-- Hold `Ms`, mint `Mn → <envelope cid>` frequently, run the challenge/publication topic, fold in
-  foreign replies, sign the profile record and native mod-state, pin/serve/provide the DAG, and keep
-  the record alive after the author goes offline. This is ordinary delegated-community publishing, which
-  pkc-js deliberately does not implement.
+- Mint `Mn → <envelope cid>` frequently, run the challenge/publication topic, fold in foreign replies,
+  sign the profile record and native mod-state, serve the sync RPC pair, run the refresh job, and
+  pin/serve/provide the DAG so the record stays alive after the author goes offline. This is
+  `AuthorLocalCommunity` on top of the [delegated `LocalCommunity`](#prerequisite-a-delegated-localcommunity-anchor-identity-minter-signer)
+  prerequisite, all of it in this repo.
+
+**Not in pkc-js (the forge's service layer around the minter node):**
+
+- `Ms` custody, multi-tenant authentication and per-profile authorization, the delegation-setup
+  handshake, quota and hosting policy, and operating the infrastructure. A self-hosted owner running
+  their own node needs none of it, which is why pkc-js can exercise the whole shape in tests.
 
 > **Delegation setup handshake.** To point `An → Mn` the author needs the delegate's minter name `Mn`.
 > The delegate generates `Mn`/`Ms` and returns `Mn`; the author then signs `An → Mn` client-side. The
@@ -259,7 +536,7 @@ honest node's implementation of it, not the guarantee.
 |---|---|
 | Native post/reply to own profile | `Comment` (passes the default `fail` challenge via the owner-address exclude) |
 | Delete a native post | `CommentEdit` with `deleted` (standard author delete; host = this community) |
-| Moderate a foreign reply under a native post | `CommentModeration` (the owner is the mod) |
+| Moderate a foreign reply under a native post | `CommentModeration` (authorized by the owner's seeded `roles` entry, see [Roles](#roles-kept-seeded-with-the-owner)) |
 | Profile metadata (displayName, avatar, bio) | `CommunityEdit` (owner editing their own record) |
 | Add/remove/refresh cross-post entries | **not a publication** — the sync RPC pair (below) |
 
@@ -269,6 +546,29 @@ profile's own anchor public key; the minter folds it into the feed and signs the
 key itself in the non-delegated own-node case). Foreign authors replying to a native post go through
 the normal challenge/publication topic; the minter challenge-gates, accepts, and hosts them like any
 community (the profile is their **sole host**).
+
+### Pseudonymity mode
+
+`features.pseudonymityMode` is inherited and works exactly as it does in any community. The profile
+owner may enable it so that **repliers** get an alias address (`per-post`, `per-reply`, or
+`per-author`), and the whole alias pipeline (alias signer, `originalCommentSignatureEncoded`, edit
+authorization against the original author key) is untouched. The one interaction with this design is
+the owner-only top level: only the anchor may author a **post**, while **anyone may reply**, so
+pseudonymity applies to the replies, which is the content it exists for.
+
+The owner's own content is never aliased, and this falls out of the existing rule rather than needing
+a special case: `prepareCommentWithAnonymity()` skips authors holding `owner`/`admin`/`moderator`, and
+the profile seeds the owner into [`roles`](#roles-kept-seeded-with-the-owner). A profile whose owner
+were missing from the map would not just lose moderation, it would also start aliasing its own
+owner's posts, which the read-side owner-only invariant would then reject. The roles entry is what
+keeps the two consistent.
+
+For **cross-posts** the direction is reversed and worth stating plainly: when the owner publishes into
+a foreign community that has pseudonymity enabled, the canonical comment there is **alias-signed**, so
+it does not verify against `An`. Such a comment is rejected by the sync gate, and that is the correct
+outcome twice over: the minter genuinely cannot attribute it to the anchor, and embedding it would
+undo the anonymity the foreign community granted. The client must not offer pseudonymous comments for
+sync, and the RPC must reject them if it does.
 
 ### Syncing cross-posts: `listAuthorComments` / `syncAuthorComments`
 
@@ -308,6 +608,15 @@ syncAuthorComments({ authorPublicKey, authorName?, comments })  // comments: ent
   shape** it accepts, so a merge round-trip never strips an entry's `commentUpdate`. Merge collisions
   on the same CID resolve by the same monotonicity rule the minter applies (below): keep the higher
   `updatedAt`.
+- **`previousCommentCid` is the recovery path of last resort.** Every comment carries
+  `author.previousCommentCid`, which chains an author's comments **across communities**, so the
+  author's own history is walkable from any one of their comments without the minter or a local list.
+  It is not part of the sync flow, but it is what a client falls back on when both sides have lost
+  state (fresh device, minter DB gone, or an export nobody took), and it is the only independent way
+  to notice that a minter quietly dropped entries from a feed. A client rebuilding this way walks the
+  chain, loads each comment, and syncs the result like any other list; the same validation gates
+  apply, so nothing about trust changes. Worth building only if profile-loss reports show up in
+  practice, but worth knowing the option exists before designing a heavier backup.
 - **Decoupled and best-effort.** The entry push is an independent client action that can happen any
   time after the foreign publish, from any of the author's devices. The profile lags reality until the
   client next syncs — the accepted consequence of client-owned timing. (When a client happens to have
@@ -383,6 +692,28 @@ removal). The access model is therefore transport-level, in two tiers:
   caller **cannot invoke `syncAuthorComments` for a profile unless it owns that author key**. That
   enforcement lives in the forge layer, not in the pkc-js method schema.
 
+### Parent context for cross-posted replies
+
+A reply entry on its own renders as a body with nothing around it: no parent comment, no post title,
+no indication of what was being answered. Reddit-style profile pages show the thread context, and a
+profile that cannot is much less useful.
+
+**The minter embeds the ancestors.** When it generates the feed pages it walks each cross-posted
+reply's `parentCid` chain up to its post and embeds those comments alongside the entry, so a reader
+renders the thread context from the same fetch that gave them the reply. This keeps the "one fetch to
+render a profile" property that motivated embedding entries in the first place, and it keeps working
+when the foreign community is unreachable at render time, which lazy client-side fetching does not.
+
+Embedded ancestors are ordinary foreign-signed comments and carry no new trust: each verifies exactly
+like the entry itself, against its own author signature and its own community. A reader that cannot
+verify an ancestor renders the entry without context rather than rejecting it, since context is
+presentation, not the entry's validity.
+
+**Ancestors are refreshed on a fixed interval** (on the order of one to two hours), the same way and on
+the same job as cross-posted `CommentUpdate`s. Context drifts slowly (a post title rarely changes,
+a deletion upstream does), so a fixed period is enough and bounds the extra fetching the minter does
+per mint. The exact constant is delegate-side policy, tuned alongside the refresh cadence below.
+
 ### Minter-side freshness of cross-posted entries
 
 The embedded `CommentUpdate` snapshots drift (votes, mod-state). Keeping them fresh is the
@@ -410,7 +741,7 @@ host is this profile. Migration reuses the existing export machinery:
 
 - **Export = `exportCommunity` (already exists, already sqlite).** An author-community runs the same
   per-community sqlite DB, so `LocalCommunity.exportCommunity()` and the `exportCommunity` RPC work on
-  it kind-blind, producing a sqlite backup under `${dataPath}/exports/`. The owner can always trigger
+  it type-blind, producing a sqlite backup under `${dataPath}/exports/`. The owner can always trigger
   it: the local private RPC trusts its clients, and forge authorizes the caller as the author-key
   owner (same access model as `syncAuthorComments`).
 - **The DB is portable across minters by construction.** The community address in the DB is the
@@ -434,22 +765,38 @@ Two records, two cadences, exactly as in delegated IPNS:
 - **Minter record (`Mn → cid`)** — re-signed **frequently** by the online delegate. This is what keeps
   the profile fresh and is re-provided to HTTP routers (whose announcements expire ~24 h). No author
   involvement.
-- **Anchor record (`An → Mn`)** — signed by the offline author with a **long EOL**, and re-signed by
-  the author before that EOL lapses. If the anchor expires while the author is away, loading fails
-  everywhere until the author returns and re-publishes (the delegated-IPNS "liveness cliff"). **Reuse
-  the delegated-IPNS anchor EOL constant**; do not invent a new value.
+- **Anchor record (`An → Mn`)** — signed by the offline author with an **effectively infinite EOL**
+  (the maximum representable validity, see [delegated-ipns.md](delegated-ipns.md#anchor-record-eol)).
+  The author does not have to come back to keep the binding alive; they only come back to **change**
+  it. Use that same constant here; do not invent a new value.
 
 **TTL vs EOL.** TTL is a short caching hint (fast update propagation). EOL is hard validity: a peer
 cannot usefully rebroadcast an expired record, and the `ipns` validator rejects expired records on
-every path. The anchor EOL must therefore be comfortably longer than a typical away-gap. The minter
-record's short cadence handles freshness; the anchor's long EOL handles absence.
+every path. Setting the anchor EOL to effectively infinite removes the liveness cliff entirely, at the
+cost of making the binding permanent until explicitly rotated, which is the right trade for an author
+who may be away for months. The minter record's short cadence handles freshness; the anchor never
+expires.
+
+**What "infinite" does not solve.** An anchor record that never expires still has to be *retrievable*:
+it must be re-provided to routers like any other record. Rotation also stays only as safe as the
+anti-rollback story ([open question](#open-questions), inherited from
+[#118](https://github.com/pkcprotocol/pkc-js/issues/118)), since a never-expiring old binding is
+exactly what a malicious server would want to keep serving after a rotation.
+
+In practice the exposure is bounded by **how many sources a reader consults**. On the P2P paths the
+anchor record arrives from peers over the IPNS record topic and from routers, not from one authority.
+On the gateway path pkc-js already fans out to all configured gateways in parallel and picks the
+freshest result rather than trusting whichever answered first. So pinning a stale binding requires
+being the *only* source a reader hears from, and a rotation propagates as soon as any honest source is
+reachable. Persisting the last-seen anchor sequence would still close the single-source case, which is
+why #118 stays open, but it is a hardening measure rather than a gap this design depends on.
 
 **This is delegated publishing, not self-replication.** The author always owns and signs the anchor;
 the delegate keeps the *minter* record alive and never touches `As`.
 
 ## Read-only mode (disabled challenge exchange)
 
-> Tracked in issue [#229](https://github.com/pkcprotocol/pkc-js/issues/229). This is a kind-blind
+> Tracked in issue [#229](https://github.com/pkcprotocol/pkc-js/issues/229). This is a type-blind
 > `LocalCommunity` feature, not author-community-specific; it is specced here because feed-only
 > profiles are its main use case.
 
@@ -465,7 +812,7 @@ community read-only over the network:
   it is self-describing, it preserves a custom topic string across disable/enable cycles, and it
   avoids a permanent tri-state falsy hazard at the backfill seam. Toggling takes effect on the next
   sync-loop iteration; no restart.
-- **Wire rule (new, kind-blind): absence of `pubsubTopic` means the challenge exchange is
+- **Wire rule (new, type-blind): absence of `pubsubTopic` means the challenge exchange is
   disabled.** The historical reader fallback "absent topic, use the address" is removed on every
   path. Publishers fail fast with a dedicated error (`ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED`,
   name TBD) so clients can disable the reply UI up front instead of timing out.
@@ -502,20 +849,27 @@ protocol and no client-shipped CAR; a delegated community's own publishing keeps
   the author goes offline.
 - **Seeder network (ongoing redundancy).** **bitsocial-seeder** and voluntary nodes pick the record up
   from the record topic and re-provide it, so liveness does not hinge on a single delegate. The
-  `hasAuthorCommunity` hint (below) still drives *discovery* with no registration step.
+  `author.isAuthorCommunity` hint (below) still drives *discovery* with no registration step.
 - **Providing policy** is the community machinery's existing policy: provide the record root; readers
   bitswap page chunks by CID from the connected provider once resolved. Do **not** loop-provide every
   page chunk (announcing N chunks × M profiles is what starved kubo's serial provider and broke
   community `updateCids`). Per-chunk providing stays a tuning lever for a minority deep-page path, added
   only if production shows reachability failing.
 
-## The `hasAuthorCommunity` hint
+## The `author.isAuthorCommunity` hint
 
-A signed field on the wire `author` object (`AuthorPubsubSchema`) indicating "this author publishes a
-profile, so `author.publicKey` is worth resolving." Consumers treat presence as "try, tolerate
-failure," absence as "don't bother." It is per-comment (fixed at publish time), attested by the author
-(a third party cannot forge it), and needs a place in the author signed-property list. (Name TBD:
-`hasAuthorCommunity` / `publishesProfile`.)
+`author.isAuthorCommunity` is a signed boolean on the wire `author` object (`AuthorPubsubSchema`)
+meaning "this author publishes an author-community, so their identity key is worth resolving."
+Consumers treat presence as "try, tolerate failure," absence as "don't bother." It is per-comment
+(fixed at publish time), attested by the author (a third party cannot forge it), and needs a place in
+the author signed-property list.
+
+It is a pure optimization: the identity key is derivable from any comment's signature regardless, so
+the hint only saves readers from speculatively resolving an IPNS name for every author they render.
+Adding it is backward compatible in both directions: comments are parsed through the flexible-author
+variant (`AuthorPubsubSchema.loose()`), so an old node accepts it as an extra author prop and the
+publication signature carries it unchanged; and a new client reads an old comment that lacks it as
+"don't bother". The name must not collide with `AuthorReservedFields`, which is the runtime-only set.
 
 ## Read-side verification: three feed states
 
@@ -558,24 +912,36 @@ recency, which is true of every embedded snapshot regardless of how it arrived. 
 the *foreign* mod-state inside it; karma still derives only from independently verified cross-posted
 `CommentUpdate`s.)
 
-## Runtime API surface: `kind` is derived, never wire
+**Aggregation is per-entry, so a total means walking the feed.** Each entry's score is trustworthy on
+its own (the hosting community signed it), but there is no signed profile-wide total a reader could
+verify. A minter-computed one would be an attestation by the profile owner's own delegate about its
+owner's karma, which is exactly the self-attestation this section rules out, so the record does not
+carry one.
 
-There is **no `createAuthor` method, no `getAuthor` method, and no `kind` wire field**. The envelope
-key *is* the kind: a
+> **Note for clients (Seedit, 5chan, anything rendering a karma number).** A profile's karma is
+> **computed client-side by iterating the feed**: sum the verified `CommentUpdate`s of the inline
+> first page, then of each `pageCids` chunk as it is loaded. A number shown after loading only the
+> first page is a partial sum over the most recent entries, not the profile's total, and it grows as
+> further chunks load. Clients should either paginate to the end before presenting a total, or label
+> what is shown as partial. There is no shortcut field to read, by design.
+
+## Runtime API surface: `type` is derived, never wire
+
+There is **no `createAuthor` method, no `getAuthor` method, and no `type` wire field**. The envelope
+key *is* the type: a
 loader reads which field is present (`community` vs `authorCommunity`) and surfaces it as a
-**runtime-only** instance field — `community.kind` (values mirroring the envelope keys; exact spelling
-TBD). It never enters the signed record: a wire discriminator would duplicate what key presence
+**runtime-only** instance field — `community.type` (`"community"` or `"authorCommunity"`, mirroring the envelope keys). It never enters the signed record: a wire discriminator would duplicate what key presence
 already states (the same argument that settled the envelope over a `type` field). Like every
 runtime-only field, it must be accounted for in the corresponding reserved-field list.
 
 Consequences for the method surface:
 
-- **Reading:** `getCommunity` / `communityUpdateSubscribe` and friends stay kind-blind; the returned
-  instance carries `kind` for the client to branch on. There is no `getAuthor`: since `kind` is a
-  runtime discriminant on the returned union, `community.kind === "authorCommunity"` narrows the type
+- **Reading:** `getCommunity` / `communityUpdateSubscribe` and friends stay type-blind; the returned
+  instance carries `type` for the client to branch on. There is no `getAuthor`: since `type` is a
+  runtime discriminant on the returned union, `community.type === "authorCommunity"` narrows the type
   natively, and a dedicated method would just duplicate the resolution path.
-- **Lifecycle:** `startCommunity` / `stopCommunity` / `deleteCommunity` / `list` are kind-blind
-  (address-keyed); list output includes the derived `kind`.
+- **Lifecycle:** `startCommunity` / `stopCommunity` / `deleteCommunity` / `list` are type-blind
+  (address-keyed); list output includes the derived `type`.
 - **Creation** is the one moment with no record to derive from, so the shared `createCommunity` takes
   the discriminating bit as a **local, non-wire creation option** (persisted in the community's local
   settings, from which the node knows which envelope key and schema to emit). Exact option shape TBD.
@@ -591,21 +957,33 @@ simultaneously a multi-author community (references *in*) **and** its owner's au
 is the mechanical change. The enduring difference stays semantic (references out vs. in), not
 architectural.
 
+## Future good to haves
+
+Additive, backward compatible, and deliberately out of v1:
+
+- **`postUpdates` for large profiles.** A profile whose feed grows large enough that a client holding
+  a single native comment CID should not traverse pages to find its `CommentUpdate` can publish the
+  same MFS bucket tree a full community publishes (see [Why no `postUpdates`](#why-no-postupdates)).
+  The machinery is inherited; v1 simply does not emit the field.
+- **Delegating profile moderation** (below).
+- **Convergence**: one name carrying both payloads (see [Convergence](#convergence-both-feeds-under-one-name)).
+
 ## Future improvement: delegating profile moderation
 
 > **Not in v1, not settled.** Recorded here because the v1 design deliberately leaves the door open.
 
-v1 collapses the role map to the single owner (self), but that is a **policy choice, not a missing
-capability**: an author-community is a full `LocalCommunity`, so the role map, the
-`CommentModeration` publication type, and the mod-authorization check are already inherited untouched.
-Re-opening the roles map is close to the whole change, which means a profile owner could grant
-moderation of their own feed to other authors, including a **third-party moderation service**.
+v1 seeds the role map with the owner alone, but that is a **policy choice, not a missing capability**:
+the map itself is carried in the record, and the `CommentModeration` publication type and the
+mod-authorization check are inherited untouched. Letting the owner add entries is close to the whole
+change, which means a profile owner could grant moderation of their own feed to other authors,
+including a **third-party moderation service**.
 
 Sketch of what it would take:
 
-- **Schema.** Restore a `roles` map to `AuthorCommunityIpfs`, same shape as `CommunityIpfs`
-  (address to role), defaulting to just the owner. The owner edits it with `CommunityEdit`, the
-  publication that already edits profile metadata. No new publication type.
+- **Schema: nothing to add.** `AuthorCommunityIpfs` already carries the `roles` map in the same shape
+  as `CommunityIpfs` (address to role); v1 just seeds it with one entry. The owner edits it with
+  `CommunityEdit`, the publication that already edits profile metadata. No new publication type, no
+  schema change.
 - **Enforcement is unchanged.** `CommentModeration` acceptance already validates the publisher against
   the community's roles map, so a moderator's publication passes write-side with no author-community
   special case. The read-side owner-only invariant constrains **who may author top-level feed entries**,
@@ -634,8 +1012,8 @@ only, no edits to owner content); and how clients should attribute a profile mod
 ## Settled
 
 - **Author-community is a delegated full community** (was: a bespoke client-signed / node-replicated
-  record). Same `LocalCommunity` machinery, both pubsub topics, challenge processing; the **only**
-  difference is the schema. Publishing is delegated anchor → minter, so a browser author owns a live,
+  record). Same `LocalCommunity` machinery, both pubsub topics, challenge processing; what differs is
+  the schema and the policy it implies. Publishing is delegated anchor → minter, so a browser author owns a live,
   reply-able profile without handing out their identity key. The old `publishIpnsRecord` / CAR / pin-set
   replicator design is superseded and removed.
 - **Delegate boundary.** Mirrors [delegated-ipns.md](delegated-ipns.md): pkc-js does resolution,
@@ -643,7 +1021,8 @@ only, no edits to owner content); and how clients should attribute a profile mod
   (out of pkc-js) mints, runs the challenge topic, and keeps the record alive.
 - **Record shape.** An **envelope** (`{ authorCommunity? | community? }`), exactly one field in v1,
   resolves read-side dispatch by key presence; no `type` discriminator, `bso-resolver` untouched.
-- **EOL length.** Reuse the delegated-IPNS **anchor EOL** constant, not a new value.
+- **EOL length.** Reuse the delegated-IPNS **anchor EOL** constant (effectively infinite), not a new
+  value.
 - **Cross-post sync.** The RPC pair `listAuthorComments` / `syncAuthorComments`, keyed by
   `{ authorPublicKey, authorName? }` (never address), declarative snapshot, removal by omission,
   list-then-merge-then-sync for multi-device. Entries reuse the `PageIpfs` comment shape
@@ -666,15 +1045,56 @@ only, no edits to owner content); and how clients should attribute a profile mod
   challenge config**: the built-in `fail` challenge seeded at creation with owner-address and
   non-post publicationType excludes, not a code-level `An` exemption.
 - **`AuthorLocalCommunity` is a thin subclass of `LocalCommunity`**, instantiated from the persisted
-  local kind option. It overrides the schema-facing seams (base record shape, `new` preloaded sort,
-  schema/envelope, single-feed page generation, cross-post handling in the update loop, default
-  challenges) and inherits everything else.
+  local type option. It overrides the schema-facing seams (base record shape, `new` preloaded sort,
+  schema/envelope, single-feed page generation, page verification, cross-post storage, default
+  challenges, roles seeding) and inherits everything else.
+- **A delegated `LocalCommunity` is a prerequisite, not a seam.** Identity (`community.publicKey`)
+  must come from the anchor persisted in local settings rather than from the signer; publication
+  acceptance must compare `publication.communityPublicKey === community.publicKey`, not
+  `=== community.signer.address`; and the publication store must backfill `communityPublicKey` from
+  the anchor. Without it every remote publication to a delegated community is rejected. The change is
+  type-blind and collapses to current behavior when signer and anchor are the same key.
+- **`roles` is kept**, seeded with the owner alone. Inherited authorization returns `false` when
+  `community.roles` is undefined, and it gates both `CommentModeration` and `CommunityEdit`, so
+  dropping the map would remove two of the four owner actions.
+- **The profile keeps the rest of `CommunityIpfs`.** `features` (required, pseudonymity reads it),
+  `modQueue` with the pending-approval flow (native content only), `title`, `description`, `rules`,
+  `suggested`, `flairs`, and native-only `lastPostCid` / `lastCommentCid`. Default is keep: dropping a
+  field only creates a branch in inherited code.
+- **The minter embeds cross-posted replies' ancestors** when generating pages, refreshed on a fixed
+  interval (one to two hours) by the same job that refreshes cross-posted `CommentUpdate`s. Ancestors
+  are foreign-signed comments carrying no new trust; an unverifiable ancestor drops the context, not
+  the entry.
+- **`author.isAuthorCommunity`** is the wire hint's name, a signed boolean on `AuthorPubsubSchema`,
+  backward compatible in both directions through the flexible-author parse.
+- **The runtime discriminant is `community.type`**, derived from the envelope key, never on the wire.
+- **`previousCommentCid` is the last-resort recovery path** for a cross-post list lost on both sides,
+  and the only independent check that a minter has not silently dropped feed entries. Not part of the
+  sync flow; recorded as the option that exists before designing anything heavier.
+- **No `postUpdates`.** The MFS bucket tree exists so a client holding one comment CID can find its
+  update without traversing pages, which matters at millions of comments; a profile embeds every
+  entry's `CommentUpdate` in its feed pages and is orders of magnitude smaller. Listed under
+  [future good to haves](#future-good-to-haves), not designed out.
+- **Cross-posts get their own table**, never rows in `comments`: that table's `postCid` / `parentCid`
+  foreign keys cannot be satisfied by foreign content, its `commentUpdates` are node-signed, and every
+  per-community aggregate counts its rows. One DB handler, additive tables, `DB_VERSION` bump with a
+  migration test.
+- **Author-community pages need their own verifier**, modeled on the existing mod-queue branch (mixed
+  depths, unrelated parents, no shared `postCid`), with per-entry community routing and the owner-only
+  invariant in place of the parent-relationship checks.
+- **Pseudonymity mode is inherited unchanged** for replies to the profile; cross-posts published
+  pseudonymously into a foreign community are alias-signed, so they fail the sync gate by design and
+  must not be offered for sync.
+- **Anchor EOL is effectively infinite.** The offline owner returns to *change* the binding, never to
+  preserve it. This removes the liveness cliff and raises the value of sequence anti-rollback.
 - **Freshness is minter-side.** The minter refreshes known entries' `CommentUpdate`s from their
-  canonical communities; discovery of new entries is client-push only; the client never ships
-  mod-state.
-- **`kind` is runtime-only, derived from the envelope key.** No `createAuthor`, no `getAuthor`, no
-  wire discriminator; creation passes the bit as a local non-wire option to the shared create, and
-  reading narrows on the `kind` discriminant returned by the kind-blind `getCommunity`.
+  canonical communities and always wins over a pushed snapshot once it fetches something newer;
+  discovery of new entries stays client-push only. The client *may* seed mod-state (previous bullet),
+  but it never owns freshness.
+- **`type` is runtime-only, derived from the envelope key**, with values `"community"` and
+  `"authorCommunity"` mirroring those keys. No `createAuthor`, no `getAuthor`, no wire discriminator;
+  creation passes the bit as a local non-wire option to the shared create, and reading narrows on the
+  `type` discriminant returned by the type-blind `getCommunity`.
 - **Read-only mode.** `settings.disablePubsubChallengeExchange` (private boolean) omits
   `pubsubTopic` from the record and stops the challenge-topic subscription; absence of `pubsubTopic`
   now means "no challenge exchange", with no fallback to the address anywhere. No flag day: all
@@ -685,16 +1105,17 @@ only, no edits to owner content); and how clients should attribute a profile mod
   page chunk containing a top-level entry whose `author.publicKey` differs from the resolved anchor
   `An` (checked at verification time, since the anchor is resolution context and not a record field).
   Node-side write acceptance is only the honest default, not the invariant.
-- **Rotation migration reuses `exportCommunity`** (sqlite, kind-blind). The DB is portable across
+- **Rotation migration reuses `exportCommunity`** (sqlite, type-blind). The DB is portable across
   minters by construction (address = anchor, minter key is node-local config), restore is file-level,
   and no `importCommunity` method is needed: the normal update loop re-signs mod-state under the new
   minter key on regeneration.
 
 ## Open questions
 
-- **`hasAuthorCommunity` field name** and its exact place in the author signed-property list.
-- **Method/option naming.** `listAuthorComments` / `syncAuthorComments`, the `community.kind` value
-  spellings, and the local creation-option shape are all TBD.
+- **`author.isAuthorCommunity` placement** in the author signed-property list (the name itself is
+  settled).
+- **Method/option naming.** The local creation-option shape is TBD; the method names
+  `listAuthorComments` / `syncAuthorComments` and the `community.type` values are settled.
 - **Delegation setup handshake.** How a browser author asks bitsocial forge (or another service) to
   become its minter and obtains `Mn` (plus the bootstrap `pubsubTopic`/`encryption`), and how the
   author later rotates `An → Mn'` to revoke. Mostly a forge concern, but pkc-js needs the client-side

@@ -97,6 +97,18 @@ describe("multi-device merge flow", () => {
     it.todo("merging an entry that has a commentUpdate with one that has none keeps the commentUpdate");
 });
 
+// author.previousCommentCid chains an author's comments across communities, so the author's history
+// is walkable from any one of their comments. Not part of the sync flow: it is the fallback when
+// both the client's local list and the minter's stored set are gone, and the only independent way to
+// notice that a minter dropped entries.
+describe("previousCommentCid as a recovery path", () => {
+    it.todo("rebuilds a cross-post list by walking previousCommentCid from a known comment");
+    it.todo("syncs a rebuilt list through the same validation gates as any other list");
+    it.todo("recovers entries after both the local list and the minter's stored set are lost");
+    it.todo("detects entries the minter dropped by comparing the walked chain against listAuthorComments");
+    it.todo("is not required for normal syncing (the client's own list is the primary source)");
+});
+
 describe("sync authorization model", () => {
     it.todo("private RPC is local-only and trusts its clients: no per-call ownership proof required");
     it.todo("signature gates still stop content forgery even from a trusted transport");

@@ -30,13 +30,31 @@ The records form a chain:
 
 The owner revokes by coming online and re-pointing `An` to a new `Mn'`.
 
-> **Anchor EOL is a liveness cliff, not "infinite".** Every IPNS record carries a validity (EOL),
-> and the `ipns` validator **rejects expired records** (`RecordExpiredError`) on every path. The
-> anchor record is therefore not infinitely valid: it must be published with a long EOL and
-> **re-published by the offline owner before that EOL lapses**. If the anchor record expires while
-> `As` is offline, loading fails everywhere — over a gateway it surfaces as the non-retriable
-> `ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID` with `reason: "IPNS record has expired …"` (distinct from
-> the forged/tampered reason). Choose the anchor EOL with this re-publish obligation in mind.
+### Anchor record EOL
+
+Every IPNS record carries a validity (EOL), and the `ipns` validator **rejects expired records**
+(`RecordExpiredError`) on every path. An expired anchor makes the community unloadable everywhere
+until the owner returns; over a gateway it surfaces as the non-retriable
+`ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID` with `reason: "IPNS record has expired …"` (distinct from the
+forged/tampered reason).
+
+**Decision: the anchor record is published with an effectively infinite EOL** (the maximum validity
+the record format can represent, a far-future date). The anchor binds a long-lived identity to a
+delegate, and its holder is by definition offline; making liveness depend on that party returning on a
+schedule is the one failure mode with no recovery path. The owner should have to come back to
+**change** the binding, never merely to preserve it. Publishers must use a single shared constant for
+this value rather than picking one per call site.
+
+The trade-offs this accepts:
+
+- **The binding is permanent until rotated.** There is no automatic expiry to fall back on if `As` is
+  lost, so losing the anchor key means losing the ability to ever move off the current minter. The
+  recovery story is key custody, not EOL.
+- **Anti-rollback matters more, not less.** A never-expiring old binding is exactly what a malicious
+  gateway would keep serving after a rotation. Sequence anti-rollback (see
+  [Trust model](#trust-model-summary)) is the mitigation; EOL was never one.
+- **Reachability is still required.** An infinite EOL keeps a record *valid*, not *retrievable*. It
+  must still be re-provided to routers like any other record.
 
 ## What this means for identity & verification
 

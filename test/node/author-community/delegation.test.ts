@@ -8,19 +8,21 @@ import { describe, it } from "vitest";
 describe("delegated author-community record chain", () => {
     it.todo("the profile record signature derives to the minter key Mn, not the anchor An");
     it.todo("the An -> Mn anchor record is signed by the author's key As, client-side");
-    it.todo("the anchor record uses the delegated-IPNS anchor EOL constant (no new value)");
+    it.todo("the anchor record uses the shared delegated-IPNS anchor EOL constant (no new value)");
+    it.todo("the anchor EOL constant is effectively infinite (maximum representable validity)");
     it.todo("author identity stays the anchor: author.address/publicKey never become Mn");
 });
 
 describe("anchor publish and rotation (owner own-key actions in pkc-js)", () => {
     it.todo("signs and publishes the initial An -> Mn anchor record at delegation setup");
-    it.todo("re-signs the anchor record before its EOL lapses");
+    it.todo("does not require the owner to re-publish the anchor on a schedule (no renewal obligation)");
     it.todo("rotates An -> Mn' to revoke a delegate; readers then load content signed by Mn'");
-    it.todo("an expired anchor makes the profile unloadable until the owner republishes (liveness cliff)");
+    it.todo("a rotation increments the anchor record sequence so honest routers prefer the new binding");
+    it.todo("the anchor record still has to be re-provided to routers to stay retrievable (validity is not reachability)");
 });
 
 describe("minter rotation and data migration", () => {
-    it.todo("exportCommunity works kind-blind on an author-community (sqlite backup of the same DB layout)");
+    it.todo("exportCommunity works type-blind on an author-community (sqlite backup of the same DB layout)");
     it.todo("the export contains no minter key material (address = anchor, minter key is node-local config)");
     it.todo("restore is file-level: placing the sqlite at the new node's community DB path and starting works (no importCommunity method)");
     it.todo("a restored DB on the new minter preserves native content, including foreign replies");
