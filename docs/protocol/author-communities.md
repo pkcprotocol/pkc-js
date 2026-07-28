@@ -43,7 +43,7 @@ and the policy the schema implies:
 | Who posts at top level | anyone (challenge-gated) | **only the owner**: default `fail`-challenge config write-side, verification-time invariant read-side |
 | Replies | anyone (challenge-gated) | anyone (challenge-gated) |
 | Sort types | hot/top/controversial/new, reply trees | single `new` feed, reply trees |
-| Roles/moderation | full role map, moderators | single owner (self) |
+| Roles/moderation | full role map, moderators | single owner (self) in v1 (see [Future improvement](#future-improvement-delegating-profile-moderation)) |
 | Publishing | delegated community (anchor → minter) | **same:** delegated community (anchor → minter) |
 
 **Build implication:** an author-community is a **schema/policy variant of the community machinery**,
@@ -505,6 +505,46 @@ simultaneously a multi-author community (references *in*) **and** its owner's au
 *out*). The envelope already reserves the both-present slot; lifting the v1 "exactly one field" refine
 is the mechanical change. The enduring difference stays semantic (references out vs. in), not
 architectural.
+
+## Future improvement: delegating profile moderation
+
+> **Not in v1, not settled.** Recorded here because the v1 design deliberately leaves the door open.
+
+v1 collapses the role map to the single owner (self), but that is a **policy choice, not a missing
+capability**: an author-community is a full `LocalCommunity`, so the role map, the
+`CommentModeration` publication type, and the mod-authorization check are already inherited untouched.
+Re-opening the roles map is close to the whole change, which means a profile owner could grant
+moderation of their own feed to other authors, including a **third-party moderation service**.
+
+Sketch of what it would take:
+
+- **Schema.** Restore a `roles` map to `AuthorCommunityIpfs`, same shape as `CommunityIpfs`
+  (address to role), defaulting to just the owner. The owner edits it with `CommunityEdit`, the
+  publication that already edits profile metadata. No new publication type.
+- **Enforcement is unchanged.** `CommentModeration` acceptance already validates the publisher against
+  the community's roles map, so a moderator's publication passes write-side with no author-community
+  special case. The read-side owner-only invariant constrains **who may author top-level feed entries**,
+  not who may moderate them, so granting a mod role does not weaken it.
+- **Scope of what a mod can touch: native content only.** Native posts and the foreign replies hosted
+  under them have this profile as their sole host, and their `CommentUpdate` is minter-signed, so mod
+  actions on them are meaningful. Cross-posted entries carry the foreign community's signed mod-state,
+  which nobody on this side can override; the only lever over a cross-post is the owner's own
+  `syncAuthorComments` list (removal by omission), which stays owner-only.
+- **Third-party moderation service.** A role entry is just an author key, so "delegate moderation of my
+  profile feed to service X" is granting a role to X's author key. X then runs an **ordinary client**:
+  it reads the feed and publishes `CommentModeration` through the normal challenge/publication topic,
+  exactly like a moderator in any community. It never needs `As`, never needs `Ms`, and is revoked by a
+  `CommunityEdit` dropping it from the map.
+- **Distinct from the minter delegation.** The minter holds `Ms` and mints records; a mod service holds
+  only its own author key and publishes moderation publications. The two delegations are independent
+  and either can be rotated without touching the other.
+- **Interaction with read-only mode.** `disablePubsubChallengeExchange` removes the network path a
+  remote mod would publish through, so a profile with a third-party mod service needs the challenge
+  exchange on (or the mod running in-process / over RPC).
+
+Open bits, if this is ever picked up: whether the profile role vocabulary reuses the community one as
+is (owner/admin/moderator) or a reduced set; whether a mod grant should be scoped (for example, replies
+only, no edits to owner content); and how clients should attribute a profile mod action in the UI.
 
 ## Settled
 
