@@ -1,8 +1,14 @@
 # Delegated IPNS (anchor → minter chains)
 
 This documents pkc-js's **client-side loading** of communities published via a delegated
-IPNS chain (see issue #93). Delegate-side *publishing* is intentionally **not** part of
-pkc-js — only resolution and verification are.
+IPNS chain (see issue #93): resolution and verification.
+
+> **Scope update.** The delegate *side* is no longer out of scope: a pkc-js node can be the
+> delegate ([#233](https://github.com/pkcprotocol/pkc-js/issues/233)), and the setup handshake
+> ("run this community for me, I keep the anchor key") belongs in the pkc-js RPC rather than in a
+> hosting service ([#234](https://github.com/pkcprotocol/pkc-js/issues/234)). Only the service layer
+> around it (multi-tenant auth, quotas, `Ms` custody policy) stays out of this repo. This document
+> still covers the loading side only.
 
 > **For now, only a single `anchor → minter` hop is allowed** (`MAX_IPNS_HOPS = 1`). Chains
 > longer than one hop are rejected with `ERR_IPNS_MAX_HOPS_EXCEEDED` on every resolution path

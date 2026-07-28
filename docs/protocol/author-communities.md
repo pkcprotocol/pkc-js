@@ -465,9 +465,12 @@ moderate the profile record, but can never impersonate the author elsewhere, and
 
 **pkc-js ships the machinery; the forge runs it.** The minter is an ordinary pkc-js community node
 driving `AuthorLocalCommunity`, so the community-side code (schema, page generation and verification,
-the sync RPC pair, the refresh job, `exportCommunity`) all lives in this repo. What is *not* in pkc-js
-is the **service layer** the forge wraps around it: multi-tenant authentication, the
-delegation-setup handshake, `Ms` custody, and hosting policy. This is a narrower boundary than
+the sync RPC pair, the refresh job, `exportCommunity`) all lives in this repo. The **delegation setup
+handshake** also belongs in pkc-js rather than in a hosting service, but it is type-blind and out of
+scope for this design; it is tracked separately in
+[#234](https://github.com/pkcprotocol/pkc-js/issues/234). What is *not* in pkc-js is the **service
+layer** the forge wraps around it: multi-tenant authentication and authorization, `Ms` custody
+policy, quotas, and hosting operations. This is a narrower boundary than
 [delegated-ipns.md](delegated-ipns.md)'s, which is scoped to client-side *loading*; the two are
 consistent because that doc's "publishing is not part of pkc-js" refers to operating a delegate, not
 to the community implementation the delegate runs.
@@ -500,22 +503,33 @@ distinction that actually matters:
 
 **Not in pkc-js (the forge's service layer around the minter node):**
 
-- `Ms` custody, multi-tenant authentication and per-profile authorization, the delegation-setup
-  handshake, quota and hosting policy, and operating the infrastructure. A self-hosted owner running
-  their own node needs none of it, which is why pkc-js can exercise the whole shape in tests.
+- Multi-tenant authentication and per-profile authorization, `Ms` custody policy, quota and hosting
+  policy, and operating the infrastructure. A self-hosted owner running their own node needs none of
+  it, which is why pkc-js can exercise the whole shape in tests.
 
-> **Delegation setup handshake.** To point `An → Mn` the author needs the delegate's minter name `Mn`.
-> The delegate generates `Mn`/`Ms` and returns `Mn`; the author then signs `An → Mn` client-side. The
-> handshake response should also return the profile's `pubsubTopic` and `encryption` key, since before
-> the first mint there is no record for the client to resolve them from (bootstrap). The handshake
-> surface (how the browser asks bitsocial forge to become its minter) lives in the forge, not pkc-js.
-> See [open questions](#open-questions).
+> **Delegation setup handshake (out of scope, tracked in
+> [#234](https://github.com/pkcprotocol/pkc-js/issues/234)).** To point `An → Mn` the author needs
+> the delegate's minter name `Mn`, so the delegate generates `Mn`/`Ms` and returns it along with the
+> bootstrap `pubsubTopic` and `encryption` key (before the first mint there is no record to resolve
+> those from), and the author then signs `An → Mn` client-side. That handshake is **type-blind** and
+> serves delegated multi-author communities as much as profiles, so it is designed in #234 rather
+> than here. It belongs in the pkc-js RPC and not in a hosting service: "run this community for me,
+> I keep the anchor key" is a protocol operation, and putting it in the forge would leave a
+> self-hosted owner unable to delegate to their own daemon.
 
 **No delegate configured → no profile.** Publishing a profile requires a reachable minter. A pure
 in-browser helia node can sign the anchor but has no online party to mint and keep the record alive.
 **v1 consequence:** pure-P2P (libp2p-js-only, e.g. 5chan) authors cannot publish profiles until they
 point their anchor at some minter service. This is the same offline-owner constraint that delegated
 communities already carry, not a bespoke author-community limitation.
+
+**On Node this is already solved: run a daemon.** A Node author does not need a third-party forge and
+does not need a self-liveness escape hatch. `bitsocial daemon` is a pkc-js RPC server, so the author
+runs it, connects to it as an RPC client, and has it host the author-community: the daemon is the
+online, key-holding, always-providing party by construction. The unsolved case is only the browser
+with no daemon anywhere, and there no client-side check helps: a tab can ask "is anyone providing my
+record?" but has no remedy, since republishing from a page that is about to close creates no
+provider. Browser-only authors therefore need someone else's minter, full stop.
 
 ### Owner actions (existing publication types)
 
@@ -778,18 +792,19 @@ who may be away for months. The minter record's short cadence handles freshness;
 expires.
 
 **What "infinite" does not solve.** An anchor record that never expires still has to be *retrievable*:
-it must be re-provided to routers like any other record. Rotation also stays only as safe as the
-anti-rollback story ([open question](#open-questions), inherited from
-[#118](https://github.com/pkcprotocol/pkc-js/issues/118)), since a never-expiring old binding is
-exactly what a malicious server would want to keep serving after a rotation.
+it must be re-provided to routers like any other record. A never-expiring old binding is also exactly
+what a malicious server would want to keep serving after a rotation.
 
-In practice the exposure is bounded by **how many sources a reader consults**. On the P2P paths the
-anchor record arrives from peers over the IPNS record topic and from routers, not from one authority.
-On the gateway path pkc-js already fans out to all configured gateways in parallel and picks the
-freshest result rather than trusting whichever answered first. So pinning a stale binding requires
-being the *only* source a reader hears from, and a rotation propagates as soon as any honest source is
-reachable. Persisting the last-seen anchor sequence would still close the single-source case, which is
-why #118 stays open, but it is a hardening measure rather than a gap this design depends on.
+**Settled: no anchor-specific anti-rollback.** The exposure is bounded by **how many sources a reader
+consults**, and that is enough. On the P2P paths the anchor record arrives from peers over the IPNS
+record topic and from routers, not from one authority. On the gateway path pkc-js fans out to
+multiple gateways in parallel and, for community records, `selectWinningGatewayCommunity` picks the
+highest `updatedAt` among the responses and never accepts one older than the record the client
+already holds. A pinned stale binding therefore surfaces as a stale record that loses to any honest
+response, and a rotation propagates as soon as one honest source is reachable. Persisting a last-seen
+anchor sequence would additionally close the case of a first-ever load where *every* source is
+malicious; that stays general delegated-IPNS hardening in
+[#118](https://github.com/pkcprotocol/pkc-js/issues/118), not something this design waits on.
 
 **This is delegated publishing, not self-replication.** The author always owns and signs the anchor;
 the delegate keeps the *minter* record alive and never touches `As`.
@@ -845,8 +860,9 @@ content DAG, mints and re-provides the record, and runs the topics. There is no 
 protocol and no client-shipped CAR; a delegated community's own publishing keeps it alive.
 
 - **Delegate (liveness guarantee).** bitsocial forge, or a self-run profile node (Seedit desktop's
-  local node is its own delegate), mints and provides continuously, so ≥ 1 provider exists the instant
-  the author goes offline.
+  local node, or a `bitsocial daemon` the author connects to over RPC, which may hold `As` directly
+  rather than a minter key, see [#234](https://github.com/pkcprotocol/pkc-js/issues/234)), mints and
+  provides continuously, so ≥ 1 provider exists the instant the author goes offline.
 - **Seeder network (ongoing redundancy).** **bitsocial-seeder** and voluntary nodes pick the record up
   from the record topic and re-provide it, so liveness does not hinge on a single delegate. The
   `author.isAuthorCommunity` hint (below) still drives *discovery* with no registration step.
@@ -963,6 +979,9 @@ Consequences for the method surface:
   `createCommunity({ type: "authorCommunity" })`, reusing the same value space as the derived
   runtime-only `community.type` so creation and read use one vocabulary; omitting it defaults to
   `"community"`, keeping every existing call site unchanged.
+- **Delegation setup** is its own RPC surface and is type-blind, serving delegated `community` and
+  `authorCommunity` alike; designed in [#234](https://github.com/pkcprotocol/pkc-js/issues/234), not
+  here.
 - The only genuinely author-specific RPC surface is the sync pair
   (`listAuthorComments` / `syncAuthorComments`).
 
@@ -1080,9 +1099,9 @@ only, no edits to owner content); and how clients should attribute a profile mod
   `suggested`, `flairs`, and native-only `lastPostCid` / `lastCommentCid`. Default is keep: dropping a
   field only creates a branch in inherited code.
 - **The minter embeds cross-posted replies' ancestors** when generating pages, refreshed on a fixed
-  interval (one to two hours) by the same job that refreshes cross-posted `CommentUpdate`s. Ancestors
-  are foreign-signed comments carrying no new trust; an unverifiable ancestor drops the context, not
-  the entry.
+  interval (host policy, hourly by default in bitsocial-cli) by the same job that refreshes
+  cross-posted `CommentUpdate`s. Ancestors are foreign-signed comments carrying no new trust; an
+  unverifiable ancestor drops the context, not the entry.
 - **`author.isAuthorCommunity`** is the wire hint's name, a signed boolean added as an optional key on
   `AuthorPubsubSchema` itself, backward compatible in both directions through the flexible-author
   parse. Placement needs no hand-edited list: signed-property lists derive from top-level shape keys
@@ -1111,7 +1130,21 @@ only, no edits to owner content); and how clients should attribute a profile mod
   pseudonymously into a foreign community are alias-signed, so they fail the sync gate by design and
   must not be offered for sync.
 - **Anchor EOL is effectively infinite.** The offline owner returns to *change* the binding, never to
-  preserve it. This removes the liveness cliff and raises the value of sequence anti-rollback.
+  preserve it. This removes the liveness cliff.
+- **No anti-rollback on `An → Mn`.** Records are always fetched in parallel from several
+  gateways/peers, and the community loader keeps the highest `updatedAt` while refusing anything
+  older than what the client already holds, so a rotated-away minter pinned by one malicious gateway
+  loses to any honest source. Sequence anti-rollback ([#118](https://github.com/pkcprotocol/pkc-js/issues/118))
+  stays general delegated-IPNS hardening, not a prerequisite here.
+- **Delegation setup is type-blind and out of scope here.** "Run this community for me, I keep the
+  anchor key" is a protocol operation belonging in the pkc-js RPC rather than a hosting service, and
+  it serves delegated multi-author communities as much as profiles. Designed separately in
+  [#234](https://github.com/pkcprotocol/pkc-js/issues/234); this design assumes only that the author
+  obtains `Mn` and signs `An → Mn` with `As`. The forge keeps auth, quotas, and `Ms` custody policy.
+- **Minter refresh cadence is host policy, not protocol.** How often a minter re-loads cross-posted
+  `CommentUpdate`s (and the ancestor snapshots) is chosen by whoever runs the node: bitsocial-cli and
+  other RPC hosts decide it, with hourly as bitsocial-cli's default. pkc-js mandates no interval and
+  no reader depends on one.
 - **Freshness is minter-side.** The minter refreshes known entries' `CommentUpdate`s from their
   canonical communities and always wins over a pushed snapshot once it fetches something newer;
   discovery of new entries stays client-push only. The client *may* seed mod-state (previous bullet),
@@ -1138,15 +1171,9 @@ only, no edits to owner content); and how clients should attribute a profile mod
 
 ## Open questions
 
-- **Delegation setup handshake.** How a browser author asks bitsocial forge (or another service) to
-  become its minter and obtains `Mn` (plus the bootstrap `pubsubTopic`/`encryption`), and how the
-  author later rotates `An → Mn'` to revoke. Mostly a forge concern, but pkc-js needs the client-side
-  anchor sign/publish + rotate primitives.
-- **Minter refresh cadence.** How often the minter re-loads cross-posted `CommentUpdate`s and with
-  what backoff — delegate-side policy, mostly out of pkc-js.
-- **Self-liveness-check (pure-P2P escape hatch).** For a future where libp2p-js-only authors can run
-  their own minter, the client would verify "is anyone providing my record?" (query routers / the
-  record topic) before going dark, and keep republishing if not. Out of scope for v1.
-- **Anti-rollback on `An → Mn`.** Inherited from delegated IPNS: no sequence anti-rollback on the
-  binding yet (tracked in #118); relevant here since a rotated-away minter could be pinned by a
-  malicious gateway.
+- **Delegation setup handshake.** How an author asks a delegate (their own `bitsocial daemon`, or
+  bitsocial forge) to become its minter, obtains `Mn` plus the bootstrap
+  `pubsubTopic`/`encryption`, gets the client-signed `An → Mn` onto the network, and later rotates
+  to `Mn'` to revoke. Type-blind (delegated multi-author communities need the same thing), belongs
+  in the pkc-js RPC rather than a hosting service, and is designed in
+  [#234](https://github.com/pkcprotocol/pkc-js/issues/234) rather than by this doc.
