@@ -146,7 +146,10 @@ Signature ownership is unchanged by delegation: a cross-posted entry's `CommentI
 minter that assembles the profile record cannot forge either. A reader verifies both signatures
 independently, so embedding does not weaken the trust model. The embedded mod-state is a snapshot the
 reader can refresh. The **only** thing the minter signs is the enveloping profile record (and the
-mod-state of *native* content it hosts, below).
+mod-state of *native* content it hosts, below). A cross-post's `CommentUpdate` reaches the minter
+either from its own refresh job or seeded by the owner's client through
+[`syncAuthorComments`](#syncing-cross-posts-listauthorcomments--syncauthorcomments); both paths verify
+the same community signature, so the source does not affect what a reader can trust.
 
 Posts and replies are mixed in the single `new` feed (like a Reddit user page).
 
@@ -275,9 +278,15 @@ activity, and **discovery of new entries is client-push only**: the client is th
 knows "I just posted in community X," and it delivers that knowledge through a pair of RPC methods on
 the minter (method names TBD):
 
+Both methods carry the comment list as **page entries**: the exact shape a `PageIpfs` already uses for
+its comments (`{ comment: CommentIpfsType, commentUpdate: CommentUpdateType }`, see
+[pages.md](pages.md) and `PageIpfsSchema`), with `commentUpdate` relaxed to **optional**. No new type:
+what the client syncs is literally what the minter embeds in the `new` feed.
+
 ```ts
-listAuthorComments({ authorPublicKey, authorName? })            // → stored raw CommentIpfs[]
-syncAuthorComments({ authorPublicKey, authorName?, comments })  // comments: raw CommentIpfsType[]
+// PageIpfs["comments"][number], with commentUpdate optional
+listAuthorComments({ authorPublicKey, authorName? })            // → stored entries
+syncAuthorComments({ authorPublicKey, authorName?, comments })  // comments: entries
 ```
 
 - **Multi-tenant addressing.** The RPC server hosts many author-communities alongside full
@@ -287,23 +296,81 @@ syncAuthorComments({ authorPublicKey, authorName?, comments })  // comments: raw
 - **Declarative snapshot semantics.** `syncAuthorComments` is the owner's full cross-post list. The
   minter diffs against its DB: CIDs not yet stored are added, stored CIDs omitted from the list are
   dropped from the feed. Removal is omission — no tombstones, no retraction publication. Idempotent.
-- **Raw comments only, no `CommentUpdate`.** The client ships the raw author-signed `CommentIpfs`
-  bytes (a loaded comment already exposes this as `comment.raw.comment`). Shipping the bytes (not bare
-  CIDs) means sync never depends on the foreign community being reachable, and the minter never
-  fetches anything during the call. The minter derives each CID from the bytes and reads
-  `communityPublicKey` off the comment to learn its canonical community. Mod-state is never pushed —
-  freshness is the minter's job (below).
+- **Raw bytes, comment and mod-state both.** The client ships the raw author-signed `CommentIpfs`
+  bytes (a loaded comment already exposes this as `comment.raw.comment`) and, when it has one, the
+  community-signed `CommentUpdate` alongside it. Shipping the bytes (not bare CIDs) means sync never
+  depends on the foreign community being reachable, and the minter never fetches anything during the
+  call. The minter derives each CID from the comment bytes and reads `communityPublicKey` off the
+  comment to learn its canonical community.
 - **List-then-merge-then-sync.** `listAuthorComments` exists so a client on a fresh device can read
   the server's stored set, union it with its local comments by CID, and sync the merged list — a bare
-  sync from a partial view would silently drop the server-only entries.
+  sync from a partial view would silently drop the server-only entries. It returns the **same entry
+  shape** it accepts, so a merge round-trip never strips an entry's `commentUpdate`. Merge collisions
+  on the same CID resolve by the same monotonicity rule the minter applies (below): keep the higher
+  `updatedAt`.
 - **Decoupled and best-effort.** The entry push is an independent client action that can happen any
   time after the foreign publish, from any of the author's devices. The profile lags reality until the
   client next syncs — the accepted consequence of client-owned timing. (When a client happens to have
   its minter reachable at publish time, pushing right away is a convenience, not a protocol
   requirement.)
-- **Validation gates.** The minter accepts a synced comment only if it is validly signed by the
-  addressed profile's `authorPublicKey` (`An`), rejects runtime-only fields (raw wire shape enforced),
-  and bounds input size. A sync can therefore never inject content the owner didn't author.
+- **Validation gates.** The minter accepts a synced entry only if all of the following hold: its
+  comment is validly signed by the addressed profile's `authorPublicKey` (`An`); its `commentUpdate`,
+  when defined, is validly signed by the comment's `communityPublicKey`; and the CID the server
+  derives from the raw comment bytes equals `commentUpdate.cid`. It rejects runtime-only fields (raw
+  wire shape enforced) and bounds input size. A sync can therefore never inject content the owner
+  didn't author, mod-state the hosting community didn't sign, or mod-state the community signed for a
+  *different* comment.
+
+#### Why `commentUpdate` rides along
+
+The argument for shipping comment bytes rather than CIDs applies verbatim to mod-state, and the
+client is the only party positioned to supply it: publishing to a foreign community never involves the
+minter, so the client held a valid community-signed `CommentUpdate` at publish time that the minter may
+never be able to fetch. Without this, a cross-post to a community that is **down, dead, or unseeded**
+can never get a `CommentUpdate` into the feed at all, and is pinned forever in read-side state 3
+(unknown), even though a perfectly verifiable snapshot existed client-side.
+
+Trust is unaffected: a `CommentUpdate` is signed by the community that hosts the comment, so the client
+is a transport for an object it cannot forge, and minter-side verification is identical whether the
+bytes arrived over RPC or over bitswap.
+
+Five rules make it safe and useful:
+
+1. **Optional is load-bearing.** A just-published comment has no `CommentUpdate` yet (the host
+   community has not generated one), so the field must tolerate absence and be fillable by a later
+   sync. This is the single deviation from the `PageIpfs` entry shape, which requires it.
+2. **Verified against `comment.communityPublicKey`.** A pushed `CommentUpdate` whose community
+   signature does not verify is rejected by the same strict gate as a badly signed comment.
+3. **CID pairing is checked, not trusted.** For every entry where `commentUpdate` is defined, the RPC
+   server derives the CID from the raw `comment` bytes it was given and requires it to equal
+   `commentUpdate.cid`; a mismatch rejects the entry. This is not redundant with rule 2: a valid
+   community signature attests the mod-state, not the pairing the *client* chose. Since `cid` is
+   itself a signed field of `CommentUpdate` (precisely to prevent this attack), signature-plus-match
+   is what proves the hosting community signed *this* mod-state for *this* comment. Without the check
+   a client could staple a genuine, genuinely-signed `CommentUpdate` from a high-scoring comment onto
+   a different one and inflate its profile's karma without forging anything.
+4. **Monotonic by `updatedAt`.** The minter stores `max(stored, pushed)` and never downgrades. This is
+   the one attack the change would otherwise open: an author whose post was moderated could push a
+   pre-removal snapshot to whitewash a `removed`/`deleted` flag.
+5. **Push seeds, minter refresh still wins.** A pushed snapshot bootstraps the entry and is the
+   permanent fallback for an unreachable community; it does not retire the minter's refresh job
+   ([below](#minter-side-freshness-of-cross-posted-entries)).
+
+Because a `CommentUpdate` can embed a preloaded replies page, per-entry payload is no longer roughly
+comment-sized: the input bound must be a **byte cap**, not just an entry count.
+
+#### Feed membership vs. mod-state
+
+These are separate axes, and conflating them is the failure mode carrying mod-state invites. **Membership
+in the feed is controlled solely by presence in the sync list; mod-state is content of an entry.**
+Removing a post from the profile is omission from the next sync, and since the minter fetches nothing
+during the call, it works with the foreign community fully dead. Nothing should ever be hidden by
+pushing a `deleted` `CommentUpdate`.
+
+| Owner action | Mechanism | Needs the foreign community reachable? |
+|---|---|---|
+| Drop a cross-post from my profile feed | omission from `syncAuthorComments` | **no** |
+| Delete the comment itself, everywhere | `CommentEdit` with `deleted`, to the host community | yes |
 
 **Sync authorization.** Signature validation stops forgery but not shrinkage: the owner's comments are
 public, so an unauthorized caller could sync a valid *subset* and silently remove entries (omission =
@@ -326,7 +393,12 @@ in its own DB, so the anti-amplification argument against node-side fetching doe
   community (read from `communityPublicKey`), **verifies the community signature**, and replaces the
   snapshot on its next mint. An invalid fetch is discarded; an unreachable canonical community leaves
   the last known snapshot in place (the entry is never dropped for unreachability).
-- The client never pushes mod-state, and never needs to be online for freshness.
+- The client may **seed** mod-state via `syncAuthorComments`, but never owns freshness: a pushed
+  snapshot only ever bootstraps an entry (or persists as its last known state when the canonical
+  community is unreachable), and the minter overwrites it with anything newer it fetches. The client
+  never needs to be online for an entry to stay fresh.
+- **Monotonicity is enforced on both paths.** Stored state advances by `updatedAt` and never regresses,
+  whether the candidate arrived from a fetch or from a sync push.
 - The boundary stays sharp: refresh known CIDs, yes; **crawl for discovery, never** (new entries only
   arrive via `syncAuthorComments`).
 
@@ -462,14 +534,27 @@ moderated one; **both remain accessible**. Per entry, verifying the embedded `Co
 
 1. **Live** — `CommentIpfs` signature valid + `CommentUpdate` loads clean → show normally.
 2. **Removed** — `CommentUpdate` loads with `removed`/`deleted` set → show as moderated.
-3. **Unknown** — `CommentUpdate` won't load at all → possibly purged, **or** the community is just
-   offline/unseeded right now. Do **not** collapse this to "purged"; render as *unverified*. (Applies
-   to **cross-posted** entries only; a **native** entry's sole host is the author-community itself, so
-   it is live iff present in the feed, and "removed" just means the owner or a moderator deleted it.)
+3. **Unknown** — there is no verifiable `CommentUpdate` at all: none embedded (its community signature
+   failed, or the entry never carried one) *and* none loadable live → possibly purged, **or** the
+   community is just offline/unseeded right now. Do **not** collapse this to "purged"; render as
+   *unverified*. (Applies to **cross-posted** entries only; a **native** entry's sole host is the
+   author-community itself, so it is live iff present in the feed, and "removed" just means the owner
+   or a moderator deleted it.)
+
+An entry whose embedded `CommentUpdate` verifies against its `communityPublicKey` is renderable as
+state 1 or 2 **even if that community is permanently gone**: the signature is what makes it
+verifiable, not the community's reachability. Such a snapshot is not known-current, so a client that
+distinguishes should mark it as last-known rather than live. This is the state that only exists
+because the client can push mod-state through
+[`syncAuthorComments`](#syncing-cross-posts-listauthorcomments--syncauthorcomments); with
+minter-fetch-only mod-state, a dead community's cross-posts could never leave state 3.
 
 **Karma** is computed from state 1 (and maybe 2) only, never from raw self-attested entries, so a
 profile cannot inflate its own karma, while a transient community outage does not silently delete
-history. (The profile record is minter-signed, but the minter signing the *envelope* does not attest
+history. *Independently verified* here means the `CommentUpdate`'s community signature checks out, not
+that it was fetched live: a client-seeded snapshot counts on exactly the same footing as a
+minter-fetched one, because neither party could have forged it. What a snapshot cannot promise is
+recency, which is true of every embedded snapshot regardless of how it arrived. (The profile record is minter-signed, but the minter signing the *envelope* does not attest
 the *foreign* mod-state inside it; karma still derives only from independently verified cross-posted
 `CommentUpdate`s.)
 
@@ -560,8 +645,20 @@ only, no edits to owner content); and how clients should attribute a profile mod
   resolves read-side dispatch by key presence; no `type` discriminator, `bso-resolver` untouched.
 - **EOL length.** Reuse the delegated-IPNS **anchor EOL** constant, not a new value.
 - **Cross-post sync.** The RPC pair `listAuthorComments` / `syncAuthorComments`, keyed by
-  `{ authorPublicKey, authorName? }` (never address), declarative snapshot of raw `CommentIpfs[]`
-  (no `CommentUpdate`), removal by omission, list-then-merge-then-sync for multi-device.
+  `{ authorPublicKey, authorName? }` (never address), declarative snapshot, removal by omission,
+  list-then-merge-then-sync for multi-device. Entries reuse the `PageIpfs` comment shape
+  (`{ comment, commentUpdate }`) with `commentUpdate` **optional**, so the client can seed
+  community-signed mod-state the minter may never be able to fetch. No new type.
+- **Client-seeded mod-state is safe and monotonic.** A pushed `CommentUpdate` is community-signed, so
+  the client cannot forge it; the minter verifies it against the comment's `communityPublicKey`,
+  **requires the CID derived from the raw comment bytes to equal `commentUpdate.cid`** (signature
+  alone attests the mod-state, not the client's chosen pairing), and stores `max(stored, pushed)` by
+  `updatedAt`, which blocks whitewashing a `removed`/`deleted` flag with an older snapshot. Push
+  seeds, minter refresh still wins.
+- **Feed membership and mod-state are separate axes.** Membership is presence in the sync list alone,
+  so dropping a cross-post from the profile works with the foreign community fully dead; deleting the
+  comment itself is a `CommentEdit` to that community and does need it reachable. Never hide an entry
+  by pushing a `deleted` `CommentUpdate`.
 - **Sync authorization.** Private RPC is local-only and trusts its clients; bitsocial forge enforces
   ownership of the author key (auth lives in the forge layer, not the method schema).
 - **Owner actions reuse existing publication types.** `Comment`, `CommentEdit`, `CommentModeration`,

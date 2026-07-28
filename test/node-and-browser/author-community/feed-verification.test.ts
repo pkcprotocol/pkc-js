@@ -23,9 +23,21 @@ describe("owner-only top level (verification-time invariant)", () => {
 describe("three renderable feed states", () => {
     it.todo("state live: CommentIpfs signature valid and live CommentUpdate loads clean");
     it.todo("state removed: live CommentUpdate loads with removed/deleted set");
-    it.todo("state unknown: live CommentUpdate does not load; rendered as unverified, never collapsed to purged");
+    it.todo("state unknown: no verifiable CommentUpdate at all (none embedded, none loadable live)");
+    it.todo("state unknown is rendered as unverified, never collapsed to purged");
+    it.todo("an entry with an embedded CommentUpdate whose community signature fails is state unknown, not state live");
     it.todo("native entries are live iff present in the feed (sole host), never state unknown");
     it.todo("a removed native entry means the owner or a moderator deleted it");
+});
+
+// The embedded snapshot's community signature is what makes it verifiable, not the community's
+// reachability, so a dead community's cross-posts stay renderable instead of being pinned in
+// state unknown. Only possible because the client can seed mod-state via syncAuthorComments.
+describe("verified snapshot from an unreachable or dead community", () => {
+    it.todo("renders as state live from the embedded CommentUpdate alone when the canonical community never resolves");
+    it.todo("renders as state removed from an embedded CommentUpdate with removed/deleted set, community unreachable");
+    it.todo("marks such an entry as last-known rather than live (not known-current)");
+    it.todo("prefers the live CommentUpdate over the embedded snapshot when the community does resolve");
 });
 
 describe("karma", () => {
@@ -33,6 +45,8 @@ describe("karma", () => {
     it.todo("never computes karma from raw self-attested embedded snapshots");
     it.todo("a profile cannot inflate karma via forged or inflated embedded CommentUpdates");
     it.todo("a transient canonical-community outage (state unknown) does not delete history from the rendered feed");
+    it.todo("counts a community-signed embedded snapshot: signature-verified is what independently verified means, not fetched-live");
+    it.todo("a stale-but-signed snapshot may lag the live score until refreshed (accepted: embedded snapshots always drift)");
 });
 
 describe("feed shape", () => {

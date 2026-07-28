@@ -2,7 +2,9 @@
 // Design-only scaffolding: every case is it.todo until the feature is implemented.
 // Covers: minter-side freshness of cross-posted entries. Division of labor:
 // discovery of new entries is client-push only (sync RPC); freshness of known entries is
-// the minter's job (it is delegated with handling the profile).
+// the minter's job (it is delegated with handling the profile). The client MAY seed a
+// community-signed CommentUpdate through syncAuthorComments, but never owns freshness:
+// stored mod-state advances by max(stored, candidate) on updatedAt, on both paths.
 import { describe, it } from "vitest";
 
 describe("minter-side CommentUpdate refresh", () => {
@@ -12,6 +14,13 @@ describe("minter-side CommentUpdate refresh", () => {
     it.todo("replaces the embedded snapshot on the next record mint");
     it.todo("reflects a canonical-side removal (removed/deleted set) in the refreshed snapshot");
     it.todo("keeps the last known snapshot when the canonical community is unreachable (entry is not dropped)");
+});
+
+describe("interplay with client-seeded mod-state", () => {
+    it.todo("overwrites a client-pushed snapshot once it fetches a newer one from the canonical community");
+    it.todo("keeps the stored snapshot when the fetched one has a lower updatedAt (monotonic on the fetch path too)");
+    it.todo("refreshes an entry the client synced without any commentUpdate");
+    it.todo("does not re-fetch on every mint for an entry whose canonical community is permanently gone (backoff)");
 });
 
 describe("refresh scope limits", () => {
