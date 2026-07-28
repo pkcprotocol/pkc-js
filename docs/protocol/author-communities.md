@@ -576,7 +576,7 @@ Publishing to a foreign community never involves the minter — a libp2p-js clie
 exchange with the foreign community directly. So the minter cannot observe the owner's cross-network
 activity, and **discovery of new entries is client-push only**: the client is the sole party that
 knows "I just posted in community X," and it delivers that knowledge through a pair of RPC methods on
-the minter (method names TBD):
+the minter:
 
 Both methods carry the comment list as **page entries**: the exact shape a `PageIpfs` already uses for
 its comments (`{ comment: CommentIpfsType, commentUpdate: CommentUpdateType }`, see
@@ -814,8 +814,8 @@ community read-only over the network:
   sync-loop iteration; no restart.
 - **Wire rule (new, type-blind): absence of `pubsubTopic` means the challenge exchange is
   disabled.** The historical reader fallback "absent topic, use the address" is removed on every
-  path. Publishers fail fast with a dedicated error (`ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED`,
-  name TBD) so clients can disable the reply UI up front instead of timing out.
+  path. Publishers fail fast with a dedicated error (`ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED`)
+  so clients can disable the reply UI up front instead of timing out.
 - **No flag day.** Every record pkc-js has ever published carries an explicit `pubsubTopic` (the
   init backfill guarantees it), so no live record relies on the old fallback. Old clients parse a
   read-only record fine (the field is already optional) and degrade by timing out, the same as for
@@ -861,8 +861,23 @@ protocol and no client-shipped CAR; a delegated community's own publishing keeps
 `author.isAuthorCommunity` is a signed boolean on the wire `author` object (`AuthorPubsubSchema`)
 meaning "this author publishes an author-community, so their identity key is worth resolving."
 Consumers treat presence as "try, tolerate failure," absence as "don't bother." It is per-comment
-(fixed at publish time), attested by the author (a third party cannot forge it), and needs a place in
-the author signed-property list.
+(fixed at publish time) and attested by the author (a third party cannot forge it).
+
+**Placement (settled):** it is a new optional key on `AuthorPubsubSchema` itself
+(`isAuthorCommunity: z.boolean().optional()`). Nothing else has to move, because both lists that
+matter are derived from that shape rather than hand-maintained:
+
+- **Signing.** `author` is a single top-level signed property of the publication, and signed-property
+  lists are computed from top-level schema shape keys. A new key inside the author object is
+  therefore covered by the existing publication signature with no change to any
+  `signedPropertyNames` list.
+- **Reserved fields.** `AuthorReservedFields` is `difference(<author-with-CommentUpdate keys + runtime
+  keys>, keys(AuthorPubsubSchema.shape))`, so adding the key to `AuthorPubsubSchema` removes it from
+  the reserved set automatically. That is what makes the node's reserved-field rejection start
+  accepting it, and it is why the name must live in the pubsub schema rather than beside it.
+
+Key order within the zod object is cosmetic; grouping it with the other author-attested flags is the
+only consideration.
 
 It is a pure optimization: the identity key is derivable from any comment's signature regardless, so
 the hint only saves readers from speculatively resolving an IPNS name for every author they render.
@@ -944,7 +959,10 @@ Consequences for the method surface:
   (address-keyed); list output includes the derived `type`.
 - **Creation** is the one moment with no record to derive from, so the shared `createCommunity` takes
   the discriminating bit as a **local, non-wire creation option** (persisted in the community's local
-  settings, from which the node knows which envelope key and schema to emit). Exact option shape TBD.
+  settings, from which the node knows which envelope key and schema to emit). The option is
+  `createCommunity({ type: "authorCommunity" })`, reusing the same value space as the derived
+  runtime-only `community.type` so creation and read use one vocabulary; omitting it defaults to
+  `"community"`, keeping every existing call site unchanged.
 - The only genuinely author-specific RPC surface is the sync pair
   (`listAuthorComments` / `syncAuthorComments`).
 
@@ -1065,8 +1083,15 @@ only, no edits to owner content); and how clients should attribute a profile mod
   interval (one to two hours) by the same job that refreshes cross-posted `CommentUpdate`s. Ancestors
   are foreign-signed comments carrying no new trust; an unverifiable ancestor drops the context, not
   the entry.
-- **`author.isAuthorCommunity`** is the wire hint's name, a signed boolean on `AuthorPubsubSchema`,
-  backward compatible in both directions through the flexible-author parse.
+- **`author.isAuthorCommunity`** is the wire hint's name, a signed boolean added as an optional key on
+  `AuthorPubsubSchema` itself, backward compatible in both directions through the flexible-author
+  parse. Placement needs no hand-edited list: signed-property lists derive from top-level shape keys
+  (`author` is one property), and `AuthorReservedFields` is a `difference` against
+  `AuthorPubsubSchema.shape`, so the key leaves the reserved set by construction.
+- **Naming is settled** across the surface: `listAuthorComments` / `syncAuthorComments`,
+  `community.type` with values `"community"` / `"authorCommunity"`, the creation option
+  `createCommunity({ type: "authorCommunity" })`, and the read-only-mode publisher error
+  `ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED`.
 - **The runtime discriminant is `community.type`**, derived from the envelope key, never on the wire.
 - **`previousCommentCid` is the last-resort recovery path** for a cross-post list lost on both sides,
   and the only independent check that a minter has not silently dropped feed entries. Not part of the
@@ -1093,8 +1118,9 @@ only, no edits to owner content); and how clients should attribute a profile mod
   but it never owns freshness.
 - **`type` is runtime-only, derived from the envelope key**, with values `"community"` and
   `"authorCommunity"` mirroring those keys. No `createAuthor`, no `getAuthor`, no wire discriminator;
-  creation passes the bit as a local non-wire option to the shared create, and reading narrows on the
-  `type` discriminant returned by the type-blind `getCommunity`.
+  creation passes the bit as a local non-wire option to the shared create
+  (`createCommunity({ type: "authorCommunity" })`, defaulting to `"community"`), and reading narrows
+  on the `type` discriminant returned by the type-blind `getCommunity`.
 - **Read-only mode.** `settings.disablePubsubChallengeExchange` (private boolean) omits
   `pubsubTopic` from the record and stops the challenge-topic subscription; absence of `pubsubTopic`
   now means "no challenge exchange", with no fallback to the address anywhere. No flag day: all
@@ -1112,10 +1138,6 @@ only, no edits to owner content); and how clients should attribute a profile mod
 
 ## Open questions
 
-- **`author.isAuthorCommunity` placement** in the author signed-property list (the name itself is
-  settled).
-- **Method/option naming.** The local creation-option shape is TBD; the method names
-  `listAuthorComments` / `syncAuthorComments` and the `community.type` values are settled.
 - **Delegation setup handshake.** How a browser author asks bitsocial forge (or another service) to
   become its minter and obtains `Mn` (plus the bootstrap `pubsubTopic`/`encryption`), and how the
   author later rotates `An → Mn'` to revoke. Mostly a forge concern, but pkc-js needs the client-side
