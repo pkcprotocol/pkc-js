@@ -7,9 +7,15 @@ export async function listenToIncomingRequests(community: LocalCommunity) {
     const log = Logger("pkc-js:local-community:sync:_listenToIncomingRequests");
     // Make sure community listens to pubsub topic
     // Code below is to handle in case the ipfs node restarted and the subscription got lost or something
-    const pubsubClient = community._clientsManager.getDefaultKuboPubsubClient();
-    const subscribedTopics = await pubsubClient._client.pubsub.ls();
     const topic = challengeExchangePubsubTopic(community);
+    // Only a community that actually runs the exchange requires a pubsub provider; a node hosting
+    // read-only communities alone may have none configured (issue #229), and then there is nothing
+    // subscribed to drop either. An enabled community with no provider still throws, as it must.
+    const pubsubClient = topic
+        ? community._clientsManager.getDefaultKuboPubsubClient()
+        : community._clientsManager.getDefaultKuboPubsubClientIfAny();
+    if (!pubsubClient) return;
+    const subscribedTopics = await pubsubClient._client.pubsub.ls();
     if (!topic) {
         // settings.disablePubsubChallengeExchange is on (issue #229). This runs on every sync-loop
         // iteration, so toggling the setting on while started drops the subscription without a restart.

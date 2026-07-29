@@ -30,8 +30,8 @@ async function waitTillCommunityPublishedRecord(community: LocalCommunity) {
     await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 }
 
-// These suites reach into the LocalCommunity instance and into the kubo node's subscription list,
-// neither of which is exposed through the RPC client.
+// Reads community.raw.communityIpfs and community.signer off the LocalCommunity instance, and lists
+// the kubo node's subscriptions; the RPC client exposes neither the instance internals nor the node.
 describeSkipIfRpc("settings.disablePubsubChallengeExchange = true", async () => {
     let pkc: PKCType;
     let community: LocalCommunity;
@@ -90,6 +90,8 @@ describeSkipIfRpc("settings.disablePubsubChallengeExchange = true", async () => 
     });
 });
 
+// Same reason as above: asserts community.signer.address against the record and against the kubo
+// node's subscription list, neither of which is reachable through the RPC client.
 describeSkipIfRpc("settings.disablePubsubChallengeExchange unset or false", async () => {
     let pkc: PKCType;
     let community: LocalCommunity;
@@ -120,6 +122,9 @@ describeSkipIfRpc("settings.disablePubsubChallengeExchange unset or false", asyn
     });
 });
 
+// Inspects readerPkc._clientsManager.pubsubProviderSubscriptions to prove which topics the publisher
+// touched. Under RPC the publisher's pubsub work happens in the server's process, so the client-side
+// subscription map stays empty and the assertion would pass without proving anything.
 describeSkipIfRpc("no fallback to the community address as a challenge-exchange topic", async () => {
     let ownerPkc: PKCType;
     let readerPkc: PKCType;
@@ -179,6 +184,9 @@ describeSkipIfRpc("no fallback to the community address as a challenge-exchange 
     });
 });
 
+// Asserts the same-process publish shortcut specifically: publish() must find the community in this
+// PKC's _startedCommunities. An RPC client always takes _publishWithRpc instead, so it would exercise
+// the server's shortcut rather than the branch under test.
 describeSkipIfRpc("owner publishing while the exchange is disabled", async () => {
     let pkc: PKCType;
     let community: LocalCommunity;
@@ -239,6 +247,41 @@ describeSkipIfRpc("owner publishing while the exchange is disabled", async () =>
     });
 });
 
+// Needs a PKC constructed with no pubsub provider at all, which the RPC client cannot express: an
+// RPC client delegates every publish to the server's PKC and never consults its own pubsub clients.
+describeSkipIfRpc("owner publishing in-process with no pubsub provider configured", async () => {
+    let pkc: PKCType;
+    let community: LocalCommunity;
+
+    beforeAll(async () => {
+        // a node that runs only read-only communities has no reason to configure a pubsub provider
+        pkc = await mockPKC({ pubsubKuboRpcClientsOptions: [] });
+        community = <LocalCommunity>await pkc.createCommunity({
+            settings: { disablePubsubChallengeExchange: true, challenges: [] }
+        });
+        await community.start();
+        await waitTillCommunityPublishedRecord(community);
+    });
+
+    afterAll(async () => {
+        await community.delete();
+        await pkc.destroy();
+    });
+
+    it("has no pubsub provider to publish over", () => {
+        expect(Object.keys(pkc.clients.pubsubKuboRpcClients)).to.have.lengthOf(0);
+        expect(Object.keys(pkc.clients.libp2pJsClients)).to.have.lengthOf(0);
+    });
+
+    it("publishes via the local shortcut instead of demanding a pubsub provider", async () => {
+        const post = await generateMockPost({ communityAddress: community.address, pkc });
+        await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+        expect(post.cid).to.be.a("string");
+    });
+});
+
+// Watches the kubo node's subscription list flip as the sync loop reacts to the edit; the RPC client
+// has no handle on the node running the community, so there is nothing to observe the toggle on.
 describeSkipIfRpc("toggling the exchange at runtime", async () => {
     let pkc: PKCType;
     let community: LocalCommunity;

@@ -404,7 +404,6 @@ export async function stop(community: LocalCommunity) {
             log.error(`Failed to unlock start lock on community (${community.address})`, e);
         }
         const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
-        const pubsubClient = community._clientsManager.getDefaultKuboPubsubClient();
 
         community._setStartedStateWithEmission("stopped");
         untrackStartedCommunity(community._pkc, community);
@@ -414,7 +413,7 @@ export async function stop(community: LocalCommunity) {
         await community._dbHandler.unlockCommunityState();
         await community._updateStartedValue();
         community._clientsManager.updateKuboRpcState("stopped", kuboRpcClient.url);
-        community._clientsManager.updateKuboRpcPubsubState("stopped", pubsubClient.url);
+        community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("stopped");
         if (community._dbHandler) community._dbHandler.destoryConnection();
         log(`Stopped the running of local community (${community.address})`);
         community._setState("stopped");

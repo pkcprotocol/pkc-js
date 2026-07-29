@@ -153,11 +153,19 @@ export class BaseClientsManager {
     }
 
     getDefaultKuboPubsubClient() {
-        const defaultKuboPubsubClient = keys(this._pkc.clients.pubsubKuboRpcClients)[0];
-        if (defaultKuboPubsubClient) return this._pkc.clients.pubsubKuboRpcClients[defaultKuboPubsubClient];
+        const defaultKuboPubsubClient = this.getDefaultKuboPubsubClientIfAny();
+        if (defaultKuboPubsubClient) return defaultKuboPubsubClient;
         throw new PKCError("ERR_NO_DEFAULT_KUBO_RPC_PUBSUB_PROVIDER", {
             pubsubKuboRpcClients: this._pkc.clients.pubsubKuboRpcClients
         });
+    }
+
+    // A node that only runs read-only communities (settings.disablePubsubChallengeExchange, issue #229)
+    // may be configured with no pubsub provider at all. Use this wherever the client is only needed to
+    // label a diagnostic state, so its absence is not turned into a failure.
+    getDefaultKuboPubsubClientIfAny() {
+        const defaultKuboPubsubClient = keys(this._pkc.clients.pubsubKuboRpcClients)[0];
+        return defaultKuboPubsubClient ? this._pkc.clients.pubsubKuboRpcClients[defaultKuboPubsubClient] : undefined;
     }
 
     getIpfsClientWithKuboRpcClientFunctions() {

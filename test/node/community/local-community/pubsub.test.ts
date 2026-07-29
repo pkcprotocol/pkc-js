@@ -97,10 +97,38 @@ describe("pubsub: listenToIncomingRequests", () => {
             settings: { disablePubsubChallengeExchange: true },
             handleChallengeExchange: (): undefined => undefined,
             _clientsManager: {
-                getDefaultKuboPubsubClient: () => ({
+                // the disabled path takes the tolerant getter, since a node hosting only read-only
+                // communities may have no pubsub provider configured at all
+                getDefaultKuboPubsubClientIfAny: () => ({
                     _client: { pubsub: { ls: vi.fn().mockResolvedValue([]) } },
                     url: "http://localhost:5001"
                 }),
+                pubsubUnsubscribe,
+                pubsubSubscribe,
+                updateKuboRpcPubsubState: vi.fn()
+            }
+        } as unknown as LocalCommunity;
+
+        await listenToIncomingRequests(community);
+
+        expect(pubsubSubscribe).not.toHaveBeenCalled();
+        expect(pubsubUnsubscribe).not.toHaveBeenCalled();
+    });
+
+    it("returns without touching pubsub when the exchange is disabled and no provider is configured", async () => {
+        const pubsubSubscribe = vi.fn();
+        const pubsubUnsubscribe = vi.fn();
+        const community = {
+            address: "readonly.bso",
+            pubsubTopic: "pubsub-topic",
+            signer: { address: "signer-address" },
+            settings: { disablePubsubChallengeExchange: true },
+            handleChallengeExchange: (): undefined => undefined,
+            _clientsManager: {
+                getDefaultKuboPubsubClientIfAny: (): undefined => undefined,
+                getDefaultKuboPubsubClient: (): never => {
+                    throw new Error("the disabled path must not demand a pubsub provider");
+                },
                 pubsubUnsubscribe,
                 pubsubSubscribe,
                 updateKuboRpcPubsubState: vi.fn()
@@ -124,7 +152,7 @@ describe("pubsub: listenToIncomingRequests", () => {
             settings: { disablePubsubChallengeExchange: true },
             handleChallengeExchange,
             _clientsManager: {
-                getDefaultKuboPubsubClient: () => ({
+                getDefaultKuboPubsubClientIfAny: () => ({
                     _client: { pubsub: { ls: vi.fn().mockResolvedValue(["pubsub-topic"]) } },
                     url: "http://localhost:5001"
                 }),
