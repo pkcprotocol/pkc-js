@@ -1247,7 +1247,6 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
         const options = { acceptedChallengeTypes: [] };
 
-        const providers = this._getPubsubProviders();
         const startedCommunity = findStartedCommunity(this._pkc, { publicKey: this.communityPublicKey, name: this.communityName }) as
             | LocalCommunity
             | undefined;
@@ -1276,6 +1275,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
             });
             throw error;
         }
+
+        // Discovered only once the network path is certain: neither the local shortcut above nor the
+        // disabled-exchange fast-fail publishes over pubsub, so neither should demand a provider.
+        const providers = this._getPubsubProviders();
 
         let currentPubsubProviderIndex = 0;
         while (!this._didWeReceiveChallengeOrChallengeVerification() && currentPubsubProviderIndex < providers.length) {
