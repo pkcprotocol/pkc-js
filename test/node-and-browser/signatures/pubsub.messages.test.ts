@@ -276,7 +276,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             const challenge = parsePubsubMsgFixture(clone(validChallengeFixture)) as unknown as ChallengeMessageType;
             const verificaiton = await verifyChallengeMessage({
                 challenge,
-                pubsubTopic: "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z",
+                communitySignerAddress: "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z",
                 validateTimestampRange: false
             });
             expect(verificaiton).to.deep.equal({ valid: true });
@@ -287,19 +287,19 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             challenge.timestamp -= 1234; // Should invalidate signature
             const verificaiton = await verifyChallengeMessage({
                 challenge,
-                pubsubTopic: "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z",
+                communitySignerAddress: "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z",
                 validateTimestampRange: false
             });
             expect(verificaiton).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
 
-        it(`challenge message signed by other than community.pubsubTopic is invalidated`, async () => {
+        it(`challenge message signed by other than the community signer is invalidated`, async () => {
             const challenge = parsePubsubMsgFixture(clone(validChallengeFixture)) as unknown as ChallengeMessageType;
             const verificaiton = await verifyChallengeMessage({
                 challenge,
-                pubsubTopic: (await pkc.createSigner()).address,
+                communitySignerAddress: (await pkc.createSigner()).address,
                 validateTimestampRange: false
-            }); // Random pubsub topic
+            }); // Random signer, not the community
             expect(verificaiton).to.deep.equal({ valid: false, reason: messages.ERR_CHALLENGE_MSG_SIGNER_IS_NOT_COMMUNITY });
         });
         it(`Valid live challengemessage gets validated correctly`, async () => {
@@ -318,7 +318,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
             const verification = await verifyChallengeMessage({
                 challenge: challengePubsubMsgNoExtraProps,
-                pubsubTopic: mathCliCommunityAddress,
+                communitySignerAddress: mathCliCommunityAddress,
                 validateTimestampRange: false
             });
             expect(verification).to.deep.equal({ valid: true });
@@ -551,7 +551,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             ) as unknown as ChallengeVerificationMessageType;
             const verificaiton = await verifyChallengeVerification({
                 verification: challengeVerification,
-                pubsubTopic: signers[0].address,
+                communitySignerAddress: signers[0].address,
                 validateTimestampRange: false
             });
             expect(verificaiton).to.deep.equal({ valid: true });
@@ -570,7 +570,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             const challengeVerificationNoExtraProps = omit(challengeVerification, ["comment", "commentUpdate"]);
             const verification = await verifyChallengeVerification({
                 verification: challengeVerificationNoExtraProps,
-                pubsubTopic: signers[0].address,
+                communitySignerAddress: signers[0].address,
                 validateTimestampRange: false
             });
             expect(verification).to.deep.equal({ valid: true });
@@ -582,7 +582,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             challengeVerification.timestamp -= 1234; // Invalidate signature
             const verificaiton = await verifyChallengeVerification({
                 verification: challengeVerification,
-                pubsubTopic: signers[0].address,
+                communitySignerAddress: signers[0].address,
                 validateTimestampRange: false
             });
             expect(verificaiton).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });

@@ -807,20 +807,25 @@ export async function verifyChallengeRequest({
     return _validateSignatureOfPubsubMsg(request);
 }
 
+// communitySignerAddress is the address of the key that signs the community's own records, ie the
+// entity the challenge must have come from. This used to take the pubsubTopic string and only worked
+// because the topic is backfilled to that address; the check has always meant "signed by the
+// community", never "equal to the topic". Decoupled in issue #229, where a read-only community has no
+// topic at all — and it also fixes communities that set a custom pubsubTopic.
 export async function verifyChallengeMessage({
     challenge,
-    pubsubTopic,
+    communitySignerAddress,
     validateTimestampRange
 }: {
     challenge: ChallengeMessageType;
-    pubsubTopic: string;
+    communitySignerAddress: string;
     validateTimestampRange: boolean;
 }): Promise<ValidationResult> {
     if (!_allFieldsOfRecordInSignedPropertyNames(challenge))
         return { valid: false, reason: messages.ERR_CHALLENGE_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
 
     const msgSignerAddress = await getPKCAddressFromPublicKeyBuffer(challenge.signature.publicKey);
-    if (msgSignerAddress !== pubsubTopic) return { valid: false, reason: messages.ERR_CHALLENGE_MSG_SIGNER_IS_NOT_COMMUNITY };
+    if (msgSignerAddress !== communitySignerAddress) return { valid: false, reason: messages.ERR_CHALLENGE_MSG_SIGNER_IS_NOT_COMMUNITY };
     if ((validateTimestampRange && _minimumTimestamp() > challenge.timestamp) || _maximumTimestamp() < challenge.timestamp)
         return { valid: false, reason: messages.ERR_PUBSUB_MSG_TIMESTAMP_IS_OUTDATED };
 
@@ -846,20 +851,22 @@ export async function verifyChallengeAnswer({
     return _validateSignatureOfPubsubMsg(answer);
 }
 
+// See verifyChallengeMessage: communitySignerAddress, not the pubsub topic (issue #229).
 export async function verifyChallengeVerification({
     verification,
-    pubsubTopic,
+    communitySignerAddress,
     validateTimestampRange
 }: {
     verification: ChallengeVerificationMessageType;
-    pubsubTopic: string;
+    communitySignerAddress: string;
     validateTimestampRange: boolean;
 }): Promise<ValidationResult> {
     if (!_allFieldsOfRecordInSignedPropertyNames(verification))
         return { valid: false, reason: messages.ERR_CHALLENGE_VERIFICATION_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
 
     const msgSignerAddress = await getPKCAddressFromPublicKeyBuffer(verification.signature.publicKey);
-    if (msgSignerAddress !== pubsubTopic) return { valid: false, reason: messages.ERR_CHALLENGE_VERIFICATION_MSG_SIGNER_IS_NOT_COMMUNITY };
+    if (msgSignerAddress !== communitySignerAddress)
+        return { valid: false, reason: messages.ERR_CHALLENGE_VERIFICATION_MSG_SIGNER_IS_NOT_COMMUNITY };
     if ((validateTimestampRange && _minimumTimestamp() > verification.timestamp) || _maximumTimestamp() < verification.timestamp)
         return { valid: false, reason: messages.ERR_PUBSUB_MSG_TIMESTAMP_IS_OUTDATED };
 

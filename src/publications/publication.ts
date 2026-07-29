@@ -317,7 +317,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         if (Object.values(this._challengeExchanges).some((exchange) => exchange.challenge)) return; // We only process one challenge
         const challengeMsgValidity = await verifyChallengeMessage({
             challenge: msg,
-            pubsubTopic: this._communityChallengeMsgSignerAddress(),
+            communitySignerAddress: this._communityChallengeMsgSignerAddress(),
             validateTimestampRange: true
         });
         if (!challengeMsgValidity.valid) {
@@ -399,7 +399,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         if (this._challengeExchanges[msg.challengeRequestId.toString()].challengeVerification) return;
         const signatureValidation = await verifyChallengeVerification({
             verification: msg,
-            pubsubTopic: this._communityChallengeMsgSignerAddress(),
+            communitySignerAddress: this._communityChallengeMsgSignerAddress(),
             validateTimestampRange: true
         });
         if (!signatureValidation.valid) {
@@ -722,11 +722,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
         return pubsubTopic;
     }
 
-    // Who must have signed an incoming CHALLENGE/CHALLENGEVERIFICATION. Historically the challenge
-    // topic doubled as this address, which is what the verifiers compare against; a read-only
-    // community has no topic but the identity being checked is unchanged (issue #229).
+    // Who must have signed an incoming CHALLENGE/CHALLENGEVERIFICATION: the key that signs the
+    // community's own records. Deliberately NOT the pubsub topic — the topic only happened to equal
+    // this address because of the init backfill (issue #229). Reading it from the record's signature
+    // also makes a custom pubsubTopic verify correctly, and keeps working for a delegated community
+    // where the record is signed by the minter while the identity is the anchor (#233).
     private _communityChallengeMsgSignerAddress(): string {
-        const signerAddress = this._community?.pubsubTopic ?? this._community?.signerAddress;
+        const signerAddress = this._community?.signerAddress;
         if (typeof signerAddress !== "string") throw Error("Failed to load the challenge message signer address of community");
         return signerAddress;
     }

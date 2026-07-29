@@ -61,10 +61,14 @@ describeSkipIfRpc("settings.disablePubsubChallengeExchange = true", async () => 
         expect(topics).to.not.include(community.address);
     });
 
-    it("keeps publishing new records, so replication over the IPNS topic is unaffected", async () => {
+    it("keeps minting new records, so replication over the IPNS topic is unaffected", async () => {
         const updatedAtBefore = community.updatedAt!;
+        // an idle community only republishes every 15 minutes, so force the next mint with an edit
+        await community.edit({ title: `read-only ${updatedAtBefore}` });
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => community.updatedAt! > updatedAtBefore });
         expect(community.updatedAt!).to.be.greaterThan(updatedAtBefore);
+        // and every subsequent mint still omits the topic
+        expect(community.raw.communityIpfs!.pubsubTopic).to.be.undefined;
     });
 
     it("is loadable by a remote client, which sees no pubsubTopic on the record", async () => {

@@ -353,7 +353,12 @@ async function publishCommunityRecordToIpns(
         community._blocksToRm = community._blocksToRm.filter((blockCid) => !removedBlocks.includes(blockCid));
     }
     if (community.updateCid) community._cidsToUnPin.add(community.updateCid); // add old cid of community to be unpinned
+    const configuredPubsubTopic = community.pubsubTopic;
     community.initCommunityIpfsPropsNoMerge(newCommunityRecord);
+    // A read-only community publishes no pubsubTopic, and the line above overwrites every CommunityIpfs
+    // prop from the record it just published. Restore the configured topic so it is not lost on the
+    // round trip and survives a disable/enable cycle (issue #229) — settings is the only switch.
+    if (!newCommunityRecord.pubsubTopic && configuredPubsubTopic) community.pubsubTopic = configuredPubsubTopic;
     community.updateCid = file.path;
     community._pendingEditProps = community._pendingEditProps.filter(
         (editProps) => !editIdsToIncludeInNextUpdate.includes(editProps.editId)

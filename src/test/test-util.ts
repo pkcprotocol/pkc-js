@@ -1847,6 +1847,9 @@ export async function createMockedCommunityIpns(communityOpts: CreateNewLocalCom
         ...communityOpts
     }; // default community, will be using its props
     if (!communityRecord.posts) delete communityRecord.posts;
+    // Pass `pubsubTopic: undefined` to mint the record a read-only community publishes (issue #229).
+    // The key must be deleted, not left undefined: _signJson picks signed props by key presence.
+    if (!communityRecord.pubsubTopic) delete communityRecord.pubsubTopic;
 
     communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer });
     await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
