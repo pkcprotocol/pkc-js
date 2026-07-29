@@ -62,11 +62,14 @@ describe("pubsub: listenToIncomingRequests", () => {
         expect(pubsubSubscribe).not.toHaveBeenCalled();
     });
 
-    it("falls back to community.address when pubsubTopic is unset", async () => {
+    // Since issue #229 the fallback is the signer address, never community.address: an absent topic
+    // on the wire means the challenge exchange is disabled, so the address must not stand in for one.
+    it("falls back to the signer address when pubsubTopic is unset", async () => {
         const pubsubSubscribe = vi.fn();
         const community = {
             address: "fallback.bso",
             pubsubTopic: undefined,
+            signer: { address: "signer-address" },
             handleChallengeExchange: (): undefined => undefined,
             _clientsManager: {
                 getDefaultKuboPubsubClient: () => ({
@@ -81,7 +84,60 @@ describe("pubsub: listenToIncomingRequests", () => {
 
         await listenToIncomingRequests(community);
 
-        expect(pubsubSubscribe).toHaveBeenCalledWith("fallback.bso", expect.any(Function));
+        expect(pubsubSubscribe).toHaveBeenCalledWith("signer-address", expect.any(Function));
+    });
+
+    it("does not subscribe when settings.disablePubsubChallengeExchange is on", async () => {
+        const pubsubSubscribe = vi.fn();
+        const pubsubUnsubscribe = vi.fn();
+        const community = {
+            address: "readonly.bso",
+            pubsubTopic: "pubsub-topic",
+            signer: { address: "signer-address" },
+            settings: { disablePubsubChallengeExchange: true },
+            handleChallengeExchange: (): undefined => undefined,
+            _clientsManager: {
+                getDefaultKuboPubsubClient: () => ({
+                    _client: { pubsub: { ls: vi.fn().mockResolvedValue([]) } },
+                    url: "http://localhost:5001"
+                }),
+                pubsubUnsubscribe,
+                pubsubSubscribe,
+                updateKuboRpcPubsubState: vi.fn()
+            }
+        } as unknown as LocalCommunity;
+
+        await listenToIncomingRequests(community);
+
+        expect(pubsubSubscribe).not.toHaveBeenCalled();
+        expect(pubsubUnsubscribe).not.toHaveBeenCalled();
+    });
+
+    it("unsubscribes when the setting is toggled on while the topic is still joined", async () => {
+        const pubsubSubscribe = vi.fn();
+        const pubsubUnsubscribe = vi.fn();
+        const handleChallengeExchange = (): undefined => undefined;
+        const community = {
+            address: "readonly.bso",
+            pubsubTopic: "pubsub-topic",
+            signer: { address: "signer-address" },
+            settings: { disablePubsubChallengeExchange: true },
+            handleChallengeExchange,
+            _clientsManager: {
+                getDefaultKuboPubsubClient: () => ({
+                    _client: { pubsub: { ls: vi.fn().mockResolvedValue(["pubsub-topic"]) } },
+                    url: "http://localhost:5001"
+                }),
+                pubsubUnsubscribe,
+                pubsubSubscribe,
+                updateKuboRpcPubsubState: vi.fn()
+            }
+        } as unknown as LocalCommunity;
+
+        await listenToIncomingRequests(community);
+
+        expect(pubsubUnsubscribe).toHaveBeenCalledWith("pubsub-topic", handleChallengeExchange);
+        expect(pubsubSubscribe).not.toHaveBeenCalled();
     });
 });
 
@@ -104,11 +160,12 @@ describe("pubsub: providePubsubTopicRoutingCidsIfNeeded", () => {
 
     it("early-returns when there are no topics to provide", async () => {
         const getDefaultKuboRpcClient = vi.fn();
-        // pubsubTopicWithfallback returns `pubsubTopic || address`, so both must be falsy
+        // challengeExchangePubsubTopic returns `pubsubTopic || signer.address`, so both must be falsy
         // (and ipnsPubsubTopic undefined) for topics.length to be 0.
         const community = {
             address: undefined,
             pubsubTopic: undefined,
+            signer: undefined,
             ipnsPubsubTopic: undefined,
             _lastPubsubTopicRoutingProvideAt: undefined,
             _clientsManager: { getDefaultKuboRpcClient }

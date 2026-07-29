@@ -240,7 +240,11 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
     await community._dbHandler.createOrMigrateTablesIfNeeded();
     await initSignerProps(community, community.signer); // init this.encryption as well
 
-    if (!community.pubsubTopic) community.pubsubTopic = clone(community.signer.address);
+    // A read-only community gets no backfilled topic: absence of pubsubTopic on the wire is what tells
+    // readers the challenge exchange is disabled (issue #229). An explicit custom topic is left alone
+    // so it survives a disable/enable cycle.
+    if (!community.pubsubTopic && !community.settings?.disablePubsubChallengeExchange)
+        community.pubsubTopic = clone(community.signer.address);
     if (typeof community.createdAt !== "number") community.createdAt = timestamp();
     if (!community.protocolVersion) community.protocolVersion = env.PROTOCOL_VERSION;
     if (!community.settings?.maxPendingApprovalCount) community.settings = { ...community.settings, maxPendingApprovalCount: 500 };

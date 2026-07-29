@@ -319,13 +319,12 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         }
         if (!this.pubsubTopicRoutingCid) {
             if ("pubsubTopicRoutingCid" in newProps) this.pubsubTopicRoutingCid = newProps.pubsubTopicRoutingCid;
-            else if (this.raw.communityIpfs)
-                this.pubsubTopicRoutingCid = pubsubTopicToDhtKey(
-                    newProps.pubsubTopic ||
-                        this.pubsubTopic ||
-                        ("address" in newProps ? (newProps.address as string) : undefined) ||
-                        this.address
-                );
+            else if (this.raw.communityIpfs) {
+                // No fallback to the address anymore: a record without pubsubTopic has its challenge
+                // exchange disabled (issue #229), so there are no challenge-topic peers to look up
+                const challengeTopic = newProps.pubsubTopic || this.pubsubTopic;
+                if (challengeTopic) this.pubsubTopicRoutingCid = pubsubTopicToDhtKey(challengeTopic);
+            }
         }
     }
 

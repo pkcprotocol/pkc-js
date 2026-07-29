@@ -22,7 +22,12 @@ import type { CommunityIpfsType } from "../../../../community/types.js";
 import type { CommentUpdateType } from "../../../../publications/comment/types.js";
 import type { LocalCommunity } from "../local-community.js";
 import type { CommentUpdateToWriteToDbAndPublishToIpfs } from "./defaults.js";
-import { adjustPostUpdatesBucketsIfNeeded, syncPostUpdatesWithIpfs, updateCommentsThatNeedToBeUpdated } from "./comment-updates.js";
+import {
+    adjustPostUpdatesBucketsIfNeeded,
+    challengeExchangePubsubTopic,
+    syncPostUpdatesWithIpfs,
+    updateCommentsThatNeedToBeUpdated
+} from "./comment-updates.js";
 import { cleanUpIpfsRepoRarely, purgeDisapprovedCommentsOlderThan, unpinStaleCids } from "./cleanup.js";
 import { providePubsubTopicRoutingCidsIfNeeded } from "./pubsub.js";
 
@@ -212,6 +217,10 @@ async function calculateNextCommunityRecord(
         ...cleanUpBeforePublishing({
             ...omit(community._toJSONIpfsBaseNoPosts(), ["signature"]),
             ...pendingCommunityIpfsEditProps,
+            // Resolved last so it wins over a pending pubsubTopic edit. undefined when the exchange is
+            // disabled, and cleanUpBeforePublishing purges it from the record (issue #229). The instance
+            // keeps community.pubsubTopic so a custom topic survives a disable/enable cycle.
+            pubsubTopic: challengeExchangePubsubTopic(community),
             lastPostCid: latestPost?.cid,
             lastCommentCid: latestComment?.cid,
             statsCid,

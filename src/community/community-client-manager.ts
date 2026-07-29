@@ -523,7 +523,10 @@ export class CommunityClientsManager extends PKCClientsManager {
                     pubsubTopic: subRes.community.pubsubTopic,
                     address: anchorIdentityAddress,
                     publicKey: ipnsName,
-                    name: subRes.community.name
+                    name: subRes.community.name,
+                    // The record's own signing key, which is also what signs challenge messages. For a
+                    // delegated community that is the minter, not the anchor above (issue #229).
+                    signerAddress: getPKCAddressFromPublicKeySync(subRes.community.signature.publicKey)
                 });
             }
             return subRes;

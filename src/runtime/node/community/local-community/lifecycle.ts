@@ -18,7 +18,7 @@ import {
 } from "../../../../pkc/tracked-instance-registry-util.js";
 import { LocalCommunity } from "../local-community.js";
 import { processStartedCommunities } from "./registry.js";
-import { pubsubTopicWithfallback } from "./comment-updates.js";
+import { communityChallengePubsubTopic } from "./comment-updates.js";
 import { providePubsubTopicRoutingCidsIfNeeded } from "./pubsub.js";
 import { reprovideOnAddressChangeIfDue } from "./reprovide-on-address-change.js";
 import { repinCommentUpdateIfNeeded, unpinStaleCids } from "./cleanup.js";
@@ -367,7 +367,10 @@ export async function stop(community: LocalCommunity) {
     if (community.state === "started") {
         log("Stopping running community", community.address);
         try {
-            await community._clientsManager.pubsubUnsubscribe(pubsubTopicWithfallback(community), community.handleChallengeExchange);
+            // Unsubscribe regardless of settings.disablePubsubChallengeExchange — the setting may have
+            // been toggled on after we subscribed, and unsubscribing a topic we never joined is a no-op
+            const challengeTopic = communityChallengePubsubTopic(community);
+            if (challengeTopic) await community._clientsManager.pubsubUnsubscribe(challengeTopic, community.handleChallengeExchange);
         } catch (e) {
             log.error("Failed to unsubscribe from challenge exchange pubsub when stopping community", e);
         }

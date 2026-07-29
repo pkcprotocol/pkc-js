@@ -15,6 +15,7 @@ import { CommentIpfsGatewayClient, CommentKuboRpcClient } from "./comment/commen
 import type { CommunityEvents, CommunityIpfsType } from "../community/types.js";
 import { waitForUpdateInCommunityInstanceWithErrorAndTimeout } from "../util.js";
 import { findStartedCommunity, findUpdatingCommunity, untrackUpdatingCommunity } from "../pkc/tracked-instance-registry-util.js";
+import { getPKCAddressFromPublicKeySync } from "../signer/util.js";
 
 export class PublicationClientsManager extends PKCClientsManager {
     override clients!: {
@@ -368,7 +369,8 @@ export class PublicationClientsManager extends PKCClientsManager {
             publicKey: updatingCommunityInstance.community.publicKey!,
             name: updatingCommunityInstance.community.name,
             encryption: communityIpfs.encryption,
-            pubsubTopic: communityIpfs.pubsubTopic
+            pubsubTopic: communityIpfs.pubsubTopic,
+            signerAddress: getPKCAddressFromPublicKeySync(communityIpfs.signature.publicKey)
         };
     }
 }

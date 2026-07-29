@@ -1188,7 +1188,8 @@ export async function ensurePublicationIsSigned(
             publicKey: community.signer?.address ?? community.address,
             name: community.name,
             encryption: community.encryption,
-            pubsubTopic: community.pubsubTopic
+            pubsubTopic: community.pubsubTopic,
+            signerAddress: community.signer?.address ?? community.address
         };
         await publication._signPublicationWithCommunityFields();
     }

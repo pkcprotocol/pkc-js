@@ -3,6 +3,7 @@ export enum messages {
     ERR_COMMUNITY_CAN_EITHER_RUN_OR_UPDATE = "Community can either sync through .start() or update, but not both",
     ERR_PUBLICATION_MISSING_FIELD = "Publication is missing field(s)",
     ERR_COMMUNITY_MISSING_FIELD = "Community is missing field needed for publishing",
+    ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED = "The community record has no pubsubTopic, which means its challenge exchange is disabled and it does not accept publications over pubsub",
     ERR_COMMUNITY_OPTIONS_MISSING_ADDRESS = "The options sent to pkc.createCommunity() is missing address or signer",
     ERR_INVALID_COMMUNITY_ADDRESS_SCHEMA = "Community address is incorrect. Address should be either a domain or IPNS",
     ERR_CID_IS_INVALID = "CID is invalid",
