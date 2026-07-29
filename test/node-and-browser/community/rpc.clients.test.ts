@@ -1,6 +1,11 @@
 import signers from "../../fixtures/signers.js";
 
-import { createNewIpns, resolveWhenConditionIsTrue, getAvailablePKCConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
+import {
+    createNewIpns,
+    resolveWhenConditionIsTrue,
+    getAvailablePKCConfigsToTestAgainst,
+    encryptionForSigner
+} from "../../../dist/node/test/test-util.js";
 
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
 
@@ -32,6 +37,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
 
             const record: Record<string, unknown> = JSON.parse(JSON.stringify(actualCommunity.raw.communityIpfs));
             delete record["posts"];
+            record.encryption = encryptionForSigner(newIpns.signer);
             record.signature = await signCommunity({
                 community: record as Parameters<typeof signCommunity>[0]["community"],
                 signer: newIpns.signer

@@ -1,6 +1,12 @@
 import signers from "../../fixtures/signers.js";
 
-import { createMockNameResolver, processAllCommentsRecursively, mockPKCV2, createNewIpns } from "../../../dist/node/test/test-util.js";
+import {
+    createMockNameResolver,
+    processAllCommentsRecursively,
+    mockPKCV2,
+    createNewIpns,
+    encryptionForSigner
+} from "../../../dist/node/test/test-util.js";
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
 import { it, expect } from "vitest";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
@@ -171,7 +177,10 @@ async function createCommunityFixtureWithDomainAuthors() {
                 hot: { comments: pageComments }
             }
         },
-        pubsubTopic: communityAddress
+        pubsubTopic: communityAddress,
+        // the template's encryption belongs to the template's key; verifyCommunity requires it to
+        // match whoever signs the record
+        encryption: encryptionForSigner(ipnsObj.signer)
     };
 
     communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer });

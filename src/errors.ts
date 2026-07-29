@@ -160,6 +160,7 @@ export enum messages {
     ERR_AUTHOR_NOT_MATCHING_SIGNATURE = "comment.author.address doesn't match comment.signature.publicKey",
     ERR_AUTHOR_NAME_MUST_BE_A_DOMAIN = "author.name must be a domain name (e.g. 'example.bso')",
     ERR_COMMUNITY_IPNS_NAME_DOES_NOT_MATCH_SIGNATURE_PUBLIC_KEY = "The IPNS name of community doesn't match community.signature.publicKey",
+    ERR_COMMUNITY_ENCRYPTION_PUBLIC_KEY_DOES_NOT_MATCH_SIGNATURE_PUBLIC_KEY = "community.encryption.publicKey doesn't match community.signature.publicKey. The key that runs the challenge exchange must be the key that signed the record",
     ERR_COMMENT_SHOULD_BE_THE_LATEST_EDIT = "comment.content is not set to the latest comment.authorEdit.content",
     ERR_COMMENT_UPDATE_IS_NOT_SIGNED_BY_COMMUNITY = "Comment update is not signed by the community",
     ERR_AUTHOR_EDIT_IS_NOT_SIGNED_BY_AUTHOR = "Author edit is not signed by original author of comment",

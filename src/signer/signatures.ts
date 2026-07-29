@@ -666,6 +666,15 @@ export async function verifyCommunity({
     const signaturePeerId = getPeerIdFromPublicKey(community.signature.publicKey);
     if (!communityPeerId.equals(signaturePeerId))
         return { valid: false, reason: messages.ERR_COMMUNITY_IPNS_NAME_DOES_NOT_MATCH_SIGNATURE_PUBLIC_KEY };
+
+    // The record signer is anchored to the IPNS name by the check above; encryption.publicKey is
+    // anchored to nothing on its own, it is merely a signed field. Publishers encrypt challenge
+    // requests to it and the community signs its CHALLENGE/CHALLENGEVERIFICATION with the key that
+    // decrypts them, so leaving the two unrelated would let a record delegate the challenge exchange
+    // to a key the reader never validated against the address it typed. initSignerProps has always
+    // derived both from community.signer, so this only makes an existing invariant explicit.
+    if (!getPeerIdFromPublicKey(community.encryption.publicKey).equals(signaturePeerId))
+        return { valid: false, reason: messages.ERR_COMMUNITY_ENCRYPTION_PUBLIC_KEY_DOES_NOT_MATCH_SIGNATURE_PUBLIC_KEY };
     clientsManager._pkc._memCaches.communityVerificationCache.set(cacheKey, true);
     return { valid: true };
 }
