@@ -113,10 +113,6 @@ class Publication extends TypedEmitter<PublicationEvents> {
         name?: string;
         encryption: CommunityIpfsType["encryption"];
         pubsubTopic?: CommunityIpfsType["pubsubTopic"];
-        // Address derived from the community record's signature.publicKey, ie the key that also signs
-        // CHALLENGE/CHALLENGEVERIFICATION messages. Normally identical to pubsubTopic, but a read-only
-        // community has no topic and the identity check still needs this value (issue #229).
-        signerAddress: string;
     } = undefined; // will be used for publishing
     _publishingToLocalCommunity?: LocalCommunity;
 
@@ -722,15 +718,20 @@ class Publication extends TypedEmitter<PublicationEvents> {
         return pubsubTopic;
     }
 
-    // Who must have signed an incoming CHALLENGE/CHALLENGEVERIFICATION: the key that signs the
-    // community's own records. Deliberately NOT the pubsub topic — the topic only happened to equal
-    // this address because of the init backfill (issue #229). Reading it from the record's signature
-    // also makes a custom pubsubTopic verify correctly, and keeps working for a delegated community
-    // where the record is signed by the minter while the identity is the anchor (#233).
+    // Who must have signed an incoming CHALLENGE/CHALLENGEVERIFICATION. Deliberately NOT the pubsub
+    // topic — the topic only happened to equal this address because of the init backfill (issue #229).
+    //
+    // community.encryption.publicKey is the right key, not signature.publicKey: we already encrypt the
+    // challenge request TO it and decrypt the challenge FROM it, so whoever it names is by definition
+    // the holder of the private key running the exchange, and therefore the signer of its messages.
+    // signature.publicKey answers "who minted the record", a role that merely coincides today. Using
+    // encryption makes both halves of the exchange attest to one identity, and it stays correct if a
+    // delegated community (#233) ever splits minting from running the exchange. It is covered by
+    // CommunitySignedPropertyNames, so it is authenticated by the record signature.
     private _communityChallengeMsgSignerAddress(): string {
-        const signerAddress = this._community?.signerAddress;
-        if (typeof signerAddress !== "string") throw Error("Failed to load the challenge message signer address of community");
-        return signerAddress;
+        const encryptionPublicKey = this._community?.encryption?.publicKey;
+        if (typeof encryptionPublicKey !== "string") throw Error("Failed to load the encryption public key of community");
+        return getPKCAddressFromPublicKeySync(encryptionPublicKey);
     }
 
     _getCommunityCache(): NonNullable<Publication["_community"]> | undefined {
@@ -746,8 +747,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 publicKey: subInstance.publicKey,
                 name: subInstance.name,
                 encryption: subIpfs.encryption,
-                pubsubTopic: subIpfs.pubsubTopic,
-                signerAddress: getPKCAddressFromPublicKeySync(subIpfs.signature.publicKey)
+                pubsubTopic: subIpfs.pubsubTopic
             };
         return undefined;
     }

@@ -115,7 +115,6 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     address: post.communityAddress,
                     publicKey: pubsubSigner.publicKey,
                     pubsubTopic: pubsubSigner.address,
-                    signerAddress: pubsubSigner.address,
                     encryption: {
                         type: "ed25519-aes-gcm",
                         publicKey: pubsubSigner.publicKey
@@ -152,7 +151,6 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     address: post.communityAddress,
                     publicKey: pubsubSigner.publicKey,
                     pubsubTopic: pubsubSigner.address,
-                    signerAddress: pubsubSigner.address,
                     encryption: {
                         type: "ed25519-aes-gcm",
                         publicKey: pubsubSigner.publicKey
@@ -239,7 +237,6 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     address: post.communityAddress,
                     publicKey: pubsubSigner.publicKey,
                     pubsubTopic: pubsubSigner.address,
-                    signerAddress: pubsubSigner.address,
                     encryption: {
                         type: "ed25519-aes-gcm",
                         publicKey: pubsubSigner.publicKey
@@ -276,7 +273,6 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     address: post.communityAddress,
                     publicKey: pubsubSigner.publicKey,
                     pubsubTopic: pubsubSigner.address,
-                    signerAddress: pubsubSigner.address,
                     encryption: {
                         type: "ed25519-aes-gcm",
                         publicKey: pubsubSigner.publicKey
@@ -310,7 +306,6 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     address: post.communityAddress,
                     publicKey: pubsubSigner.publicKey,
                     pubsubTopic: pubsubSigner.address,
-                    signerAddress: pubsubSigner.address,
                     encryption: {
                         type: "ed25519-aes-gcm",
                         publicKey: pubsubSigner.publicKey

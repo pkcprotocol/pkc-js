@@ -9,7 +9,6 @@ import {
     mockPKCV2
 } from "../../../../../dist/node/test/test-util.js";
 import { createMockPubsubClient } from "../../../../../dist/node/test/mock-ipfs-client.js";
-import { getPKCAddressFromPublicKeySync } from "../../../../../dist/node/signer/util.js";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
@@ -82,8 +81,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     address: community.address,
                     publicKey: community.publicKey!,
                     encryption: ipfs.encryption,
-                    pubsubTopic: ipfs.pubsubTopic,
-                    signerAddress: getPKCAddressFromPublicKeySync(ipfs.signature.publicKey)
+                    pubsubTopic: ipfs.pubsubTopic
                 };
             }; // so libp2pjs client state won't include fetching community states
             await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
