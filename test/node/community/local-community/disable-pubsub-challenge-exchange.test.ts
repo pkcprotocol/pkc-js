@@ -7,7 +7,6 @@ import {
     mockPKC,
     mockRemotePKC,
     generateMockPost,
-    generatePostToAnswerMathQuestion,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue
 } from "../../../../dist/node/test/test-util.js";
@@ -16,6 +15,10 @@ import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type { PKCError } from "../../../../dist/node/pkc-error.js";
+import type {
+    DecryptedChallengeMessageType,
+    DecryptedChallengeVerificationMessageType
+} from "../../../../dist/node/pubsub-messages/types.js";
 
 const mathChallenge = [{ name: "question", options: { question: "1+1=?", answer: "2" } }];
 
@@ -194,16 +197,45 @@ describeSkipIfRpc("owner publishing while the exchange is disabled", async () =>
         await pkc.destroy();
     });
 
-    it("same-process publish succeeds via the local shortcut", async () => {
-        const post = await generatePostToAnswerMathQuestion({ communityAddress: community.address }, pkc);
+    it("same-process publish succeeds via the local shortcut, after answering the configured challenge", async () => {
+        const post = await generateMockPost({ communityAddress: community.address, pkc });
+        const challengesReceived: DecryptedChallengeMessageType[] = [];
+        post.on("challenge", (challengeMsg) => {
+            challengesReceived.push(challengeMsg);
+            post.publishChallengeAnswers({ challengeAnswers: ["2"] });
+        });
+
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+
+        // the exchange really ran in-process rather than the publication being waved through: the
+        // community issued the math question configured in settings.challenges
+        expect(challengesReceived).to.have.lengthOf(1);
+        expect(challengesReceived[0].challenges).to.have.lengthOf(1);
+        expect(challengesReceived[0].challenges[0].challenge).to.equal(mathChallenge[0].options.question);
+        expect(challengesReceived[0].challenges[0].type).to.equal("text/plain");
         expect(post.cid).to.be.a("string");
     });
 
     it("the local shortcut still evaluates the configured challenges", async () => {
         const post = await generateMockPost({ communityAddress: community.address, pkc });
-        post.once("challenge", () => post.publishChallengeAnswers({ challengeAnswers: ["wrong answer"] }));
+        const challengesReceived: DecryptedChallengeMessageType[] = [];
+        const verificationsReceived: DecryptedChallengeVerificationMessageType[] = [];
+        post.on("challenge", (challengeMsg) => {
+            challengesReceived.push(challengeMsg);
+            post.publishChallengeAnswers({ challengeAnswers: ["wrong answer"] });
+        });
+        post.on("challengeverification", (verification) => verificationsReceived.push(verification));
+
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: false });
+
+        // the failure has to come from the question being asked and answered wrong, not from the
+        // challenge never being issued: read-only mode removes the network path, not the pipeline
+        expect(challengesReceived).to.have.lengthOf(1);
+        expect(challengesReceived[0].challenges[0].challenge).to.equal(mathChallenge[0].options.question);
+        expect(verificationsReceived).to.have.lengthOf(1);
+        expect(verificationsReceived[0].challengeSuccess).to.be.false;
+        expect(verificationsReceived[0].challengeErrors).to.deep.equal({ "0": "Wrong answer." });
+        expect(post.cid).to.be.undefined;
     });
 });
 
