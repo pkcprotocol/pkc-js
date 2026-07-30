@@ -148,3 +148,12 @@ describe("publishing to a community with the exchange disabled", async () => {
         expect(error.code).to.not.equal("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS");
     });
 });
+
+// Design-stage scaffolding for author-communities (issue #31): a feed-only profile is just a
+// read-only delegated community, so it inherits everything above. Kept as it.todo until #31 lands.
+describe("a read-only author-community (feed-only profile)", () => {
+    it.todo("loads and renders its feed with no pubsubTopic, challenges, or encryption present");
+    it.todo("a reply attempt fails fast rather than timing out");
+    it.todo("cross-posts still flow into the feed (they never involve the challenge topic)");
+    it.todo("toggling the exchange back on makes the trio reappear on the next mint");
+});
