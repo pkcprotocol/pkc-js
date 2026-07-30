@@ -2,15 +2,22 @@
 // A read-only community stops running the challenge/publication pubsub topic and its published
 // record omits pubsubTopic, which is what tells readers the exchange is disabled. Kind-blind
 // LocalCommunity feature; author-communities (issue #31) inherit it for feed-only profiles.
+//
+// Most suites here run under BOTH the direct and the PKC RPC flavours: an RpcLocalCommunity
+// transmits signer (minus privateKey), settings, pubsubTopic and raw.communityIpfs from the server,
+// so every record-and-instance assertion is observable through an RPC client too. Only three things
+// genuinely cannot be expressed over RPC, and each has its own describeSkipIfRpc suite below with
+// the reason stated.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
     mockPKC,
     mockRemotePKC,
     generateMockPost,
     publishWithExpectedResult,
-    resolveWhenConditionIsTrue
+    resolveWhenConditionIsTrue,
+    isRpcFlagOn
 } from "../../../../dist/node/test/test-util.js";
-import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
+import { describeSkipIfRpc, itSkipIfRpc } from "../../../helpers/conditional-tests.js";
 
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
@@ -22,6 +29,8 @@ import type {
 
 const mathChallenge = [{ name: "question", options: { question: "1+1=?", answer: "2" } }];
 
+// Under RPC the runtime object is an RpcLocalCommunity, but every prop these suites read is
+// transmitted by the server, so the LocalCommunity cast stays accurate for what is asserted.
 async function listSubscribedTopics(community: LocalCommunity) {
     return community._clientsManager.getDefaultKuboPubsubClient()._client.pubsub.ls();
 }
@@ -30,9 +39,7 @@ async function waitTillCommunityPublishedRecord(community: LocalCommunity) {
     await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 }
 
-// Reads community.raw.communityIpfs and community.signer off the LocalCommunity instance, and lists
-// the kubo node's subscriptions; the RPC client exposes neither the instance internals nor the node.
-describeSkipIfRpc("settings.disablePubsubChallengeExchange = true", async () => {
+describe("settings.disablePubsubChallengeExchange = true", async () => {
     let pkc: PKCType;
     let community: LocalCommunity;
 
@@ -58,10 +65,11 @@ describeSkipIfRpc("settings.disablePubsubChallengeExchange = true", async () => 
         expect("pubsubTopic" in community.raw.communityIpfs!).to.be.false;
     });
 
-    it("does not subscribe to the challenge/publication pubsub topic", async () => {
-        const topics = await listSubscribedTopics(community);
-        expect(topics).to.not.include(community.signer.address);
-        expect(topics).to.not.include(community.address);
+    // The challenge topic is not advertised, but the IPNS-over-pubsub topic is a separate derivation
+    // and keeps being provided, which is what makes replication unaffected by the setting (issue #229)
+    it("advertises no challenge-topic routing CID while keeping the IPNS one", () => {
+        expect(community.pubsubTopicRoutingCid).to.be.undefined;
+        expect(community.ipnsPubsubTopicRoutingCid).to.be.a("string");
     });
 
     it("keeps minting new records, so replication over the IPNS topic is unaffected", async () => {
@@ -90,9 +98,7 @@ describeSkipIfRpc("settings.disablePubsubChallengeExchange = true", async () => 
     });
 });
 
-// Same reason as above: asserts community.signer.address against the record and against the kubo
-// node's subscription list, neither of which is reachable through the RPC client.
-describeSkipIfRpc("settings.disablePubsubChallengeExchange unset or false", async () => {
+describe("settings.disablePubsubChallengeExchange unset or false", async () => {
     let pkc: PKCType;
     let community: LocalCommunity;
 
@@ -116,15 +122,70 @@ describeSkipIfRpc("settings.disablePubsubChallengeExchange unset or false", asyn
         expect(community.raw.communityIpfs!.pubsubTopic).to.equal(community.signer.address);
     });
 
-    it("subscribes to the challenge/publication pubsub topic", async () => {
-        const topics = await listSubscribedTopics(community);
-        expect(topics).to.include(community.pubsubTopic);
+    it("advertises a challenge-topic routing CID derived from the topic", () => {
+        expect(community.pubsubTopicRoutingCid).to.be.a("string");
     });
 });
 
-// Inspects readerPkc._clientsManager.pubsubProviderSubscriptions to prove which topics the publisher
-// touched. Under RPC the publisher's pubsub work happens in the server's process, so the client-side
-// subscription map stays empty and the assertion would pass without proving anything.
+// Lists the kubo node's own subscriptions. An RPC client's PKC is constructed with
+// pkcRpcClientsOptions only, so it has no kubo client to ask, and the node running the community
+// lives in the server's process. This is the only assertion in the file that is truly RPC-proof.
+describeSkipIfRpc("kubo pubsub subscriptions follow the setting", async () => {
+    let pkc: PKCType;
+    let disabledCommunity: LocalCommunity;
+    let toggledCommunity: LocalCommunity;
+
+    beforeAll(async () => {
+        pkc = await mockPKC();
+        disabledCommunity = <LocalCommunity>await pkc.createCommunity({ settings: { disablePubsubChallengeExchange: true } });
+        await disabledCommunity.start();
+        await waitTillCommunityPublishedRecord(disabledCommunity);
+        toggledCommunity = <LocalCommunity>await pkc.createCommunity({ settings: { challenges: [] } });
+        await toggledCommunity.start();
+        await waitTillCommunityPublishedRecord(toggledCommunity);
+    });
+
+    afterAll(async () => {
+        await disabledCommunity.delete();
+        await toggledCommunity.delete();
+        await pkc.destroy();
+    });
+
+    it("a community created with the setting on never subscribes", async () => {
+        const topics = await listSubscribedTopics(disabledCommunity);
+        expect(topics).to.not.include(disabledCommunity.signer.address);
+        expect(topics).to.not.include(disabledCommunity.address);
+    });
+
+    it("a community with the setting off subscribes to its topic", async () => {
+        expect(await listSubscribedTopics(toggledCommunity)).to.include(toggledCommunity.pubsubTopic);
+    });
+
+    it("enabling the setting unsubscribes on the next sync-loop iteration without a restart", async () => {
+        const topic = toggledCommunity.pubsubTopic!;
+        await toggledCommunity.edit({ settings: { challenges: [], disablePubsubChallengeExchange: true } });
+        await resolveWhenConditionIsTrue({
+            toUpdate: toggledCommunity,
+            predicate: async () => !(await listSubscribedTopics(toggledCommunity)).includes(topic)
+        });
+        expect(await listSubscribedTopics(toggledCommunity)).to.not.include(topic);
+    });
+
+    it("disabling the setting resubscribes without a restart", async () => {
+        const topic = toggledCommunity.signer.address;
+        await toggledCommunity.edit({ settings: { challenges: [], disablePubsubChallengeExchange: false } });
+        await resolveWhenConditionIsTrue({
+            toUpdate: toggledCommunity,
+            predicate: async () => (await listSubscribedTopics(toggledCommunity)).includes(topic)
+        });
+        expect(await listSubscribedTopics(toggledCommunity)).to.include(topic);
+    });
+});
+
+// Needs a publisher that does NOT have the community, which cannot exist over RPC: both PKCs would
+// point at the same server, and that server runs the community, so publish() would legitimately
+// succeed through the local shortcut instead of failing fast. It also inspects the client-side
+// pubsubProviderSubscriptions map, which stays empty when the server owns the pubsub work.
 describeSkipIfRpc("no fallback to the community address as a challenge-exchange topic", async () => {
     let ownerPkc: PKCType;
     let readerPkc: PKCType;
@@ -184,10 +245,11 @@ describeSkipIfRpc("no fallback to the community address as a challenge-exchange 
     });
 });
 
-// Asserts the same-process publish shortcut specifically: publish() must find the community in this
-// PKC's _startedCommunities. An RPC client always takes _publishWithRpc instead, so it would exercise
-// the server's shortcut rather than the branch under test.
-describeSkipIfRpc("owner publishing while the exchange is disabled", async () => {
+// Runs in both flavours on purpose. Directly it exercises the same-process shortcut through
+// pkc._startedCommunities; under RPC the same publish goes to the server that runs the community and
+// takes the shortcut there, which is the documented owner path for a read-only community. Publishing
+// must NOT fail fast in either case.
+describe("owner publishing while the exchange is disabled", async () => {
     let pkc: PKCType;
     let community: LocalCommunity;
 
@@ -247,8 +309,8 @@ describeSkipIfRpc("owner publishing while the exchange is disabled", async () =>
     });
 });
 
-// Needs a PKC constructed with no pubsub provider at all, which the RPC client cannot express: an
-// RPC client delegates every publish to the server's PKC and never consults its own pubsub clients.
+// Needs a PKC constructed with no pubsub provider at all, which the RPC client cannot express: the
+// server owns the providers, and an RPC client delegates every publish to it.
 describeSkipIfRpc("owner publishing in-process with no pubsub provider configured", async () => {
     let pkc: PKCType;
     let community: LocalCommunity;
@@ -280,9 +342,7 @@ describeSkipIfRpc("owner publishing in-process with no pubsub provider configure
     });
 });
 
-// Watches the kubo node's subscription list flip as the sync loop reacts to the edit; the RPC client
-// has no handle on the node running the community, so there is nothing to observe the toggle on.
-describeSkipIfRpc("toggling the exchange at runtime", async () => {
+describe("toggling the exchange at runtime", async () => {
     let pkc: PKCType;
     let community: LocalCommunity;
 
@@ -298,35 +358,162 @@ describeSkipIfRpc("toggling the exchange at runtime", async () => {
         await pkc.destroy();
     });
 
-    it("enabling the setting unsubscribes on the next sync-loop iteration without a restart", async () => {
-        const topic = community.pubsubTopic!;
-        expect(await listSubscribedTopics(community)).to.include(topic);
+    // The full round trip of the only switch: the setting is off unless the owner turns it on, and
+    // turning it off again has to restore the same topic the default backfill produced, not leave the
+    // community permanently topic-less. Asserted against community.signer.address explicitly, since
+    // that (never community.address) is what the backfill writes.
+    it("defaults to the exchange enabled, with pubsubTopic backfilled to the signer address", () => {
+        expect(community.settings?.disablePubsubChallengeExchange).to.be.undefined;
+        expect(community.pubsubTopic).to.equal(community.signer.address);
+        expect(community.raw.communityIpfs!.pubsubTopic).to.equal(community.signer.address);
+    });
+
+    it("enabling the setting drops pubsubTopic from the record without a restart", async () => {
+        expect(community.pubsubTopic).to.equal(community.signer.address);
 
         await community.edit({ settings: { challenges: [], disablePubsubChallengeExchange: true } });
         await resolveWhenConditionIsTrue({
             toUpdate: community,
-            predicate: async () => !(await listSubscribedTopics(community)).includes(topic)
-        });
-        await resolveWhenConditionIsTrue({
-            toUpdate: community,
             predicate: async () => community.raw.communityIpfs?.pubsubTopic === undefined
         });
-        // the custom topic string survives the disable, it just stops being published
-        expect(community.pubsubTopic).to.equal(topic);
+        expect(community.settings?.disablePubsubChallengeExchange).to.be.true;
     });
 
-    it("disabling the setting resubscribes and republishes the record with pubsubTopic present", async () => {
-        const topic = community.pubsubTopic!;
+    // The configured topic survives the disable on the instance, it just stops being published. Only
+    // observable directly: the RPC surface transmits the CommunityIpfs record plus signer/settings, so
+    // a topic that is configured but deliberately unpublished is not part of what the server sends.
+    itSkipIfRpc("keeps the configured topic on the instance while it is unpublished", () => {
+        expect(community.raw.communityIpfs!.pubsubTopic).to.be.undefined;
+        expect(community.pubsubTopic).to.equal(community.signer.address);
+    });
+
+    it("disabling the setting republishes the record with pubsubTopic present", async () => {
+        const topic = community.signer.address;
         await community.edit({ settings: { challenges: [], disablePubsubChallengeExchange: false } });
-        await resolveWhenConditionIsTrue({
-            toUpdate: community,
-            predicate: async () => (await listSubscribedTopics(community)).includes(topic)
-        });
         await resolveWhenConditionIsTrue({
             toUpdate: community,
             predicate: async () => community.raw.communityIpfs?.pubsubTopic === topic
         });
-        expect(community.pubsubTopic).to.equal(topic);
+        // back to exactly the state the default produced, topic included
+        expect(community.settings?.disablePubsubChallengeExchange).to.be.false;
+        expect(community.pubsubTopic).to.equal(community.signer.address);
+        expect(community.raw.communityIpfs!.pubsubTopic).to.equal(community.signer.address);
+    });
+});
+
+// A reader that already loaded the enabled record has to follow the community into read-only mode.
+// pubsubTopicRoutingCid used to be write-once, so it survived the record that dropped the topic and
+// left the reader looking for peers of a challenge topic nobody runs.
+describe("a reader watching the exchange being disabled", async () => {
+    let ownerPkc: PKCType;
+    let readerPkc: PKCType;
+    let community: LocalCommunity;
+    let reader: Awaited<ReturnType<PKCType["createCommunity"]>>;
+
+    beforeAll(async () => {
+        ownerPkc = await mockPKC();
+        community = <LocalCommunity>await ownerPkc.createCommunity({ settings: { challenges: [] } });
+        await community.start();
+        await waitTillCommunityPublishedRecord(community);
+        readerPkc = await mockRemotePKC();
+        reader = await readerPkc.createCommunity({ address: community.address });
+        await reader.update();
+        await resolveWhenConditionIsTrue({ toUpdate: reader, predicate: async () => typeof reader.updatedAt === "number" });
+    });
+
+    afterAll(async () => {
+        await reader.stop();
+        await readerPkc.destroy();
+        await community.delete();
+        await ownerPkc.destroy();
+    });
+
+    it("starts out seeing the topic and its routing CID", () => {
+        expect(reader.pubsubTopic).to.equal(community.signer.address);
+        expect(reader.pubsubTopicRoutingCid).to.be.a("string");
+    });
+
+    it("clears both once the community publishes a record without pubsubTopic", async () => {
+        await community.edit({ settings: { challenges: [], disablePubsubChallengeExchange: true } });
+        await resolveWhenConditionIsTrue({
+            toUpdate: reader,
+            predicate: async () => reader.raw.communityIpfs?.pubsubTopic === undefined
+        });
+        expect(reader.pubsubTopic).to.be.undefined;
+        expect(reader.pubsubTopicRoutingCid).to.be.undefined;
+        // the IPNS side is untouched, so the reader keeps following the community's records
+        expect(reader.ipnsPubsubTopicRoutingCid).to.be.a("string");
+    });
+});
+
+// A community only backfills pubsubTopic when its DB is created, so everything about the setting has
+// to survive coming back from the DB rather than being re-derived on every start.
+describe("surviving a restart", async () => {
+    let pkc: PKCType;
+
+    beforeAll(async () => {
+        pkc = await mockPKC();
+    });
+
+    afterAll(async () => {
+        await pkc.destroy();
+    });
+
+    it("a community created with the setting on stays topic-less after stop() and start()", async () => {
+        const community = <LocalCommunity>await pkc.createCommunity({
+            settings: { disablePubsubChallengeExchange: true, challenges: [] }
+        });
+        try {
+            await community.start();
+            await waitTillCommunityPublishedRecord(community);
+            const updatedAtBeforeRestart = community.updatedAt!;
+            await community.stop();
+
+            await community.start();
+            await resolveWhenConditionIsTrue({
+                toUpdate: community,
+                predicate: async () => community.updatedAt! > updatedAtBeforeRestart
+            });
+            expect(community.settings?.disablePubsubChallengeExchange).to.be.true;
+            expect(community.pubsubTopic).to.be.undefined;
+            expect(community.raw.communityIpfs!.pubsubTopic).to.be.undefined;
+        } finally {
+            await community.delete();
+        }
+    });
+
+    // The upgrade path for every community that predates the setting: pubsubTopic is already stored
+    // in its DB, so disabling the exchange must keep it out of the record across a restart even
+    // though the row still has it.
+    it("a community whose topic is already in the DB keeps it out of the record after a restart", async () => {
+        const community = <LocalCommunity>await pkc.createCommunity({ settings: { challenges: [] } });
+        try {
+            await community.start();
+            await waitTillCommunityPublishedRecord(community);
+            expect(community.raw.communityIpfs!.pubsubTopic).to.equal(community.signer.address);
+
+            await community.edit({ settings: { challenges: [], disablePubsubChallengeExchange: true } });
+            await resolveWhenConditionIsTrue({
+                toUpdate: community,
+                predicate: async () => community.raw.communityIpfs?.pubsubTopic === undefined
+            });
+            const updatedAtBeforeRestart = community.updatedAt!;
+            await community.stop();
+
+            await community.start();
+            await resolveWhenConditionIsTrue({
+                toUpdate: community,
+                predicate: async () => community.updatedAt! > updatedAtBeforeRestart
+            });
+            expect(community.settings?.disablePubsubChallengeExchange).to.be.true;
+            expect(community.raw.communityIpfs!.pubsubTopic).to.be.undefined;
+            // The stored topic is still in the DB row, it is simply not published. Only observable
+            // directly, for the same reason as the toggle suite: the RPC surface sends the
+            // CommunityIpfs record plus signer/settings, not a configured-but-unpublished topic.
+            if (!isRpcFlagOn()) expect(community.pubsubTopic).to.equal(community.signer.address);
+        } finally {
+            await community.delete();
+        }
     });
 });
 

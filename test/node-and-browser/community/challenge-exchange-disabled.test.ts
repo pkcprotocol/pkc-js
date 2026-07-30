@@ -12,7 +12,8 @@ import {
     mockRemotePKC,
     generateMockPost,
     createMockedCommunityIpns,
-    resolveWhenConditionIsTrue
+    resolveWhenConditionIsTrue,
+    isRpcFlagOn
 } from "../../../dist/node/test/test-util.js";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
@@ -79,16 +80,23 @@ describe("publishing to a community with the exchange disabled", async () => {
         await pkc.destroy();
     });
 
+    // publish() rejects on the direct path, but an RPC client's publish() resolves as soon as the
+    // server accepts the request: the server owns the community lookup (it may be the one running the
+    // community, in which case the local shortcut applies and publishing legitimately succeeds), so a
+    // disabled exchange can only be reported afterwards, as an `error` event on the subscription.
+    // Either way the client must end up with the same error code and a failed publishingState.
     async function expectFailFast(publication: Publication) {
-        let error: PKCError | undefined;
+        const emittedError = new Promise<PKCError>((resolve) => publication.once("error", (e) => resolve(<PKCError>e)));
+        let thrownError: PKCError | undefined;
         try {
             await publication.publish();
         } catch (e) {
-            error = <PKCError>e;
+            thrownError = <PKCError>e;
         }
-        expect(error, "publish() should have thrown").to.exist;
-        expect(error!.code).to.equal("ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED");
-        return error!;
+        if (!isRpcFlagOn()) expect(thrownError, "publish() should have thrown").to.exist;
+        const error = thrownError ?? (await emittedError);
+        expect(error.code).to.equal("ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED");
+        return error;
     }
 
     it("publish() fails fast with ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED", async () => {
