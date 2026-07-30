@@ -42,7 +42,7 @@ import { TypedEmitter } from "tiny-typed-emitter";
 import { Comment } from "./comment/comment.js";
 import { PKCError } from "../pkc-error.js";
 import { getHeliaDebugContext, type HeliaDebugContext } from "../helia/util.js";
-import { getBufferedPKCAddressFromPublicKey } from "../signer/util.js";
+import { getBufferedPKCAddressFromPublicKey, getPKCAddressFromPublicKeySync } from "../signer/util.js";
 import * as cborg from "cborg";
 import { isDeepEqual, keys, omit } from "remeda";
 import type { CommunityIpfsType } from "../community/types.js";
@@ -313,7 +313,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         if (Object.values(this._challengeExchanges).some((exchange) => exchange.challenge)) return; // We only process one challenge
         const challengeMsgValidity = await verifyChallengeMessage({
             challenge: msg,
-            pubsubTopic: this._communityPubsubTopicWithFallback(),
+            communityChallengeSignerAddress: this._communityChallengeMsgSignerAddress(),
             validateTimestampRange: true
         });
         if (!challengeMsgValidity.valid) {
@@ -381,8 +381,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this._challengeExchanges[msg.challengeRequestId.toString()].challenge = decryptedChallengeMsg;
 
         this._updatePublishingStateWithEmission("waiting-challenge-answers");
+        const challengeTopic = this._community?.pubsubTopic;
         const subscribedProviders = Object.entries(this._clientsManager.pubsubProviderSubscriptions)
-            .filter(([, pubsubTopics]) => pubsubTopics.includes(this._communityPubsubTopicWithFallback()))
+            .filter(([, pubsubTopics]) => typeof challengeTopic === "string" && pubsubTopics.includes(challengeTopic))
             .map(([provider]) => provider);
 
         subscribedProviders.forEach((provider) => this._updatePubsubState("waiting-challenge-answers", provider));
@@ -394,7 +395,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         if (this._challengeExchanges[msg.challengeRequestId.toString()].challengeVerification) return;
         const signatureValidation = await verifyChallengeVerification({
             verification: msg,
-            pubsubTopic: this._communityPubsubTopicWithFallback(),
+            communityChallengeSignerAddress: this._communityChallengeMsgSignerAddress(),
             validateTimestampRange: true
         });
         if (!signatureValidation.valid) {
@@ -606,7 +607,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         } else {
             try {
                 await this._clientsManager.pubsubPublishOnProvider(
-                    this._communityPubsubTopicWithFallback(),
+                    this._communityChallengePubsubExchangeTopic(),
                     answerMsgToPublish,
                     challengeExchange.providerUrl
                 );
@@ -630,8 +631,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
             timestamp();
 
         this._updatePublishingStateWithEmission("waiting-challenge-verification");
+        const challengeTopic = this._community?.pubsubTopic;
         const providers = Object.entries(this._clientsManager.pubsubProviderSubscriptions)
-            .filter(([, pubsubTopics]) => pubsubTopics.includes(this._communityPubsubTopicWithFallback()))
+            .filter(([, pubsubTopics]) => typeof challengeTopic === "string" && pubsubTopics.includes(challengeTopic))
             .map(([provider]) => provider);
         providers.forEach((provider) => this._updatePubsubState("waiting-challenge-verification", provider));
 
@@ -652,11 +654,6 @@ class Publication extends TypedEmitter<PublicationEvents> {
     private _validateCommunityFields() {
         if (typeof this._community?.encryption?.publicKey !== "string")
             throw new PKCError("ERR_COMMUNITY_MISSING_FIELD", { communityPublicKey: this._community?.encryption?.publicKey });
-        if (typeof this._communityPubsubTopicWithFallback() !== "string")
-            throw new PKCError("ERR_COMMUNITY_MISSING_FIELD", {
-                pubsubTopic: this._community?.pubsubTopic,
-                address: this._community?.address
-            });
     }
 
     _updatePublishingStateNoEmission(newState: Publication["publishingState"]) {
@@ -709,10 +706,34 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this.clients.pkcRpcClients[currentRpcUrl].emit("statechange", newState);
     }
 
-    private _communityPubsubTopicWithFallback(): string {
-        const pubsubTopic = this._community?.pubsubTopic || this._community?.address;
-        if (typeof pubsubTopic !== "string") throw Error("Failed to load the pubsub topic of community");
+    // The topic to run the challenge exchange on. Absence of pubsubTopic on the record means the
+    // community disabled the exchange (issue #229); there is no fallback to the community address.
+    _communityChallengePubsubExchangeTopic(): string {
+        const pubsubTopic = this._community?.pubsubTopic;
+        if (typeof pubsubTopic !== "string")
+            throw new PKCError("ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED", {
+                communityAddress: this._community?.address ?? this.communityAddress,
+                communityName: this._community?.name ?? this.communityName,
+                communityPublicKey: this._community?.publicKey ?? this.communityPublicKey,
+                publicationType: this.getType()
+            });
         return pubsubTopic;
+    }
+
+    // Who must have signed an incoming CHALLENGE/CHALLENGEVERIFICATION. Deliberately NOT the pubsub
+    // topic — the topic only happened to equal this address because of the init backfill (issue #229).
+    //
+    // community.encryption.publicKey is the right key, not signature.publicKey: we already encrypt the
+    // challenge request TO it and decrypt the challenge FROM it, so whoever it names is by definition
+    // the holder of the private key running the exchange, and therefore the signer of its messages.
+    // signature.publicKey answers "who minted the record", a role that merely coincides today. Using
+    // encryption makes both halves of the exchange attest to one identity, and it stays correct if a
+    // delegated community (#233) ever splits minting from running the exchange. It is covered by
+    // CommunitySignedPropertyNames, so it is authenticated by the record signature.
+    private _communityChallengeMsgSignerAddress(): string {
+        const encryptionPublicKey = this._community?.encryption?.publicKey;
+        if (typeof encryptionPublicKey !== "string") throw Error("Failed to load the encryption public key of community");
+        return getPKCAddressFromPublicKeySync(encryptionPublicKey);
     }
 
     _getCommunityCache(): NonNullable<Publication["_community"]> | undefined {
@@ -782,9 +803,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
             }
             this._rpcPublishSubscriptionId = undefined;
             this._setRpcClientState("stopped");
-        } else if (this._community) {
+        } else if (typeof this._community?.pubsubTopic === "string") {
             // the client is publishing to pubsub without using PKC RPC
-            await this._clientsManager.pubsubUnsubscribe(this._communityPubsubTopicWithFallback(), this._handleChallengeExchange);
+            await this._clientsManager.pubsubUnsubscribe(this._community.pubsubTopic, this._handleChallengeExchange);
             Object.values(this._challengeExchanges).forEach((exchange) => this._updatePubsubState("stopped", exchange.providerUrl));
         }
     }
@@ -954,7 +975,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             "Attempting to publish",
             this.getType(),
             "to pubsub topic",
-            this._communityPubsubTopicWithFallback(),
+            this._community?.pubsubTopic,
             "with provider",
             providerUrl,
             "request.encrypted=",
@@ -1081,13 +1102,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     this._updatePubsubState("subscribing-pubsub", providerUrl);
                     try {
                         await this._clientsManager.pubsubSubscribeOnProvider(
-                            this._communityPubsubTopicWithFallback(),
+                            this._communityChallengePubsubExchangeTopic(),
                             this._handleChallengeExchange,
                             providerUrl
                         );
                         this._updatePubsubState("publishing-challenge-request", providerUrl);
                         await this._clientsManager.pubsubPublishOnProvider(
-                            this._communityPubsubTopicWithFallback(),
+                            this._communityChallengePubsubExchangeTopic(),
                             challengeRequest,
                             providerUrl
                         );
@@ -1128,7 +1149,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     await this._postSucessOrFailurePublishing();
                     const allAttemptsFailedError = new PKCError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {
                         challengeExchanges: this._challengeExchangesFormattedForErrors(),
-                        pubsubTopic: this._communityPubsubTopicWithFallback(),
+                        pubsubTopic: this._community?.pubsubTopic,
                         providerHeliaContexts: this._libp2pJsClientHeliaContexts()
                     });
                     log.error("All attempts to publish", this.getType(), "has failed", allAttemptsFailedError);
@@ -1228,7 +1249,6 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
         const options = { acceptedChallengeTypes: [] };
 
-        const providers = this._getPubsubProviders();
         const startedCommunity = findStartedCommunity(this._pkc, { publicKey: this.communityPublicKey, name: this.communityName }) as
             | LocalCommunity
             | undefined;
@@ -1242,6 +1262,28 @@ class Publication extends TypedEmitter<PublicationEvents> {
             );
         }
 
+        // Only the network path needs a challenge topic. Fail fast before touching pubsub so a client
+        // can disable its reply UI instead of timing out against a topic nobody runs (issue #229).
+        if (typeof this._community?.pubsubTopic !== "string") {
+            await this._postSucessOrFailurePublishing();
+            const error = new PKCError("ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED", {
+                communityAddress: this._community?.address ?? this.communityAddress,
+                communityName: this._community?.name ?? this.communityName,
+                communityPublicKey: this._community?.publicKey ?? this.communityPublicKey,
+                publicationType: this.getType()
+            });
+            log.error("Community has its challenge exchange disabled, will not publish", this.getType(), error);
+            this._changePublicationStateEmitEventEmitStateChangeEvent({
+                newPublishingState: "failed",
+                event: { name: "error", args: [error] }
+            });
+            throw error;
+        }
+
+        // Discovered only once the network path is certain: neither the local shortcut above nor the
+        // disabled-exchange fast-fail publishes over pubsub, so neither should demand a provider.
+        const providers = this._getPubsubProviders();
+
         let currentPubsubProviderIndex = 0;
         while (!this._didWeReceiveChallengeOrChallengeVerification() && currentPubsubProviderIndex < providers.length) {
             const providerUrl = providers[currentPubsubProviderIndex];
@@ -1253,12 +1295,16 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 // this will throw if we succeed in subscribing first attempt, but then fail to publish
 
                 await this._clientsManager.pubsubSubscribeOnProvider(
-                    this._communityPubsubTopicWithFallback(),
+                    this._communityChallengePubsubExchangeTopic(),
                     this._handleChallengeExchange,
                     providerUrl
                 );
                 this._updatePubsubState("publishing-challenge-request", providerUrl);
-                await this._clientsManager.pubsubPublishOnProvider(this._communityPubsubTopicWithFallback(), challengeRequest, providerUrl);
+                await this._clientsManager.pubsubPublishOnProvider(
+                    this._communityChallengePubsubExchangeTopic(),
+                    challengeRequest,
+                    providerUrl
+                );
                 this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequestPublishTimestamp = timestamp();
             } catch (e) {
                 this._updatePubsubState("stopped", providerUrl);
@@ -1271,7 +1317,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     await this._postSucessOrFailurePublishing();
                     const allAttemptsFailedError = new PKCError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {
                         challengeExchanges: this._challengeExchangesFormattedForErrors(),
-                        pubsubTopic: this._communityPubsubTopicWithFallback(),
+                        pubsubTopic: this._community?.pubsubTopic,
                         providerHeliaContexts: this._libp2pJsClientHeliaContexts()
                     });
                     log.error("All attempts to publish", this.getType(), "has failed", allAttemptsFailedError);

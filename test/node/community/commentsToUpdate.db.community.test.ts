@@ -1353,4 +1353,49 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
         expect(cids).to.include(reply.cid, "reply should be enqueued because its replies JSON is stale");
         expect(cids).to.include(post.cid, "post should also be enqueued when descendant replies JSON becomes stale");
     });
+
+    // Regression test for issue #230. Every CommentUpdate row written by one update batch carries the
+    // same insertedAt (batchStartTimestamp, captured before the flag query — see issue #209/#211),
+    // while each row's updatedAt is stamped when that row is actually calculated.
+    // updateCommentsThatNeedToBeUpdated walks a post tree deepest-depth-first, so a child is always
+    // calculated before its parent and the child's updatedAt lands later than the batch's start.
+    // stale_replies compared the child's updatedAt against the parent's insertedAt, so any batch
+    // spanning >= 1 second re-flagged the parent on the next loop, which produced another >= 1 second
+    // batch, and so on. Observed in production as the same ~291 comments being re-signed and
+    // republished every ~2 minutes with no new votes, edits, moderations or replies.
+    it("does not requeue a parent whose replies page was regenerated in the same batch as its child (issue #230)", async () => {
+        const batchStart = currentTimestamp();
+        // Comment rows must predate the batch, otherwise direct_updates flags the parent instead
+        const seededAt = batchStart - 3600;
+
+        const post = insertComment({ timestamp: seededAt, overrides: { insertedAt: seededAt } });
+        const reply = insertComment({
+            depth: 1,
+            parentCid: post.cid,
+            postCid: post.cid,
+            timestamp: seededAt + 1,
+            overrides: { insertedAt: seededAt + 1 }
+        });
+
+        // The batch calculates the deepest depth first: the reply's update is stamped 2s into the
+        // batch and the post's 5s in, but both rows carry the batch's start timestamp as insertedAt.
+        insertCommentUpdate(reply, {
+            publishedToPostUpdatesMFS: 1,
+            updatedAt: batchStart + 2,
+            insertedAt: batchStart
+        });
+        insertCommentUpdate(post, {
+            publishedToPostUpdatesMFS: 1,
+            updatedAt: batchStart + 5,
+            insertedAt: batchStart,
+            childCount: 1,
+            replyCount: 1,
+            lastChildCid: reply.cid,
+            // The post's page was generated after the reply's row was written, so it already embeds
+            // the reply's latest updatedAt — nothing about it is stale.
+            replies: JSON.stringify({ best: { commentCids: [reply.cid] } })
+        });
+
+        expect(commentCidsNeedingUpdate()).to.be.empty;
+    });
 });

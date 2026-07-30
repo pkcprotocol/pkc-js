@@ -180,6 +180,12 @@ export interface InternalCommunityRecordAfterFirstUpdateType extends InternalCom
     updateCid: string;
     _cidsToUnPin: string[]; // cids that we need to unpin from kubo node
     _mfsPathsToRemove: string[]; // mfs paths that we need to rm from kubo node
+    // The pubsubTopic the owner configured, which is NOT always the one in the record above: a
+    // community with settings.disablePubsubChallengeExchange publishes no pubsubTopic at all (issue
+    // #229), and without this the configured topic would be lost the moment the instance reloaded its
+    // internal state from a topic-less record. Kept under a private key so it never reaches the
+    // CommunityIpfs half of this record, where an unsigned field would corrupt the record readers see.
+    _configuredPubsubTopic?: string;
 }
 
 // RPC server transmitting Internal Community records to clients

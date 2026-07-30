@@ -273,7 +273,10 @@ export const CommunitySettingsSchema = z
         fetchThumbnailUrlsProxyUrl: z.string().optional(), // TODO should we validate this url?
         challenges: CommunityChallengeSettingSchema.array().optional(), // If empty array it will remove all challenges
         maxPendingApprovalCount: z.number().int().nonnegative().optional(),
-        purgeDisapprovedCommentsOlderThan: z.number().int().nonnegative().optional()
+        purgeDisapprovedCommentsOlderThan: z.number().int().nonnegative().optional(),
+        // Read-only community: don't run the challenge/publication pubsub topic and omit pubsubTopic
+        // from the published record, so readers know not to attempt a challenge exchange (issue #229)
+        disablePubsubChallengeExchange: z.boolean().optional()
     })
     .strict();
 

@@ -3,7 +3,7 @@ import { clone, keys } from "remeda";
 import { LRUCache } from "lru-cache";
 import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
-import { removeMfsFilesSafely, sleepUntilTimeoutOrAbort } from "../../../../util.js";
+import { pubsubTopicToDhtKey, removeMfsFilesSafely, sleepUntilTimeoutOrAbort } from "../../../../util.js";
 import { moveCommunityDbToDeletedDirectory } from "../../util.js";
 import { getCommunityChallengeFromCommunityChallengeSettings } from "../challenges/index.js";
 import {
@@ -18,7 +18,7 @@ import {
 } from "../../../../pkc/tracked-instance-registry-util.js";
 import { LocalCommunity } from "../local-community.js";
 import { processStartedCommunities } from "./registry.js";
-import { pubsubTopicWithfallback } from "./comment-updates.js";
+import { communityChallengePubsubTopic } from "./comment-updates.js";
 import { providePubsubTopicRoutingCidsIfNeeded } from "./pubsub.js";
 import { reprovideOnAddressChangeIfDue } from "./reprovide-on-address-change.js";
 import { repinCommentUpdateIfNeeded, unpinStaleCids } from "./cleanup.js";
@@ -367,7 +367,18 @@ export async function stop(community: LocalCommunity) {
     if (community.state === "started") {
         log("Stopping running community", community.address);
         try {
-            await community._clientsManager.pubsubUnsubscribe(pubsubTopicWithfallback(community), community.handleChallengeExchange);
+            // Unsubscribe regardless of settings.disablePubsubChallengeExchange — the setting may have
+            // been toggled on after we subscribed, and unsubscribing a topic we never joined is a no-op.
+            // _subscribedChallengePubsubTopic covers a pubsubTopic that changed since we joined, which
+            // the current derivation no longer names.
+            const challengeTopics = new Set(
+                [communityChallengePubsubTopic(community), community._subscribedChallengePubsubTopic].filter(
+                    (topic): topic is string => typeof topic === "string"
+                )
+            );
+            for (const challengeTopic of challengeTopics)
+                await community._clientsManager.pubsubUnsubscribe(challengeTopic, community.handleChallengeExchange);
+            community._subscribedChallengePubsubTopic = undefined;
         } catch (e) {
             log.error("Failed to unsubscribe from challenge exchange pubsub when stopping community", e);
         }
@@ -401,7 +412,6 @@ export async function stop(community: LocalCommunity) {
             log.error(`Failed to unlock start lock on community (${community.address})`, e);
         }
         const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
-        const pubsubClient = community._clientsManager.getDefaultKuboPubsubClient();
 
         community._setStartedStateWithEmission("stopped");
         untrackStartedCommunity(community._pkc, community);
@@ -411,7 +421,7 @@ export async function stop(community: LocalCommunity) {
         await community._dbHandler.unlockCommunityState();
         await community._updateStartedValue();
         community._clientsManager.updateKuboRpcState("stopped", kuboRpcClient.url);
-        community._clientsManager.updateKuboRpcPubsubState("stopped", pubsubClient.url);
+        community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("stopped");
         if (community._dbHandler) community._dbHandler.destoryConnection();
         log(`Stopped the running of local community (${community.address})`);
         community._setState("stopped");
@@ -474,6 +484,11 @@ export async function deleteCommunity(community: LocalCommunity) {
         log.error("Failed to add old page cids from community.posts to be unpinned", e);
     }
     if (community.ipnsPubsubTopicRoutingCid) community._cidsToUnPin.add(community.ipnsPubsubTopicRoutingCid);
+    // pubsubTopicRoutingCid only reflects the topic of the last published record, so derive the
+    // configured topic's block too: a community whose exchange is disabled (issue #229), or whose topic
+    // changed after the last publish, still has that block pinned from when it was being provided.
+    const configuredChallengeTopic = communityChallengePubsubTopic(community);
+    if (configuredChallengeTopic) community._cidsToUnPin.add(pubsubTopicToDhtKey(configuredChallengeTopic));
     if (community.pubsubTopicRoutingCid) community._cidsToUnPin.add(community.pubsubTopicRoutingCid);
     try {
         await community.initDbHandlerIfNeeded();

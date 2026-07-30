@@ -49,7 +49,7 @@ import type {
 import type { IpfsHttpClientPubsubMessage } from "../../../../types.js";
 import type { LocalCommunity } from "../local-community.js";
 import { DUPLICATE_PUBLICATION_ERRORS } from "./defaults.js";
-import { pubsubTopicWithfallback } from "./comment-updates.js";
+import { challengeExchangePubsubTopic } from "./comment-updates.js";
 import { storePublication } from "./publication-store.js";
 import { checkPublicationValidity, respondWithErrorIfSignatureOfPublicationIsInvalid } from "./publication-validation.js";
 
@@ -102,19 +102,19 @@ export async function publishChallenges(
         ...toSignChallenge,
         signature: await signChallengeMessage({ challengeMessage: toSignChallenge, signer: community.signer })
     };
-    const pubsubClient = community._clientsManager.getDefaultKuboPubsubClient();
+    community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("publishing-challenge");
 
-    community._clientsManager.updateKuboRpcPubsubState("publishing-challenge", pubsubClient.url);
-
-    // we only publish over pubsub if the challenge exchange is not ongoing for local publishers
-    if (!community._challengeExchangesFromLocalPublishers[request.challengeRequestId.toString()])
-        await community._clientsManager.pubsubPublish(pubsubTopicWithfallback(community), challengeMessage);
+    // we only publish over pubsub if the challenge exchange is not ongoing for local publishers,
+    // and only if the exchange isn't disabled (issue #229) — local publishers still get the emission below
+    const challengeTopic = challengeExchangePubsubTopic(community);
+    if (challengeTopic && !community._challengeExchangesFromLocalPublishers[request.challengeRequestId.toString()])
+        await community._clientsManager.pubsubPublish(challengeTopic, challengeMessage);
     log(
-        `Community ${community.address} with pubsub topic ${pubsubTopicWithfallback(community)} published ${challengeMessage.type} over pubsub: `,
+        `Community ${community.address} with pubsub topic ${challengeTopic} published ${challengeMessage.type} over pubsub: `,
         pick(toSignChallenge, ["timestamp"]),
         toEncryptChallenge.challenges.map((challenge) => challenge.type)
     );
-    community._clientsManager.updateKuboRpcPubsubState("waiting-challenge-answers", pubsubClient.url);
+    community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("waiting-challenge-answers");
     community.emit("challenge", {
         ...challengeMessage,
         challenges
@@ -145,16 +145,16 @@ export async function publishFailedChallengeVerification(
         signature: await signChallengeVerification({ challengeVerification: toSignVerification, signer: community.signer })
     };
 
-    const pubsubClient = community._clientsManager.getDefaultKuboPubsubClient();
-    community._clientsManager.updateKuboRpcPubsubState("publishing-challenge-verification", pubsubClient.url);
+    community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("publishing-challenge-verification");
+    const challengeTopic = challengeExchangePubsubTopic(community);
     log(
-        `Will publish ${challengeVerification.type} over pubsub topic ${pubsubTopicWithfallback(community)} on community ${community.address}:`,
+        `Will publish ${challengeVerification.type} over pubsub topic ${challengeTopic} on community ${community.address}:`,
         omit(toSignVerification, ["challengeRequestId"])
     );
 
-    if (!community._challengeExchangesFromLocalPublishers[challengeRequestId.toString()])
-        await community._clientsManager.pubsubPublish(pubsubTopicWithfallback(community), challengeVerification);
-    community._clientsManager.updateKuboRpcPubsubState("waiting-challenge-requests", pubsubClient.url);
+    if (challengeTopic && !community._challengeExchangesFromLocalPublishers[challengeRequestId.toString()])
+        await community._clientsManager.pubsubPublish(challengeTopic, challengeVerification);
+    community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("waiting-challenge-requests");
 
     community.emit("challengeverification", challengeVerification);
     community._ongoingChallengeExchanges.delete(challengeRequestId.toString());
@@ -230,11 +230,11 @@ export async function publishIdempotentDuplicateVerification(
         signature: await signChallengeVerification({ challengeVerification: toSignMsg, signer: community.signer })
     };
 
-    const pubsubClient = community._clientsManager.getDefaultKuboPubsubClient();
-    community._clientsManager.updateKuboRpcPubsubState("publishing-challenge-verification", pubsubClient.url);
-    if (!community._challengeExchangesFromLocalPublishers[challengeRequestId.toString()])
-        await community._clientsManager.pubsubPublish(pubsubTopicWithfallback(community), challengeVerification);
-    community._clientsManager.updateKuboRpcPubsubState("waiting-challenge-requests", pubsubClient.url);
+    community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("publishing-challenge-verification");
+    const challengeTopic = challengeExchangePubsubTopic(community);
+    if (challengeTopic && !community._challengeExchangesFromLocalPublishers[challengeRequestId.toString()])
+        await community._clientsManager.pubsubPublish(challengeTopic, challengeVerification);
+    community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("waiting-challenge-requests");
 
     const objectToEmit = <DecryptedChallengeVerificationMessageType>{ ...challengeVerification, ...toEncryptDecrypted };
     community.emit("challengeverification", objectToEmit);
@@ -330,14 +330,13 @@ export async function publishChallengeVerification(
             signature: await signChallengeVerification({ challengeVerification: toSignMsg, signer: community.signer })
         };
 
-        const pubsubClient = community._clientsManager.getDefaultKuboPubsubClient();
+        community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("publishing-challenge-verification");
 
-        community._clientsManager.updateKuboRpcPubsubState("publishing-challenge-verification", pubsubClient.url);
+        const challengeTopic = challengeExchangePubsubTopic(community);
+        if (challengeTopic && !community._challengeExchangesFromLocalPublishers[request.challengeRequestId.toString()])
+            await community._clientsManager.pubsubPublish(challengeTopic, challengeVerification);
 
-        if (!community._challengeExchangesFromLocalPublishers[request.challengeRequestId.toString()])
-            await community._clientsManager.pubsubPublish(pubsubTopicWithfallback(community), challengeVerification);
-
-        community._clientsManager.updateKuboRpcPubsubState("waiting-challenge-requests", pubsubClient.url);
+        community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("waiting-challenge-requests");
 
         const objectToEmit = <DecryptedChallengeVerificationMessageType>{ ...challengeVerification, ...toEncrypt };
         community.emit("challengeverification", objectToEmit);
@@ -345,7 +344,7 @@ export async function publishChallengeVerification(
         delete community._challengeExchangesFromLocalPublishers[request.challengeRequestId.toString()];
         cleanUpChallengeAnswerPromise(community, request.challengeRequestId.toString());
         log.trace(
-            `Published ${challengeVerification.type} over pubsub topic ${pubsubTopicWithfallback(community)}:`,
+            `Published ${challengeVerification.type} over pubsub topic ${challengeTopic}:`,
             omit(objectToEmit, ["signature", "encrypted", "challengeRequestId"])
         );
     }

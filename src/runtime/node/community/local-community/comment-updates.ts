@@ -19,8 +19,20 @@ import type { LocalCommunity } from "../local-community.js";
 import type { CommentUpdateToWriteToDbAndPublishToIpfs } from "./defaults.js";
 import { rmUnneededMfsPaths } from "./cleanup.js";
 
-export function pubsubTopicWithfallback(community: LocalCommunity) {
-    return community.pubsubTopic || community.address;
+// The topic this community uses for the challenge exchange, ignoring whether the exchange is
+// currently enabled. There is no fallback to community.address anymore (issue #229): absence of
+// pubsubTopic on the wire means the exchange is disabled, so the address must never stand in for a
+// missing topic. community.signer.address is what the init backfill writes, so a community that
+// toggles the exchange back on has a topic without needing a DB write first.
+export function communityChallengePubsubTopic(community: LocalCommunity): string | undefined {
+    return community.pubsubTopic || community.signer?.address;
+}
+
+// The topic to actually subscribe/publish on, undefined when settings.disablePubsubChallengeExchange
+// turns the community read-only over the network.
+export function challengeExchangePubsubTopic(community: LocalCommunity): string | undefined {
+    if (community.settings?.disablePubsubChallengeExchange) return undefined;
+    return communityChallengePubsubTopic(community);
 }
 
 export function calculateLocalMfsPathForCommentUpdate(

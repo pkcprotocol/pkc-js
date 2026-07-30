@@ -1,5 +1,5 @@
 // Unit tests for src/runtime/node/community/local-community/comment-updates.ts.
-// pubsubTopicWithfallback and calculateLocalMfsPathForCommentUpdate are pure;
+// communityChallengePubsubTopic and calculateLocalMfsPathForCommentUpdate are pure;
 // the orchestrators (calculateNewCommentUpdate, syncPostUpdatesWithIpfs,
 // updateCommentsThatNeedToBeUpdated, adjustPostUpdatesBucketsIfNeeded) chain DB +
 // IPFS + signing + page generation and are exercised end-to-end by the
@@ -10,27 +10,46 @@ import {
     adjustPostUpdatesBucketsIfNeeded,
     calculateLocalMfsPathForCommentUpdate,
     calculateNewCommentUpdate,
-    pubsubTopicWithfallback,
+    communityChallengePubsubTopic,
     syncPostUpdatesWithIpfs,
     updateCommentsThatNeedToBeUpdated,
     validateCommentUpdateSignature
 } from "../../../../dist/node/runtime/node/community/local-community/comment-updates.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 
-describe("comment-updates: pubsubTopicWithfallback", () => {
+// Since issue #229 the fallback is the signer address, never community.address: a record without
+// pubsubTopic means the challenge exchange is disabled, so the address must not stand in for a topic.
+describe("comment-updates: communityChallengePubsubTopic", () => {
     it("prefers community.pubsubTopic when set", () => {
-        const community = { pubsubTopic: "explicit-topic", address: "fallback.bso" } as unknown as LocalCommunity;
-        expect(pubsubTopicWithfallback(community)).to.equal("explicit-topic");
+        const community = {
+            pubsubTopic: "explicit-topic",
+            address: "fallback.bso",
+            signer: { address: "signer-address" }
+        } as unknown as LocalCommunity;
+        expect(communityChallengePubsubTopic(community)).to.equal("explicit-topic");
     });
 
-    it("falls back to community.address when pubsubTopic is undefined", () => {
-        const community = { pubsubTopic: undefined, address: "fallback.bso" } as unknown as LocalCommunity;
-        expect(pubsubTopicWithfallback(community)).to.equal("fallback.bso");
+    it("falls back to the signer address when pubsubTopic is undefined", () => {
+        const community = {
+            pubsubTopic: undefined,
+            address: "fallback.bso",
+            signer: { address: "signer-address" }
+        } as unknown as LocalCommunity;
+        expect(communityChallengePubsubTopic(community)).to.equal("signer-address");
     });
 
-    it("falls back to community.address when pubsubTopic is an empty string", () => {
-        const community = { pubsubTopic: "", address: "fallback.bso" } as unknown as LocalCommunity;
-        expect(pubsubTopicWithfallback(community)).to.equal("fallback.bso");
+    it("falls back to the signer address when pubsubTopic is an empty string", () => {
+        const community = {
+            pubsubTopic: "",
+            address: "fallback.bso",
+            signer: { address: "signer-address" }
+        } as unknown as LocalCommunity;
+        expect(communityChallengePubsubTopic(community)).to.equal("signer-address");
+    });
+
+    it("returns undefined when there is neither a topic nor a signer", () => {
+        const community = { pubsubTopic: undefined, address: "fallback.bso", signer: undefined } as unknown as LocalCommunity;
+        expect(communityChallengePubsubTopic(community)).to.be.undefined;
     });
 });
 

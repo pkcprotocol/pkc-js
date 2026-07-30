@@ -1776,6 +1776,7 @@ export async function createDelegatedCommunityIpns(
             ...(await getTemplateCommunityRecord(anchor.pkc)),
             posts: undefined,
             pubsubTopic: minter.signer.address,
+            encryption: encryptionForSigner((opts?.contentSigner ?? minter.signer) as { publicKey: string }),
             ...communityOpts
         };
         if (!communityRecord.posts) delete communityRecord.posts;
@@ -1820,6 +1821,7 @@ export async function publishCommunityRecordWithExtraProp(opts?: { includeExtraP
     const ipnsObj = await createNewIpns();
     const communityRecord = JSON.parse(JSON.stringify(await getTemplateCommunityRecord(ipnsObj.pkc)));
     communityRecord.pubsubTopic = ipnsObj.signer.address;
+    communityRecord.encryption = encryptionForSigner(ipnsObj.signer);
     delete communityRecord.posts;
     if (opts?.extraProps) Object.assign(communityRecord, opts.extraProps);
     const signedPropertyNames = communityRecord.signature.signedPropertyNames;
@@ -1836,6 +1838,13 @@ export async function publishCommunityRecordWithExtraProp(opts?: { includeExtraP
     return { communityRecord, ipnsObj };
 }
 
+// getTemplateCommunityRecord clones a live community's record, so its encryption block belongs to
+// that community. verifyCommunity requires encryption.publicKey to match the record signer, so any
+// helper that re-signs the template with its own key must re-derive encryption too.
+export function encryptionForSigner(signer: { publicKey: string }): CommunityIpfsType["encryption"] {
+    return { type: "ed25519-aes-gcm", publicKey: signer.publicKey };
+}
+
 export async function createMockedCommunityIpns(communityOpts: CreateNewLocalCommunityUserOptions) {
     const ipnsObj = await createNewIpns();
     const communityAddress = ipnsObj.signer.address;
@@ -1843,9 +1852,13 @@ export async function createMockedCommunityIpns(communityOpts: CreateNewLocalCom
         ...(await getTemplateCommunityRecord(ipnsObj.pkc)),
         posts: undefined,
         pubsubTopic: communityAddress,
+        encryption: encryptionForSigner(ipnsObj.signer),
         ...communityOpts
     }; // default community, will be using its props
     if (!communityRecord.posts) delete communityRecord.posts;
+    // Pass `pubsubTopic: undefined` to mint the record a read-only community publishes (issue #229).
+    // The key must be deleted, not left undefined: _signJson picks signed props by key presence.
+    if (!communityRecord.pubsubTopic) delete communityRecord.pubsubTopic;
 
     communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer });
     await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
@@ -1871,7 +1884,8 @@ export async function createStaticCommunityRecordForComment(opts?: {
         const communityRecord = <CommunityIpfsType>{
             ...(await getTemplateCommunityRecord(ipnsObj.pkc)),
             posts: undefined,
-            pubsubTopic: communityAddress
+            pubsubTopic: communityAddress,
+            encryption: encryptionForSigner(ipnsObj.signer)
         };
         if (!communityRecord.posts) delete communityRecord.posts;
         // Always publish a valid record first so the IPNS key is established for gateway discovery

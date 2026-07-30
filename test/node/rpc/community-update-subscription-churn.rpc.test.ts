@@ -32,7 +32,8 @@ import {
     createNewIpns,
     mockRpcServerForTests,
     mockRpcServerPKC,
-    resolveWhenConditionIsTrue
+    resolveWhenConditionIsTrue,
+    encryptionForSigner
 } from "../../../dist/node/test/test-util.js";
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
 import { findUpdatingCommunity } from "../../../dist/node/pkc/tracked-instance-registry-util.js";
@@ -120,7 +121,12 @@ describe("RPC community update subscription survives concurrent sibling churn (#
         const newIpns = await createNewIpns();
         const { communityRecord: templateRecord, ipnsObj: templateIpns } = await createMockedCommunityIpns({});
         const makeRecord = async (signer: typeof newIpns.signer) => {
-            const record = <CommunityIpfsType>{ ...templateRecord, posts: undefined, pubsubTopic: newIpns.signer.address };
+            const record = <CommunityIpfsType>{
+                ...templateRecord,
+                posts: undefined,
+                pubsubTopic: newIpns.signer.address,
+                encryption: encryptionForSigner(signer)
+            };
             if (!record.posts) delete record.posts;
             record.signature = await signCommunity({ community: record, signer });
             return record;
@@ -333,52 +339,55 @@ describe("RPC community update subscription survives concurrent sibling churn (#
     // attached, stop the shared entry (what the refcount corruption / sibling-teardown cascade does
     // in CI), then publish the post-migration record. A correct implementation must recover the
     // subscription and deliver the record; the buggy build starves client A forever.
-    itIfRpc(`a subscription is permanently starved when its shared updating entry is stopped while still attached (#129 root cause)`, async () => {
-        const target = await createMigrationTargetWithInvalidRecord();
-        const { communityAddress: oldKeyA } = await createMockedCommunityIpns({});
-        const domain = `entry-stopped-under-sub-${Date.now()}.bso`;
-        resolverRecords.set(domain, target.newKey);
+    itIfRpc(
+        `a subscription is permanently starved when its shared updating entry is stopped while still attached (#129 root cause)`,
+        async () => {
+            const target = await createMigrationTargetWithInvalidRecord();
+            const { communityAddress: oldKeyA } = await createMockedCommunityIpns({});
+            const domain = `entry-stopped-under-sub-${Date.now()}.bso`;
+            resolverRecords.set(domain, target.newKey);
 
-        const clientA = await createClient();
-        try {
-            const communityA = await subscribeMigrationVictim(clientA, domain, oldKeyA, target.newKey);
+            const clientA = await createClient();
+            try {
+                const communityA = await subscribeMigrationVictim(clientA, domain, oldKeyA, target.newKey);
 
-            // The shared server-side updating entry that client A's subscription mirrors
-            const entry = getServerUpdatingEntry(domain);
-            expect(entry, "server should have an updating entry for the migrated domain").to.exist;
-            expect(entry!.state, "updating entry should be updating before it is stopped").to.equal("updating");
-            expect(
-                entry!._numOfListenersForUpdatingInstance,
-                "client A's subscription mirror should be attached to the shared updating entry"
-            ).to.be.greaterThan(0);
+                // The shared server-side updating entry that client A's subscription mirrors
+                const entry = getServerUpdatingEntry(domain);
+                expect(entry, "server should have an updating entry for the migrated domain").to.exist;
+                expect(entry!.state, "updating entry should be updating before it is stopped").to.equal("updating");
+                expect(
+                    entry!._numOfListenersForUpdatingInstance,
+                    "client A's subscription mirror should be attached to the shared updating entry"
+                ).to.be.greaterThan(0);
 
-            // Reproduce the CI end-state: the shared entry is stopped while client A's subscription
-            // is still attached. In CI this happened via refcount corruption during concurrent
-            // sibling teardown; here it is injected directly so the failure is deterministic.
-            await entry!.stop();
+                // Reproduce the CI end-state: the shared entry is stopped while client A's subscription
+                // is still attached. In CI this happened via refcount corruption during concurrent
+                // sibling teardown; here it is injected directly so the failure is deterministic.
+                await entry!.stop();
 
-            // End the pre-record window: the post-migration record is now deliverable
-            await target.publishRecord();
+                // End the pre-record window: the post-migration record is now deliverable
+                await target.publishRecord();
 
-            // The post-migration record must still reach client A. In the buggy build A's mirror was
-            // cascaded to "stopped" and never re-attached, so this never resolves (issue #129).
-            await withTimeout(
-                resolveWhenConditionIsTrue({
-                    toUpdate: communityA,
-                    predicate: async () => typeof communityA.updatedAt === "number"
-                }),
-                60_000,
-                "client A post-migration record after its shared updating entry was stopped (#129)"
-            );
-            expect(communityA.publicKey).to.equal(target.newKey);
-            expect(communityA.address).to.equal(domain);
+                // The post-migration record must still reach client A. In the buggy build A's mirror was
+                // cascaded to "stopped" and never re-attached, so this never resolves (issue #129).
+                await withTimeout(
+                    resolveWhenConditionIsTrue({
+                        toUpdate: communityA,
+                        predicate: async () => typeof communityA.updatedAt === "number"
+                    }),
+                    60_000,
+                    "client A post-migration record after its shared updating entry was stopped (#129)"
+                );
+                expect(communityA.publicKey).to.equal(target.newKey);
+                expect(communityA.address).to.equal(domain);
 
-            await communityA.stop();
-        } finally {
-            await target.destroy();
-            if (!clientA.destroyed) await clientA.destroy();
+                await communityA.stop();
+            } finally {
+                await target.destroy();
+                if (!clientA.destroyed) await clientA.destroy();
+            }
         }
-    });
+    );
 
     // Guard for the recovery added in #181: recovery must fire ONLY when a subscription is stranded
     // by internal churn, never when the client legitimately stops. Models the teardown in
@@ -394,9 +403,7 @@ describe("RPC community update subscription survives concurrent sibling churn (#
             const communities = await Promise.all(clients.map((c) => c.createCommunity({ address: communityAddress })));
             await Promise.all(communities.map((c) => c.update()));
             await Promise.all(
-                communities.map((c) =>
-                    resolveWhenConditionIsTrue({ toUpdate: c, predicate: async () => typeof c.updatedAt === "number" })
-                )
+                communities.map((c) => resolveWhenConditionIsTrue({ toUpdate: c, predicate: async () => typeof c.updatedAt === "number" }))
             );
             const serverEntry = () => findUpdatingCommunity(getServerPkc(), { publicKey: communityAddress }) as RemoteCommunity | undefined;
             expect(serverEntry(), "server should have a shared updating entry for the community").to.exist;
@@ -406,8 +413,7 @@ describe("RPC community update subscription survives concurrent sibling churn (#
             await new Promise((resolve) => setTimeout(resolve, 500));
 
             // No spurious recovery: the shared server-side entry must be fully cleaned up and stay gone
-            expect(serverEntry(), "shared entry must be cleaned up after all clients stop, not resurrected by recovery").to.be
-                .undefined;
+            expect(serverEntry(), "shared entry must be cleaned up after all clients stop, not resurrected by recovery").to.be.undefined;
             for (const c of communities) expect(c.state, "each client community must remain stopped").to.equal("stopped");
         } finally {
             await Promise.all(clients.map((c) => (c.destroyed ? Promise.resolve() : c.destroy())));
@@ -491,6 +497,7 @@ describe("RPC community update subscription survives concurrent sibling churn (#
                 ...templateRecord,
                 posts: undefined,
                 pubsubTopic: newIpns.signer.address,
+                encryption: encryptionForSigner(newIpns.signer),
                 updatedAt
             };
             if (!record.posts) delete record.posts;
