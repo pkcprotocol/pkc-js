@@ -313,7 +313,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         if (Object.values(this._challengeExchanges).some((exchange) => exchange.challenge)) return; // We only process one challenge
         const challengeMsgValidity = await verifyChallengeMessage({
             challenge: msg,
-            communitySignerAddress: this._communityChallengeMsgSignerAddress(),
+            communityChallengeSignerAddress: this._communityChallengeMsgSignerAddress(),
             validateTimestampRange: true
         });
         if (!challengeMsgValidity.valid) {
@@ -395,7 +395,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         if (this._challengeExchanges[msg.challengeRequestId.toString()].challengeVerification) return;
         const signatureValidation = await verifyChallengeVerification({
             verification: msg,
-            communitySignerAddress: this._communityChallengeMsgSignerAddress(),
+            communityChallengeSignerAddress: this._communityChallengeMsgSignerAddress(),
             validateTimestampRange: true
         });
         if (!signatureValidation.valid) {
@@ -607,7 +607,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         } else {
             try {
                 await this._clientsManager.pubsubPublishOnProvider(
-                    this._communityChallengeExchangeTopic(),
+                    this._communityChallengePubsubExchangeTopic(),
                     answerMsgToPublish,
                     challengeExchange.providerUrl
                 );
@@ -708,11 +708,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
     // The topic to run the challenge exchange on. Absence of pubsubTopic on the record means the
     // community disabled the exchange (issue #229); there is no fallback to the community address.
-    _communityChallengeExchangeTopic(): string {
+    _communityChallengePubsubExchangeTopic(): string {
         const pubsubTopic = this._community?.pubsubTopic;
         if (typeof pubsubTopic !== "string")
             throw new PKCError("ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED", {
                 communityAddress: this._community?.address ?? this.communityAddress,
+                communityName: this._community?.name ?? this.communityName,
+                communityPublicKey: this._community?.publicKey ?? this.communityPublicKey,
                 publicationType: this.getType()
             });
         return pubsubTopic;
@@ -1100,13 +1102,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     this._updatePubsubState("subscribing-pubsub", providerUrl);
                     try {
                         await this._clientsManager.pubsubSubscribeOnProvider(
-                            this._communityChallengeExchangeTopic(),
+                            this._communityChallengePubsubExchangeTopic(),
                             this._handleChallengeExchange,
                             providerUrl
                         );
                         this._updatePubsubState("publishing-challenge-request", providerUrl);
                         await this._clientsManager.pubsubPublishOnProvider(
-                            this._communityChallengeExchangeTopic(),
+                            this._communityChallengePubsubExchangeTopic(),
                             challengeRequest,
                             providerUrl
                         );
@@ -1266,6 +1268,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
             await this._postSucessOrFailurePublishing();
             const error = new PKCError("ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED", {
                 communityAddress: this._community?.address ?? this.communityAddress,
+                communityName: this._community?.name ?? this.communityName,
+                communityPublicKey: this._community?.publicKey ?? this.communityPublicKey,
                 publicationType: this.getType()
             });
             log.error("Community has its challenge exchange disabled, will not publish", this.getType(), error);
@@ -1291,12 +1295,16 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 // this will throw if we succeed in subscribing first attempt, but then fail to publish
 
                 await this._clientsManager.pubsubSubscribeOnProvider(
-                    this._communityChallengeExchangeTopic(),
+                    this._communityChallengePubsubExchangeTopic(),
                     this._handleChallengeExchange,
                     providerUrl
                 );
                 this._updatePubsubState("publishing-challenge-request", providerUrl);
-                await this._clientsManager.pubsubPublishOnProvider(this._communityChallengeExchangeTopic(), challengeRequest, providerUrl);
+                await this._clientsManager.pubsubPublishOnProvider(
+                    this._communityChallengePubsubExchangeTopic(),
+                    challengeRequest,
+                    providerUrl
+                );
                 this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequestPublishTimestamp = timestamp();
             } catch (e) {
                 this._updatePubsubState("stopped", providerUrl);
