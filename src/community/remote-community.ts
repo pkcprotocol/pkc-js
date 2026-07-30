@@ -448,6 +448,11 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         // Clear all display fields via initRemoteCommunityPropsNoMerge with empty props.
         // Address immutability in initRemoteCommunityPropsNoMerge ensures address won't change.
         this.initRemoteCommunityPropsNoMerge({} as CreateRemoteCommunityOptions);
+        // initRemoteCommunityPropsNoMerge clears pubsubTopic, but the routing CID is only re-derived from
+        // a full record in initCommunityIpfsPropsNoMerge, which this path does not reach. Clear it here so
+        // the invariant holds on every path: no routing CID outlives the topic it was derived from, or a
+        // reader keeps looking up peers of the old key's challenge topic until the next record lands.
+        this.pubsubTopicRoutingCid = undefined;
 
         // Update to new key and IPNS routing props
         this.publicKey = newPublicKey;

@@ -151,6 +151,7 @@ describe("a custom pubsubTopic with the exchange disabled", async () => {
         expect(community.pubsubTopic).to.equal(customTopic);
     });
 
+    // Reads the kubo node's subscription list, which an RPC client cannot do
     itSkipIfRpc("never subscribes to the custom topic", async () => {
         expect(await listSubscribedTopics(community)).to.not.include(customTopic);
     });
@@ -163,6 +164,7 @@ describe("a custom pubsubTopic with the exchange disabled", async () => {
         expect(community.pubsubTopicRoutingCid).to.equal(pubsubTopicToDhtKey(customTopic));
     });
 
+    // Reads the kubo node's subscription list, which an RPC client cannot do
     itSkipIfRpc("subscribes to the custom topic once the exchange is re-enabled", async () => {
         await resolveWhenConditionIsTrue({
             toUpdate: community,
@@ -288,6 +290,7 @@ describe("changing pubsubTopic while the community is started", async () => {
         expect(community.pubsubTopicRoutingCid).to.not.equal(pubsubTopicToDhtKey(firstTopic));
     });
 
+    // Reads the kubo node's subscription list, which an RPC client cannot do
     itSkipIfRpc("subscribes to the new topic", async () => {
         await resolveWhenConditionIsTrue({
             toUpdate: community,
