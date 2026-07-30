@@ -284,6 +284,13 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         const log = Logger("pkc-js:remote-community:initCommunityIpfsPropsNoMerge");
         this.raw.communityIpfs = newProps;
         this.initRemoteCommunityPropsNoMerge(newProps);
+        // pubsubTopicRoutingCid is derived state of the PUBLISHED topic, so a full record is the
+        // authority for it and it is recomputed on every one. Absence of pubsubTopic means the
+        // challenge exchange is disabled (issue #229), so no routing CID may survive the record that
+        // dropped the topic, and a changed topic has to move the CID with it. The record is authoritative
+        // even against the instance: a LocalCommunity keeps community.pubsubTopic configured while the
+        // setting is on, precisely so it can be republished later, but it is not being served now.
+        this.pubsubTopicRoutingCid = newProps.pubsubTopic ? pubsubTopicToDhtKey(newProps.pubsubTopic) : undefined;
         const unknownProps = difference(keys(this.raw.communityIpfs), keys(CommunityIpfsSchema.shape));
         if (unknownProps.length > 0) {
             log(`Found unknown props on community (${this.address}) ipfs record`, unknownProps);
@@ -317,16 +324,11 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(this.ipnsName);
             this.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this.ipnsPubsubTopic);
         }
-        if (!this.pubsubTopicRoutingCid) {
-            if ("pubsubTopicRoutingCid" in newProps) this.pubsubTopicRoutingCid = newProps.pubsubTopicRoutingCid;
-            else if (this.raw.communityIpfs)
-                this.pubsubTopicRoutingCid = pubsubTopicToDhtKey(
-                    newProps.pubsubTopic ||
-                        this.pubsubTopic ||
-                        ("address" in newProps ? (newProps.address as string) : undefined) ||
-                        this.address
-                );
-        }
+        // A clone of an already-resolved instance carries the field explicitly; otherwise it is derived
+        // from the published record in initCommunityIpfsPropsNoMerge, which is the only authority for
+        // it. There is no fallback to the address: a record without pubsubTopic has its challenge
+        // exchange disabled (issue #229), so there are no challenge-topic peers to look up.
+        if (!this.pubsubTopicRoutingCid && "pubsubTopicRoutingCid" in newProps) this.pubsubTopicRoutingCid = newProps.pubsubTopicRoutingCid;
     }
 
     initRemoteCommunityPropsNoMerge(newProps: CommunityJson | CreateRemoteCommunityOptions | CommunityIpfsType) {
@@ -446,6 +448,11 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         // Clear all display fields via initRemoteCommunityPropsNoMerge with empty props.
         // Address immutability in initRemoteCommunityPropsNoMerge ensures address won't change.
         this.initRemoteCommunityPropsNoMerge({} as CreateRemoteCommunityOptions);
+        // initRemoteCommunityPropsNoMerge clears pubsubTopic, but the routing CID is only re-derived from
+        // a full record in initCommunityIpfsPropsNoMerge, which this path does not reach. Clear it here so
+        // the invariant holds on every path: no routing CID outlives the topic it was derived from, or a
+        // reader keeps looking up peers of the old key's challenge topic until the next record lands.
+        this.pubsubTopicRoutingCid = undefined;
 
         // Update to new key and IPNS routing props
         this.publicKey = newPublicKey;

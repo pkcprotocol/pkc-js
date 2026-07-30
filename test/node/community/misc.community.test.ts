@@ -124,16 +124,24 @@ describe(`community.pubsubTopic`, async () => {
     it(`community.pubsubTopic is defaulted to address when community is first created`, async () => {
         expect(community.pubsubTopic).to.equal(community.address);
     });
-    it(`Publications can be published to a community with pubsubTopic=undefined`, async () => {
+    // Since issue #229 an absent pubsubTopic on the wire means the challenge exchange is disabled, so
+    // clearing the field can no longer be the way to publish a topic-less record — it re-derives the
+    // default instead, and settings.disablePubsubChallengeExchange is the only switch. This is the
+    // tri-state falsy hazard the boolean was chosen to avoid; the published record always carries an
+    // explicit topic unless the owner opted out.
+    it(`Clearing community.pubsubTopic re-derives the default topic instead of disabling the exchange`, async () => {
         await community.edit({ pubsubTopic: undefined });
         expect(community.pubsubTopic).to.be.undefined;
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
-        expect(community.pubsubTopic).to.be.undefined;
+        expect(community.pubsubTopic).to.equal(community.address);
+        expect(community.raw.communityIpfs!.pubsubTopic).to.equal(community.address);
 
         const post = await publishRandomPost({ communityAddress: community.address, pkc: pkc });
         // _community is private, use type assertion to access it for testing
-        expect((post as Comment & { _community?: Pick<CommunityIpfsType, "pubsubTopic"> })._community?.pubsubTopic).to.be.undefined;
+        expect((post as Comment & { _community?: Pick<CommunityIpfsType, "pubsubTopic"> })._community?.pubsubTopic).to.equal(
+            community.address
+        );
     });
 });
 

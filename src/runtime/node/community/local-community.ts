@@ -116,6 +116,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _firstUpdateAfterStart: boolean = true;
     _internalStateUpdateId: InternalCommunityRecordBeforeFirstUpdateType["_internalStateUpdateId"] = "";
     _lastPubsubTopicRoutingProvideAt?: number = undefined;
+    // The challenge exchange topic we last subscribed to. pubsubTopic can change while the community is
+    // started, and the kubo node is shared with other communities, so this is the only safe way to know
+    // which subscription is ours to drop (see listenToIncomingRequests).
+    _subscribedChallengePubsubTopic?: string = undefined;
     // Browser-dialable (WSS/WebRTC) self-addresses last announced for the connection-critical CIDs.
     // When this set changes (checked once per publish-loop cycle, throttled) we re-provide so HTTP routers
     // stop serving stale addresses (see reprovide-on-address-change.ts).
@@ -186,7 +190,12 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             _internalStateUpdateId: this._internalStateUpdateId,
             _cidsToUnPin: [...this._cidsToUnPin],
             _mfsPathsToRemove: [...this._mfsPathsToRemove],
-            _pendingEditProps: this._pendingEditProps
+            _pendingEditProps: this._pendingEditProps,
+            // rpcJson.community is the published record, which omits pubsubTopic entirely while
+            // settings.disablePubsubChallengeExchange is on (issue #229). Carry the configured topic
+            // separately so reloading internal state, in this process or after a restart, does not
+            // silently replace it with the signer-address default the next record would fall back to.
+            _configuredPubsubTopic: this.pubsubTopic
         };
     }
 

@@ -15,7 +15,7 @@ import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 type CommentWithInternals = {
     _publishToDifferentProviderThresholdSeconds: number;
     _setProviderFailureThresholdSeconds: number;
-    _communityPubsubTopicWithFallback: () => string;
+    _communityChallengePubsubExchangeTopic: () => string;
     _clientsManager: PKCClientManager;
     _challengeExchanges: unknown[];
 };
@@ -103,7 +103,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
 
                 await validateKuboRpcNotListeningToPubsubTopic(
                     testPKC,
-                    (mockPost as unknown as CommentWithInternals)._communityPubsubTopicWithFallback()
+                    (mockPost as unknown as CommentWithInternals)._communityChallengePubsubExchangeTopic()
                 );
 
                 await testPKC.destroy();
@@ -144,7 +144,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
 
             await validateKuboRpcNotListeningToPubsubTopic(
                 testPKC,
-                (mockPost as unknown as CommentWithInternals)._communityPubsubTopicWithFallback()
+                (mockPost as unknown as CommentWithInternals)._communityChallengePubsubExchangeTopic()
             );
 
             await testPKC.destroy();
@@ -207,7 +207,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
                 expect(challengeRequestCount).to.be.at.most(2);
 
                 // Verify pubsub subscription handlers are cleaned up after successful publication
-                const pubsubTopic = (mockPost as unknown as CommentWithInternals)._communityPubsubTopicWithFallback();
+                const pubsubTopic = (mockPost as unknown as CommentWithInternals)._communityChallengePubsubExchangeTopic();
                 expect(pubsubTopic).to.be.a("string");
 
                 // Check both providers for subscription cleanup using the correct access pattern

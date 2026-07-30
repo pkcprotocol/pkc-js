@@ -109,6 +109,13 @@ export class CommunityClientsManager extends PKCClientsManager {
         super.updateKuboRpcPubsubState(newState, pubsubProvider);
     }
 
+    // A read-only community never publishes over pubsub, so its node may have no pubsub provider to
+    // report a state for (issue #229). There is nothing to label in that case, not a failure.
+    updateKuboRpcPubsubStateIfProviderExists(newState: CommunityKuboPubsubClient["state"]) {
+        const pubsubClient = this.getDefaultKuboPubsubClientIfAny();
+        if (pubsubClient) this.updateKuboRpcPubsubState(newState, pubsubClient.url);
+    }
+
     override updateGatewayState(newState: CommunityIpfsGatewayClient["state"], gateway: string): void {
         super.updateGatewayState(newState, gateway);
     }

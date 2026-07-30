@@ -138,6 +138,44 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         ).to.deep.equal({ valid: true });
     });
 
+    // encryption.publicKey names the key that decrypts challenge requests and therefore signs the
+    // community's CHALLENGE/CHALLENGEVERIFICATION. Unlike signature.publicKey it is not anchored to
+    // the IPNS name by itself, so it must be pinned to the record signer or a record could delegate
+    // the challenge exchange to a key the reader never validated against the address it typed.
+    it(`Community with encryption.publicKey that doesn't match signature.publicKey is invalidated`, async () => {
+        const community = clone(validCommunityFixture) as CommunityIpfsType;
+        community.encryption = { ...community.encryption, publicKey: signers[1].publicKey };
+        // re-sign so the record is otherwise valid, otherwise this would fail on the signature check
+        // first and the test would prove nothing about the encryption check
+        community.signature = (await _signJson(
+            community.signature.signedPropertyNames,
+            community,
+            signers[0],
+            log
+        )) as CommunityIpfsType["signature"];
+
+        expect(
+            await verifyCommunity({
+                community: community,
+                communityIpnsName: signers[0].address,
+                resolveAuthorNames: pkc.resolveAuthorNames,
+                clientsManager: pkc._clientsManager,
+                validatePages: false,
+                cacheIfValid: false
+            })
+        ).to.deep.equal({
+            valid: false,
+            reason: messages.ERR_COMMUNITY_ENCRYPTION_PUBLIC_KEY_DOES_NOT_MATCH_SIGNATURE_PUBLIC_KEY
+        });
+    });
+
+    it(`Every community fixture satisfies encryption.publicKey === signature.publicKey`, () => {
+        for (const fixture of [validCommunityFixture, newFormatFixture, newFormatWithNameFixture]) {
+            const community = fixture as unknown as CommunityIpfsType;
+            expect(community.encryption.publicKey).to.equal(community.signature.publicKey);
+        }
+    });
+
     it(`Old-format fixture with address in signedPropertyNames still verifies`, async () => {
         const community = clone(validCommunityFixture) as CommunityIpfsType;
         expect(community.signature.signedPropertyNames).to.include("address");

@@ -666,6 +666,15 @@ export async function verifyCommunity({
     const signaturePeerId = getPeerIdFromPublicKey(community.signature.publicKey);
     if (!communityPeerId.equals(signaturePeerId))
         return { valid: false, reason: messages.ERR_COMMUNITY_IPNS_NAME_DOES_NOT_MATCH_SIGNATURE_PUBLIC_KEY };
+
+    // The record signer is anchored to the IPNS name by the check above; encryption.publicKey is
+    // anchored to nothing on its own, it is merely a signed field. Publishers encrypt challenge
+    // requests to it and the community signs its CHALLENGE/CHALLENGEVERIFICATION with the key that
+    // decrypts them, so leaving the two unrelated would let a record delegate the challenge exchange
+    // to a key the reader never validated against the address it typed. initSignerProps has always
+    // derived both from community.signer, so this only makes an existing invariant explicit.
+    if (!getPeerIdFromPublicKey(community.encryption.publicKey).equals(signaturePeerId))
+        return { valid: false, reason: messages.ERR_COMMUNITY_ENCRYPTION_PUBLIC_KEY_DOES_NOT_MATCH_SIGNATURE_PUBLIC_KEY };
     clientsManager._pkc._memCaches.communityVerificationCache.set(cacheKey, true);
     return { valid: true };
 }
@@ -807,20 +816,31 @@ export async function verifyChallengeRequest({
     return _validateSignatureOfPubsubMsg(request);
 }
 
+// communityChallengeSignerAddress is the address of the key running the community's challenge
+// exchange, ie the entity the challenge must have come from. Callers derive it from
+// community.encryption.publicKey, which verifyCommunity pins to signature.publicKey. It is an
+// address (the same form as signature.publicKey resolves to), not a base64 public key.
+//
+// This used to take the pubsubTopic string and only worked because the topic is backfilled to that
+// address; the check has always meant "signed by the community", never "equal to the topic".
+// Decoupled in issue #229, where a read-only community has no topic at all — and it also fixes
+// communities that set a custom pubsubTopic. Not named after pubsub: the same check runs on the
+// in-process publish shortcut, which never touches a pubsub topic.
 export async function verifyChallengeMessage({
     challenge,
-    pubsubTopic,
+    communityChallengeSignerAddress,
     validateTimestampRange
 }: {
     challenge: ChallengeMessageType;
-    pubsubTopic: string;
+    communityChallengeSignerAddress: string;
     validateTimestampRange: boolean;
 }): Promise<ValidationResult> {
     if (!_allFieldsOfRecordInSignedPropertyNames(challenge))
         return { valid: false, reason: messages.ERR_CHALLENGE_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
 
     const msgSignerAddress = await getPKCAddressFromPublicKeyBuffer(challenge.signature.publicKey);
-    if (msgSignerAddress !== pubsubTopic) return { valid: false, reason: messages.ERR_CHALLENGE_MSG_SIGNER_IS_NOT_COMMUNITY };
+    if (msgSignerAddress !== communityChallengeSignerAddress)
+        return { valid: false, reason: messages.ERR_CHALLENGE_MSG_SIGNER_IS_NOT_COMMUNITY };
     if ((validateTimestampRange && _minimumTimestamp() > challenge.timestamp) || _maximumTimestamp() < challenge.timestamp)
         return { valid: false, reason: messages.ERR_PUBSUB_MSG_TIMESTAMP_IS_OUTDATED };
 
@@ -846,20 +866,22 @@ export async function verifyChallengeAnswer({
     return _validateSignatureOfPubsubMsg(answer);
 }
 
+// See verifyChallengeMessage: the challenge signer's address, not the pubsub topic (issue #229).
 export async function verifyChallengeVerification({
     verification,
-    pubsubTopic,
+    communityChallengeSignerAddress,
     validateTimestampRange
 }: {
     verification: ChallengeVerificationMessageType;
-    pubsubTopic: string;
+    communityChallengeSignerAddress: string;
     validateTimestampRange: boolean;
 }): Promise<ValidationResult> {
     if (!_allFieldsOfRecordInSignedPropertyNames(verification))
         return { valid: false, reason: messages.ERR_CHALLENGE_VERIFICATION_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
 
     const msgSignerAddress = await getPKCAddressFromPublicKeyBuffer(verification.signature.publicKey);
-    if (msgSignerAddress !== pubsubTopic) return { valid: false, reason: messages.ERR_CHALLENGE_VERIFICATION_MSG_SIGNER_IS_NOT_COMMUNITY };
+    if (msgSignerAddress !== communityChallengeSignerAddress)
+        return { valid: false, reason: messages.ERR_CHALLENGE_VERIFICATION_MSG_SIGNER_IS_NOT_COMMUNITY };
     if ((validateTimestampRange && _minimumTimestamp() > verification.timestamp) || _maximumTimestamp() < verification.timestamp)
         return { valid: false, reason: messages.ERR_PUBSUB_MSG_TIMESTAMP_IS_OUTDATED };
 
