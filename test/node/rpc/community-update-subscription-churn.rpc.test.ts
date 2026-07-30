@@ -497,6 +497,7 @@ describe("RPC community update subscription survives concurrent sibling churn (#
                 ...templateRecord,
                 posts: undefined,
                 pubsubTopic: newIpns.signer.address,
+                encryption: encryptionForSigner(newIpns.signer),
                 updatedAt
             };
             if (!record.posts) delete record.posts;

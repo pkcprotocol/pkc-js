@@ -1884,7 +1884,8 @@ export async function createStaticCommunityRecordForComment(opts?: {
         const communityRecord = <CommunityIpfsType>{
             ...(await getTemplateCommunityRecord(ipnsObj.pkc)),
             posts: undefined,
-            pubsubTopic: communityAddress
+            pubsubTopic: communityAddress,
+            encryption: encryptionForSigner(ipnsObj.signer)
         };
         if (!communityRecord.posts) delete communityRecord.posts;
         // Always publish a valid record first so the IPNS key is established for gateway discovery
