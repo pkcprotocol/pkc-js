@@ -355,7 +355,20 @@ describe("local community garbage collection", () => {
 
         await community.delete();
 
-        const expectedCids = ["QmPostsPage", "QmReplyPage", "QmComment1", "QmComment2", "QmUpdateCid", "QmStatsCid"];
+        const expectedCids = [
+            "QmPostsPage",
+            "QmReplyPage",
+            "QmComment1",
+            "QmComment2",
+            "QmUpdateCid",
+            "QmStatsCid",
+            // delete() also unpins the routing block of the CONFIGURED challenge topic, derived here
+            // rather than read off pubsubTopicRoutingCid: that field only names the topic of the last
+            // published record, so it misses a community whose exchange is disabled (issue #229) or
+            // whose topic changed after the last publish. This fixture has no pubsubTopic, so the
+            // configured topic is the signer address.
+            util.pubsubTopicToDhtKey(community.signer.address)
+        ];
         expect(new Set(pinRmCalls)).to.deep.equal(new Set(expectedCids));
         expect(community._cidsToUnPin.size).to.equal(0);
         expect(removeMfsSpy.mock.calls[0][0].paths).to.deep.equal([`/${community.address}`]);
