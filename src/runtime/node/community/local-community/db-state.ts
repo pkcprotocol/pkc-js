@@ -333,6 +333,13 @@ export async function initInternalCommunityAfterFirstUpdateNoMerge(
         },
         runtimeFields: { updateCid: newProps.updateCid }
     });
+    // The community half above overwrites pubsubTopic from the published record, which carries no topic
+    // while the challenge exchange is disabled (issue #229). Restore the configured one so a disabled
+    // community keeps the topic it will publish again when the setting is turned off. Only when the
+    // record has no topic: a published topic is the authority, and this state can be a row read that
+    // predates the latest publish, which must not drag the instance back to a superseded topic. Older
+    // rows have no _configuredPubsubTopic and fall back to whatever the record said, as they meant.
+    if (!newProps.pubsubTopic && newProps._configuredPubsubTopic) community.pubsubTopic = newProps._configuredPubsubTopic;
     await initSignerProps(community, newProps.signer);
     community._internalStateUpdateId = newProps._internalStateUpdateId;
     if (Array.isArray(newProps._cidsToUnPin)) newProps._cidsToUnPin.forEach((cid) => community._cidsToUnPin.add(cid));

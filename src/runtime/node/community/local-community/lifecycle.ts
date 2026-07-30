@@ -3,7 +3,7 @@ import { clone, keys } from "remeda";
 import { LRUCache } from "lru-cache";
 import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
-import { removeMfsFilesSafely, sleepUntilTimeoutOrAbort } from "../../../../util.js";
+import { pubsubTopicToDhtKey, removeMfsFilesSafely, sleepUntilTimeoutOrAbort } from "../../../../util.js";
 import { moveCommunityDbToDeletedDirectory } from "../../util.js";
 import { getCommunityChallengeFromCommunityChallengeSettings } from "../challenges/index.js";
 import {
@@ -368,9 +368,17 @@ export async function stop(community: LocalCommunity) {
         log("Stopping running community", community.address);
         try {
             // Unsubscribe regardless of settings.disablePubsubChallengeExchange — the setting may have
-            // been toggled on after we subscribed, and unsubscribing a topic we never joined is a no-op
-            const challengeTopic = communityChallengePubsubTopic(community);
-            if (challengeTopic) await community._clientsManager.pubsubUnsubscribe(challengeTopic, community.handleChallengeExchange);
+            // been toggled on after we subscribed, and unsubscribing a topic we never joined is a no-op.
+            // _subscribedChallengePubsubTopic covers a pubsubTopic that changed since we joined, which
+            // the current derivation no longer names.
+            const challengeTopics = new Set(
+                [communityChallengePubsubTopic(community), community._subscribedChallengePubsubTopic].filter(
+                    (topic): topic is string => typeof topic === "string"
+                )
+            );
+            for (const challengeTopic of challengeTopics)
+                await community._clientsManager.pubsubUnsubscribe(challengeTopic, community.handleChallengeExchange);
+            community._subscribedChallengePubsubTopic = undefined;
         } catch (e) {
             log.error("Failed to unsubscribe from challenge exchange pubsub when stopping community", e);
         }
@@ -476,6 +484,11 @@ export async function deleteCommunity(community: LocalCommunity) {
         log.error("Failed to add old page cids from community.posts to be unpinned", e);
     }
     if (community.ipnsPubsubTopicRoutingCid) community._cidsToUnPin.add(community.ipnsPubsubTopicRoutingCid);
+    // pubsubTopicRoutingCid only reflects the topic of the last published record, so derive the
+    // configured topic's block too: a community whose exchange is disabled (issue #229), or whose topic
+    // changed after the last publish, still has that block pinned from when it was being provided.
+    const configuredChallengeTopic = communityChallengePubsubTopic(community);
+    if (configuredChallengeTopic) community._cidsToUnPin.add(pubsubTopicToDhtKey(configuredChallengeTopic));
     if (community.pubsubTopicRoutingCid) community._cidsToUnPin.add(community.pubsubTopicRoutingCid);
     try {
         await community.initDbHandlerIfNeeded();

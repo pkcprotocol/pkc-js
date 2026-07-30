@@ -1263,7 +1263,7 @@ An object which may have the following keys:
 | ---- | ---- | ----------- |
 | fetchThumbnailUrls | `boolean` or `undefined` | Fetch the thumbnail URLs of comments `comment.link` property, could reveal the IP address of the community node |
 | fetchThumbnailUrlsProxyUrl | `string` or `undefined` | The HTTP proxy URL used to fetch thumbnail URLs |
-| disablePubsubChallengeExchange | `boolean` or `undefined` | Make the community read-only over the network. The node stops subscribing to the challenge/publication pubsub topic and the published record omits `pubsubTopic`, so clients know not to attempt a challenge exchange and fail fast with `ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED`. The owner can still publish through the local shortcut (same process or through the RPC server running the community) |
+| disablePubsubChallengeExchange | `boolean` or `undefined` | Make the community read-only over the network. The node stops subscribing to the challenge/publication pubsub topic and the published record omits `pubsubTopic`, so clients know not to attempt a challenge exchange and fail fast with `ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED`. The owner can still publish through the local shortcut (same process or through the RPC server running the community). The configured `community.pubsubTopic` is kept while the setting is on, including across a restart, and is published again as-is when the setting is turned off |
 
 #### Example
 

@@ -354,11 +354,22 @@ async function publishCommunityRecordToIpns(
     }
     if (community.updateCid) community._cidsToUnPin.add(community.updateCid); // add old cid of community to be unpinned
     const configuredPubsubTopic = community.pubsubTopic;
+    // A pubsubTopic edit is applied to the instance through the published record, so while the exchange
+    // is disabled it would be swallowed: the record omits the topic by design. Land it on the configured
+    // topic instead, which is what the next enable publishes.
+    const editedPubsubTopic = community._pendingEditProps
+        .filter((editProps) => editProps.editId && editIdsToIncludeInNextUpdate.includes(editProps.editId))
+        .map((editProps) => editProps.pubsubTopic)
+        .filter((topic): topic is string => typeof topic === "string")
+        .pop();
     community.initCommunityIpfsPropsNoMerge(newCommunityRecord);
     // A read-only community publishes no pubsubTopic, and the line above overwrites every CommunityIpfs
     // prop from the record it just published. Restore the configured topic so it is not lost on the
     // round trip and survives a disable/enable cycle (issue #229) — settings is the only switch.
-    if (!newCommunityRecord.pubsubTopic && configuredPubsubTopic) community.pubsubTopic = configuredPubsubTopic;
+    if (!newCommunityRecord.pubsubTopic) {
+        const topicToKeep = editedPubsubTopic ?? configuredPubsubTopic;
+        if (topicToKeep) community.pubsubTopic = topicToKeep;
+    }
     community.updateCid = file.path;
     community._pendingEditProps = community._pendingEditProps.filter(
         (editProps) => !editIdsToIncludeInNextUpdate.includes(editProps.editId)

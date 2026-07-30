@@ -16,22 +16,40 @@ export async function listenToIncomingRequests(community: LocalCommunity) {
         : community._clientsManager.getDefaultKuboPubsubClientIfAny();
     if (!pubsubClient) return;
     const subscribedTopics = await pubsubClient._client.pubsub.ls();
+    // Whatever we joined last, which is the only way to know a topic is ours: the kubo node is shared
+    // with every other community on it, so kubo's subscription list cannot be diffed safely.
+    const staleTopic = community._subscribedChallengePubsubTopic;
+    const unsubscribeStaleTopicIfNeeded = async (currentTopic: string | undefined) => {
+        if (!staleTopic || staleTopic === currentTopic) return;
+        if (subscribedTopics.includes(staleTopic))
+            await community._clientsManager.pubsubUnsubscribe(staleTopic, community.handleChallengeExchange);
+        community._subscribedChallengePubsubTopic = undefined;
+        log(`Stopped listening on the previous challenge exchange pubsub topic (${staleTopic})`);
+    };
+
     if (!topic) {
         // settings.disablePubsubChallengeExchange is on (issue #229). This runs on every sync-loop
         // iteration, so toggling the setting on while started drops the subscription without a restart.
         const disabledTopic = communityChallengePubsubTopic(community);
         if (disabledTopic && subscribedTopics.includes(disabledTopic)) {
             await community._clientsManager.pubsubUnsubscribe(disabledTopic, community.handleChallengeExchange);
+            if (community._subscribedChallengePubsubTopic === disabledTopic) community._subscribedChallengePubsubTopic = undefined;
             log(`Challenge exchange is disabled, unsubscribed from pubsub topic (${disabledTopic})`);
         }
+        await unsubscribeStaleTopicIfNeeded(undefined);
         return;
     }
+    // A community can change its pubsubTopic while started. Drop the topic we joined for the previous
+    // one, otherwise kubo keeps delivering requests to a handler on a topic we no longer advertise and
+    // the subscription leaks for the lifetime of the node.
+    await unsubscribeStaleTopicIfNeeded(topic);
     if (!subscribedTopics.includes(topic)) {
         await community._clientsManager.pubsubUnsubscribe(topic, community.handleChallengeExchange); // Make sure it's not hanging
         await community._clientsManager.pubsubSubscribe(topic, community.handleChallengeExchange);
         community._clientsManager.updateKuboRpcPubsubState("waiting-challenge-requests", pubsubClient.url);
         log(`Waiting for publications on pubsub topic (${topic})`);
     }
+    community._subscribedChallengePubsubTopic = topic;
 }
 
 export async function providePubsubTopicRoutingCidsIfNeeded(community: LocalCommunity, force = false) {
