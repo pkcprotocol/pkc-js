@@ -1,8 +1,8 @@
 # Delegated IPNS (anchor → minter chains)
 
 This documents pkc-js's **client-side loading** of communities published via a delegated
-IPNS chain (see issue #93). Delegate-side *publishing* is intentionally **not** part of
-pkc-js — only resolution and verification are.
+IPNS chain (see issue #93), and the **minter-side identity split** that lets pkc-js run a delegated
+community itself (issue #233, "Publishing a delegated community" below).
 
 > **For now, only a single `anchor → minter` hop is allowed** (`MAX_IPNS_HOPS = 1`). Chains
 > longer than one hop are rejected with `ERR_IPNS_MAX_HOPS_EXCEEDED` on every resolution path
@@ -104,6 +104,48 @@ derived from `ipnsHops[0]` (the anchor), and the content signature is verified a
   communities are a single plain GET, untouched. (Per-request, only the requested name's own record
   is returned — no response header carries the traversed chain, so the walk fetches each hop's
   record individually; see [ipfs/kubo#11351](https://github.com/ipfs/kubo/issues/11351).)
+
+## Publishing a delegated community
+
+A `LocalCommunity` can be the minter of a delegated community: it signs with `Ms` while its identity
+is `An`. Because a node never resolves itself, it cannot derive that identity — the anchor is supplied
+at creation and kept as local state.
+
+```js
+// The node generates Mn/Ms itself; As never leaves the owner.
+const community = await pkc.createCommunity({ anchor: { publicKey: An } })
+community.publicKey // An, what every reader resolves
+community.signer.address // Mn, what this node signs and publishes with
+```
+
+`anchor.publicKey` is the B58 IPNS name, the same representation `community.publicKey` uses, not the
+base64 raw key that `signer.publicKey` and `encryption.publicKey` carry. Passing both `signer` and
+`anchor` is an error (`ERR_CAN_NOT_CREATE_A_COMMUNITY_WITH_BOTH_SIGNER_AND_ANCHOR`): which key the
+caller supplies is the discriminator between the two regimes.
+
+The anchor is persisted in the community's internal record and replayed into `ipnsHops` as
+`[An, Mn]` on every load, so the identity code above (`publicKey` from `ipnsHops[0]`) applies to a
+publisher exactly as it does to a reader.
+
+**What moves to the anchor:** `community.publicKey` and `community.address`, the community's data
+directory and MFS namespace, publication acceptance (a publisher addresses the community by the
+name it resolved, which is `An`), and the `communityPublicKey` stored on content. Content labelling
+in particular must be anchor-based, or a minter rotation would leave stored publications naming a key
+that no longer publishes the community.
+
+**What stays with the minter:** the record signature, `encryption`, `signer.ipnsKeyName`, the
+`pubsubTopic` backfill, and this node's own `ipnsName` / `ipnsPubsubTopic` / routing CID. A publisher
+mints under its own key, so unlike a reader it never derives those from `ipnsHops[0]`
+(`LocalCommunity` overrides `_updateIpnsPubsubPropsIfNeeded` to enforce this).
+
+A non-delegated community is the degenerate case: no anchor, no `ipnsHops`, and every rule above
+collapses to `signer.address`.
+
+> **Rotation changes the pubsub topic.** The challenge-exchange `pubsubTopic` is backfilled from the
+> minter address, so it moves when the owner re-points `An` at a new `Mn'`. The address does not.
+> Client authors must re-resolve the community before publishing rather than trusting a cached topic.
+
+Getting the `An → Mn` record onto the network and keeping it there is the setup half, issue #234.
 
 ## Performance
 

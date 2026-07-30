@@ -48,6 +48,9 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
     override started: boolean; // Is the community started and running? This is not specific to this instance, and applies to all instances of community with this address
     override startedState!: CommunityStartedState;
     override signer!: RpcLocalCommunityLocalProps["signer"];
+    // Set only on a delegated community, where signer above is the minter (Mn) and this is the
+    // anchor (An) the community is addressed by. See docs/protocol/delegated-ipns.md.
+    anchor?: RpcLocalCommunityLocalProps["anchor"];
     override settings!: RpcLocalCommunityLocalProps["settings"];
     override editable!: Pick<RpcLocalCommunity, keyof CommunityEditOptions>;
 
@@ -95,6 +98,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
             community: this.raw.communityIpfs!,
             localCommunity: {
                 signer: this.signer,
+                anchor: this.anchor,
                 settings: this.settings,
                 _usingDefaultChallenge: this._usingDefaultChallenge,
                 address: this.address,
@@ -116,6 +120,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
                 ...this._toJSONIpfsBaseNoPosts(),
                 address: this.address,
                 signer: this.signer,
+                anchor: this.anchor,
                 settings: this.settings,
                 _usingDefaultChallenge: this._usingDefaultChallenge,
                 started: this.started,
@@ -124,7 +129,17 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         };
     }
 
+    // A delegated community's identity is its anchor, never the minter that signs its records. Both
+    // initRemoteCommunityPropsNoMerge and initCommunityIpfsPropsNoMerge derive publicKey/ipnsName from
+    // signature.publicKey unless ipnsHops[0] is already known, so the chain has to be replayed BEFORE
+    // either of them runs. See docs/protocol/delegated-ipns.md.
+    private _replayAnchorIntoIpnsHops(localProps: RpcLocalCommunityLocalProps) {
+        this.anchor = localProps.anchor;
+        if (localProps.anchor) this.ipnsHops = [localProps.anchor.publicKey, localProps.signer.address];
+    }
+
     initRpcInternalCommunityBeforeFirstUpdateNoMerge(newProps: RpcInternalCommunityRecordBeforeFirstUpdateType) {
+        this._replayAnchorIntoIpnsHops(newProps.localCommunity);
         this.initRemoteCommunityPropsNoMerge(newProps.localCommunity);
         // Apply address from localCommunity — may differ after edit (same as afterFirstUpdate variant)
         if (newProps.localCommunity.address) this.setAddress(newProps.localCommunity.address);
@@ -136,6 +151,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
     }
 
     initRpcInternalCommunityAfterFirstUpdateNoMerge(newProps: RpcInternalCommunityRecordAfterFirstUpdateType) {
+        this._replayAnchorIntoIpnsHops(newProps.localCommunity);
         super.initCommunityIpfsPropsNoMerge(newProps.community);
         // Apply address from localCommunity — may differ from community record's name (e.g. .bso/.eth before ENS propagation)
         if (newProps.localCommunity.address) this.setAddress(newProps.localCommunity.address);

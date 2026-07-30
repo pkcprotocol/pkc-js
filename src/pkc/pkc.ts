@@ -49,6 +49,7 @@ import type {
     ChallengeFileFactoryInput,
     CreateInstanceOfLocalOrRemoteCommunityOptions,
     CreateNewLocalCommunityParsedOptions,
+    CreateNewLocalCommunityUserOptions,
     CreateRemoteCommunityOptions,
     CommunityJson,
     CommunityIpfsType,
@@ -819,6 +820,12 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         const hasName = "name" in parsedOptions && typeof parsedOptions.name === "string";
         const hasPublicKey = "publicKey" in parsedOptions && typeof parsedOptions.publicKey === "string";
         const hasSigner = "signer" in parsedOptions && parsedOptions.signer !== undefined;
+        // Delegated community (#234): the caller supplies the anchor's public key and keeps its private
+        // half. Which key the caller supplies is the discriminator — a full signer means the node holds
+        // the identity key (today's behavior), an anchor public key means the owner does.
+        const anchor = (parsedOptions as CreateNewLocalCommunityUserOptions).anchor ?? undefined;
+        const hasAnchor = anchor !== undefined;
+        if (hasAnchor && hasSigner) throw new PKCError("ERR_CAN_NOT_CREATE_A_COMMUNITY_WITH_BOTH_SIGNER_AND_ANCHOR", { ...parsedOptions });
         const hasIdentifier = hasAddress || hasName || hasPublicKey; // can identify an existing community
 
         // Derive effective address for local-vs-remote checks
@@ -835,7 +842,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
         const canCreateLocalCommunity = this._canCreateNewLocalCommunity(); // this is true if we're on NodeJS and have a dataPath
 
-        if (hasSigner && !canCreateLocalCommunity)
+        if ((hasSigner || hasAnchor) && !canCreateLocalCommunity)
             throw new PKCError("ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY", {
                 pkcOptions: this._userPKCOptions,
                 isEnvNode: Boolean(process),
@@ -848,7 +855,20 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             return this._createRemoteCommunityInstance(parsedRemoteOptions);
         }
 
-        if (hasIdentifier && !hasSigner) {
+        if (hasAnchor) {
+            // Delegated community: generate the minter (Mn/Ms) here and key the community by the anchor,
+            // which is the identity every reader resolves. The community is not resolvable until the
+            // owner signs the An -> Mn record with As and hands it back (#234).
+            // See docs/protocol/delegated-ipns.md.
+            const minterSigner = await this.createSigner();
+            const localOptions = <CreateNewLocalCommunityParsedOptions>{
+                ...parsedOptions,
+                signer: minterSigner,
+                address: anchor.publicKey
+            };
+            log(`Creating a delegated local community with anchor (${anchor.publicKey}) and minter (${minterSigner.address})`);
+            return this._createLocalCommunity(localOptions);
+        } else if (hasIdentifier && !hasSigner) {
             // community is already created, need to check if it's local or remote
             const localCommunities = await nodeListCommunities(this);
             // Check for exact match or .eth/.bso alias match

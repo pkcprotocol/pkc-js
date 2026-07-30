@@ -16,7 +16,15 @@ import { LRUCache } from "lru-cache";
 import { PageGenerator } from "./page-generator.js";
 import { DbHandler } from "./db-handler.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
-import { calculateStringSizeSameAsIpfsAddCidV0, hideClassPrivateProps, isStringDomain, retryKuboIpfsAddAndProvide } from "../../../util.js";
+import {
+    calculateStringSizeSameAsIpfsAddCidV0,
+    hideClassPrivateProps,
+    ipnsNameToIpnsOverPubsubTopic,
+    isStringDomain,
+    pubsubTopicToDhtKey,
+    retryKuboIpfsAddAndProvide
+} from "../../../util.js";
+import { communityIdentityPublicKey } from "./local-community/identity.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { PKCError } from "../../../pkc-error.js";
 import type {
@@ -230,6 +238,20 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         };
     }
 
+    // A publisher never resolves itself, so unlike a reader it always mints under its own key: the
+    // record it publishes lives at signer.address, and so do its ipns-over-pubsub topic and that
+    // topic's routing CID. The inherited implementation prefers ipnsHops[0], which is correct for a
+    // reader and wrong here — on a delegated community it would move this node's own record topic to
+    // the anchor, whose record is signed by a key this node does not have. Overriding once covers
+    // every init path (see db-state.ts). #234 adds the anchor's topic as a second subscription
+    // instead of moving this one. See docs/protocol/delegated-ipns.md.
+    override _updateIpnsPubsubPropsIfNeeded(_newProps: Parameters<RpcLocalCommunity["_updateIpnsPubsubPropsIfNeeded"]>[0]) {
+        if (!this.signer?.address) return;
+        this.ipnsName = this.signer.address;
+        this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(this.ipnsName);
+        this.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this.ipnsPubsubTopic);
+    }
+
     async _updateStartedValue() {
         this.started = await this._dbHandler.isCommunityStartLocked(this.address);
     }
@@ -283,6 +305,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         const verificationOpts = {
             community: recordToPublishRaw,
+            // The record we are about to publish is signed by our own key, which on a delegated
+            // community is the minter, not the identity. This mirrors the read side, which verifies
+            // content against ipnsHops.at(-1). See docs/protocol/delegated-ipns.md.
             communityIpnsName: this.signer.address,
             resolveAuthorNames: false,
             clientsManager: this._clientsManager,
@@ -321,7 +346,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         if (this.shouldResolveDomainForVerification()) {
             try {
-                log(`Resolving domain ${this.address} to make sure it's the same as signer.address ${this.signer.address}`);
+                log(`Resolving domain ${this.address} to make sure it's the same as ${communityIdentityPublicKey(this)}`);
                 await this._assertDomainResolvesCorrectly(this.address);
             } catch (e) {
                 log.error(e);
@@ -371,11 +396,16 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 // Admin domain edits don't need second-fresh data.
                 cache: { maxAge: 600 }
             });
-            if (resolvedIpnsFromNewDomain !== this.signer.address)
+            // A domain's TXT record points at the name readers resolve, which on a delegated community
+            // is the anchor and not the minter we sign with. Comparing against signer.address here
+            // would make a correctly configured delegated community reject its own domain.
+            const identityPublicKey = communityIdentityPublicKey(this);
+            if (resolvedIpnsFromNewDomain !== identityPublicKey)
                 throw new PKCError("ERR_DOMAIN_COMMUNITY_ADDRESS_TXT_RECORD_POINT_TO_DIFFERENT_ADDRESS", {
                     currentCommunityAddress: this.address,
                     newAddressAsDomain,
                     resolvedIpnsFromNewDomain,
+                    identityPublicKey,
                     signerAddress: this.signer.address,
                     started: this.started
                 });

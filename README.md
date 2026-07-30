@@ -775,6 +775,7 @@ An object which may have the following keys:
 | ---- | ---- | ------- | ----------- |
 | address | `string` or `undefined` | `undefined` | `Address` of the community |
 | signer | `Signer` or `undefined` | `undefined` | (Community owners only) Optional `Signer` of the community to create a community with a specific private key |
+| anchor | `{publicKey: string}` or `undefined` | `undefined` | (Community owners only) Create a **delegated** community: the community's identity is this anchor IPNS name, whose private key you keep, and the node generates its own signing (minter) key. Mutually exclusive with `signer`. See [docs/protocol/delegated-ipns.md](docs/protocol/delegated-ipns.md) |
 | ...community | `any` | `undefined` | `CreateCommunityOptions` can also initialize any property on the `Community` instance |
 
 #### Returns
@@ -808,6 +809,11 @@ const community = await pkc.createCommunity({signer})
 // create a new local community as the owner with a premade signer, already with settings
 const signer = await pkc.createSigner()
 const community = await pkc.createCommunity({signer, title: 'Memes', description: 'Post your memes here.'})
+
+// create a delegated community: this node signs and publishes it, but the identity is an anchor
+// key that never reaches the node. Not resolvable until the anchor record An -> Mn is published.
+const community = await pkc.createCommunity({anchor: {publicKey: '12D3KooW...'}})
+// community.address === anchor publicKey, community.signer.address === the node's minter key
 
 // instantiate an already existing community instance
 const communityOptions = {address: '12D3KooW...',}

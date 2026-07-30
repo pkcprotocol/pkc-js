@@ -1,7 +1,7 @@
 import Logger from "../../../../logger.js";
 import { clone, isDeepEqual, isEmpty, omit, pick } from "remeda";
 import { v4 as uuidV4 } from "uuid";
-import { ipnsNameToIpnsOverPubsubTopic, pubsubTopicToDhtKey, timestamp } from "../../../../util.js";
+import { timestamp } from "../../../../util.js";
 import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
 import { STORAGE_KEYS } from "../../../../constants.js";
@@ -283,6 +283,11 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
 
 export async function initNewLocalCommunityPropsNoMerge(community: LocalCommunity, newProps: CreateNewLocalCommunityParsedOptions) {
     await initSignerProps(community, newProps.signer);
+    // A delegated community is identified by its anchor (An) while it signs with the minter we just
+    // initialized above. Replaying the chain into ipnsHops is what makes the inherited identity code
+    // report the anchor as publicKey. See docs/protocol/delegated-ipns.md.
+    community.anchor = newProps.anchor;
+    if (newProps.anchor) community.ipnsHops = [newProps.anchor.publicKey, community.signer.address];
     community.title = newProps.title;
     community.description = newProps.description;
     community.setAddress(newProps.address);
@@ -325,6 +330,7 @@ export async function initInternalCommunityAfterFirstUpdateNoMerge(
         community: pick(newProps, keysOfCommunityIpfs) as CommunityIpfsType,
         localCommunity: {
             signer: pick(newProps.signer as SignerWithPublicKeyAddress, ["publicKey", "address", "shortAddress", "type"]),
+            anchor: newProps.anchor,
             settings: newProps.settings,
             _usingDefaultChallenge: newProps._usingDefaultChallenge,
             address: newProps.address,
@@ -363,10 +369,9 @@ export async function initInternalCommunityBeforeFirstUpdateNoMerge(
     });
     await initSignerProps(community, newProps.signer);
     community._internalStateUpdateId = newProps._internalStateUpdateId;
+    // LocalCommunity's override always derives these from signer.address, so the explicit
+    // minter-based assignment that used to follow this call is no longer needed here.
     community._updateIpnsPubsubPropsIfNeeded(newProps);
-    community.ipnsName = newProps.signer.address;
-    community.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(community.ipnsName);
-    community.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(community.ipnsPubsubTopic);
     if (processStartedCommunities.has(community)) syncCommunityRegistryEntry(processStartedCommunities, community);
     community.raw.localCommunity = community.toJSONInternalRpcBeforeFirstUpdate();
 }

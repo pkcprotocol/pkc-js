@@ -7,6 +7,7 @@ import {
     ChallengeFileSchema,
     ChallengeFromGetChallengeSchema,
     ChallengeResultSchema,
+    CommunityAnchorSchema,
     CreateNewLocalCommunityParsedOptionsSchema,
     CreateNewLocalCommunityUserOptionsSchema,
     CreateRemoteCommunityOptionsSchema,
@@ -86,6 +87,9 @@ export interface CommunitySignature extends JsonSignature {
 }
 
 export type CreateRemoteCommunityOptions = z.infer<typeof CreateRemoteCommunityOptionsSchema>;
+
+// The anchor of a delegated community. See docs/protocol/delegated-ipns.md.
+export type CommunityAnchor = z.infer<typeof CommunityAnchorSchema>;
 
 export type CreateNewLocalCommunityUserOptions = z.infer<typeof CreateNewLocalCommunityUserOptionsSchema>;
 
@@ -193,6 +197,9 @@ export interface InternalCommunityRecordAfterFirstUpdateType extends InternalCom
 // Extra local-community properties not present in CommunityIpfsType
 export interface RpcLocalCommunityLocalProps {
     signer: Omit<InternalCommunityRecordBeforeFirstUpdateType["signer"], "privateKey">;
+    // Present only on a delegated community, where the signer above is the minter and this is the
+    // identity the community is addressed by. See docs/protocol/delegated-ipns.md.
+    anchor?: CommunityAnchor;
     settings: CommunitySettings;
     _usingDefaultChallenge: boolean;
     address: string;

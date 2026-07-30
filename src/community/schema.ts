@@ -303,11 +303,21 @@ export const CommunityEditOptionsSchema = CommunityIpfsSchema.pick({
     .partial()
     .strict();
 
+// The anchor (An) of a delegated community: the identity keypair whose private half (As) never
+// reaches the node running the community. publicKey here is the B58 IPNS name, the same
+// representation community.publicKey uses, NOT the base64 raw key that signer.publicKey and
+// encryption.publicKey carry. See docs/protocol/delegated-ipns.md.
+export const CommunityAnchorSchema = z.object({ publicKey: z.string().min(1) }).strict();
+
 // These are the options to create a new local community, provided by user
 
 export const CreateNewLocalCommunityUserOptionsSchema = CommunityEditOptionsSchema.omit({ address: true })
     .extend({
         signer: CreateSignerSchema.optional(),
+        // Delegated community: the node generates its own minter signer (Mn/Ms) and this anchor is
+        // the community's identity. Mutually exclusive with signer, enforced in pkc.createCommunity
+        // rather than here so this schema stays a plain object the parsed-options schema can extend.
+        anchor: CommunityAnchorSchema.optional(),
         roles: CommunityIpfsSchema.shape.roles
     })
     .strict();
@@ -413,6 +423,7 @@ export const CommunityIpfsReservedFields = difference(
         "shortAddress",
         "nameResolved",
         "ipnsHops",
+        "anchor",
         "raw",
         "shortCommunityAddress",
         "deleted",

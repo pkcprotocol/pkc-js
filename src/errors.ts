@@ -34,6 +34,7 @@ export enum messages {
     ERR_FAILED_TO_SET_CONFIG_ON_KUBO_NODE = "Failed to set config on kubo node",
     ERR_FAILED_TO_SHUTDOWN_KUBO_NODE = "Failed to shutdown kubo node",
     ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY = "Can't create a new local community with the provided arguments",
+    ERR_CAN_NOT_CREATE_A_COMMUNITY_WITH_BOTH_SIGNER_AND_ANCHOR = "Can't create a community with both a signer and an anchor: a signer means the node holds the identity key, an anchor means the owner does",
     ERR_COMMUNITY_ADDRESS_IS_PROVIDED_AS_NULL_OR_UNDEFINED = "User provided options.address in createCommunity that is either undefined or null",
     ERR_UNABLE_TO_DERIVE_PUBSUB_COMMENT_PUBLICATION_FROM_JSONIFIED_COMMENT = "User provided a jsonfied (cloned) Comment and we're unable to derive request.comment from it. This is an implementation error",
     ERR_UNABLE_TO_DERIVE_PUBSUB_COMMENT_EDIT_PUBLICATION_FROM_JSONIFIED_COMMENT_EDIT = "User provided a jsonfied (cloned) CommentEdit and we're unable to derive request.commentEdit from it. This is an implementation error",
