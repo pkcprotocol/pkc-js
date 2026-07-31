@@ -8,7 +8,7 @@ import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { multihashToIPNSRoutingKey } from "ipns";
 import { ipnsValidator } from "ipns/validator";
 import { peerIdFromString } from "@libp2p/peer-id";
-import { mockPKC } from "../../../dist/node/test/test-util.js";
+import { mockPKC, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
 import { describeIfRpc } from "../../helpers/conditional-tests.js";
 import { messages } from "../../../dist/node/errors.js";
 import { createAnchorIpnsRecord } from "../../../dist/node/signer/index.js";
@@ -141,15 +141,48 @@ describeIfRpc.sequential("delegation setup over RPC", () => {
                 await halfCreated.publishAnchorRecord(bytes);
                 await halfCreated.start();
                 expect(halfCreated.started).to.be.true;
-                // start() reloads internal state, and the internal record deliberately omits
-                // anchorRecordSequence, so a regression that fails to re-derive it from its own keyv
-                // slot leaves the client seeing undefined for a community whose record it just
-                // published. See updateInstanceStateWithDbState.
+                // Wait for an update from the server before asserting the sequence. publishAnchorRecord
+                // sets anchorRecordSequence client-side from its own result, so asserting straight after
+                // start() would pass on that local copy even if the server had cleared its own. Only a
+                // value that came back over the wire tests the server, and the server sends the one
+                // start() left on its instance: the internal record deliberately omits
+                // anchorRecordSequence, so failing to re-derive it from its own keyv slot sends
+                // undefined here. See updateInstanceStateWithDbState.
+                await resolveWhenConditionIsTrue({
+                    toUpdate: halfCreated,
+                    predicate: async () => typeof halfCreated.updatedAt === "number"
+                });
                 expect(halfCreated.anchorRecordSequence).to.equal("0");
                 await halfCreated.stop();
             } finally {
                 await halfCreated.delete();
             }
+        });
+    });
+
+    // Neither method edits anything, so the failure to resolve the community must not report itself as
+    // an attempted edit. RpcLocalCommunity only ever forwards a community the server does host, so the
+    // params go straight at the RPC client, the way a third-party client would send them.
+    describe("anchor methods on a community this node does not host", () => {
+        it("rejects with the anchor-method error rather than the edit one", async () => {
+            const strangerAnchor = await pkc.createSigner();
+            const rpcClient = pkc._pkcRpcClient!;
+
+            await expect(rpcClient.prepareAnchorPublish({ publicKey: strangerAnchor.address })).rejects.toThrow(
+                messages.ERR_RPC_CLIENT_TRYING_TO_USE_ANCHOR_METHOD_ON_NON_LOCAL_COMMUNITY
+            );
+
+            const bytes = await createAnchorIpnsRecord({
+                anchorSigner: strangerAnchor,
+                minterIpnsName: minterName,
+                sequence: 0
+            });
+            await expect(
+                rpcClient.publishAnchorRecord({
+                    publicKey: strangerAnchor.address,
+                    recordBase64: Buffer.from(bytes).toString("base64")
+                })
+            ).rejects.toThrow(messages.ERR_RPC_CLIENT_TRYING_TO_USE_ANCHOR_METHOD_ON_NON_LOCAL_COMMUNITY);
         });
     });
 });
