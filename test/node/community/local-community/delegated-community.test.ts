@@ -5,17 +5,20 @@
 // Naming: An/As = anchor keypair (identity, owner-held), Mn/Ms = minter keypair (node-held, rotatable).
 // Setup over RPC lives in test/node/community/delegation-setup.test.ts (issue #234).
 //
-// The cases left as it.todo below need the anchor record on the network (rotation, read-back through
-// the chain, import/export of a live delegated community), which is #234's publishAnchorRecord.
+// The later blocks (read-back through the chain, rotation, export/import) need the anchor record on the
+// network, so they use #234's publishAnchorRecord to put it there.
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+import { v4 as uuidv4 } from "uuid";
 import Logger from "@pkcprotocol/pkc-logger";
 import {
     createSubWithNoChallenge,
     disableValidationOfSignatureBeforePublishing,
     ensurePublicationIsSigned,
     mockPKC,
+    mockRemotePKC,
     publishRandomPost,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue
@@ -30,6 +33,7 @@ import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type Publication from "../../../../dist/node/publications/publication.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RemoteCommunity } from "../../../../dist/node/community/remote-community.js";
 import type { SignerType } from "../../../../dist/node/signer/types.js";
 
 type PublicationWithSigner = Publication & { signer?: SignerType };
@@ -42,6 +46,7 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
     let anchorSigner: SignerType; // As stays here in the test only; the node never receives it
     let community: LocalCommunity;
     let minterAddress: string;
+    let post: Comment; // published to the delegated community by the started-community block below
 
     beforeAll(async () => {
         pkc = await mockPKC();
@@ -151,16 +156,12 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
     });
 
     describe("a started delegated community", () => {
-        let post: Comment;
-
         beforeAll(async () => {
             // A delegated community refuses to start until its anchor record is published (#234), so the
             // owner signs the An -> Mn binding here. Holding As in the test is what a real owner does on
             // their own machine; the community never sees it. Setup itself is covered by
             // test/node/community/delegation-setup.test.ts.
-            await community.publishAnchorRecord(
-                await createAnchorIpnsRecord({ anchorSigner, minterIpnsName: minterAddress, sequence: 0 })
-            );
+            await community.publishAnchorRecord(await createAnchorIpnsRecord({ anchorSigner, minterIpnsName: minterAddress, sequence: 0 }));
             await community.start();
             await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         });
@@ -275,14 +276,180 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
         publication.signature = modified.signature as typeof publication.signature;
         disableValidationOfSignatureBeforePublishing(publication);
     }
-});
 
-describe("delegated community setup that needs the anchor record on the network (#234)", () => {
-    it.todo("a RemoteCommunity resolving the chain reports the anchor as its identity");
-    it.todo("comments published to the delegated community load with the anchor as communityPublicKey");
-    it.todo("the community address is unchanged after rotating to a new minter");
-    it.todo("previously stored content still resolves and verifies after a rotation");
-    it.todo("the pubsubTopic changes with the minter, and a reader that re-resolves picks it up");
-    it.todo("exportCommunity carries the anchor");
-    it.todo("importing an exported delegated community restores identity without the anchor's private key");
+    // The read side (#93) is already implemented and tested against fixtures. What is new here is that
+    // the chain a real reader walks was produced by a pkc-js node rather than by a hand-built fixture,
+    // so this is the round trip closing: what we publish is what the resolver expects.
+    describe("reading back what a delegated community publishes", () => {
+        let readerPkc: PKC;
+        let loaded: RemoteCommunity;
+
+        beforeAll(async () => {
+            // No dataPath, so this instance cannot hold the community locally and has to resolve it.
+            readerPkc = await mockRemotePKC();
+            loaded = <RemoteCommunity>await readerPkc.createCommunity({ address: anchorSigner.address });
+            await loaded.update();
+            await resolveWhenConditionIsTrue({ toUpdate: loaded, predicate: async () => typeof loaded.updatedAt === "number" });
+            await loaded.stop();
+        });
+
+        afterAll(async () => {
+            await readerPkc.destroy();
+        });
+
+        it("a RemoteCommunity resolving the chain reports the anchor as its identity", () => {
+            expect(loaded.publicKey).to.equal(anchorSigner.address);
+            expect(loaded.address).to.equal(anchorSigner.address);
+            expect(loaded.ipnsHops).to.deep.equal([anchorSigner.address, minterAddress]);
+        });
+
+        it("the record verifies with content signed by the minter", async () => {
+            expect(await getPKCAddressFromPublicKey(loaded.signature!.publicKey)).to.equal(minterAddress);
+            expect(loaded.signature!.publicKey).to.not.equal(loaded.publicKey);
+        });
+
+        it("comments published to the delegated community load with the anchor as communityPublicKey", async () => {
+            const { content } = await readerPkc.fetchCid({ cid: post.cid! });
+            const commentIpfs = JSON.parse(content) as { communityPublicKey?: string; communityName?: string };
+            expect(commentIpfs.communityPublicKey).to.equal(anchorSigner.address);
+            expect(commentIpfs.communityPublicKey).to.not.equal(minterAddress);
+        });
+    });
+
+    // Rotation is the same act as the first publish against a different node: create there, sign
+    // An -> Mn', publish. The old minter keeps its key but nothing points at it.
+    describe("minter rotation", () => {
+        let rotationPkc: PKC;
+        let rotationDataPath: string;
+        let rotated: LocalCommunity;
+        let newMinterAddress: string;
+        let readerAfterRotation: PKC;
+
+        beforeAll(async () => {
+            // The old minter stands down FIRST. Two started LocalCommunity instances in one process
+            // that share a publicKey collide in the process-wide started-community registry, which is
+            // keyed by publicKey and knows nothing about dataPath: the second instance would load the
+            // first one's state and then fail its own signature validation. Stopping first is also what
+            // a real rotation does, and on real hardware the two nodes are separate processes anyway.
+            await community.stop();
+
+            rotationDataPath = path.join(process.cwd(), ".tmp", `delegated-rotation-${uuidv4()}`);
+            rotationPkc = await mockPKC({ dataPath: rotationDataPath });
+            rotated = <LocalCommunity>await rotationPkc.createCommunity({ anchor: { publicKey: anchorSigner.address } });
+            await rotated.edit({ settings: { challenges: [] } });
+            newMinterAddress = rotated.signer.address;
+
+            // This node has never accepted an anchor record, so it learns the current sequence from the
+            // network rather than restarting at 0.
+            const prepared = await rotated.prepareAnchorPublish();
+            expect(prepared.hasPersistedAnchorRecord).to.be.false;
+            await rotated.publishAnchorRecord(
+                await createAnchorIpnsRecord({
+                    anchorSigner,
+                    minterIpnsName: newMinterAddress,
+                    sequence: BigInt(prepared.nextSequence)
+                })
+            );
+        });
+        // Starting the rotated community is deliberately NOT in the hook above: the first publish of a
+        // minter whose name has never resolved blocks for a minute inside
+        // resolveIpnsAndLogIfPotentialProblematicSequence, a diagnostic-only resolve with a 120s
+        // timeout, and a hook carrying that plus the rest blew the 160s hook budget.
+
+        afterAll(async () => {
+            await readerAfterRotation?.destroy();
+            await rotated.delete();
+            await rotationPkc.destroy();
+            fs.rmSync(rotationDataPath, { recursive: true, force: true });
+        });
+
+        it("the community address is unchanged after rotating to a new minter", () => {
+            expect(newMinterAddress).to.not.equal(minterAddress);
+            expect(rotated.address).to.equal(anchorSigner.address);
+            expect(rotated.publicKey).to.equal(anchorSigner.address);
+            expect(rotated.ipnsHops).to.deep.equal([anchorSigner.address, newMinterAddress]);
+        });
+
+        it("previously stored content still resolves and verifies, with no rewrite", async () => {
+            const { content } = await rotationPkc.fetchCid({ cid: post.cid! });
+            const commentIpfs = JSON.parse(content) as { communityPublicKey?: string };
+            // Labelled with the anchor when the OLD minter stored it, and still naming the community's
+            // identity now. Had it been labelled with signer.address it would name a key that no longer
+            // publishes this community.
+            expect(commentIpfs.communityPublicKey).to.equal(anchorSigner.address);
+            expect(commentIpfs.communityPublicKey).to.equal(rotated.publicKey);
+        });
+
+        it("the pubsubTopic changes with the minter, and a reader that re-resolves picks it up", async () => {
+            expect(rotated.pubsubTopic).to.equal(newMinterAddress);
+            expect(rotated.pubsubTopic).to.not.equal(minterAddress);
+
+            await rotated.start();
+            await resolveWhenConditionIsTrue({ toUpdate: rotated, predicate: async () => typeof rotated.updatedAt === "number" });
+
+            readerAfterRotation = await mockRemotePKC();
+            const reloaded = <RemoteCommunity>await readerAfterRotation.createCommunity({ address: anchorSigner.address });
+            await reloaded.update();
+            // kubo caches IPNS resolutions briefly, so the reader may see the old binding for a moment.
+            // This is exactly the "re-resolve before publishing rather than trusting a cached topic"
+            // obligation documented for client authors.
+            await resolveWhenConditionIsTrue({
+                toUpdate: reloaded,
+                predicate: async () => reloaded.ipnsHops?.[1] === newMinterAddress
+            });
+            await reloaded.stop();
+
+            expect(reloaded.publicKey).to.equal(anchorSigner.address);
+            expect(reloaded.pubsubTopic).to.equal(newMinterAddress);
+            expect(await getPKCAddressFromPublicKey(reloaded.signature!.publicKey)).to.equal(newMinterAddress);
+        });
+    });
+
+    describe("export and import", () => {
+        let exportedDbPath: string;
+        let importPkc: PKC;
+        let importDataPath: string;
+
+        afterAll(async () => {
+            await importPkc?.destroy();
+            if (importDataPath) fs.rmSync(importDataPath, { recursive: true, force: true });
+        });
+
+        it("exportCommunity carries the anchor", async () => {
+            const { exportId } = await community.export({ includePrivateKey: true });
+            await resolveWhenConditionIsTrue({
+                toUpdate: community,
+                predicate: async () => community.exports.some((record) => record.exportId === exportId && record.progress === 1),
+                eventName: "exportschange"
+            });
+            const record = community.exports.find((r) => r.exportId === exportId)!;
+            expect(record.error).to.be.undefined;
+            // The export is keyed by the community's identity, which is the anchor, so a rotation does
+            // not orphan backups taken under the old minter.
+            expect(record.publicKey).to.equal(anchorSigner.address);
+            exportedDbPath = fileURLToPath(record.url!);
+            expect(fs.existsSync(exportedDbPath)).to.be.true;
+        });
+
+        it("importing an exported delegated community restores identity without the anchor's private key", async () => {
+            // Import is a file move: drop the exported db where a pkc instance looks for the community.
+            importDataPath = path.join(process.cwd(), ".tmp", `delegated-import-${uuidv4()}`);
+            fs.mkdirSync(path.join(importDataPath, "communities"), { recursive: true });
+            fs.copyFileSync(exportedDbPath, path.join(importDataPath, "communities", anchorSigner.address));
+
+            importPkc = await mockPKC({ dataPath: importDataPath });
+            const imported = <LocalCommunity>await importPkc.createCommunity({ address: anchorSigner.address });
+
+            expect(imported.anchor).to.deep.equal({ publicKey: anchorSigner.address });
+            expect(imported.publicKey).to.equal(anchorSigner.address);
+            expect(imported.signer.address).to.equal(minterAddress);
+            expect(imported.ipnsHops).to.deep.equal([anchorSigner.address, minterAddress]);
+
+            // The anchor travels as a public key only. An operator restoring this backup can publish the
+            // community, and still cannot re-point the anchor at a minter of their own.
+            const exportedDbBytes = fs.readFileSync(exportedDbPath).toString("binary");
+            expect(exportedDbBytes).to.not.include(anchorSigner.privateKey);
+            expect(imported.signer.privateKey).to.not.equal(anchorSigner.privateKey);
+        });
+    });
 });
