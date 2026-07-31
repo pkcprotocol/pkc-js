@@ -152,15 +152,21 @@ collapses to `signer.address`.
 ### Setting delegation up
 
 The `An → Mn` record can only be signed by the owner and can only be kept alive by the node, so the one
-logical operation is split across the trust boundary into three calls plus a local signing step. All of
-them exist on `LocalCommunity` and are mirrored as RPC methods, so a self-hosted owner talking to their
-own daemon needs no service layer.
+logical operation is split across the trust boundary into three calls plus a local signing step. The
+three calls exist on `LocalCommunity` and are mirrored as RPC methods, so a self-hosted owner talking to
+their own daemon needs no service layer. The signing step deliberately is not one of them:
+`createAnchorIpnsRecord` is a standalone export on the package entry, because it is the only part of the
+flow that runs where `As` is, which is never the node.
 
 **First publish** — the anchor has never been published, so there is no sequence to discover and
 `prepareAnchorPublish()` is not called at all. Calling it here would throw
 `ERR_UNABLE_TO_DETERMINE_ANCHOR_SEQUENCE`, which is deliberate: see below.
 
 ```js
+// createAnchorIpnsRecord is on the package entry beside PKC itself, since the signing step runs
+// wherever As lives rather than inside pkc-js. CJS: PKC.createAnchorIpnsRecord.
+import PKC, { createAnchorIpnsRecord } from "@pkcprotocol/pkc-js"
+
 // 1. the node generates Mn/Ms and keys the community by An. Not resolvable yet: nothing points An anywhere.
 const community = await pkc.createCommunity({ anchor: { publicKey: An } })
 

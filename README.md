@@ -814,6 +814,10 @@ const community = await pkc.createCommunity({signer, title: 'Memes', description
 // key that never reaches the node. Not resolvable until the anchor record An -> Mn is published.
 const community = await pkc.createCommunity({anchor: {publicKey: '12D3KooW...'}})
 // community.address === anchor publicKey, community.signer.address === the node's minter key
+// sign the An -> Mn record with the anchor private key, which stays on this side, then hand the bytes
+// to the node. PKC.createAnchorIpnsRecord is exported for exactly this, see docs/protocol/delegated-ipns.md
+const record = await PKC.createAnchorIpnsRecord({anchorSigner: As, minterIpnsName: community.signer.address, sequence: 0})
+await community.publishAnchorRecord(record)
 
 // instantiate an already existing community instance
 const communityOptions = {address: '12D3KooW...',}
