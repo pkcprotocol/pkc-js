@@ -24,6 +24,7 @@ import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { _signJson, cleanUpBeforePublishing } from "../../../../dist/node/signer/signatures.js";
 import { getPKCAddressFromPublicKey } from "../../../../dist/node/signer/util.js";
+import { createAnchorIpnsRecord } from "../../../../dist/node/signer/index.js";
 import { ipnsNameToIpnsOverPubsubTopic, pubsubTopicToDhtKey } from "../../../../dist/node/util.js";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type Publication from "../../../../dist/node/publications/publication.js";
@@ -153,6 +154,13 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
         let post: Comment;
 
         beforeAll(async () => {
+            // A delegated community refuses to start until its anchor record is published (#234), so the
+            // owner signs the An -> Mn binding here. Holding As in the test is what a real owner does on
+            // their own machine; the community never sees it. Setup itself is covered by
+            // test/node/community/delegation-setup.test.ts.
+            await community.publishAnchorRecord(
+                await createAnchorIpnsRecord({ anchorSigner, minterIpnsName: minterAddress, sequence: 0 })
+            );
             await community.start();
             await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         });

@@ -30,6 +30,7 @@ import {
     updateInstanceStateWithDbState
 } from "./db-state.js";
 import { calculateLatestUpdateTrigger, syncIpnsWithDb } from "./ipns-publishing.js";
+import { getPersistedAnchorRecordBytes, reprovideAnchorRecordIfDue, reprovideAnchorRecordIfNeeded } from "./anchor-publishing.js";
 import type { CommunityState, CommunityUpdatingState } from "../../../../community/types.js";
 import type { DecryptedChallengeAnswer } from "../../../../pubsub-messages/types.js";
 import type { RemoteCommunity } from "../../../../community/remote-community.js";
@@ -65,6 +66,10 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
             await reprovideOnAddressChangeIfDue(community).catch((e) =>
                 log.error("Failed to re-provide connection CIDs on address change", e)
             );
+            // Keep the anchor -> minter binding alive: its routers expire it, and this node is the only
+            // party online that can put it (the owner holds As and is offline by design). Its failures
+            // must not break publishing either.
+            await reprovideAnchorRecordIfDue(community).catch((e) => log.error("Failed to re-provide the anchor record", e));
         } catch (e) {
             community.emit("error", e as Error);
         } finally {
@@ -124,6 +129,16 @@ export async function start(community: LocalCommunity) {
         throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: community.address });
     try {
         await initBeforeStarting(community);
+        // A delegated community whose anchor record was never published is half-created: nothing points
+        // the anchor at this minter, so readers cannot resolve it and publishers cannot reach it. Starting
+        // it would publish minter records nobody can find. Publishing the record later completes it with
+        // no re-create (#234). See docs/protocol/delegated-ipns.md.
+        if (community.anchor && !getPersistedAnchorRecordBytes(community))
+            throw new PKCError("ERR_DELEGATED_COMMUNITY_HAS_NO_ANCHOR_RECORD", {
+                address: community.address,
+                anchorPublicKey: community.anchor.publicKey,
+                minterAddress: community.signer.address
+            });
         // update started value twice because it could be started prior lockCommunityStart
         community._setState("started");
         await community._updateStartedValue();
@@ -142,6 +157,10 @@ export async function start(community: LocalCommunity) {
         // Force-provides the never-changing pubsub-topic routing CIDs (the connection-critical CIDs the
         // address-change re-provide watches) with the node's current browser-dialable addresses on start.
         await providePubsubTopicRoutingCidsIfNeeded(community, true);
+        // A restarted kubo still has the anchor record in its datastore but is no longer subscribed to
+        // the anchor's ipns-over-pubsub topic, so it silently stops answering for the anchor. Putting
+        // once at start is what re-subscribes it. See anchor-publishing.ts.
+        await reprovideAnchorRecordIfNeeded(community).catch((e) => log.error("Failed to re-provide the anchor record on start", e));
 
         community._communityUpdateTrigger = true;
         community._setStartedStateWithEmission("publishing-ipns");

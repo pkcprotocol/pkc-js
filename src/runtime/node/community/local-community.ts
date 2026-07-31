@@ -10,7 +10,9 @@ import type {
     CommunityIpfsType,
     RpcInternalCommunityRecordBeforeFirstUpdateType,
     RpcInternalCommunityRecordAfterFirstUpdateType,
-    CommunityEvents
+    CommunityEvents,
+    AnchorPublishPreparation,
+    PublishedAnchorRecord
 } from "../../../community/types.js";
 import { LRUCache } from "lru-cache";
 import { PageGenerator } from "./page-generator.js";
@@ -25,6 +27,10 @@ import {
     retryKuboIpfsAddAndProvide
 } from "../../../util.js";
 import { communityIdentityPublicKey } from "./local-community/identity.js";
+import {
+    prepareAnchorPublish as prepareAnchorPublishFreeFunction,
+    publishAnchorRecord as publishAnchorRecordFreeFunction
+} from "./local-community/anchor-publishing.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { PKCError } from "../../../pkc-error.js";
 import type {
@@ -133,6 +139,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // stop serving stale addresses (see reprovide-on-address-change.ts).
     _lastProvidedBrowserDialableSelfAddrs?: string[] = undefined;
     _lastAddressReprovideCheckAt?: number = undefined;
+    // Last time this node re-put its delegated community's anchor record. Undefined means "never this
+    // process", which is exactly when a re-provide is due: a restarted kubo keeps the record but drops
+    // the pubsub subscription that serves it (see anchor-publishing.ts).
+    _lastAnchorRecordReprovideAt?: number = undefined;
     _mirroredStartedOrUpdatingCommunity?: { community: LocalCommunity } & Pick<
         CommunityEvents,
         | "error"
@@ -192,7 +202,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const rpcJson = this.toJSONInternalRpcAfterFirstUpdate();
         return {
             ...rpcJson.community,
-            ...omit(rpcJson.localCommunity, ["started", "startedState"]),
+            ...omit(rpcJson.localCommunity, ["started", "startedState", "anchorRecordSequence"]),
             updateCid: rpcJson.runtimeFields.updateCid,
             signer: pick(this.signer, ["privateKey", "type", "address", "shortAddress", "publicKey"]),
             _internalStateUpdateId: this._internalStateUpdateId,
@@ -210,7 +220,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     toJSONInternalBeforeFirstUpdate(): InternalCommunityRecordBeforeFirstUpdateType {
         const rpcJson = this.toJSONInternalRpcBeforeFirstUpdate();
         return {
-            ...omit(rpcJson.localCommunity, ["started", "startedState"]),
+            // anchorRecordSequence is derived from its own keyv slot, which publishAnchorRecord owns.
+            // Duplicating it into this record would let a stale copy overwrite the live value on load.
+            ...omit(rpcJson.localCommunity, ["started", "startedState", "anchorRecordSequence"]),
             signer: pick(this.signer, ["privateKey", "type", "address", "shortAddress", "publicKey"]),
             _internalStateUpdateId: this._internalStateUpdateId,
             _pendingEditProps: this._pendingEditProps
@@ -410,6 +422,17 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                     started: this.started
                 });
         }
+    }
+
+    // Delegation setup (#234). Both work on a stopped community: the anchor record can only be signed
+    // once the community exists and its minter is known, and the community refuses to start until that
+    // record has been published. See docs/protocol/delegated-ipns.md.
+    override async prepareAnchorPublish(): Promise<AnchorPublishPreparation> {
+        return prepareAnchorPublishFreeFunction(this);
+    }
+
+    override async publishAnchorRecord(recordBytes: Uint8Array): Promise<PublishedAnchorRecord> {
+        return publishAnchorRecordFreeFunction(this, recordBytes);
     }
 
     override async start() {

@@ -113,6 +113,8 @@ The server registers the following methods. Param shapes are defined in `src/cli
 - `method: createCommunity, params: [createCommunityOptions: CreateNewLocalCommunityUserOptions], result: RpcInternalCommunityRecordBeforeFirstUpdate`
 - `method: editCommunity, params: [{name?: string, publicKey?: string, editOptions: CommunityEditOptions}], result: RpcLocalCommunityUpdateResult`
 - `method: deleteCommunity, params: [{name?: string, publicKey?: string}], result: {success: true}`
+- `method: prepareAnchorPublish, params: [{name?: string, publicKey?: string}], result: {nextSequence: string, currentAnchorRecordSequence: string, hasPersistedAnchorRecord: boolean}` — delegated communities only (#234): asks the node, which is the online party, which IPNS sequence to sign next. Errors rather than answering 0 when neither the node nor the network knows one
+- `method: publishAnchorRecord, params: [{name?: string, publicKey?: string, recordBase64: string}], result: {sequence: string, value: string, anchorPublicKey: string}` — hands the node an anchor record the client signed with its own key. The node verifies it is signed by the community's anchor, points at the node's own minter, and carries a strictly greater sequence, then publishes and keeps re-providing it. Sequences are strings because JSON numbers cannot hold an IPNS uint64
 - `method: fetchCid, params: [{cid: string}], result: {content: string}`
 - `method: resolveAuthorName, params: [{name: string, cache?: NameResolveCacheOptions}], result: {resolvedAuthorName: string | null}`
 - `method: setSettings, params: [{pkcOptions: PKCOptions}], result: {success: true}`

@@ -64,6 +64,27 @@ export const RpcCommunitiesChangeEventResultSchema = z.object({ communities: z.a
 export const RpcFetchCidResultSchema = z.object({ content: z.string() });
 export const RpcResolveAuthorNameResultSchema = z.object({ resolvedAuthorName: z.string().nullable() });
 export const RpcSuccessResultSchema = z.object({ success: z.literal(true) });
+
+// Delegation setup (#234). The signed record crosses the wire base64-encoded because JSON has no bytes,
+// and sequences cross as decimal strings because JSON numbers cannot hold a uint64 without rounding.
+// The anchor's PRIVATE key is not in either shape, and never is: the client signs, the node publishes.
+export const RpcPublishAnchorRecordParamSchema = z
+    .object({
+        name: z.string().min(1).optional(),
+        publicKey: z.string().min(1).optional(),
+        recordBase64: z.string().min(1)
+    })
+    .refine((args) => args.name || args.publicKey, "At least one of name or publicKey must be provided");
+export const RpcAnchorPublishPreparationResultSchema = z.object({
+    nextSequence: z.string().min(1),
+    currentAnchorRecordSequence: z.string().min(1),
+    hasPersistedAnchorRecord: z.boolean()
+});
+export const RpcPublishedAnchorRecordResultSchema = z.object({
+    sequence: z.string().min(1),
+    value: z.string().min(1),
+    anchorPublicKey: z.string().min(1)
+});
 export const RpcSubscriptionIdResultSchema = z.object({ subscriptionId: SubscriptionIdSchema }); // parsed with .loose() in rpc-schema-util.ts
 
 // community.export() — wire params and results

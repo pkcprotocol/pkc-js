@@ -37,6 +37,10 @@ The owner revokes by coming online and re-pointing `An` to a new `Mn'`.
 > `As` is offline, loading fails everywhere — over a gateway it surfaces as the non-retriable
 > `ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID` with `reason: "IPNS record has expired …"` (distinct from
 > the forged/tampered reason). Choose the anchor EOL with this re-publish obligation in mind.
+>
+> pkc-js signs anchor records with one shared constant, `ANCHOR_IPNS_RECORD_LIFETIME_MS` (~100 years),
+> so an anchor's liveness never depends on which call site signed it. The owner is offline by design,
+> so the horizon is long enough that in practice only a rotation brings them back.
 
 ## What this means for identity & verification
 
@@ -145,7 +149,59 @@ collapses to `signer.address`.
 > minter address, so it moves when the owner re-points `An` at a new `Mn'`. The address does not.
 > Client authors must re-resolve the community before publishing rather than trusting a cached topic.
 
-Getting the `An → Mn` record onto the network and keeping it there is the setup half, issue #234.
+### Setting delegation up
+
+The `An → Mn` record can only be signed by the owner and can only be kept alive by the node, so the one
+logical operation is split across the trust boundary into three calls plus a local signing step. All of
+them exist on `LocalCommunity` and are mirrored as RPC methods, so a self-hosted owner talking to their
+own daemon needs no service layer.
+
+```js
+// 1. the node generates Mn/Ms and keys the community by An. Not resolvable yet: nothing points An anywhere.
+const community = await pkc.createCommunity({ anchor: { publicKey: An } })
+
+// 2. only when rotating or re-publishing. A community's first record signs sequence 0, which is what
+//    community.anchorRecordSequence being undefined tells you.
+const { nextSequence } = await community.prepareAnchorPublish()
+
+// 3. signed locally with As, which never leaves the client. Browser-safe.
+const record = await createAnchorIpnsRecord({ anchorSigner: As, minterIpnsName: community.signer.address, sequence: 0 })
+
+// 4. the node verifies and publishes it, then keeps re-providing it.
+await community.publishAnchorRecord(record)
+```
+
+**Sequence discovery is node-side** because the node is the online party. `prepareAnchorPublish` answers
+`max(highest sequence this node has accepted, live lookup of /ipns/An) + margin`. No source can lie
+upward, since every anchor record that ever existed was signed by `As` and skipped sequences cost
+nothing; the only real failure is lying downward, which makes the owner sign a record that loses to its
+own predecessor forever. Hence a margin rather than `+1`, and hence it **errors rather than answering 0**
+when neither the node nor the network knows a sequence: kubo reports "never existed" and "the routers
+failed us" identically, and only the client knows whether its anchor is brand new. An equal sequence is
+never emitted either, since with the anchor lifetime the validity tiebreak is also a tie.
+
+**`publishAnchorRecord` verifies three things** before it publishes: the record is signed by this
+community's anchor, it points at this node's own minter, and its sequence is strictly greater than the
+highest already accepted. The high-water mark lives in its own storage slot, separate from
+`LAST_IPNS_RECORD`, which holds the node's own minter record on an independent sequence space.
+**Anti-rollback cannot be delegated to kubo**: a `routing.put` of an older record returns success while
+kubo silently keeps the newer one, so a node that trusted it would report a publish that never happened.
+
+**Publishing goes through `routing.put`, never `name.publish`**, which structurally cannot publish bytes
+signed by a key the node lacks. The put also subscribes the node to the anchor's ipns-over-pubsub topic,
+which is what lets it serve the binding to peers, **and that subscription does not survive a kubo
+restart** while the record itself does. A restarted node would therefore hold the record and quietly stop
+answering for it, so the re-provide runs at `start()` as well as on the publish loop.
+
+**A delegated community refuses to start until its anchor record is published.** Until then nothing
+points the anchor at this minter: readers cannot resolve it and publishers cannot reach it, so starting
+would only mint records nobody can find. It is half-created rather than broken, and publishing the record
+later completes it with no re-create.
+
+**Rotation and revocation are the same act against a different node**: create on the new daemon, sign
+`An → Mn'`, publish. The old minter keeps `Ms` but nothing points at it. Combined with
+`exportCommunity` this makes hosting portable, since the address is the anchor and does not change when
+the host does.
 
 ## Performance
 

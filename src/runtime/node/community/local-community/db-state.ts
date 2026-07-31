@@ -24,6 +24,7 @@ import { processStartedCommunities } from "./registry.js";
 import { CommunitySignedPropertyNames } from "../../../../community/schema.js";
 import { syncCommunityRegistryEntry } from "../../../../pkc/tracked-instance-registry-util.js";
 import { DbHandler } from "../db-handler.js";
+import { getHighestAcceptedAnchorSequence } from "./anchor-publishing.js";
 import { PageGenerator } from "../page-generator.js";
 
 export async function initSignerProps(community: LocalCommunity, newSignerProps: InternalCommunityRecordBeforeFirstUpdateType["signer"]) {
@@ -155,6 +156,7 @@ export async function updateInstancePropsWithStartedCommunityOrDb(community: Loc
         // edit.community concurrency tests). The started instance is the canonical writer, so its
         // in-memory exports are the freshest view of the keyv-persisted records.
         community._exports = startedCommunity.exports;
+        community.anchorRecordSequence = startedCommunity.anchorRecordSequence;
     } else {
         await community.initDbHandlerIfNeeded();
         try {
@@ -175,6 +177,9 @@ export async function updateInstancePropsWithStartedCommunityOrDb(community: Loc
                 throw new PKCError("ERR_LOCAL_COMMUNITY_HAS_NO_SIGNER_IN_INTERNAL_STATE", { address: community.address });
 
             await community._loadExportsFromKeyv(); // Load community.exports from DB
+            // Derived, not part of the internal record: publishAnchorRecord owns its keyv slot. Absent
+            // on a delegated community means no anchor record has ever been accepted for it.
+            community.anchorRecordSequence = getHighestAcceptedAnchorSequence(community)?.toString();
             await community._updateStartedValue();
             log("Loaded local community", community.address, "from db");
         } catch (e) {
