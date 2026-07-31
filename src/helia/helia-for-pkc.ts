@@ -8,7 +8,8 @@ import extraLibp2pTransports from "../runtime/node/libp2p-extra-transports.js";
 import { CID } from "multiformats/cid";
 import { peerIdFromString } from "@libp2p/peer-id";
 import { bitswap } from "@helia/block-brokers";
-import { MemoryBlockstore } from "blockstore-core";
+import { createBlockstoreForLibp2pJsClient } from "../runtime/node/blockstore.js";
+import { LruBlockstore } from "./lru-blockstore.js";
 import { delegatedRoutingV1HttpApiClientContentRouting } from "@helia/delegated-routing-v1-http-api-client";
 import { NotFoundError, type AbortOptions } from "@libp2p/interface";
 import { unixfs } from "@helia/unixfs";
@@ -103,7 +104,9 @@ function getDelegatedRoutingFields(routers: string[]) {
 }
 
 export async function createLibp2pJsClientOrUseExistingOne(
-    pkcOptions: Required<Pick<ParsedPKCOptions, "httpRoutersOptions">> & NonNullable<ParsedPKCOptions["libp2pJsClientsOptions"]>[number]
+    pkcOptions: Required<Pick<ParsedPKCOptions, "httpRoutersOptions">> &
+        Pick<ParsedPKCOptions, "dataPath"> &
+        NonNullable<ParsedPKCOptions["libp2pJsClientsOptions"]>[number]
 ): Promise<Libp2pJsClient> {
     if (!pkcOptions.httpRoutersOptions?.length) throw Error("You need to have pkc.httpRouterOptions to set up helia");
     const existingClient = libp2pJsClients[pkcOptions.key];
@@ -120,6 +123,35 @@ export async function createLibp2pJsClientOrUseExistingOne(
     }
 
     creatingLibp2pJsClients[pkcOptions.key] = (async () => {
+        // A caller supplying their own heliaOptions.blockstore owns block storage entirely, so skip
+        // ours rather than opening a directory or IndexedDB database nothing will read.
+        let lruBlockstore: LruBlockstore | undefined;
+        let closeBlockstore = async () => {};
+        if (!pkcOptions.heliaOptions?.blockstore) {
+            const {
+                blockstore: childBlockstore,
+                persistent,
+                defaultMaxBytes,
+                close
+            } = await createBlockstoreForLibp2pJsClient({
+                dataPath: pkcOptions.dataPath,
+                key: pkcOptions.key
+            });
+            closeBlockstore = close;
+            // defaultMaxBytes comes from the backend we actually got: falling back to an in-memory
+            // store means the cap is a heap budget, not a disk budget, and must be far smaller.
+            lruBlockstore = new LruBlockstore(childBlockstore, {
+                maxBytes: pkcOptions.blockstoreOptions?.maxBytes ?? defaultMaxBytes,
+                lowWaterRatio: pkcOptions.blockstoreOptions?.lowWaterRatio
+            });
+            // Only a persistent backend can hold blocks we did not put this session. The scan reads
+            // every block back to learn its size, so it runs in the background: blocking PKC init on
+            // it would add the whole store's read time to the first load. Until it finishes the
+            // store may sit over its cap, because we cannot evict what we have not counted yet.
+            if (persistent)
+                lruBlockstore.rebuildIndex().catch((e) => log.error("Failed to rebuild blockstore index for key", pkcOptions.key, e));
+        }
+
         const heliaLibp2pDefaults = libp2pDefaults();
         const mergedHeliaInit = {
             libp2p: {
@@ -158,10 +190,12 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     ...pkcOptions.libp2pOptions?.services
                 }
             },
-            // MemoryBlockstore: blocks lost on restart, every cold start re-fetches from network.
-            // Future optimization: blockstore-fs (Node) / blockstore-idb (browser). Not prioritized
-            // - pkc-js is browser-first and per-session usage dominates today.
-            blockstore: new MemoryBlockstore(),
+            // Persistent per runtime (blockstore-fs on node, blockstore-idb in the browser) behind a
+            // size-capped LRU. Helia never evicts on its own: every fetched block is written to the
+            // blockstore and only `helia.gc()` (pin-based, and we pin nothing) or dropping the whole
+            // instance ever removes one, so an unbounded store grows for the life of the process.
+            // See pkc-js#240 for the measurement behind the cap.
+            blockstore: lruBlockstore,
             blockBrokers: [bitswap()],
             start: false,
             ...pkcOptions.heliaOptions
@@ -757,6 +791,16 @@ export async function createLibp2pJsClientOrUseExistingOne(
                         await helia.stop();
                     } catch (e) {
                         log.error("Error stopping helia", e);
+                    }
+
+                    // helia.stop() does not touch the blockstore: blockstore-fs/idb expose
+                    // open()/close() rather than the Startable start()/stop() that helia's
+                    // start(...) helper looks for, so the file handles and IDB connection are ours
+                    // to release.
+                    try {
+                        await closeBlockstore();
+                    } catch (e) {
+                        log.error("Error closing blockstore", e);
                     }
 
                     log("Helia/libp2p-js stopped with key", pkcOptions.key, "and peer id", helia.libp2p.peerId.toString());

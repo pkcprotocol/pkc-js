@@ -375,7 +375,10 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         for (const clientOptions of this.libp2pJsClientsOptions) {
             const heliaNode = await createLibp2pJsClientOrUseExistingOne({
                 ...clientOptions,
-                httpRoutersOptions: this.httpRoutersOptions
+                httpRoutersOptions: this.httpRoutersOptions,
+                // where the persistent blockstore lives on node; undefined (noData, or the browser)
+                // falls back to an in-memory blockstore
+                dataPath: this.dataPath
             });
             this.clients.libp2pJsClients[clientOptions.key] = heliaNode;
         }
