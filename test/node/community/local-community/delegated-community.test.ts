@@ -14,6 +14,7 @@ import { fileURLToPath } from "url";
 import { v4 as uuidv4 } from "uuid";
 import Logger from "@pkcprotocol/pkc-logger";
 import {
+    createMockNameResolver,
     createSubWithNoChallenge,
     disableValidationOfSignatureBeforePublishing,
     ensurePublicationIsSigned,
@@ -109,6 +110,25 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
                 await expect(pkc.createCommunity({ ...identifier, anchor: { publicKey: anchorSigner.address } })).rejects.toThrow(
                     messages.ERR_CAN_NOT_CREATE_A_COMMUNITY_WITH_BOTH_ANCHOR_AND_IDENTIFIER
                 );
+        });
+
+        // An anchor is the owner's key, but the minter still has to live on a node with a dataPath, so a
+        // browser holding As cannot create the community itself: it asks a node over RPC. Without this
+        // guard the call falls through to _createRemoteCommunityInstance and hands back a RemoteCommunity
+        // for an address nothing publishes yet, which reads as success and only fails much later, on an
+        // update that never arrives. The signer path shares the guard and had no coverage either.
+        it("refuses to create a delegated community where no local community can exist", async () => {
+            const browserLikePkc = await mockRemotePKC();
+            try {
+                await expect(browserLikePkc.createCommunity({ anchor: { publicKey: anchorSigner.address } })).rejects.toThrow(
+                    messages.ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY
+                );
+                await expect(browserLikePkc.createCommunity({ signer: await browserLikePkc.createSigner() })).rejects.toThrow(
+                    messages.ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY
+                );
+            } finally {
+                await browserLikePkc.destroy();
+            }
         });
     });
 
@@ -472,6 +492,57 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
             const exportedDbBytes = fs.readFileSync(exportedDbPath).toString("binary");
             expect(exportedDbBytes).to.not.include(anchorSigner.privateKey);
             expect(imported.signer.privateKey).to.not.equal(anchorSigner.privateKey);
+        });
+    });
+
+    // The domain checks are what the signer.address audit turned up: a domain's TXT record points at the
+    // name readers resolve, which on a delegated community is the anchor and never the minter. Compared
+    // against signer.address, a correctly configured delegated community would have rejected its own
+    // domain on every start and every edit. Both directions are asserted, since a check that accepts
+    // everything would pass the happy path alone.
+    describe("a delegated community addressed by a domain", () => {
+        const anchorDomain = "delegated-publisher-anchor.bso";
+        const minterDomain = "delegated-publisher-minter.bso";
+        const resolverRecords = new Map<string, string>(); // filled once the keys below exist
+        let domainPkc: PKC;
+        let domainDataPath: string;
+        let domainCommunity: LocalCommunity;
+
+        beforeAll(async () => {
+            domainDataPath = path.join(process.cwd(), ".tmp", `delegated-domain-${uuidv4()}`);
+            domainPkc = await mockPKC({ dataPath: domainDataPath, nameResolvers: [createMockNameResolver({ records: resolverRecords })] });
+            const domainAnchor = await domainPkc.createSigner();
+            domainCommunity = <LocalCommunity>await createSubWithNoChallenge({ anchor: { publicKey: domainAnchor.address } }, domainPkc);
+            resolverRecords.set(anchorDomain, domainAnchor.address); // what a reader following the domain gets
+            resolverRecords.set(minterDomain, domainCommunity.signer.address); // pointed at the rotatable key instead
+        });
+
+        afterAll(async () => {
+            await domainCommunity.delete();
+            await domainPkc.destroy();
+            fs.rmSync(domainDataPath, { recursive: true, force: true });
+        });
+
+        it("accepts a domain whose TXT record resolves to the anchor", async () => {
+            await domainCommunity._assertDomainResolvesCorrectly(anchorDomain);
+            await domainCommunity.edit({ address: anchorDomain });
+            expect(domainCommunity.address).to.equal(anchorDomain);
+        });
+
+        // A domain pointing at the minter leads readers to a key that stops publishing the moment the
+        // owner rotates, so it is wrong even though it names a key this node holds.
+        it("rejects a domain resolving to the minter", async () => {
+            await expect(domainCommunity._assertDomainResolvesCorrectly(minterDomain)).rejects.toThrow(
+                messages.ERR_DOMAIN_COMMUNITY_ADDRESS_TXT_RECORD_POINT_TO_DIFFERENT_ADDRESS
+            );
+
+            // edit() does not await the check: validateNewAddressBeforeEditing fires it and routes the
+            // failure to the error event, so the address moves and the owner is told separately. That is
+            // pre-existing behaviour, not delegation-specific, so this asserts what an owner observes
+            // rather than the rejection the check alone would suggest.
+            const emittedError = new Promise<Error>((resolve) => domainCommunity.once("error", resolve));
+            await domainCommunity.edit({ address: minterDomain });
+            expect((await emittedError).message).to.include(messages.ERR_DOMAIN_COMMUNITY_ADDRESS_TXT_RECORD_POINT_TO_DIFFERENT_ADDRESS);
         });
     });
 });

@@ -8,12 +8,16 @@
 import { beforeAll, afterAll, afterEach, describe, expect, it } from "vitest";
 import { generateKeyPair } from "@libp2p/crypto/keys";
 import { peerIdFromPrivateKey, peerIdFromString } from "@libp2p/peer-id";
-import { createIPNSRecord, marshalIPNSRecord, multihashToIPNSRoutingKey } from "ipns";
+import { createIPNSRecord, marshalIPNSRecord, multihashToIPNSRoutingKey, unmarshalIPNSRecord } from "ipns";
 import { ipnsValidator } from "ipns/validator";
 import { mockPKC, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { messages } from "../../../dist/node/errors.js";
 import { createAnchorIpnsRecord, ANCHOR_IPNS_RECORD_LIFETIME_MS } from "../../../dist/node/signer/index.js";
+import {
+    ANCHOR_REPROVIDE_INTERVAL_MS,
+    reprovideAnchorRecordIfDue
+} from "../../../dist/node/runtime/node/community/local-community/anchor-publishing.js";
 import { ipnsNameToIpnsOverPubsubTopic } from "../../../dist/node/util.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
@@ -155,6 +159,27 @@ describeSkipIfRpc.sequential("delegation setup end to end", () => {
         it("refuses a minterIpnsName that is not an IPNS name, before signing anything", async () => {
             await expect(createAnchorIpnsRecord({ anchorSigner, minterIpnsName: "not-an-ipns-name", sequence: 0 })).rejects.toThrow();
         });
+
+        // This is the one step of the flow that runs in the consumer's process rather than in pkc-js,
+        // so reaching it from the package entry is part of its contract. Nothing under src/ calls it,
+        // and package.json's exports map has no subpath a consumer could deep-import src/signer
+        // through, so if the entry ever stops re-exporting it the primitive silently becomes
+        // uncallable outside this repo while every test above keeps passing on the deep import.
+        // Every sequence in this feature travels as a decimal string precisely so a value past
+        // Number.MAX_SAFE_INTEGER survives. A number anywhere on that path rounds silently, and the
+        // record it produces is signed at a sequence nobody asked for.
+        it("signs a sequence above Number.MAX_SAFE_INTEGER without rounding it", async () => {
+            const sequence = BigInt(Number.MAX_SAFE_INTEGER) + 1n; // 2^53, where Number stops counting by ones
+            const bytes = await createAnchorIpnsRecord({ anchorSigner, minterIpnsName: minterName, sequence: (sequence + 1n).toString() });
+            expect(unmarshalIPNSRecord(bytes).sequence).to.equal(sequence + 1n);
+            expect(Number(sequence + 1n)).to.equal(Number(sequence)); // what passing it as a number would have cost
+        });
+
+        it("is reachable from the package entry, which is the only way a consumer can call it", async () => {
+            const entry = await import("../../../dist/node/index.js");
+            expect(entry.createAnchorIpnsRecord).to.equal(createAnchorIpnsRecord);
+            expect(entry.default.createAnchorIpnsRecord).to.equal(createAnchorIpnsRecord);
+        });
     });
 
     describe("publishAnchorRecord verification", () => {
@@ -260,6 +285,21 @@ describeSkipIfRpc.sequential("delegation setup end to end", () => {
             expect(community.anchorRecordSequence).to.equal(sequenceBeforeRestart);
             const resolved = await resolveOnKubo(anchorSigner.address);
             expect(JSON.parse(resolved.text).Path).to.equal(`/ipns/${minterName}`);
+        });
+
+        // The publish loop calls the throttled variant on every tick, so an inverted or missing interval
+        // check either puts on every publish or, worse, never puts again after the first one and lets the
+        // routers expire the record while the node looks healthy.
+        it("throttles the publish-loop re-provide, and re-provides once the interval has passed", async () => {
+            const justReprovided = Date.now();
+            community._lastAnchorRecordReprovideAt = justReprovided;
+            await reprovideAnchorRecordIfDue(community);
+            expect(community._lastAnchorRecordReprovideAt, "a re-provide inside the interval is a no-op").to.equal(justReprovided);
+
+            const longAgo = Date.now() - ANCHOR_REPROVIDE_INTERVAL_MS - 1;
+            community._lastAnchorRecordReprovideAt = longAgo;
+            await reprovideAnchorRecordIfDue(community);
+            expect(community._lastAnchorRecordReprovideAt! > longAgo, "an overdue re-provide puts again").to.be.true;
         });
     });
 
