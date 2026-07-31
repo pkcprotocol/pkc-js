@@ -203,6 +203,10 @@ export async function initMirroringStartedOrUpdatingCommunity(community: LocalCo
             await community.initInternalCommunityAfterFirstUpdateNoMerge(startedCommunity.toJSONInternalAfterFirstUpdate());
         else await community.initInternalCommunityBeforeFirstUpdateNoMerge(startedCommunity.toJSONInternalBeforeFirstUpdate());
         community.started = startedCommunity.started;
+        // The internal record omits anchorRecordSequence, so the NoMerge call above clears it on this
+        // mirror. The started instance is the writer that owns the value, same as in
+        // updateInstancePropsWithStartedCommunityOrDb.
+        community.anchorRecordSequence = startedCommunity.anchorRecordSequence;
         community.emit("update", community);
     };
     const stateChangeListener = async (newState: CommunityState) => {
@@ -259,6 +263,7 @@ export async function initMirroringStartedOrUpdatingCommunity(community: LocalCo
     if (startedCommunity.updateCid)
         await community.initInternalCommunityAfterFirstUpdateNoMerge(startedCommunity.toJSONInternalAfterFirstUpdate());
     else await community.initInternalCommunityBeforeFirstUpdateNoMerge(startedCommunity.toJSONInternalBeforeFirstUpdate());
+    community.anchorRecordSequence = startedCommunity.anchorRecordSequence; // cleared by the NoMerge call above, see updateListener
     community.emit("update", community);
 }
 

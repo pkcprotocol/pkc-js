@@ -885,7 +885,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     private async _getLocalCommunityForAnchorMethod(identifier: { name?: string; publicKey?: string }): Promise<LocalCommunity> {
         const address = this._findCommunityAddress(identifier);
         if (!address)
-            throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_EDIT_REMOTE_COMMUNITY", {
+            throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_USE_ANCHOR_METHOD_ON_NON_LOCAL_COMMUNITY", {
                 communityAddress: identifier.name || identifier.publicKey
             });
         if (this._startedCommunities[address] instanceof LocalCommunity) return <LocalCommunity>this._startedCommunities[address];

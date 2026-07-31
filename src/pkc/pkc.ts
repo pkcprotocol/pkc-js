@@ -92,6 +92,7 @@ import { AuthorAddressSchema, AuthorReservedFields, CidStringSchema, CommunityAd
 import {
     CreateRemoteCommunityFunctionArgumentSchema,
     CreateCommunityFunctionArgumentsSchema,
+    CommunityAnchorSchema,
     PubsubTopicSchema,
     CommunityIpfsSchema
 } from "../community/schema.js";
@@ -825,8 +826,20 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         // the identity key (today's behavior), an anchor public key means the owner does.
         const anchor = (parsedOptions as CreateNewLocalCommunityUserOptions).anchor ?? undefined;
         const hasAnchor = anchor !== undefined;
+        // createCommunity casts its options rather than parsing them, so the anchor has to be checked
+        // here or an invalid publicKey becomes the community's address and surfaces later as a generic
+        // bad-address error, or later still inside peerIdFromString during publishAnchorRecord.
+        if (hasAnchor) {
+            const parsedAnchor = CommunityAnchorSchema.safeParse(anchor);
+            if (!parsedAnchor.success) throw new PKCError("ERR_ANCHOR_PUBLIC_KEY_IS_INVALID", { anchor, zodError: parsedAnchor.error });
+        }
         if (hasAnchor && hasSigner) throw new PKCError("ERR_CAN_NOT_CREATE_A_COMMUNITY_WITH_BOTH_SIGNER_AND_ANCHOR", { ...parsedOptions });
         const hasIdentifier = hasAddress || hasName || hasPublicKey; // can identify an existing community
+        // A delegated community is keyed by its anchor, so any identifier passed alongside would be
+        // silently dropped — {anchor, name: "x.bso"} would create a community addressed by the anchor
+        // with the name nowhere. Reject rather than ignore, same as the signer case above.
+        if (hasAnchor && hasIdentifier)
+            throw new PKCError("ERR_CAN_NOT_CREATE_A_COMMUNITY_WITH_BOTH_ANCHOR_AND_IDENTIFIER", { ...parsedOptions });
 
         // Derive effective address for local-vs-remote checks
         const effectiveAddress =

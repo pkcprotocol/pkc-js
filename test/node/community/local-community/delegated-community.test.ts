@@ -83,10 +83,32 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
             await expect(pkc.createCommunity({ anchor: { publicKey: "" } })).rejects.toThrow();
         });
 
+        // anchor.publicKey becomes the community's address, so an unvalidated value would only fail much
+        // later, inside peerIdFromString during publishAnchorRecord, on a community already keyed by it.
+        it("rejects an anchor publicKey that is not an IPNS name", async () => {
+            await expect(pkc.createCommunity({ anchor: { publicKey: "not-an-ipns-name" } })).rejects.toThrow(
+                messages.ERR_ANCHOR_PUBLIC_KEY_IS_INVALID
+            );
+            // The base64 raw-key representation signer.publicKey uses, which is NOT what an anchor takes.
+            await expect(pkc.createCommunity({ anchor: { publicKey: anchorSigner.publicKey } })).rejects.toThrow(
+                messages.ERR_ANCHOR_PUBLIC_KEY_IS_INVALID
+            );
+        });
+
         it("rejects passing both a signer and an anchor", async () => {
             await expect(
                 pkc.createCommunity({ signer: await pkc.createSigner(), anchor: { publicKey: anchorSigner.address } })
             ).rejects.toThrow(messages.ERR_CAN_NOT_CREATE_A_COMMUNITY_WITH_BOTH_SIGNER_AND_ANCHOR);
+        });
+
+        // A delegated community is keyed by its anchor, so an identifier passed alongside would be
+        // silently dropped rather than applied.
+        it("rejects passing an identifier alongside an anchor", async () => {
+            const otherAnchor = await pkc.createSigner();
+            for (const identifier of [{ name: "some-community.bso" }, { address: otherAnchor.address }, { publicKey: otherAnchor.address }])
+                await expect(pkc.createCommunity({ ...identifier, anchor: { publicKey: anchorSigner.address } })).rejects.toThrow(
+                    messages.ERR_CAN_NOT_CREATE_A_COMMUNITY_WITH_BOTH_ANCHOR_AND_IDENTIFIER
+                );
         });
     });
 

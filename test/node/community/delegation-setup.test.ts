@@ -5,7 +5,7 @@
 // An/As = anchor keypair (identity, owner-held, never leaves the client).
 // Mn/Ms = minter keypair (generated and held by the node, rotatable).
 // The node-side identity split is issue #233, see local-community/delegated-community.test.ts.
-import { beforeAll, afterAll, describe, expect, it } from "vitest";
+import { beforeAll, afterAll, afterEach, describe, expect, it } from "vitest";
 import { generateKeyPair } from "@libp2p/crypto/keys";
 import { peerIdFromPrivateKey, peerIdFromString } from "@libp2p/peer-id";
 import { createIPNSRecord, marshalIPNSRecord, multihashToIPNSRoutingKey } from "ipns";
@@ -45,6 +45,11 @@ const subscribedTopics = async () => {
 // reached the routers and the ipns-over-pubsub topic, the whole "the node keeps the anchor alive"
 // design would have changed shape. Kept as a test so a kubo upgrade that breaks the assumption is
 // caught here rather than in production.
+//
+// Skipped under RPC because every assertion here is a raw HTTP call straight at the local kubo daemon
+// (routing/put, name/resolve, pubsub/ls, key/list) rather than a pkc-js call. It is asserting kubo's
+// behaviour, not pkc-js's, so there is nothing for the RPC layer to carry: under remote-pkc-rpc the
+// daemon these calls reach is not the one the community under test publishes through.
 describeSkipIfRpc.sequential("spike: publishing a foreign pre-signed IPNS record through kubo", () => {
     let anchorPriv: Awaited<ReturnType<typeof generateKeyPair>>;
     let anchorName: string;
@@ -225,7 +230,13 @@ describeSkipIfRpc.sequential("delegation setup end to end", () => {
         });
 
         it("the community now starts, and the anchor resolves through to its published record", async () => {
+            const sequenceBeforeStart = community.anchorRecordSequence;
+            expect(sequenceBeforeStart).to.be.a("string");
             await community.start();
+            // start() reloads internal state, and that record deliberately omits anchorRecordSequence,
+            // so it has to be re-derived from the keyv slot publishAnchorRecord owns. Otherwise a
+            // community whose record is published reports no sequence at all once started.
+            expect(community.anchorRecordSequence, "start() must not clear the anchor sequence").to.equal(sequenceBeforeStart);
             await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
             expect(community.updateCid).to.be.a("string");
 
@@ -241,12 +252,90 @@ describeSkipIfRpc.sequential("delegation setup end to end", () => {
         });
 
         it("survives a stop/start cycle with no re-publish by the owner", async () => {
+            const sequenceBeforeRestart = community.anchorRecordSequence;
             await community.stop();
             community._lastAnchorRecordReprovideAt = undefined;
             await community.start();
             expect(community._lastAnchorRecordReprovideAt).to.be.a("number");
+            expect(community.anchorRecordSequence).to.equal(sequenceBeforeRestart);
             const resolved = await resolveOnKubo(anchorSigner.address);
             expect(JSON.parse(resolved.text).Path).to.equal(`/ipns/${minterName}`);
+        });
+    });
+
+    // The anti-rollback check reads the high-water mark, then awaits the kubo put and two keyvSets
+    // before persisting it. Without serialization two concurrent publishes both clear the check and
+    // last-write-wins can persist the LOWER sequence, after which a record in between passes the check
+    // and gets silently dropped by kubo while we report success. See anchor-publishing.ts.
+    describe("concurrent publishAnchorRecord calls for the same community", () => {
+        let concurrentAnchor: SignerType;
+        let concurrentCommunity: LocalCommunity;
+
+        const freshDelegatedCommunity = async () => {
+            concurrentAnchor = await pkc.createSigner();
+            concurrentCommunity = <LocalCommunity>await pkc.createCommunity({ anchor: { publicKey: concurrentAnchor.address } });
+            await concurrentCommunity.edit({ settings: { challenges: [] } });
+        };
+
+        afterEach(async () => {
+            await concurrentCommunity.delete();
+        });
+
+        // Deterministic regardless of which call wins the lock: whichever runs second sees its own
+        // sequence already persisted, and equal is refused too.
+        it("accepts exactly one of two identical-sequence publishes, and persists it", async () => {
+            await freshDelegatedCommunity();
+            const minter = concurrentCommunity.signer.address;
+            const [first, second] = await Promise.all([
+                createAnchorIpnsRecord({ anchorSigner: concurrentAnchor, minterIpnsName: minter, sequence: 5 }),
+                createAnchorIpnsRecord({ anchorSigner: concurrentAnchor, minterIpnsName: minter, sequence: 5 })
+            ]);
+
+            const results = await Promise.allSettled([
+                concurrentCommunity.publishAnchorRecord(first),
+                concurrentCommunity.publishAnchorRecord(second)
+            ]);
+
+            const fulfilled = results.filter((r) => r.status === "fulfilled");
+            const rejected = results.filter((r) => r.status === "rejected");
+            expect(fulfilled.length, "exactly one publish should win").to.equal(1);
+            expect(rejected.length).to.equal(1);
+            expect(String((<PromiseRejectedResult>rejected[0]).reason?.message)).to.include(
+                messages.ERR_ANCHOR_IPNS_RECORD_SEQUENCE_IS_NOT_GREATER
+            );
+            expect((<PromiseFulfilledResult<{ sequence: string }>>fulfilled[0]).value.sequence).to.equal("5");
+            expect(concurrentCommunity.anchorRecordSequence).to.equal("5");
+
+            // The high-water mark that was actually persisted, not just the in-memory copy: this is the
+            // value a later record has to beat, and the one a rollback would have corrupted.
+            const reloaded = <LocalCommunity>await pkc.createCommunity({ address: concurrentCommunity.address });
+            expect(reloaded.anchorRecordSequence).to.equal("5");
+        });
+
+        // Order-independent: the highest sequence attempted always wins, since nothing else can push the
+        // mark past it, and the mark ends equal to it whichever order the two calls acquire the lock in.
+        it("ends at the highest sequence attempted, whichever call runs first", async () => {
+            await freshDelegatedCommunity();
+            const minter = concurrentCommunity.signer.address;
+            const [lower, higher] = await Promise.all([
+                createAnchorIpnsRecord({ anchorSigner: concurrentAnchor, minterIpnsName: minter, sequence: 11 }),
+                createAnchorIpnsRecord({ anchorSigner: concurrentAnchor, minterIpnsName: minter, sequence: 12 })
+            ]);
+
+            const [lowerResult, higherResult] = await Promise.allSettled([
+                concurrentCommunity.publishAnchorRecord(lower),
+                concurrentCommunity.publishAnchorRecord(higher)
+            ]);
+
+            expect(higherResult.status, "the highest sequence attempted can never lose").to.equal("fulfilled");
+            // The lower one only survives if it got the lock first; if it lost the race it must have been
+            // refused rather than silently overwriting the mark.
+            if (lowerResult.status === "rejected")
+                expect(String(lowerResult.reason?.message)).to.include(messages.ERR_ANCHOR_IPNS_RECORD_SEQUENCE_IS_NOT_GREATER);
+            expect(concurrentCommunity.anchorRecordSequence).to.equal("12");
+
+            const reloaded = <LocalCommunity>await pkc.createCommunity({ address: concurrentCommunity.address });
+            expect(reloaded.anchorRecordSequence).to.equal("12");
         });
     });
 

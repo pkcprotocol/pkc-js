@@ -10,6 +10,7 @@ import {
     ProtocolVersionSchema,
     SignerWithAddressPublicKeySchema,
     CommunityAddressSchema,
+    isIpnsName,
     nonNegativeIntStringSchema
 } from "../schema/schema.js";
 import { ModQueuePagesIpfsSchema, PostsPagesIpfsSchema } from "../pages/schema.js";
@@ -307,7 +308,12 @@ export const CommunityEditOptionsSchema = CommunityIpfsSchema.pick({
 // reaches the node running the community. publicKey here is the B58 IPNS name, the same
 // representation community.publicKey uses, NOT the base64 raw key that signer.publicKey and
 // encryption.publicKey carry. See docs/protocol/delegated-ipns.md.
-export const CommunityAnchorSchema = z.object({ publicKey: z.string().min(1) }).strict();
+// anchor.publicKey becomes the delegated community's address, so an invalid value here would otherwise
+// only surface much later, inside peerIdFromString during publishAnchorRecord, long after the community
+// was created and keyed by it. Validate it as the IPNS name it has to be, at creation.
+export const CommunityAnchorSchema = z
+    .object({ publicKey: z.string().refine((arg) => isIpnsName(arg), messages.ERR_ANCHOR_PUBLIC_KEY_IS_INVALID) })
+    .strict();
 
 // These are the options to create a new local community, provided by user
 

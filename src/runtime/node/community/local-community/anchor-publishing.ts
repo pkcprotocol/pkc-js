@@ -103,9 +103,44 @@ async function putAnchorRecordThroughKubo(community: LocalCommunity, anchorName:
     for await (const _event of kuboRpcClient._client.routing.put(`/ipns/${anchorName}`, recordBytes, { allowOffline: true }));
 }
 
+// Serializes publishes per community address, keyed by address rather than by instance because the same
+// community is routinely represented by more than one LocalCommunity object in a process (the RPC server
+// creates its own). The window this closes: read the high-water mark, then await the kubo put and two
+// keyvSets before persisting it. Two concurrent publishes both clear the check, and last-write-wins can
+// persist the LOWER sequence, after which a record in between passes our check, gets silently dropped by
+// kubo (which answers 200 to a rollback put, the very reason this check is ours), and we report success
+// for a publish that never happened.
+//
+// In-process only. Two processes publishing anchor records for the same community concurrently would
+// still race; that is already true of the community DB as a whole, which lockCommunityStart guards
+// against rather than merges.
+const anchorPublishQueues = new Map<string, Promise<void>>();
+
+function serializePerCommunityAddress<T>(address: string, task: () => Promise<T>): Promise<T> {
+    const previous = anchorPublishQueues.get(address) ?? Promise.resolve();
+    const run = previous.then(task);
+    // The queue itself must never reject, or one failed publish would fail every publish behind it.
+    // The caller still sees the rejection through `run`.
+    const settled = run.then(
+        () => {},
+        () => {}
+    );
+    anchorPublishQueues.set(address, settled);
+    // Drop the entry once nothing is queued behind it, so a long-lived process does not accumulate one
+    // resolved promise per community it has ever published an anchor record for.
+    settled.then(() => {
+        if (anchorPublishQueues.get(address) === settled) anchorPublishQueues.delete(address);
+    });
+    return run;
+}
+
 // Verifies a record the owner signed with As and, only if it is one this node may serve, publishes it
 // and remembers it. The node can refuse the binding but can never forge or replace it.
 export async function publishAnchorRecord(community: LocalCommunity, recordBytes: Uint8Array): Promise<PublishedAnchorRecord> {
+    return serializePerCommunityAddress(community.address, () => publishAnchorRecordSerialized(community, recordBytes));
+}
+
+async function publishAnchorRecordSerialized(community: LocalCommunity, recordBytes: Uint8Array): Promise<PublishedAnchorRecord> {
     const log = Logger("pkc-js:local-community:publishAnchorRecord");
     const anchor = assertDelegated(community);
     await community._dbHandler.initDbIfNeeded();

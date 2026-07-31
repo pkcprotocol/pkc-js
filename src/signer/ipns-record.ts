@@ -28,7 +28,11 @@ export async function createAnchorIpnsRecord({
 }: {
     anchorSigner: Pick<SignerType, "privateKey">;
     minterIpnsName: string;
-    sequence: number | bigint;
+    // Decimal string included on purpose: prepareAnchorPublish returns nextSequence as a string, and
+    // every sequence in this feature travels as one precisely so a value above Number.MAX_SAFE_INTEGER
+    // survives the trip. A caller who had to write Number(nextSequence) to satisfy this type would lose
+    // that precision before the value ever reached us. BigInt() parses decimal strings exactly.
+    sequence: string | number | bigint;
 }): Promise<Uint8Array> {
     const { createIPNSRecord, marshalIPNSRecord } = await import("ipns");
 

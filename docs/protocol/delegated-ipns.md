@@ -156,16 +156,38 @@ logical operation is split across the trust boundary into three calls plus a loc
 them exist on `LocalCommunity` and are mirrored as RPC methods, so a self-hosted owner talking to their
 own daemon needs no service layer.
 
+**First publish** — the anchor has never been published, so there is no sequence to discover and
+`prepareAnchorPublish()` is not called at all. Calling it here would throw
+`ERR_UNABLE_TO_DETERMINE_ANCHOR_SEQUENCE`, which is deliberate: see below.
+
 ```js
 // 1. the node generates Mn/Ms and keys the community by An. Not resolvable yet: nothing points An anywhere.
 const community = await pkc.createCommunity({ anchor: { publicKey: An } })
 
-// 2. only when rotating or re-publishing. A community's first record signs sequence 0, which is what
-//    community.anchorRecordSequence being undefined tells you.
+// 2. signed locally with As, which never leaves the client. Browser-safe. A community's first record
+//    signs sequence 0, which is what community.anchorRecordSequence being undefined tells you.
+const record = await createAnchorIpnsRecord({ anchorSigner: As, minterIpnsName: community.signer.address, sequence: 0 })
+
+// 3. the node verifies and publishes it, then keeps re-providing it.
+await community.publishAnchorRecord(record)
+```
+
+**Rotation or re-publish** — an anchor record already exists somewhere, so the owner cannot know which
+sequence beats it and asks the node, which is the online party.
+
+```js
+// 1. the new host generates its own Mn'/Ms' and keys the community by the SAME An.
+const community = await pkc.createCommunity({ anchor: { publicKey: An } })
+
+// 2. ask the node what sequence to sign. Returns a decimal string, so pass it through as-is.
 const { nextSequence } = await community.prepareAnchorPublish()
 
-// 3. signed locally with As, which never leaves the client. Browser-safe.
-const record = await createAnchorIpnsRecord({ anchorSigner: As, minterIpnsName: community.signer.address, sequence: 0 })
+// 3. same signing step, at the sequence the node answered.
+const record = await createAnchorIpnsRecord({
+    anchorSigner: As,
+    minterIpnsName: community.signer.address,
+    sequence: nextSequence
+})
 
 // 4. the node verifies and publishes it, then keeps re-providing it.
 await community.publishAnchorRecord(record)
@@ -186,6 +208,10 @@ highest already accepted. The high-water mark lives in its own storage slot, sep
 `LAST_IPNS_RECORD`, which holds the node's own minter record on an independent sequence space.
 **Anti-rollback cannot be delegated to kubo**: a `routing.put` of an older record returns success while
 kubo silently keeps the newer one, so a node that trusted it would report a publish that never happened.
+Because that check is ours, so is its atomicity: publishes are serialized per community address, since
+the check reads the high-water mark and the put and its persistence happen several awaits later. Two
+concurrent publishes would otherwise both clear the check and the loser's mark could be the one that
+lands, re-opening the very rollback the check exists to catch. The lock is in-process only.
 
 **Publishing goes through `routing.put`, never `name.publish`**, which structurally cannot publish bytes
 signed by a key the node lacks. The put also subscribes the node to the anchor's ipns-over-pubsub topic,

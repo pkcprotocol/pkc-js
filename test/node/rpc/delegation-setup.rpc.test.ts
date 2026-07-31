@@ -141,6 +141,11 @@ describeIfRpc.sequential("delegation setup over RPC", () => {
                 await halfCreated.publishAnchorRecord(bytes);
                 await halfCreated.start();
                 expect(halfCreated.started).to.be.true;
+                // start() reloads internal state, and the internal record deliberately omits
+                // anchorRecordSequence, so a regression that fails to re-derive it from its own keyv
+                // slot leaves the client seeing undefined for a community whose record it just
+                // published. See updateInstanceStateWithDbState.
+                expect(halfCreated.anchorRecordSequence).to.equal("0");
                 await halfCreated.stop();
             } finally {
                 await halfCreated.delete();

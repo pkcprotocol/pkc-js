@@ -131,6 +131,14 @@ export async function updateInstanceStateWithDbState(community: LocalCommunity) 
         }
         await community.initInternalCommunityAfterFirstUpdateNoMerge(currentDbState);
     } else await community.initInternalCommunityBeforeFirstUpdateNoMerge(currentDbState);
+
+    // Both NoMerge helpers replay the internal record through the RPC init path, which assigns
+    // anchorRecordSequence from that record — and the internal record deliberately omits it, since
+    // publishAnchorRecord owns its own keyv slot. So the replay always clears the live value, and every
+    // caller of this function (start() included) has to put it back from the slot that owns it.
+    // Without this, start() leaves anchorRecordSequence undefined on a community whose anchor record
+    // has been published, which is how it reaches an RPC client.
+    community.anchorRecordSequence = getHighestAcceptedAnchorSequence(community)?.toString();
 }
 
 export async function updateInstancePropsWithStartedCommunityOrDb(community: LocalCommunity) {
@@ -177,9 +185,9 @@ export async function updateInstancePropsWithStartedCommunityOrDb(community: Loc
                 throw new PKCError("ERR_LOCAL_COMMUNITY_HAS_NO_SIGNER_IN_INTERNAL_STATE", { address: community.address });
 
             await community._loadExportsFromKeyv(); // Load community.exports from DB
-            // Derived, not part of the internal record: publishAnchorRecord owns its keyv slot. Absent
-            // on a delegated community means no anchor record has ever been accepted for it.
-            community.anchorRecordSequence = getHighestAcceptedAnchorSequence(community)?.toString();
+            // anchorRecordSequence is re-derived inside updateInstanceStateWithDbState above, from the
+            // keyv slot publishAnchorRecord owns. Absent on a delegated community means no anchor
+            // record has ever been accepted for it.
             await community._updateStartedValue();
             log("Loaded local community", community.address, "from db");
         } catch (e) {
