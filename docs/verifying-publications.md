@@ -58,17 +58,19 @@ This function will take a JSON object that has signature field. Could be `VotePu
 
 ## verifyCommunity
 
--   The function will take a `CommunityIpfsType` as a parameter.
+-   The function will take a `CommunityIpfsType` as a parameter, along with `communityIpnsHops`, the resolved IPNS chain `[anchor, ..., terminal]` (a single element for a non-delegated community)
 
--   Verify the posts of the community by iterating through all of them and calling `verifyPage`
+-   Verify the posts of the community by iterating through all of them and calling `verifyPage`, passing `communityIpnsHops[0]` (the anchor) as the community the comments must belong to, since that is the key content is labelled with
 -   Validate signature of community object with `verifyPublicationSignature`
 -   Return result of `verifyPublicationSignature` if invalid
 -   If community address is a domain
     -   Resolve it to PKC address
--   Create a PeerId instance from PKC address
--   Compare address PeerId instance with PeerId instance created from public key in signature
+-   Create a PeerId instance from `communityIpnsHops.at(-1)` (the terminal name, which is the key that signs the record)
+-   Compare that PeerId instance with PeerId instance created from public key in signature
 -   If they're not equal, return invalid
 -   Else, return valid
+
+See [protocol/delegated-ipns.md](protocol/delegated-ipns.md) for why the two ends of the chain verify different things.
 
 ## verifyPage
 

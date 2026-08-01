@@ -317,10 +317,12 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         const verificationOpts = {
             community: recordToPublishRaw,
-            // The record we are about to publish is signed by our own key, which on a delegated
-            // community is the minter, not the identity. This mirrors the read side, which verifies
-            // content against ipnsHops.at(-1). See docs/protocol/delegated-ipns.md.
-            communityIpnsName: this.signer.address,
+            // The same chain a reader resolves: the record we are about to publish is signed by our own
+            // key, which on a delegated community is the minter (the last hop), while the content
+            // inside it is labelled with the anchor (the first). Handing the verifier one name would
+            // leave it comparing one of the two against the wrong key.
+            // See docs/protocol/delegated-ipns.md.
+            communityIpnsHops: this.ipnsHops ?? [this.signer.address],
             resolveAuthorNames: false,
             clientsManager: this._clientsManager,
             validatePages: true,

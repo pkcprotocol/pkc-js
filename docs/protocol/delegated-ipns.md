@@ -73,8 +73,23 @@ below), so the cap is enforced there too.
 The resolved chain is stored on the instance as `RemoteCommunity.ipnsHops` (a runtime-only
 field; it is never part of the signed wire record). `community.publicKey`/`ipnsName` are
 derived from `ipnsHops[0]` (the anchor), and the content signature is verified against
-`ipnsHops.at(-1)` (the terminal) — `verifyCommunity` receives the terminal name so its
-`signature.publicKey` check passes.
+`ipnsHops.at(-1)` (the terminal).
+
+`verifyCommunity` receives the whole chain as `communityIpnsHops`, the same shape and the same
+value, because the two ends verify different things and a record cannot tell them apart on its
+own:
+
+- **`ipnsHops.at(-1)` (terminal/minter)** must equal `signature.publicKey`. This is the key that
+  signed the record.
+- **`ipnsHops[0]` (anchor)** is what the comments inside `posts.pages` are checked against, since
+  a community labels its content with the key readers address it by, not with the key that
+  happens to sign the current record (see `communityPublicKey` in
+  [comment-lifecycle.md](comment-lifecycle.md)). Checking pages against the terminal instead
+  would reject every comment in a delegated community's own record, including on the publisher's
+  pre-publish self-check.
+
+A non-delegated community passes a single-element chain, where anchor and terminal are the same
+key, and both checks collapse to the pre-delegation behaviour.
 
 ### Per resolution path
 
