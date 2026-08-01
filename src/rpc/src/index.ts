@@ -37,6 +37,8 @@ import WebSocket from "ws";
 import Publication from "../../publications/publication.js";
 import { PKCError } from "../../pkc-error.js";
 import { LocalCommunity } from "../../runtime/node/community/local-community.js";
+import { isCommunityStartLockedByAddress } from "../../runtime/node/community/start-lock.js";
+import type { RpcCommunitiesStartedStateResult } from "../../clients/rpc-client/types.js";
 import { RemoteCommunity } from "../../community/remote-community.js";
 import { hideClassPrivateProps, replaceXWithY } from "../../util.js";
 import { keys, mapValues, omit } from "remeda";
@@ -304,6 +306,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         this.rpcWebsocketsRegister("prepareAnchorPublish", this.prepareAnchorPublish.bind(this));
         this.rpcWebsocketsRegister("publishAnchorRecord", this.publishAnchorRecord.bind(this));
         this.rpcWebsocketsRegister("communitiesSubscribe", this.communitiesSubscribe.bind(this));
+        this.rpcWebsocketsRegister("listCommunitiesStartedState", this.listCommunitiesStartedState.bind(this));
         this.rpcWebsocketsRegister("settingsSubscribe", this.settingsSubscribe.bind(this));
 
         this.rpcWebsocketsRegister("fetchCid", this.fetchCid.bind(this));
@@ -643,6 +646,38 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const community = <LocalCommunity>await pkc.createCommunity(createCommunityOptions);
         if (!(community instanceof LocalCommunity)) throw Error("Failed to create a local community. This is a critical error");
         return community.toJSONInternalRpcBeforeFirstUpdate();
+    }
+
+    // `started` for every community in ONE round trip, and without shipping the communities
+    // themselves. A client that wants to list communities and show which are running (e.g.
+    // `bitsocial community list`) previously had to call createCommunity per address, which for a
+    // local community means communityUpdateSubscribe -> the node sends the community's whole
+    // internal record as an `update`, including its preloaded posts pages.
+    //
+    // On the production host that is ~0.9MB of JSON per community and 14.8MB across 17 of them, to
+    // produce 17 booleans. Per-community latency correlates with payload size at r=0.90 (~8.5KB/ms),
+    // and because JSON.stringify is synchronous it blocks this process's event loop: probing the
+    // node with a trivial RPC call during the fan-out shows it going unanswered for ~1s at a time.
+    // That is why parallelizing on the client does not help - the fan-out costs ~1.5s regardless.
+    //
+    // `started` is exactly "is the start lockfile held" (LocalCommunity._updateStartedValue), which
+    // needs nothing but dataPath + address, so this answers all of them with cheap fs checks.
+    async listCommunitiesStartedState(): Promise<RpcCommunitiesStartedStateResult> {
+        const pkc = await this._getPKCInstance();
+        const addresses = pkc.communities;
+
+        // No dataPath means no local communities on disk, so nothing can hold a start lock.
+        const dataPath = pkc.dataPath;
+        if (!dataPath) return { communities: addresses.map((address) => ({ address, started: false })) };
+
+        return {
+            communities: await Promise.all(
+                addresses.map(async (address) => ({
+                    address,
+                    started: await isCommunityStartLockedByAddress({ dataPath, communityAddress: address })
+                }))
+            )
+        };
     }
 
     private _trackCommunityListener(community: LocalCommunity, event: keyof CommunityEvents, listener: (...args: any[]) => void) {

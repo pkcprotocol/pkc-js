@@ -11,6 +11,7 @@ import {
     RpcResolveAuthorNameResultSchema,
     RpcFetchCidResultSchema,
     RpcSuccessResultSchema,
+    RpcCommunitiesStartedStateResultSchema,
     RpcSubscriptionIdResultSchema,
     RpcExportCommunityParamSchema,
     RpcCancelExportParamSchema,
@@ -39,6 +40,7 @@ export const parseRpcResolveAuthorNameResult = (result: unknown) => RpcResolveAu
 export const parseRpcFetchCidResult = (result: unknown) => RpcFetchCidResultSchema.loose().parse(result);
 export const parseRpcSuccessResult = (result: unknown) => RpcSuccessResultSchema.loose().parse(result);
 export const parseRpcSubscriptionIdResult = (result: unknown) => RpcSubscriptionIdResultSchema.loose().parse(result);
+export const parseRpcCommunitiesStartedStateResult = (result: unknown) => RpcCommunitiesStartedStateResultSchema.loose().parse(result);
 
 // Delegation setup (#234)
 export const parseRpcPublishAnchorRecordParam = (params: unknown) => RpcPublishAnchorRecordParamSchema.loose().parse(params);

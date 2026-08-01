@@ -11,6 +11,7 @@ import {
     RpcResolveAuthorNameResultSchema,
     RpcFetchCidResultSchema,
     RpcSuccessResultSchema,
+    RpcCommunitiesStartedStateResultSchema,
     RpcSubscriptionIdResultSchema,
     RpcExportCommunityParamSchema,
     RpcCancelExportParamSchema,
@@ -41,6 +42,7 @@ export type PublishAnchorRecordRpcParam = z.infer<typeof RpcPublishAnchorRecordP
 export type RpcResolveAuthorNameResult = z.infer<typeof RpcResolveAuthorNameResultSchema>;
 export type RpcFetchCidResult = z.infer<typeof RpcFetchCidResultSchema>;
 export type RpcSuccessResult = z.infer<typeof RpcSuccessResultSchema>;
+export type RpcCommunitiesStartedStateResult = z.infer<typeof RpcCommunitiesStartedStateResultSchema>;
 export type RpcSubscriptionIdResult = z.infer<typeof RpcSubscriptionIdResultSchema>;
 export type RpcExportCommunityResult = z.infer<typeof RpcExportCommunityResultSchema>;
 export type RpcExportschangeResult = z.infer<typeof RpcExportschangeResultSchema>;

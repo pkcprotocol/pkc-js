@@ -65,6 +65,15 @@ export const RpcFetchCidResultSchema = z.object({ content: z.string() });
 export const RpcResolveAuthorNameResultSchema = z.object({ resolvedAuthorName: z.string().nullable() });
 export const RpcSuccessResultSchema = z.object({ success: z.literal(true) });
 
+// One `started` flag per community in a single round trip. Exists because reading `started` used to
+// mean one createCommunity call per community, and for a local community that ships the community's
+// whole internal record (preloaded posts pages included) just to produce one boolean - 14.8MB across
+// 17 communities on the production host. Deliberately carries nothing else: the point is that the
+// node can answer it from cheap start-lockfile checks, transferring no community records at all.
+export const RpcCommunitiesStartedStateResultSchema = z.object({
+    communities: z.array(z.object({ address: z.string(), started: z.boolean() }))
+});
+
 // Delegation setup (#234). The signed record crosses the wire base64-encoded because JSON has no bytes,
 // and sequences cross as decimal strings because JSON numbers cannot hold a uint64 without rounding.
 // The anchor's PRIVATE key is not in either shape, and never is: the client signs, the node publishes.
