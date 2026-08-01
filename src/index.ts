@@ -7,6 +7,7 @@ import { setNativeFunctions as utilSetNativeFunctions } from "./runtime/node/uti
 import nodeNativeFunctions from "./runtime/node/native-functions.js";
 import browserNativeFunctions from "./runtime/browser/native-functions.js";
 import { shortifyAddress, shortifyCid } from "./util.js";
+import { createAnchorIpnsRecord as signerCreateAnchorIpnsRecord } from "./signer/ipns-record.js";
 import { pkcJsChallenges } from "./runtime/node/community/challenges/index.js";
 import { PKCWithRpcClient } from "./pkc/pkc-with-rpc-client.js";
 import type { AuthorNameRpcParam, CidRpcParam } from "./clients/rpc-client/types.js";
@@ -32,12 +33,19 @@ PKC.nativeFunctions = { node: nodeNativeFunctions, browser: browserNativeFunctio
 PKC.getShortCid = getShortCidValue;
 PKC.getShortAddress = getShortAddressValue;
 PKC.challenges = pkcJsChallenges;
+// Delegation setup (#234): the anchor record An -> Mn is signed with As, the one key that by design
+// never reaches the node, so this is the single step of the flow that has to run in the consumer's
+// process. Nothing in src/ calls it and nothing ever can, which is exactly why it belongs on the
+// public entry: without it the primitive is unreachable, since package.json's exports map has no
+// subpath that would let a consumer deep-import src/signer. Browser-safe, same as the browser entry.
+PKC.createAnchorIpnsRecord = signerCreateAnchorIpnsRecord;
 export default PKC;
 export const setNativeFunctions = PKC.setNativeFunctions;
 export const nativeFunctions = PKC.nativeFunctions;
 export const getShortCid = PKC.getShortCid;
 export const getShortAddress = PKC.getShortAddress;
 export const challenges = PKC.challenges;
+export const createAnchorIpnsRecord = PKC.createAnchorIpnsRecord;
 
 // Public re-exports: name-resolver contract — let third-party resolver
 // packages (e.g. @bitsocial/bso-resolver) consume these types directly from

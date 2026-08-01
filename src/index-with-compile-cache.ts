@@ -25,6 +25,7 @@ export const nativeFunctions = index.nativeFunctions;
 export const getShortCid = index.getShortCid;
 export const getShortAddress = index.getShortAddress;
 export const challenges = index.challenges;
+export const createAnchorIpnsRecord = index.createAnchorIpnsRecord;
 
 // Keep the type-only surface identical to index.ts.
 export type { NameResolverInterface } from "./schema.js";

@@ -43,6 +43,7 @@ import type {
 } from "../../../../pubsub-messages/types.js";
 import type { LocalCommunity } from "../local-community.js";
 import { publishFailedChallengeVerification } from "./challenges.js";
+import { communityIdentityPublicKey } from "./identity.js";
 
 export function isFlairInAllowedList(flair: Flair, allowedFlairs: Flair[]): boolean {
     return allowedFlairs.some((allowed) => isDeepEqual(allowed, flair));
@@ -129,9 +130,12 @@ async function checkWireFormatAndCommunityAuthor(
     // reject run time field
     if ("communityAddress" in publication) return messages.ERR_PUBLICATION_USES_DEPRECATED_COMMUNITY_ADDRESS;
 
-    // communityPublicKey must be present and match this community's IPNS key
+    // communityPublicKey must be present and match the key this community is addressed by. A publisher
+    // sets it from the address it resolved, which on a delegated community is the anchor and never the
+    // minter we sign with — comparing against signer.address here would reject every remote
+    // publication. See docs/protocol/delegated-ipns.md.
     const pubCommunityPublicKey = getCommunityPublicKeyFromWire(publication as Record<string, unknown>);
-    if (!pubCommunityPublicKey || pubCommunityPublicKey !== community.signer.address)
+    if (!pubCommunityPublicKey || pubCommunityPublicKey !== communityIdentityPublicKey(community))
         return messages.ERR_PUBLICATION_INVALID_COMMUNITY_PUBLIC_KEY;
 
     // communityName, if present, must match this community's address

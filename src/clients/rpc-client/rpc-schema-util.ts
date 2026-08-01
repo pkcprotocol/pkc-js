@@ -17,7 +17,10 @@ import {
     RpcExportCommunityResultSchema,
     RpcExportschangeResultSchema,
     RpcExportCommunityModLogsParamSchema,
-    RpcExportCommunityModLogsResultSchema
+    RpcExportCommunityModLogsResultSchema,
+    RpcPublishAnchorRecordParamSchema,
+    RpcAnchorPublishPreparationResultSchema,
+    RpcPublishedAnchorRecordResultSchema
 } from "./schema.js";
 
 // Param parsers — all use .loose() so newer clients can send extra fields
@@ -36,6 +39,11 @@ export const parseRpcResolveAuthorNameResult = (result: unknown) => RpcResolveAu
 export const parseRpcFetchCidResult = (result: unknown) => RpcFetchCidResultSchema.loose().parse(result);
 export const parseRpcSuccessResult = (result: unknown) => RpcSuccessResultSchema.loose().parse(result);
 export const parseRpcSubscriptionIdResult = (result: unknown) => RpcSubscriptionIdResultSchema.loose().parse(result);
+
+// Delegation setup (#234)
+export const parseRpcPublishAnchorRecordParam = (params: unknown) => RpcPublishAnchorRecordParamSchema.loose().parse(params);
+export const parseRpcAnchorPublishPreparationResult = (result: unknown) => RpcAnchorPublishPreparationResultSchema.loose().parse(result);
+export const parseRpcPublishedAnchorRecordResult = (result: unknown) => RpcPublishedAnchorRecordResultSchema.loose().parse(result);
 
 // community.export() — wire param/result parsers
 export const parseRpcExportCommunityParam = (params: unknown) => RpcExportCommunityParamSchema.loose().parse(params);

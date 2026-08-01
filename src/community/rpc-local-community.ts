@@ -1,5 +1,8 @@
 import Logger from "../logger.js";
+import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import type {
+    AnchorPublishPreparation,
+    PublishedAnchorRecord,
     RpcInternalCommunityRecordAfterFirstUpdateType,
     RpcInternalCommunityRecordBeforeFirstUpdateType,
     RpcLocalCommunityLocalProps,
@@ -48,6 +51,14 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
     override started: boolean; // Is the community started and running? This is not specific to this instance, and applies to all instances of community with this address
     override startedState!: CommunityStartedState;
     override signer!: RpcLocalCommunityLocalProps["signer"];
+    // Set only on a delegated community, where signer above is the minter (Mn) and this is the
+    // anchor (An) the community is addressed by. See docs/protocol/delegated-ipns.md.
+    anchor?: RpcLocalCommunityLocalProps["anchor"];
+    // Highest anchor sequence this community's node has accepted. Undefined on a delegated community
+    // means no anchor record has ever been published for it, which is exactly when the owner signs
+    // sequence 0 rather than asking prepareAnchorPublish (which refuses to guess). It also means the
+    // community is not resolvable yet and will refuse to start. See docs/protocol/delegated-ipns.md.
+    anchorRecordSequence?: RpcLocalCommunityLocalProps["anchorRecordSequence"];
     override settings!: RpcLocalCommunityLocalProps["settings"];
     override editable!: Pick<RpcLocalCommunity, keyof CommunityEditOptions>;
 
@@ -95,6 +106,8 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
             community: this.raw.communityIpfs!,
             localCommunity: {
                 signer: this.signer,
+                anchor: this.anchor,
+                anchorRecordSequence: this.anchorRecordSequence,
                 settings: this.settings,
                 _usingDefaultChallenge: this._usingDefaultChallenge,
                 address: this.address,
@@ -116,6 +129,8 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
                 ...this._toJSONIpfsBaseNoPosts(),
                 address: this.address,
                 signer: this.signer,
+                anchor: this.anchor,
+                anchorRecordSequence: this.anchorRecordSequence,
                 settings: this.settings,
                 _usingDefaultChallenge: this._usingDefaultChallenge,
                 started: this.started,
@@ -124,7 +139,18 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         };
     }
 
+    // A delegated community's identity is its anchor, never the minter that signs its records. Both
+    // initRemoteCommunityPropsNoMerge and initCommunityIpfsPropsNoMerge derive publicKey/ipnsName from
+    // signature.publicKey unless ipnsHops[0] is already known, so the chain has to be replayed BEFORE
+    // either of them runs. See docs/protocol/delegated-ipns.md.
+    private _replayAnchorIntoIpnsHops(localProps: RpcLocalCommunityLocalProps) {
+        this.anchor = localProps.anchor;
+        this.anchorRecordSequence = localProps.anchorRecordSequence;
+        if (localProps.anchor) this.ipnsHops = [localProps.anchor.publicKey, localProps.signer.address];
+    }
+
     initRpcInternalCommunityBeforeFirstUpdateNoMerge(newProps: RpcInternalCommunityRecordBeforeFirstUpdateType) {
+        this._replayAnchorIntoIpnsHops(newProps.localCommunity);
         this.initRemoteCommunityPropsNoMerge(newProps.localCommunity);
         // Apply address from localCommunity — may differ after edit (same as afterFirstUpdate variant)
         if (newProps.localCommunity.address) this.setAddress(newProps.localCommunity.address);
@@ -136,6 +162,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
     }
 
     initRpcInternalCommunityAfterFirstUpdateNoMerge(newProps: RpcInternalCommunityRecordAfterFirstUpdateType) {
+        this._replayAnchorIntoIpnsHops(newProps.localCommunity);
         super.initCommunityIpfsPropsNoMerge(newProps.community);
         // Apply address from localCommunity — may differ from community record's name (e.g. .bso/.eth before ENS propagation)
         if (newProps.localCommunity.address) this.setAddress(newProps.localCommunity.address);
@@ -307,6 +334,23 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         this._setRpcClientStateWithEmission("stopped");
         this.started = false;
         untrackStartedCommunity(this._pkc, this);
+    }
+
+    // Delegation setup (#234), forwarded to the node running the community. The anchor's private key
+    // stays here: prepareAnchorPublish sends nothing but this community's identifier, and
+    // publishAnchorRecord sends bytes already signed on this side.
+    async prepareAnchorPublish(): Promise<AnchorPublishPreparation> {
+        return this._pkc._pkcRpcClient!.prepareAnchorPublish({ name: this.name, publicKey: this.publicKey });
+    }
+
+    async publishAnchorRecord(recordBytes: Uint8Array): Promise<PublishedAnchorRecord> {
+        const result = await this._pkc._pkcRpcClient!.publishAnchorRecord({
+            name: this.name,
+            publicKey: this.publicKey,
+            recordBase64: uint8ArrayToString(recordBytes, "base64")
+        });
+        this.anchorRecordSequence = result.sequence;
+        return result;
     }
 
     override async stop() {

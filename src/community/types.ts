@@ -7,6 +7,7 @@ import {
     ChallengeFileSchema,
     ChallengeFromGetChallengeSchema,
     ChallengeResultSchema,
+    CommunityAnchorSchema,
     CreateNewLocalCommunityParsedOptionsSchema,
     CreateNewLocalCommunityUserOptionsSchema,
     CreateRemoteCommunityOptionsSchema,
@@ -86,6 +87,23 @@ export interface CommunitySignature extends JsonSignature {
 }
 
 export type CreateRemoteCommunityOptions = z.infer<typeof CreateRemoteCommunityOptionsSchema>;
+
+// The anchor of a delegated community. See docs/protocol/delegated-ipns.md.
+export type CommunityAnchor = z.infer<typeof CommunityAnchorSchema>;
+
+// Sequences travel as decimal strings, not numbers: they are IPNS uint64s, they cross the RPC as JSON,
+// and a sequence that silently loses precision is a record that can never win.
+export interface AnchorPublishPreparation {
+    nextSequence: string; // sign this one, never a lower or equal one
+    currentAnchorRecordSequence: string; // highest sequence known to this node or the network
+    hasPersistedAnchorRecord: boolean; // whether this node itself has ever accepted an anchor record
+}
+
+export interface PublishedAnchorRecord {
+    sequence: string;
+    value: string; // /ipns/<minter>
+    anchorPublicKey: string;
+}
 
 export type CreateNewLocalCommunityUserOptions = z.infer<typeof CreateNewLocalCommunityUserOptionsSchema>;
 
@@ -193,6 +211,12 @@ export interface InternalCommunityRecordAfterFirstUpdateType extends InternalCom
 // Extra local-community properties not present in CommunityIpfsType
 export interface RpcLocalCommunityLocalProps {
     signer: Omit<InternalCommunityRecordBeforeFirstUpdateType["signer"], "privateKey">;
+    // Present only on a delegated community, where the signer above is the minter and this is the
+    // identity the community is addressed by. See docs/protocol/delegated-ipns.md.
+    anchor?: CommunityAnchor;
+    // Highest anchor sequence the node has accepted for this community, absent when no anchor record
+    // has ever been published for it. A delegated community with no value here is not resolvable yet.
+    anchorRecordSequence?: string;
     settings: CommunitySettings;
     _usingDefaultChallenge: boolean;
     address: string;

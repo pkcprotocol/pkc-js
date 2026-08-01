@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CID } from "multiformats/cid"; // re-sourced from kubo-rpc-client (identical class) to keep kubo off the eager import path
+import { peerIdFromString } from "@libp2p/peer-id";
 import { messages } from "../errors.js";
 import { difference, keys } from "remeda";
 
@@ -41,6 +42,16 @@ const WalletSchema = z.object({
 const isIpfsCid = (value: string) => {
     try {
         return Boolean(CID.parse(value));
+    } catch {
+        return false;
+    }
+};
+
+// An IPNS name is a peer id, in the B58 representation community.publicKey / signer.address use. This
+// is the same check peerIdFromString performs at every consumer of such a name, hoisted to parse time.
+export const isIpnsName = (value: string) => {
+    try {
+        return Boolean(peerIdFromString(value));
     } catch {
         return false;
     }

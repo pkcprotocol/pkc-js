@@ -10,13 +10,27 @@ import type {
     CommunityIpfsType,
     RpcInternalCommunityRecordBeforeFirstUpdateType,
     RpcInternalCommunityRecordAfterFirstUpdateType,
-    CommunityEvents
+    CommunityEvents,
+    AnchorPublishPreparation,
+    PublishedAnchorRecord
 } from "../../../community/types.js";
 import { LRUCache } from "lru-cache";
 import { PageGenerator } from "./page-generator.js";
 import { DbHandler } from "./db-handler.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
-import { calculateStringSizeSameAsIpfsAddCidV0, hideClassPrivateProps, isStringDomain, retryKuboIpfsAddAndProvide } from "../../../util.js";
+import {
+    calculateStringSizeSameAsIpfsAddCidV0,
+    hideClassPrivateProps,
+    ipnsNameToIpnsOverPubsubTopic,
+    isStringDomain,
+    pubsubTopicToDhtKey,
+    retryKuboIpfsAddAndProvide
+} from "../../../util.js";
+import { communityIdentityPublicKey } from "./local-community/identity.js";
+import {
+    prepareAnchorPublish as prepareAnchorPublishFreeFunction,
+    publishAnchorRecord as publishAnchorRecordFreeFunction
+} from "./local-community/anchor-publishing.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { PKCError } from "../../../pkc-error.js";
 import type {
@@ -125,6 +139,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // stop serving stale addresses (see reprovide-on-address-change.ts).
     _lastProvidedBrowserDialableSelfAddrs?: string[] = undefined;
     _lastAddressReprovideCheckAt?: number = undefined;
+    // Last time this node re-put its delegated community's anchor record. Undefined means "never this
+    // process", which is exactly when a re-provide is due: a restarted kubo keeps the record but drops
+    // the pubsub subscription that serves it (see anchor-publishing.ts).
+    _lastAnchorRecordReprovideAt?: number = undefined;
     _mirroredStartedOrUpdatingCommunity?: { community: LocalCommunity } & Pick<
         CommunityEvents,
         | "error"
@@ -184,7 +202,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const rpcJson = this.toJSONInternalRpcAfterFirstUpdate();
         return {
             ...rpcJson.community,
-            ...omit(rpcJson.localCommunity, ["started", "startedState"]),
+            ...omit(rpcJson.localCommunity, ["started", "startedState", "anchorRecordSequence"]),
             updateCid: rpcJson.runtimeFields.updateCid,
             signer: pick(this.signer, ["privateKey", "type", "address", "shortAddress", "publicKey"]),
             _internalStateUpdateId: this._internalStateUpdateId,
@@ -202,7 +220,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     toJSONInternalBeforeFirstUpdate(): InternalCommunityRecordBeforeFirstUpdateType {
         const rpcJson = this.toJSONInternalRpcBeforeFirstUpdate();
         return {
-            ...omit(rpcJson.localCommunity, ["started", "startedState"]),
+            // anchorRecordSequence is derived from its own keyv slot, which publishAnchorRecord owns.
+            // Duplicating it into this record would let a stale copy overwrite the live value on load.
+            ...omit(rpcJson.localCommunity, ["started", "startedState", "anchorRecordSequence"]),
             signer: pick(this.signer, ["privateKey", "type", "address", "shortAddress", "publicKey"]),
             _internalStateUpdateId: this._internalStateUpdateId,
             _pendingEditProps: this._pendingEditProps
@@ -228,6 +248,20 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 signer: pick(this.signer, ["publicKey", "address", "shortAddress", "type"])
             }
         };
+    }
+
+    // A publisher never resolves itself, so unlike a reader it always mints under its own key: the
+    // record it publishes lives at signer.address, and so do its ipns-over-pubsub topic and that
+    // topic's routing CID. The inherited implementation prefers ipnsHops[0], which is correct for a
+    // reader and wrong here — on a delegated community it would move this node's own record topic to
+    // the anchor, whose record is signed by a key this node does not have. Overriding once covers
+    // every init path (see db-state.ts). #234 adds the anchor's topic as a second subscription
+    // instead of moving this one. See docs/protocol/delegated-ipns.md.
+    override _updateIpnsPubsubPropsIfNeeded(_newProps: Parameters<RpcLocalCommunity["_updateIpnsPubsubPropsIfNeeded"]>[0]) {
+        if (!this.signer?.address) return;
+        this.ipnsName = this.signer.address;
+        this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(this.ipnsName);
+        this.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this.ipnsPubsubTopic);
     }
 
     async _updateStartedValue() {
@@ -283,7 +317,12 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         const verificationOpts = {
             community: recordToPublishRaw,
-            communityIpnsName: this.signer.address,
+            // The same chain a reader resolves: the record we are about to publish is signed by our own
+            // key, which on a delegated community is the minter (the last hop), while the content
+            // inside it is labelled with the anchor (the first). Handing the verifier one name would
+            // leave it comparing one of the two against the wrong key.
+            // See docs/protocol/delegated-ipns.md.
+            communityIpnsHops: this.ipnsHops ?? [this.signer.address],
             resolveAuthorNames: false,
             clientsManager: this._clientsManager,
             validatePages: true,
@@ -321,7 +360,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         if (this.shouldResolveDomainForVerification()) {
             try {
-                log(`Resolving domain ${this.address} to make sure it's the same as signer.address ${this.signer.address}`);
+                log(`Resolving domain ${this.address} to make sure it's the same as ${communityIdentityPublicKey(this)}`);
                 await this._assertDomainResolvesCorrectly(this.address);
             } catch (e) {
                 log.error(e);
@@ -371,15 +410,31 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 // Admin domain edits don't need second-fresh data.
                 cache: { maxAge: 600 }
             });
-            if (resolvedIpnsFromNewDomain !== this.signer.address)
+            // A domain's TXT record points at the name readers resolve, which on a delegated community
+            // is the anchor and not the minter we sign with. Comparing against signer.address here
+            // would make a correctly configured delegated community reject its own domain.
+            const identityPublicKey = communityIdentityPublicKey(this);
+            if (resolvedIpnsFromNewDomain !== identityPublicKey)
                 throw new PKCError("ERR_DOMAIN_COMMUNITY_ADDRESS_TXT_RECORD_POINT_TO_DIFFERENT_ADDRESS", {
                     currentCommunityAddress: this.address,
                     newAddressAsDomain,
                     resolvedIpnsFromNewDomain,
+                    identityPublicKey,
                     signerAddress: this.signer.address,
                     started: this.started
                 });
         }
+    }
+
+    // Delegation setup (#234). Both work on a stopped community: the anchor record can only be signed
+    // once the community exists and its minter is known, and the community refuses to start until that
+    // record has been published. See docs/protocol/delegated-ipns.md.
+    override async prepareAnchorPublish(): Promise<AnchorPublishPreparation> {
+        return prepareAnchorPublishFreeFunction(this);
+    }
+
+    override async publishAnchorRecord(recordBytes: Uint8Array): Promise<PublishedAnchorRecord> {
+        return publishAnchorRecordFreeFunction(this, recordBytes);
     }
 
     override async start() {

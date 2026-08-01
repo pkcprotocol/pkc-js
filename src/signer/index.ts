@@ -3,6 +3,7 @@ import { generatePrivateKey, getPublicKeyFromPrivateKey, getPKCAddressFromPrivat
 import { hideClassPrivateProps, shortifyAddress } from "../util.js";
 export { verifyCommentIpfs, verifyCommentPubsubMessage, verifyCommunity, verifyVote } from "./signatures.js";
 export { encryptEd25519AesGcm, decryptEd25519AesGcm, decryptEd25519AesGcmPublicKeyBuffer } from "./encryption.js";
+export { createAnchorIpnsRecord, ANCHOR_IPNS_RECORD_LIFETIME_MS } from "./ipns-record.js";
 import { CreateSignerSchema } from "../schema/schema.js";
 import { CreateSignerOptions } from "./types.js";
 

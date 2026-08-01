@@ -88,10 +88,14 @@ import {
     parseRpcUnsubscribeParam,
     parseRpcExportCommunityParam,
     parseRpcCancelExportParam,
-    parseRpcExportCommunityModLogsParam
+    parseRpcExportCommunityModLogsParam,
+    parseRpcPublishAnchorRecordParam
 } from "../../clients/rpc-client/rpc-schema-util.js";
+import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import type {
     CommunityIdentifierRpcParam,
+    AnchorPublishPreparation,
+    PublishedAnchorRecord,
     RpcSubscriptionIdResult,
     RpcSuccessResult,
     RpcFetchCidResult,
@@ -297,6 +301,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         this.rpcWebsocketsRegister("stopCommunity", this.stopCommunity.bind(this));
         this.rpcWebsocketsRegister("editCommunity", this.editCommunity.bind(this));
         this.rpcWebsocketsRegister("deleteCommunity", this.deleteCommunity.bind(this));
+        this.rpcWebsocketsRegister("prepareAnchorPublish", this.prepareAnchorPublish.bind(this));
+        this.rpcWebsocketsRegister("publishAnchorRecord", this.publishAnchorRecord.bind(this));
         this.rpcWebsocketsRegister("communitiesSubscribe", this.communitiesSubscribe.bind(this));
         this.rpcWebsocketsRegister("settingsSubscribe", this.settingsSubscribe.bind(this));
 
@@ -871,6 +877,33 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         }
         if (typeof community.updatedAt === "number") return community.toJSONInternalRpcAfterFirstUpdate();
         else return community.toJSONInternalRpcBeforeFirstUpdate();
+    }
+
+    // Delegation setup (#234). Both operate on a delegated community whether or not it is started: the
+    // anchor record can only be signed after the community exists, and the community refuses to start
+    // until that record is published. See docs/protocol/delegated-ipns.md.
+    private async _getLocalCommunityForAnchorMethod(identifier: { name?: string; publicKey?: string }): Promise<LocalCommunity> {
+        const address = this._findCommunityAddress(identifier);
+        if (!address)
+            throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_USE_ANCHOR_METHOD_ON_NON_LOCAL_COMMUNITY", {
+                communityAddress: identifier.name || identifier.publicKey
+            });
+        if (this._startedCommunities[address] instanceof LocalCommunity) return <LocalCommunity>this._startedCommunities[address];
+        const pkc = await this._getPKCInstance();
+        return <LocalCommunity>await pkc.createCommunity({ address });
+    }
+
+    async prepareAnchorPublish(params: any): Promise<AnchorPublishPreparation> {
+        const { name, publicKey } = parseRpcCommunityIdentifierParam(params[0]);
+        const community = await this._getLocalCommunityForAnchorMethod({ name, publicKey });
+        return community.prepareAnchorPublish();
+    }
+
+    async publishAnchorRecord(params: any): Promise<PublishedAnchorRecord> {
+        const { name, publicKey, recordBase64 } = parseRpcPublishAnchorRecordParam(params[0]);
+        const community = await this._getLocalCommunityForAnchorMethod({ name, publicKey });
+        // base64 in, bytes out: the record is signed, so it must reach routing.put byte-identical.
+        return community.publishAnchorRecord(uint8ArrayFromString(recordBase64, "base64"));
     }
 
     async deleteCommunity(params: any): Promise<RpcSuccessResult> {
