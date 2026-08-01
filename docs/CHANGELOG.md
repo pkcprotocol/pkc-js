@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.76](https://github.com/pkcprotocol/pkc-js/compare/v0.0.75...v0.0.76) (2026-08-01)
+
+### Features
+
+* **community:** delegated community identity and delegation setup ([#237](https://github.com/pkcprotocol/pkc-js/issues/237)) ([d2fe541](https://github.com/pkcprotocol/pkc-js/commit/d2fe541538afb8ef63c178a37249de6a9fe27ddf)), closes [#233](https://github.com/pkcprotocol/pkc-js/issues/233) [#234](https://github.com/pkcprotocol/pkc-js/issues/234) [#233](https://github.com/pkcprotocol/pkc-js/issues/233) [#234](https://github.com/pkcprotocol/pkc-js/issues/234) [#233](https://github.com/pkcprotocol/pkc-js/issues/233) [#233](https://github.com/pkcprotocol/pkc-js/issues/233) [#234](https://github.com/pkcprotocol/pkc-js/issues/234) [#234](https://github.com/pkcprotocol/pkc-js/issues/234) [#233](https://github.com/pkcprotocol/pkc-js/issues/233) [#234](https://github.com/pkcprotocol/pkc-js/issues/234) [#233](https://github.com/pkcprotocol/pkc-js/issues/233) [#233](https://github.com/pkcprotocol/pkc-js/issues/233) [#233](https://github.com/pkcprotocol/pkc-js/issues/233)
+
 ## [0.0.75](https://github.com/pkcprotocol/pkc-js/compare/v0.0.74...v0.0.75) (2026-08-01)
 
 ### Performance
