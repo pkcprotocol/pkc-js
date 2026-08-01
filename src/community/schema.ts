@@ -10,6 +10,7 @@ import {
     ProtocolVersionSchema,
     SignerWithAddressPublicKeySchema,
     CommunityAddressSchema,
+    isIpnsName,
     nonNegativeIntStringSchema
 } from "../schema/schema.js";
 import { ModQueuePagesIpfsSchema, PostsPagesIpfsSchema } from "../pages/schema.js";
@@ -303,11 +304,26 @@ export const CommunityEditOptionsSchema = CommunityIpfsSchema.pick({
     .partial()
     .strict();
 
+// The anchor (An) of a delegated community: the identity keypair whose private half (As) never
+// reaches the node running the community. publicKey here is the B58 IPNS name, the same
+// representation community.publicKey uses, NOT the base64 raw key that signer.publicKey and
+// encryption.publicKey carry. See docs/protocol/delegated-ipns.md.
+// anchor.publicKey becomes the delegated community's address, so an invalid value here would otherwise
+// only surface much later, inside peerIdFromString during publishAnchorRecord, long after the community
+// was created and keyed by it. Validate it as the IPNS name it has to be, at creation.
+export const CommunityAnchorSchema = z
+    .object({ publicKey: z.string().refine((arg) => isIpnsName(arg), messages.ERR_ANCHOR_PUBLIC_KEY_IS_INVALID) })
+    .strict();
+
 // These are the options to create a new local community, provided by user
 
 export const CreateNewLocalCommunityUserOptionsSchema = CommunityEditOptionsSchema.omit({ address: true })
     .extend({
         signer: CreateSignerSchema.optional(),
+        // Delegated community: the node generates its own minter signer (Mn/Ms) and this anchor is
+        // the community's identity. Mutually exclusive with signer, enforced in pkc.createCommunity
+        // rather than here so this schema stays a plain object the parsed-options schema can extend.
+        anchor: CommunityAnchorSchema.optional(),
         roles: CommunityIpfsSchema.shape.roles
     })
     .strict();
@@ -413,6 +429,7 @@ export const CommunityIpfsReservedFields = difference(
         "shortAddress",
         "nameResolved",
         "ipnsHops",
+        "anchor",
         "raw",
         "shortCommunityAddress",
         "deleted",

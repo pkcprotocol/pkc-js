@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.0.76](https://github.com/pkcprotocol/pkc-js/compare/v0.0.75...v0.0.76) (2026-08-01)
+
+### Features
+
+* **community:** delegated community identity and delegation setup ([#237](https://github.com/pkcprotocol/pkc-js/issues/237)) ([d2fe541](https://github.com/pkcprotocol/pkc-js/commit/d2fe541538afb8ef63c178a37249de6a9fe27ddf)), closes [#233](https://github.com/pkcprotocol/pkc-js/issues/233) [#234](https://github.com/pkcprotocol/pkc-js/issues/234) [#233](https://github.com/pkcprotocol/pkc-js/issues/233) [#234](https://github.com/pkcprotocol/pkc-js/issues/234) [#233](https://github.com/pkcprotocol/pkc-js/issues/233) [#233](https://github.com/pkcprotocol/pkc-js/issues/233) [#234](https://github.com/pkcprotocol/pkc-js/issues/234) [#234](https://github.com/pkcprotocol/pkc-js/issues/234) [#233](https://github.com/pkcprotocol/pkc-js/issues/233) [#234](https://github.com/pkcprotocol/pkc-js/issues/234) [#233](https://github.com/pkcprotocol/pkc-js/issues/233) [#233](https://github.com/pkcprotocol/pkc-js/issues/233) [#233](https://github.com/pkcprotocol/pkc-js/issues/233)
+
+## [0.0.75](https://github.com/pkcprotocol/pkc-js/compare/v0.0.74...v0.0.75) (2026-08-01)
+
+### Performance
+
+* **helia:** persist blocks per runtime behind a size-capped LRU blockstore ([#241](https://github.com/pkcprotocol/pkc-js/issues/241)) ([5c12ac8](https://github.com/pkcprotocol/pkc-js/commit/5c12ac80645e6117695a28075b6918ea74cf4fde)), closes [#240](https://github.com/pkcprotocol/pkc-js/issues/240) [#240](https://github.com/pkcprotocol/pkc-js/issues/240)
+
+## [0.0.74](https://github.com/pkcprotocol/pkc-js/compare/v0.0.73...v0.0.74) (2026-07-30)
+
+### Features
+
+* **community:** settings.disablePubsubChallengeExchange, no pubsubTopic fallback ([#236](https://github.com/pkcprotocol/pkc-js/issues/236)) ([ce8dc11](https://github.com/pkcprotocol/pkc-js/commit/ce8dc11f1f1103d54f1a9920bf966f39bf9edf3e)), closes [#229](https://github.com/pkcprotocol/pkc-js/issues/229) [#229](https://github.com/pkcprotocol/pkc-js/issues/229) [#233](https://github.com/pkcprotocol/pkc-js/issues/233) [#233](https://github.com/pkcprotocol/pkc-js/issues/233) [#229](https://github.com/pkcprotocol/pkc-js/issues/229) [#129](https://github.com/pkcprotocol/pkc-js/issues/129)
+
 ## [0.0.73](https://github.com/pkcprotocol/pkc-js/compare/v0.0.72...v0.0.73) (2026-07-27)
 
 ### Bug Fixes

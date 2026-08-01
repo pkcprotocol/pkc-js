@@ -55,12 +55,20 @@ const defaultBrowserInclude = ["test/*browser/**/*.test.{js,ts}"];
 const nodeTestInclude = includeOverride ?? defaultNodeInclude;
 const browserTestInclude = includeOverride ?? defaultBrowserInclude;
 
+// Playwright ships no prebuilt browser for some newer distros (`npx playwright install chromium`
+// fails with "does not support chromium on ubuntu26.04-x64"), so allow pointing it at a browser that
+// is already on the machine. Unset everywhere else, which keeps CI on playwright's own download.
+const browserExecutablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH;
+
 const playwrightProvider = playwright(
     isFirefox
-        ? {}
+        ? browserExecutablePath
+            ? { launchOptions: { executablePath: browserExecutablePath } }
+            : {}
         : {
               launchOptions: {
-                  args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-web-security"]
+                  args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-web-security"],
+                  ...(browserExecutablePath ? { executablePath: browserExecutablePath } : {})
               }
           }
 );

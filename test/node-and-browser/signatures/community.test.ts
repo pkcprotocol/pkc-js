@@ -58,7 +58,7 @@ describeSkipIfRpc.concurrent("Sign community", async () => {
 
         const verification = await verifyCommunity({
             community: communityToSign as CommunityIpfsType,
-            communityIpnsName: signers[0].address,
+            communityIpnsHops: [signers[0].address],
             resolveAuthorNames: pkc.resolveAuthorNames,
             clientsManager: pkc._clientsManager,
             validatePages: true,
@@ -116,7 +116,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         expect(
             await verifyCommunity({
                 community: loadedCommunity.raw.communityIpfs!,
-                communityIpnsName: signers[0].address,
+                communityIpnsHops: [signers[0].address],
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
                 validatePages: true,
@@ -129,7 +129,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         expect(
             await verifyCommunity({
                 community: community,
-                communityIpnsName: signers[0].address,
+                communityIpnsHops: [signers[0].address],
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
                 validatePages: true,
@@ -157,7 +157,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         expect(
             await verifyCommunity({
                 community: community,
-                communityIpnsName: signers[0].address,
+                communityIpnsHops: [signers[0].address],
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
                 validatePages: false,
@@ -182,7 +182,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         expect(
             await verifyCommunity({
                 community: community,
-                communityIpnsName: signers[0].address,
+                communityIpnsHops: [signers[0].address],
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
                 validatePages: true,
@@ -198,7 +198,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         expect(
             await verifyCommunity({
                 community: community,
-                communityIpnsName: signers[0].address,
+                communityIpnsHops: [signers[0].address],
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
                 validatePages: false,
@@ -215,7 +215,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         expect(
             await verifyCommunity({
                 community: community,
-                communityIpnsName: signers[0].address,
+                communityIpnsHops: [signers[0].address],
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
                 validatePages: false,
@@ -238,7 +238,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         const verification = await verifyCommunity({
             community: community.raw.communityIpfs!,
-            communityIpnsName: signers[4].address,
+            communityIpnsHops: [signers[4].address],
             resolveAuthorNames: tempPKC.resolveAuthorNames,
             clientsManager: tempPKC._clientsManager,
             validatePages: true,
@@ -262,7 +262,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         expect(
             await verifyCommunity({
                 community: communityJson,
-                communityIpnsName: signers[0].address,
+                communityIpnsHops: [signers[0].address],
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
                 validatePages: false
@@ -275,7 +275,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         expect(
             await verifyCommunity({
                 community: communityJson,
-                communityIpnsName: signers[0].address,
+                communityIpnsHops: [signers[0].address],
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
                 validatePages: false
@@ -313,7 +313,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         expect(
             await verifyCommunity({
                 community: subIpfs,
-                communityIpnsName: signers[0].address,
+                communityIpnsHops: [signers[0].address],
                 resolveAuthorNames: tempPKC.resolveAuthorNames,
                 clientsManager: tempPKC._clientsManager,
                 validatePages: true
@@ -346,7 +346,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
 
         const validation = await verifyCommunity({
             community: subFixtureClone as CommunityIpfsType,
-            communityIpnsName: signers[0].address,
+            communityIpnsHops: [signers[0].address],
             resolveAuthorNames: tempPKC.resolveAuthorNames,
             clientsManager: tempPKC._clientsManager,
             validatePages: false
@@ -371,7 +371,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
 
         const validation = await verifyCommunity({
             community: subFixtureClone as CommunityIpfsType,
-            communityIpnsName: signers[0].address,
+            communityIpnsHops: [signers[0].address],
             resolveAuthorNames: tempPKC.resolveAuthorNames,
             clientsManager: tempPKC._clientsManager,
             validatePages: true
@@ -394,7 +394,7 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
 
         const validation = await verifyCommunity({
             community: subFixtureClone as CommunityIpfsType,
-            communityIpnsName: signers[0].address,
+            communityIpnsHops: [signers[0].address],
             resolveAuthorNames: tempPKC.resolveAuthorNames,
             clientsManager: tempPKC._clientsManager,
             validatePages: false

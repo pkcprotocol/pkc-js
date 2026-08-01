@@ -1,14 +1,8 @@
 # Delegated IPNS (anchor → minter chains)
 
 This documents pkc-js's **client-side loading** of communities published via a delegated
-IPNS chain (see issue #93): resolution and verification.
-
-> **Scope update.** The delegate *side* is no longer out of scope: a pkc-js node can be the
-> delegate ([#233](https://github.com/pkcprotocol/pkc-js/issues/233)), and the setup handshake
-> ("run this community for me, I keep the anchor key") belongs in the pkc-js RPC rather than in a
-> hosting service ([#234](https://github.com/pkcprotocol/pkc-js/issues/234)). Only the service layer
-> around it (multi-tenant auth, quotas, `Ms` custody policy) stays out of this repo. This document
-> still covers the loading side only.
+IPNS chain (see issue #93), and the **minter-side identity split** that lets pkc-js run a delegated
+community itself (issue #233, "Publishing a delegated community" below).
 
 > **For now, only a single `anchor → minter` hop is allowed** (`MAX_IPNS_HOPS = 1`). Chains
 > longer than one hop are rejected with `ERR_IPNS_MAX_HOPS_EXCEEDED` on every resolution path
@@ -36,31 +30,21 @@ The records form a chain:
 
 The owner revokes by coming online and re-pointing `An` to a new `Mn'`.
 
-### Anchor record EOL
-
-Every IPNS record carries a validity (EOL), and the `ipns` validator **rejects expired records**
-(`RecordExpiredError`) on every path. An expired anchor makes the community unloadable everywhere
-until the owner returns; over a gateway it surfaces as the non-retriable
-`ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID` with `reason: "IPNS record has expired …"` (distinct from the
-forged/tampered reason).
-
-**Decision: the anchor record is published with an effectively infinite EOL** (the maximum validity
-the record format can represent, a far-future date). The anchor binds a long-lived identity to a
-delegate, and its holder is by definition offline; making liveness depend on that party returning on a
-schedule is the one failure mode with no recovery path. The owner should have to come back to
-**change** the binding, never merely to preserve it. Publishers must use a single shared constant for
-this value rather than picking one per call site.
-
-The trade-offs this accepts:
-
-- **The binding is permanent until rotated.** There is no automatic expiry to fall back on if `As` is
-  lost, so losing the anchor key means losing the ability to ever move off the current minter. The
-  recovery story is key custody, not EOL.
-- **Anti-rollback matters more, not less.** A never-expiring old binding is exactly what a malicious
-  gateway would keep serving after a rotation. Sequence anti-rollback (see
-  [Trust model](#trust-model-summary)) is the mitigation; EOL was never one.
-- **Reachability is still required.** An infinite EOL keeps a record *valid*, not *retrievable*. It
-  must still be re-provided to routers like any other record.
+> **Anchor EOL is a liveness cliff, not "infinite".** Every IPNS record carries a validity (EOL),
+> and the `ipns` validator **rejects expired records** (`RecordExpiredError`) on every path. The
+> anchor record is therefore not infinitely valid: it must be published with a long EOL and
+> **re-published by the offline owner before that EOL lapses**. If the anchor record expires while
+> `As` is offline, loading fails everywhere — over a gateway it surfaces as the non-retriable
+> `ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID` with `reason: "IPNS record has expired …"` (distinct from
+> the forged/tampered reason). Choose the anchor EOL with this re-publish obligation in mind.
+>
+> pkc-js signs anchor records with one shared constant, `ANCHOR_IPNS_RECORD_LIFETIME_MS` (~100 years),
+> so an anchor's liveness never depends on which call site signed it. The owner is offline by design,
+> so the horizon is long enough that in practice only a rotation brings them back.
+>
+> The trade-off that horizon accepts: **the binding is effectively permanent until rotated**, so there
+> is no automatic expiry to fall back on if `As` is lost. Losing the anchor key means losing the
+> ability to ever move off the current minter, and the recovery story is key custody, not EOL.
 
 ## What this means for identity & verification
 
@@ -93,8 +77,23 @@ below), so the cap is enforced there too.
 The resolved chain is stored on the instance as `RemoteCommunity.ipnsHops` (a runtime-only
 field; it is never part of the signed wire record). `community.publicKey`/`ipnsName` are
 derived from `ipnsHops[0]` (the anchor), and the content signature is verified against
-`ipnsHops.at(-1)` (the terminal) — `verifyCommunity` receives the terminal name so its
-`signature.publicKey` check passes.
+`ipnsHops.at(-1)` (the terminal).
+
+`verifyCommunity` receives the whole chain as `communityIpnsHops`, the same shape and the same
+value, because the two ends verify different things and a record cannot tell them apart on its
+own:
+
+- **`ipnsHops.at(-1)` (terminal/minter)** must equal `signature.publicKey`. This is the key that
+  signed the record.
+- **`ipnsHops[0]` (anchor)** is what the comments inside `posts.pages` are checked against, since
+  a community labels its content with the key readers address it by, not with the key that
+  happens to sign the current record (see `communityPublicKey` in
+  [comment-lifecycle.md](comment-lifecycle.md)). Checking pages against the terminal instead
+  would reject every comment in a delegated community's own record, including on the publisher's
+  pre-publish self-check.
+
+A non-delegated community passes a single-element chain, where anchor and terminal are the same
+key, and both checks collapse to the pre-delegation behaviour.
 
 ### Per resolution path
 
@@ -128,6 +127,132 @@ derived from `ipnsHops[0]` (the anchor), and the content signature is verified a
   communities are a single plain GET, untouched. (Per-request, only the requested name's own record
   is returned — no response header carries the traversed chain, so the walk fetches each hop's
   record individually; see [ipfs/kubo#11351](https://github.com/ipfs/kubo/issues/11351).)
+
+## Publishing a delegated community
+
+A `LocalCommunity` can be the minter of a delegated community: it signs with `Ms` while its identity
+is `An`. Because a node never resolves itself, it cannot derive that identity — the anchor is supplied
+at creation and kept as local state.
+
+```js
+// The node generates Mn/Ms itself; As never leaves the owner.
+const community = await pkc.createCommunity({ anchor: { publicKey: An } })
+community.publicKey // An, what every reader resolves
+community.signer.address // Mn, what this node signs and publishes with
+```
+
+`anchor.publicKey` is the B58 IPNS name, the same representation `community.publicKey` uses, not the
+base64 raw key that `signer.publicKey` and `encryption.publicKey` carry. Passing both `signer` and
+`anchor` is an error (`ERR_CAN_NOT_CREATE_A_COMMUNITY_WITH_BOTH_SIGNER_AND_ANCHOR`): which key the
+caller supplies is the discriminator between the two regimes.
+
+The anchor is persisted in the community's internal record and replayed into `ipnsHops` as
+`[An, Mn]` on every load, so the identity code above (`publicKey` from `ipnsHops[0]`) applies to a
+publisher exactly as it does to a reader.
+
+**What moves to the anchor:** `community.publicKey` and `community.address`, the community's data
+directory and MFS namespace, publication acceptance (a publisher addresses the community by the
+name it resolved, which is `An`), and the `communityPublicKey` stored on content. Content labelling
+in particular must be anchor-based, or a minter rotation would leave stored publications naming a key
+that no longer publishes the community.
+
+**What stays with the minter:** the record signature, `encryption`, `signer.ipnsKeyName`, the
+`pubsubTopic` backfill, and this node's own `ipnsName` / `ipnsPubsubTopic` / routing CID. A publisher
+mints under its own key, so unlike a reader it never derives those from `ipnsHops[0]`
+(`LocalCommunity` overrides `_updateIpnsPubsubPropsIfNeeded` to enforce this).
+
+A non-delegated community is the degenerate case: no anchor, no `ipnsHops`, and every rule above
+collapses to `signer.address`.
+
+> **Rotation changes the pubsub topic.** The challenge-exchange `pubsubTopic` is backfilled from the
+> minter address, so it moves when the owner re-points `An` at a new `Mn'`. The address does not.
+> Client authors must re-resolve the community before publishing rather than trusting a cached topic.
+
+### Setting delegation up
+
+The `An → Mn` record can only be signed by the owner and can only be kept alive by the node, so the one
+logical operation is split across the trust boundary into three calls plus a local signing step. The
+three calls exist on `LocalCommunity` and are mirrored as RPC methods, so a self-hosted owner talking to
+their own daemon needs no service layer. The signing step deliberately is not one of them:
+`createAnchorIpnsRecord` is a standalone export on the package entry, because it is the only part of the
+flow that runs where `As` is, which is never the node.
+
+**First publish** — the anchor has never been published, so there is no sequence to discover and
+`prepareAnchorPublish()` is not called at all. Calling it here would throw
+`ERR_UNABLE_TO_DETERMINE_ANCHOR_SEQUENCE`, which is deliberate: see below.
+
+```js
+// createAnchorIpnsRecord is on the package entry beside PKC itself, since the signing step runs
+// wherever As lives rather than inside pkc-js. CJS: PKC.createAnchorIpnsRecord.
+import PKC, { createAnchorIpnsRecord } from "@pkcprotocol/pkc-js"
+
+// 1. the node generates Mn/Ms and keys the community by An. Not resolvable yet: nothing points An anywhere.
+const community = await pkc.createCommunity({ anchor: { publicKey: An } })
+
+// 2. signed locally with As, which never leaves the client. Browser-safe. A community's first record
+//    signs sequence 0, which is what community.anchorRecordSequence being undefined tells you.
+const record = await createAnchorIpnsRecord({ anchorSigner: As, minterIpnsName: community.signer.address, sequence: 0 })
+
+// 3. the node verifies and publishes it, then keeps re-providing it.
+await community.publishAnchorRecord(record)
+```
+
+**Rotation or re-publish** — an anchor record already exists somewhere, so the owner cannot know which
+sequence beats it and asks the node, which is the online party.
+
+```js
+// 1. the new host generates its own Mn'/Ms' and keys the community by the SAME An.
+const community = await pkc.createCommunity({ anchor: { publicKey: An } })
+
+// 2. ask the node what sequence to sign. Returns a decimal string, so pass it through as-is.
+const { nextSequence } = await community.prepareAnchorPublish()
+
+// 3. same signing step, at the sequence the node answered.
+const record = await createAnchorIpnsRecord({
+    anchorSigner: As,
+    minterIpnsName: community.signer.address,
+    sequence: nextSequence
+})
+
+// 4. the node verifies and publishes it, then keeps re-providing it.
+await community.publishAnchorRecord(record)
+```
+
+**Sequence discovery is node-side** because the node is the online party. `prepareAnchorPublish` answers
+`max(highest sequence this node has accepted, live lookup of /ipns/An) + margin`. No source can lie
+upward, since every anchor record that ever existed was signed by `As` and skipped sequences cost
+nothing; the only real failure is lying downward, which makes the owner sign a record that loses to its
+own predecessor forever. Hence a margin rather than `+1`, and hence it **errors rather than answering 0**
+when neither the node nor the network knows a sequence: kubo reports "never existed" and "the routers
+failed us" identically, and only the client knows whether its anchor is brand new. An equal sequence is
+never emitted either, since with the anchor lifetime the validity tiebreak is also a tie.
+
+**`publishAnchorRecord` verifies three things** before it publishes: the record is signed by this
+community's anchor, it points at this node's own minter, and its sequence is strictly greater than the
+highest already accepted. The high-water mark lives in its own storage slot, separate from
+`LAST_IPNS_RECORD`, which holds the node's own minter record on an independent sequence space.
+**Anti-rollback cannot be delegated to kubo**: a `routing.put` of an older record returns success while
+kubo silently keeps the newer one, so a node that trusted it would report a publish that never happened.
+Because that check is ours, so is its atomicity: publishes are serialized per community address, since
+the check reads the high-water mark and the put and its persistence happen several awaits later. Two
+concurrent publishes would otherwise both clear the check and the loser's mark could be the one that
+lands, re-opening the very rollback the check exists to catch. The lock is in-process only.
+
+**Publishing goes through `routing.put`, never `name.publish`**, which structurally cannot publish bytes
+signed by a key the node lacks. The put also subscribes the node to the anchor's ipns-over-pubsub topic,
+which is what lets it serve the binding to peers, **and that subscription does not survive a kubo
+restart** while the record itself does. A restarted node would therefore hold the record and quietly stop
+answering for it, so the re-provide runs at `start()` as well as on the publish loop.
+
+**A delegated community refuses to start until its anchor record is published.** Until then nothing
+points the anchor at this minter: readers cannot resolve it and publishers cannot reach it, so starting
+would only mint records nobody can find. It is half-created rather than broken, and publishing the record
+later completes it with no re-create.
+
+**Rotation and revocation are the same act against a different node**: create on the new daemon, sign
+`An → Mn'`, publish. The old minter keeps `Ms` but nothing points at it. Combined with
+`exportCommunity` this makes hosting portable, since the address is the anchor and does not change when
+the host does.
 
 ## Performance
 

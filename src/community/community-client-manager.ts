@@ -597,8 +597,7 @@ export class CommunityClientsManager extends PKCClientsManager {
 
             const errInRecord = await this._findErrorInCommunityRecord({
                 communityJson: communityIpfs,
-                anchorIpnsName: ipnsName,
-                terminalIpnsName,
+                communityIpnsHops: ipnsHops,
                 cidOfCommunityIpns: latestCommunityCid
             });
 
@@ -710,8 +709,7 @@ export class CommunityClientsManager extends PKCClientsManager {
 
                 const errorWithinRecord = await this._findErrorInCommunityRecord({
                     communityJson: communityIpfs,
-                    anchorIpnsName: ipnsName,
-                    terminalIpnsName,
+                    communityIpnsHops: ipnsHops,
                     cidOfCommunityIpns: calculatedCommunityCidFromBody
                 });
                 if (errorWithinRecord) {
@@ -951,15 +949,18 @@ export class CommunityClientsManager extends PKCClientsManager {
 
     private async _findErrorInCommunityRecord({
         communityJson,
-        anchorIpnsName,
-        terminalIpnsName,
+        communityIpnsHops,
         cidOfCommunityIpns
     }: {
         communityJson: CommunityIpfsType;
-        anchorIpnsName: string;
-        terminalIpnsName: string;
+        // The resolved chain [anchor, ..., terminal], single element when not delegated. Both ends are
+        // used below and verifyCommunity needs both, so the chain travels whole rather than as two
+        // names picked apart by every caller. See docs/protocol/delegated-ipns.md.
+        communityIpnsHops: string[];
         cidOfCommunityIpns: string;
     }): Promise<PKCError | undefined> {
+        const anchorIpnsName = communityIpnsHops[0];
+        const terminalIpnsName = communityIpnsHops[communityIpnsHops.length - 1];
         const communityInstanceAddress = this._getCommunityAddressFromInstance();
         const recordAddress = this._deriveAddressFromWireRecord(communityJson);
         const addressMatchesInstance = this._areEquivalentCommunityAddresses(recordAddress, communityInstanceAddress);
@@ -1008,12 +1009,12 @@ export class CommunityClientsManager extends PKCClientsManager {
             });
             return error;
         }
-        // Verify the content signature against the TERMINAL name (the minter key in a delegated
-        // chain, or the anchor itself when not delegated). verifyCommunity hard-checks that
-        // communityIpnsName matches signature.publicKey, so it must receive the terminal name.
+        // The whole chain: verifyCommunity checks the record signature against the terminal name (the
+        // minter in a delegated chain, the anchor itself when not delegated) and the content inside the
+        // record against the anchor, which is what that content is labelled with.
         const verificationOpts = {
             community: communityJson,
-            communityIpnsName: terminalIpnsName,
+            communityIpnsHops,
             resolveAuthorNames: this._pkc.resolveAuthorNames,
             clientsManager: this,
             validatePages: this._pkc.validatePages,

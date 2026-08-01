@@ -3,8 +3,7 @@ import {
     getPeerIdFromPublicKeyBuffer,
     getPKCAddressFromPrivateKey,
     getPKCAddressFromPublicKey,
-    getPKCAddressFromPublicKeyBuffer,
-    getPKCAddressFromPublicKeySync
+    getPKCAddressFromPublicKeyBuffer
 } from "./util.js";
 import * as cborg from "cborg";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
@@ -603,7 +602,7 @@ function _allFieldsOfRecordInSignedPropertyNames(
 }
 export async function verifyCommunity({
     community,
-    communityIpnsName,
+    communityIpnsHops,
     resolveAuthorNames,
     clientsManager,
     validatePages,
@@ -611,7 +610,13 @@ export async function verifyCommunity({
     abortSignal
 }: {
     community: CommunityIpfsType;
-    communityIpnsName: string;
+    // The resolved IPNS delegation chain [anchor, ..., terminal], the same shape as
+    // RemoteCommunity.ipnsHops, with a single element for a non-delegated community. The two ends play
+    // different roles and a record cannot tell them apart on its own: the LAST hop is the key that
+    // signs this record, while the FIRST is the identity readers address the community by and that its
+    // content is labelled with. Passing only one name would make one of the two checks below compare
+    // against the wrong key on a delegated community. See docs/protocol/delegated-ipns.md.
+    communityIpnsHops: string[];
     resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
     validatePages: boolean;
@@ -619,6 +624,11 @@ export async function verifyCommunity({
     abortSignal?: AbortSignal;
 }): Promise<ValidationResult> {
     const log = Logger("pkc-js:signatures:verifyCommunity");
+    // A caller bug rather than an invalid record, same as the unusable-page throw below.
+    if (!Array.isArray(communityIpnsHops) || communityIpnsHops.length === 0)
+        throw Error("verifyCommunity needs a non-empty communityIpnsHops to verify a community record against");
+    const communityIdentityIpnsName = communityIpnsHops[0];
+    const terminalIpnsName = communityIpnsHops[communityIpnsHops.length - 1];
     if (!_allFieldsOfRecordInSignedPropertyNames(community))
         return { valid: false, reason: messages.ERR_COMMUNITY_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
     if (_isThereReservedFieldInRecord(community, CommunityIpfsReservedFields))
@@ -626,12 +636,17 @@ export async function verifyCommunity({
     const signatureValidity = await _verifyJsonSignature(community);
     if (!signatureValidity) return { valid: false, reason: messages.ERR_COMMUNITY_SIGNATURE_IS_INVALID };
     const cacheIfValidWithDefault = typeof cacheIfValid === "boolean" ? cacheIfValid : true;
-    const cacheKey = sha256(community.signature.signature + validatePages + communityIpnsName);
+    // Keyed by the whole chain: the same record verified under a different chain is a different claim.
+    const cacheKey = sha256(community.signature.signature + validatePages + communityIpnsHops.join(","));
     if (cacheIfValidWithDefault && clientsManager._pkc._memCaches.communityVerificationCache.get(cacheKey)) return { valid: true };
 
-    const communityAddress = community.name || getPKCAddressFromPublicKeySync(community.signature.publicKey);
+    const communityAddress = community.name || communityIdentityIpnsName;
     const communityForPages: CommunityForVerifyingPages = {
-        publicKey: getPKCAddressFromPublicKeySync(community.signature.publicKey),
+        // The identity, not the record signer. A community labels its content with the key readers
+        // address it by, which on a delegated community is the anchor and never the minter that signs
+        // this record, so comparing page comments against the signer would reject every one of them.
+        // The two are the same key on a non-delegated community.
+        publicKey: communityIdentityIpnsName,
         name: community.name,
         signature: community.signature
     };
@@ -662,7 +677,9 @@ export async function verifyCommunity({
             }
         }
 
-    const communityPeerId = peerIdFromString(communityIpnsName);
+    // The LAST hop, which is the key the chain ends at and therefore the only one allowed to sign this
+    // record. On a non-delegated community it is also the identity above.
+    const communityPeerId = peerIdFromString(terminalIpnsName);
     const signaturePeerId = getPeerIdFromPublicKey(community.signature.publicKey);
     if (!communityPeerId.equals(signaturePeerId))
         return { valid: false, reason: messages.ERR_COMMUNITY_IPNS_NAME_DOES_NOT_MATCH_SIGNATURE_PUBLIC_KEY };

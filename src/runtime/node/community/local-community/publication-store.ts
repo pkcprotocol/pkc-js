@@ -36,6 +36,7 @@ import type { PseudonymityAliasRow } from "../db-handler-types.js";
 import type { ChallengeRequestMessageType, DecryptedChallengeRequestMessageType } from "../../../../pubsub-messages/types.js";
 import type { LocalCommunity } from "../local-community.js";
 import type { ChallengeResultAggregate } from "../challenges/index.js";
+import { communityIdentityPublicKey } from "./identity.js";
 
 export function isPublicationReply(publication: CommentPubsubMessagePublication): publication is ReplyPubsubMessageWithCommunityAuthor {
     return Boolean(publication.parentCid);
@@ -187,7 +188,8 @@ export async function storeCommentEdit(
     strippedOutEditPublication.author = cleanWireAuthor(strippedOutEditPublication.author); // strip runtime-only author fields (address, publicKey, etc.)
 
     // Normalize to new wire format: ensure communityPublicKey/communityName for DB columns
-    if (!strippedOutEditPublication.communityPublicKey) strippedOutEditPublication.communityPublicKey = community.signer.address;
+    if (!strippedOutEditPublication.communityPublicKey)
+        strippedOutEditPublication.communityPublicKey = communityIdentityPublicKey(community);
     if (!strippedOutEditPublication.communityName && isStringDomain(community.address))
         strippedOutEditPublication.communityName = community.address;
     const commentToBeEdited = community._dbHandler.queryComment(commentEditRaw.commentCid); // We assume commentToBeEdited to be defined because we already tested for its existence above
@@ -243,7 +245,7 @@ export async function storeCommentModeration(
     strippedOutModPublication.author = cleanWireAuthor(strippedOutModPublication.author); // strip runtime-only author fields (address, publicKey, etc.)
 
     // Normalize to new wire format: ensure communityPublicKey/communityName for DB columns
-    if (!strippedOutModPublication.communityPublicKey) strippedOutModPublication.communityPublicKey = community.signer.address;
+    if (!strippedOutModPublication.communityPublicKey) strippedOutModPublication.communityPublicKey = communityIdentityPublicKey(community);
     if (!strippedOutModPublication.communityName && isStringDomain(community.address))
         strippedOutModPublication.communityName = community.address;
     const commentToBeEdited = community._dbHandler.queryComment(commentModRaw.commentCid); // We assume commentToBeEdited to be defined because we already tested for its existence above
@@ -416,7 +418,10 @@ export async function storeComment(
     };
 
     // Normalize to new wire format: ensure communityPublicKey/communityName, remove old communityAddress
-    commentIpfs.communityPublicKey = community.signer.address;
+    // The anchor on a delegated community, so stored content survives a minter rotation: labelling it
+    // with signer.address would name a key that no longer publishes the community. See
+    // docs/protocol/delegated-ipns.md.
+    commentIpfs.communityPublicKey = communityIdentityPublicKey(community);
     if (isStringDomain(community.address)) commentIpfs.communityName = community.address;
     delete (commentIpfs as Record<string, unknown>).communityAddress;
 

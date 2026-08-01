@@ -100,7 +100,17 @@ export const PKCUserOptionBaseSchema = z.object({
         .object({
             key: z.string().min(1),
             libp2pOptions: z.custom<libp2pOptions>().default({}),
-            heliaOptions: z.custom<Partial<heliaOptions>>().default({})
+            heliaOptions: z.custom<Partial<heliaOptions>>().default({}),
+            // Size cap for the libp2p-js block cache. Defaults per runtime (see
+            // runtime/{node,browser}/blockstore.ts) and is ignored when heliaOptions.blockstore is
+            // supplied, since the caller then owns block storage entirely.
+            blockstoreOptions: z
+                .object({
+                    maxBytes: z.number().positive().optional(),
+                    // evict down to this fraction of maxBytes when the cap is hit
+                    lowWaterRatio: z.number().gt(0).lte(1).optional()
+                })
+                .optional()
         })
         .array()
         .max(1, "Only one libp2pJsClientOptions is allowed at the moment")

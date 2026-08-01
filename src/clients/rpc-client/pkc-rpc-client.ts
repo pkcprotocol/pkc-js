@@ -41,7 +41,10 @@ import type {
     CancelExportRpcParam,
     RpcExportCommunityResult,
     ExportCommunityModLogsRpcParam,
-    RpcExportCommunityModLogsResult
+    RpcExportCommunityModLogsResult,
+    PublishAnchorRecordRpcParam,
+    AnchorPublishPreparation,
+    PublishedAnchorRecord
 } from "./types.js";
 import {
     parseRpcCommunityIdentifierParam,
@@ -59,7 +62,10 @@ import {
     parseRpcCancelExportParam,
     parseRpcExportCommunityResult,
     parseRpcExportCommunityModLogsParam,
-    parseRpcExportCommunityModLogsResult
+    parseRpcExportCommunityModLogsResult,
+    parseRpcPublishAnchorRecordParam,
+    parseRpcAnchorPublishPreparationResult,
+    parseRpcPublishedAnchorRecordResult
 } from "./rpc-schema-util.js";
 
 const log = Logger("pkc-js:PKCRpcClient");
@@ -396,6 +402,19 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     async stopCommunity(communityIdentifier: CommunityIdentifierRpcParam): Promise<RpcSuccessResult> {
         const parsedStopCommunityArgs = parseRpcCommunityIdentifierParam(communityIdentifier);
         return parseRpcSuccessResult(await this._webSocketClient.call("stopCommunity", [parsedStopCommunityArgs]));
+    }
+
+    // Delegation setup (#234). Neither call carries the anchor's private key: prepareAnchorPublish asks
+    // the node (the only online party) which sequence to sign, and publishAnchorRecord hands back bytes
+    // the client signed locally. See docs/protocol/delegated-ipns.md.
+    async prepareAnchorPublish(communityIdentifier: CommunityIdentifierRpcParam): Promise<AnchorPublishPreparation> {
+        const parsedArgs = parseRpcCommunityIdentifierParam(communityIdentifier);
+        return parseRpcAnchorPublishPreparationResult(await this._webSocketClient.call("prepareAnchorPublish", [parsedArgs]));
+    }
+
+    async publishAnchorRecord(args: PublishAnchorRecordRpcParam): Promise<PublishedAnchorRecord> {
+        const parsedArgs = parseRpcPublishAnchorRecordParam(args);
+        return parseRpcPublishedAnchorRecordResult(await this._webSocketClient.call("publishAnchorRecord", [parsedArgs]));
     }
 
     async editCommunity(args: EditCommunityRpcParam): Promise<RpcLocalCommunityUpdateResultType> {

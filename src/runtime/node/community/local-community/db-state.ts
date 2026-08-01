@@ -1,7 +1,7 @@
 import Logger from "../../../../logger.js";
 import { clone, isDeepEqual, isEmpty, omit, pick } from "remeda";
 import { v4 as uuidV4 } from "uuid";
-import { ipnsNameToIpnsOverPubsubTopic, pubsubTopicToDhtKey, timestamp } from "../../../../util.js";
+import { timestamp } from "../../../../util.js";
 import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
 import { STORAGE_KEYS } from "../../../../constants.js";
@@ -24,6 +24,7 @@ import { processStartedCommunities } from "./registry.js";
 import { CommunitySignedPropertyNames } from "../../../../community/schema.js";
 import { syncCommunityRegistryEntry } from "../../../../pkc/tracked-instance-registry-util.js";
 import { DbHandler } from "../db-handler.js";
+import { getHighestAcceptedAnchorSequence } from "./anchor-publishing.js";
 import { PageGenerator } from "../page-generator.js";
 
 export async function initSignerProps(community: LocalCommunity, newSignerProps: InternalCommunityRecordBeforeFirstUpdateType["signer"]) {
@@ -130,6 +131,14 @@ export async function updateInstanceStateWithDbState(community: LocalCommunity) 
         }
         await community.initInternalCommunityAfterFirstUpdateNoMerge(currentDbState);
     } else await community.initInternalCommunityBeforeFirstUpdateNoMerge(currentDbState);
+
+    // Both NoMerge helpers replay the internal record through the RPC init path, which assigns
+    // anchorRecordSequence from that record — and the internal record deliberately omits it, since
+    // publishAnchorRecord owns its own keyv slot. So the replay always clears the live value, and every
+    // caller of this function (start() included) has to put it back from the slot that owns it.
+    // Without this, start() leaves anchorRecordSequence undefined on a community whose anchor record
+    // has been published, which is how it reaches an RPC client.
+    community.anchorRecordSequence = getHighestAcceptedAnchorSequence(community)?.toString();
 }
 
 export async function updateInstancePropsWithStartedCommunityOrDb(community: LocalCommunity) {
@@ -155,6 +164,7 @@ export async function updateInstancePropsWithStartedCommunityOrDb(community: Loc
         // edit.community concurrency tests). The started instance is the canonical writer, so its
         // in-memory exports are the freshest view of the keyv-persisted records.
         community._exports = startedCommunity.exports;
+        community.anchorRecordSequence = startedCommunity.anchorRecordSequence;
     } else {
         await community.initDbHandlerIfNeeded();
         try {
@@ -175,6 +185,9 @@ export async function updateInstancePropsWithStartedCommunityOrDb(community: Loc
                 throw new PKCError("ERR_LOCAL_COMMUNITY_HAS_NO_SIGNER_IN_INTERNAL_STATE", { address: community.address });
 
             await community._loadExportsFromKeyv(); // Load community.exports from DB
+            // anchorRecordSequence is re-derived inside updateInstanceStateWithDbState above, from the
+            // keyv slot publishAnchorRecord owns. Absent on a delegated community means no anchor
+            // record has ever been accepted for it.
             await community._updateStartedValue();
             log("Loaded local community", community.address, "from db");
         } catch (e) {
@@ -283,6 +296,11 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
 
 export async function initNewLocalCommunityPropsNoMerge(community: LocalCommunity, newProps: CreateNewLocalCommunityParsedOptions) {
     await initSignerProps(community, newProps.signer);
+    // A delegated community is identified by its anchor (An) while it signs with the minter we just
+    // initialized above. Replaying the chain into ipnsHops is what makes the inherited identity code
+    // report the anchor as publicKey. See docs/protocol/delegated-ipns.md.
+    community.anchor = newProps.anchor;
+    if (newProps.anchor) community.ipnsHops = [newProps.anchor.publicKey, community.signer.address];
     community.title = newProps.title;
     community.description = newProps.description;
     community.setAddress(newProps.address);
@@ -325,6 +343,7 @@ export async function initInternalCommunityAfterFirstUpdateNoMerge(
         community: pick(newProps, keysOfCommunityIpfs) as CommunityIpfsType,
         localCommunity: {
             signer: pick(newProps.signer as SignerWithPublicKeyAddress, ["publicKey", "address", "shortAddress", "type"]),
+            anchor: newProps.anchor,
             settings: newProps.settings,
             _usingDefaultChallenge: newProps._usingDefaultChallenge,
             address: newProps.address,
@@ -363,10 +382,9 @@ export async function initInternalCommunityBeforeFirstUpdateNoMerge(
     });
     await initSignerProps(community, newProps.signer);
     community._internalStateUpdateId = newProps._internalStateUpdateId;
+    // LocalCommunity's override always derives these from signer.address, so the explicit
+    // minter-based assignment that used to follow this call is no longer needed here.
     community._updateIpnsPubsubPropsIfNeeded(newProps);
-    community.ipnsName = newProps.signer.address;
-    community.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(community.ipnsName);
-    community.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(community.ipnsPubsubTopic);
     if (processStartedCommunities.has(community)) syncCommunityRegistryEntry(processStartedCommunities, community);
     community.raw.localCommunity = community.toJSONInternalRpcBeforeFirstUpdate();
 }

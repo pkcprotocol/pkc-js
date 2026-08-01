@@ -61,16 +61,21 @@ jobs:
             sleep 15
           done
           exit 1
-      # Install playwright browsers. A slow Azure apt mirror has stalled the
-      # --with-deps download past the job timeout before (issue #217); the
-      # per-attempt `timeout` + retry keeps one stalled mirror from eating the job.
+      # Browser binaries come from Playwright's CDN; `--with-deps` additionally
+      # runs `apt-get install` from Ubuntu's mirror, and a slow Azure mirror has
+      # stalled that past the job timeout before (issue #217). Worse, `timeout`
+      # only kills `npx`, so the `apt-get` grandchild survives holding
+      # /var/lib/dpkg/lock-frontend and every retry then dies instantly with
+      # "Could not get lock". The runner image already ships every shared library
+      # Playwright needs (a --with-deps run installs only optional CJK/X11 font
+      # packages, which these tests never render), so install the browsers alone
+      # and keep apt off the critical path entirely.
       - name: Install Playwright browsers (with retry)
         shell: bash
         run: |
           for attempt in 1 2 3; do
-            timeout 300 npx playwright install --with-deps chromium firefox && exit 0
+            timeout --kill-after=30 300 npx playwright install chromium firefox && exit 0
             echo "playwright install attempt $attempt failed or stalled; retrying in 15s..."
-            sudo dpkg --configure -a || true
             sleep 15
           done
           exit 1

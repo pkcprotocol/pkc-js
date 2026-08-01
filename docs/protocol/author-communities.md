@@ -63,23 +63,24 @@ author feed) is then nearly free (see [Convergence](#convergence-both-feeds-unde
 
 Everything below assumes a `LocalCommunity` whose **identity is not its signing key**: the record is
 published under the minter name `Mn` (the node's signer) while the community's user-facing identity is
-the anchor `An`. That split does not exist yet on the write side, and it is a **prerequisite, not one
-of the schema seams**. [delegated-ipns.md](delegated-ipns.md) covers **loading only**; the read side
-already does the right thing (`community.publicKey` is derived from `ipnsHops[0]`, the anchor, and
-never from `signature.publicKey`, so a delegated community's identity never becomes `Mn`). The write
-side needs:
+the anchor `An`. **That split shipped in [#237](https://github.com/pkcprotocol/pkc-js/pull/237)**
+(issues #233 and #234), so it is no longer work to do here.
+[delegated-ipns.md](delegated-ipns.md) now documents both the loading side and "Publishing a delegated
+community". The read side derives `community.publicKey` from `ipnsHops[0]`, the anchor, and never from
+`signature.publicKey`; the write side persists the anchor and replays it into `ipnsHops`, so the same
+inherited code reports the anchor on a publisher. What it gives this design:
 
 - **The anchor is persisted local config, not derived.** A delegated `LocalCommunity` cannot compute
   its own `publicKey` from its signer (that would yield `Mn`). The anchor `An` is supplied at creation
   and stored in the community's local settings, alongside the local `type` bit.
 - **Publication acceptance compares against the anchor.** Incoming publications carry
-  `communityPublicKey` = the address the client resolved, which is `An`. The node's check must be
-  `publication.communityPublicKey === community.publicKey` (the anchor), not the current
-  `=== community.signer.address` (the minter). Today the latter rejects **every** remote publication
-  to a delegated community: foreign replies, owner native posts, votes, edits, moderation.
-- **Stored publications keep the anchor.** The publication store currently backfills
-  `communityPublicKey` from `community.signer.address`; it must backfill from `community.publicKey`,
-  or native content ends up attributing itself to the minter and breaks the moment the minter rotates.
+  `communityPublicKey` = the address the client resolved, which is `An`. The node's check is
+  `publication.communityPublicKey === community.publicKey` (the anchor) rather than
+  `=== community.signer.address` (the minter), which would reject **every** remote publication to a
+  delegated community: foreign replies, owner native posts, votes, edits, moderation.
+- **Stored publications keep the anchor.** The publication store backfills `communityPublicKey` from
+  `community.publicKey`, not from `community.signer.address`, so native content does not attribute
+  itself to the minter, which would break on the next rotation.
 - **Minter-derived things stay minter-derived.** `pubsubTopic`, the `encryption` keypair, and the
   record signature all belong to `Mn`. Only identity moves to the anchor.
 - **Non-delegated is the degenerate case.** When a profile runs on the author's own node, signer and
@@ -87,8 +88,8 @@ side needs:
   generalization rather than a fork.
 
 This is a type-blind `LocalCommunity` change: any delegated community benefits, not just profiles.
-pkc-js must be able to create, publish, serve, and **load back** a delegated community end to end,
-even though the production minter (forge) is what actually runs it.
+pkc-js can create, publish, serve, and **load back** a delegated community end to end, even though the
+production minter (forge) is what actually runs it.
 
 ### Implementation shape: `AuthorLocalCommunity`
 
@@ -466,9 +467,9 @@ moderate the profile record, but can never impersonate the author elsewhere, and
 **pkc-js ships the machinery; the forge runs it.** The minter is an ordinary pkc-js community node
 driving `AuthorLocalCommunity`, so the community-side code (schema, page generation and verification,
 the sync RPC pair, the refresh job, `exportCommunity`) all lives in this repo. The **delegation setup
-handshake** also belongs in pkc-js rather than in a hosting service, but it is type-blind and out of
-scope for this design; it is tracked separately in
-[#234](https://github.com/pkcprotocol/pkc-js/issues/234). What is *not* in pkc-js is the **service
+handshake** also belongs in pkc-js rather than in a hosting service, but it is type-blind and outside
+this design; it shipped separately in
+[#237](https://github.com/pkcprotocol/pkc-js/pull/237). What is *not* in pkc-js is the **service
 layer** the forge wraps around it: multi-tenant authentication and authorization, `Ms` custody
 policy, quotas, and hosting operations. This is a narrower boundary than
 [delegated-ipns.md](delegated-ipns.md)'s, which is scoped to client-side *loading*; the two are
@@ -507,15 +508,17 @@ distinction that actually matters:
   policy, and operating the infrastructure. A self-hosted owner running their own node needs none of
   it, which is why pkc-js can exercise the whole shape in tests.
 
-> **Delegation setup handshake (out of scope, tracked in
-> [#234](https://github.com/pkcprotocol/pkc-js/issues/234)).** To point `An → Mn` the author needs
-> the delegate's minter name `Mn`, so the delegate generates `Mn`/`Ms` and returns it along with the
-> bootstrap `pubsubTopic` and `encryption` key (before the first mint there is no record to resolve
-> those from), and the author then signs `An → Mn` client-side. That handshake is **type-blind** and
-> serves delegated multi-author communities as much as profiles, so it is designed in #234 rather
-> than here. It belongs in the pkc-js RPC and not in a hosting service: "run this community for me,
-> I keep the anchor key" is a protocol operation, and putting it in the forge would leave a
-> self-hosted owner unable to delegate to their own daemon.
+> **Delegation setup handshake (shipped in
+> [#237](https://github.com/pkcprotocol/pkc-js/pull/237)).** To point `An → Mn` the author needs the
+> delegate's minter name `Mn`, so `createCommunity` takes an anchor `publicKey`, generates `Mn`/`Ms`
+> node-side and returns `Mn` along with the bootstrap `pubsubTopic` and `encryption` key (before the
+> first mint there is no record to resolve those from). The author then signs `An → Mn` client-side and
+> hands the bytes to `publishAnchorRecord`. That handshake is **type-blind** and serves delegated
+> multi-author communities as much as profiles, which is why it lives in the community surface rather
+> than here. It is in the pkc-js RPC and not in a hosting service: "run this community for me, I keep
+> the anchor key" is a protocol operation, and putting it in the forge would leave a self-hosted owner
+> unable to delegate to their own daemon. See "Setting delegation up" in
+> [delegated-ipns.md](delegated-ipns.md).
 
 **No delegate configured → no profile.** Publishing a profile requires a reachable minter. A pure
 in-browser helia node can sign the anchor but has no online party to mint and keep the record alive.
@@ -811,9 +814,10 @@ the delegate keeps the *minter* record alive and never touches `As`.
 
 ## Read-only mode (disabled challenge exchange)
 
-> Tracked in issue [#229](https://github.com/pkcprotocol/pkc-js/issues/229). This is a type-blind
+> Shipped in [#236](https://github.com/pkcprotocol/pkc-js/pull/236) (issue #229). This is a type-blind
 > `LocalCommunity` feature, not author-community-specific; it is specced here because feed-only
-> profiles are its main use case.
+> profiles are its main use case. What remains for this design is the `AuthorCommunityIpfs` all-or-none
+> refine below.
 
 An owner may not want anybody to reply to their profile (or to post to a broadcast-style normal
 community), in which case running the challenge topic is wasted traffic, per profile, on every
@@ -980,7 +984,7 @@ Consequences for the method surface:
   runtime-only `community.type` so creation and read use one vocabulary; omitting it defaults to
   `"community"`, keeping every existing call site unchanged.
 - **Delegation setup** is its own RPC surface and is type-blind, serving delegated `community` and
-  `authorCommunity` alike; designed in [#234](https://github.com/pkcprotocol/pkc-js/issues/234), not
+  `authorCommunity` alike; shipped in [#237](https://github.com/pkcprotocol/pkc-js/pull/237), not
   here.
 - The only genuinely author-specific RPC surface is the sync pair
   (`listAuthorComments` / `syncAuthorComments`).
@@ -1136,10 +1140,10 @@ only, no edits to owner content); and how clients should attribute a profile mod
   older than what the client already holds, so a rotated-away minter pinned by one malicious gateway
   loses to any honest source. Sequence anti-rollback ([#118](https://github.com/pkcprotocol/pkc-js/issues/118))
   stays general delegated-IPNS hardening, not a prerequisite here.
-- **Delegation setup is type-blind and out of scope here.** "Run this community for me, I keep the
+- **Delegation setup is type-blind and outside this design.** "Run this community for me, I keep the
   anchor key" is a protocol operation belonging in the pkc-js RPC rather than a hosting service, and
-  it serves delegated multi-author communities as much as profiles. Designed separately in
-  [#234](https://github.com/pkcprotocol/pkc-js/issues/234); this design assumes only that the author
+  it serves delegated multi-author communities as much as profiles. Shipped separately in
+  [#237](https://github.com/pkcprotocol/pkc-js/pull/237); this design assumes only that the author
   obtains `Mn` and signs `An → Mn` with `As`. The forge keeps auth, quotas, and `Ms` custody policy.
 - **Minter refresh cadence is host policy, not protocol.** How often a minter re-loads cross-posted
   `CommentUpdate`s (and the ancestor snapshots) is chosen by whoever runs the node: bitsocial-cli and
@@ -1158,8 +1162,8 @@ only, no edits to owner content); and how clients should attribute a profile mod
   `pubsubTopic` from the record and stops the challenge-topic subscription; absence of `pubsubTopic`
   now means "no challenge exchange", with no fallback to the address anywhere. No flag day: all
   published records carry the topic explicitly, and old clients degrade by timeout. The local
-  publish shortcut keeps same-process and RPC owners publishing. Tracked in
-  [#229](https://github.com/pkcprotocol/pkc-js/issues/229).
+  publish shortcut keeps same-process and RPC owners publishing. Shipped in
+  [#236](https://github.com/pkcprotocol/pkc-js/pull/236) (issue #229).
 - **Owner-only top level is enforced read-side.** Verifiers reject an `AuthorCommunityIpfs` record or
   page chunk containing a top-level entry whose `author.publicKey` differs from the resolved anchor
   `An` (checked at verification time, since the anchor is resolution context and not a record field).
@@ -1171,9 +1175,10 @@ only, no edits to owner content); and how clients should attribute a profile mod
 
 ## Open questions
 
-- **Delegation setup handshake.** How an author asks a delegate (their own `bitsocial daemon`, or
-  bitsocial forge) to become its minter, obtains `Mn` plus the bootstrap
-  `pubsubTopic`/`encryption`, gets the client-signed `An → Mn` onto the network, and later rotates
-  to `Mn'` to revoke. Type-blind (delegated multi-author communities need the same thing), belongs
-  in the pkc-js RPC rather than a hosting service, and is designed in
-  [#234](https://github.com/pkcprotocol/pkc-js/issues/234) rather than by this doc.
+- ~~**Delegation setup handshake.**~~ Answered: an author asks a delegate (their own
+  `bitsocial daemon`, or bitsocial forge) to become its minter via `createCommunity` with an anchor
+  `publicKey`, receives `Mn` plus the bootstrap `pubsubTopic`/`encryption`, gets the client-signed
+  `An → Mn` onto the network with `publishAnchorRecord`, and rotates by repeating that against a new
+  node. Type-blind, in the pkc-js RPC rather than a hosting service, shipped in
+  [#237](https://github.com/pkcprotocol/pkc-js/pull/237). See "Setting delegation up" in
+  [delegated-ipns.md](delegated-ipns.md).

@@ -539,7 +539,7 @@ An object which may have the following keys:
 | pubsubKuboRpcClientsOptions | `(string \| KuboRpcClientOptions)[]` or `undefined` | `[{url: 'https://pubsubprovider.xyz/api/v0'}, {url: 'https://plebpubsub.xyz/api/v0'}]` | Optional URLs or [KuboRpcClientOptions](https://www.npmjs.com/package/kubo-rpc-client#options) used for pubsub publishing when `kuboRpcClientsOptions` isn't available, like in the browser |
 | pkcRpcClientsOptions | `string[]` or `undefined` | `undefined` | Optional websocket URLs of PKC RPC servers, required to run a community from a browser/electron/webview |
 | httpRoutersOptions | `string[]` or `undefined` | `['https://peers.pleb.bot', 'https://routing.lol', 'https://peers.forumindex.com', 'https://peers.plebpubsub.xyz', 'https://routerofbitsocial.xyz', 'https://bsotracker.online']` | URLs of HTTP delegated-routing endpoints used by `libp2pJsClientsOptions` for content/peer routing and IPNS lookups. Each URL must start with `http://` or `https://`. |
-| libp2pJsClientsOptions | `Array<{key: string, libp2pOptions?: Partial<Libp2pOptions>, heliaOptions?: Partial<HeliaOptions>}>` or `undefined` | `undefined` | Optional in-process libp2p/Helia client. When set, replaces `kuboRpcClientsOptions` and `pubsubKuboRpcClientsOptions` (which are then ignored). At most one entry; `key` is a unique identifier. `libp2pOptions` is forwarded to [Helia's libp2p](https://github.com/ipfs/helia) (e.g. `connectionGater`, `services`, transports), `heliaOptions` to [`createHelia`](https://github.com/ipfs/helia) (e.g. `blockstore`, `blockBrokers`). Requires `httpRoutersOptions` to be set. By default WebRTC and WebTransport dials are rejected so nodes (notably in the browser) connect over WebSocket(/WSS); pass your own `libp2pOptions.connectionGater` to override this (it fully replaces the default gater). |
+| libp2pJsClientsOptions | `Array<{key: string, libp2pOptions?: Partial<Libp2pOptions>, heliaOptions?: Partial<HeliaOptions>, blockstoreOptions?: {maxBytes?: number, lowWaterRatio?: number}}>` or `undefined` | `undefined` | Optional in-process libp2p/Helia client. When set, replaces `kuboRpcClientsOptions` and `pubsubKuboRpcClientsOptions` (which are then ignored). At most one entry; `key` is a unique identifier. `libp2pOptions` is forwarded to [Helia's libp2p](https://github.com/ipfs/helia) (e.g. `connectionGater`, `services`, transports), `heliaOptions` to [`createHelia`](https://github.com/ipfs/helia) (e.g. `blockstore`, `blockBrokers`). Requires `httpRoutersOptions` to be set. By default WebRTC and WebTransport dials are rejected so nodes (notably in the browser) connect over WebSocket(/WSS); pass your own `libp2pOptions.connectionGater` to override this (it fully replaces the default gater). `blockstoreOptions` tunes the block cache described below. |
 | dataPath | `string` or `undefined` | `.pkc` folder in the current working directory | (Node only) Optional folder path to create/resume the user and community databases |
 | resolveAuthorNames | `boolean` or `undefined` | `true` | Optionally disable resolving crypto domain author names, which can be done lazily later to save time |
 | nameResolvers | `NameResolver[]` or `undefined` | `undefined` | Custom resolvers for crypto domain names. Each resolver: `{key, resolve, canResolve, provider, destroy?}`. |
@@ -584,6 +584,29 @@ process.on('uncaughtException', (err) => console.error(err))
 Attaching an `'error'` listener directly on a `community`, `comment`, or other publication object stops the bubble-up: in that case the error stays on the child and is not re-emitted on the pkc instance.
 
 ### `pkc.clients.libp2pJsClients[key].heliaNode`
+
+#### Block storage and eviction
+
+The in-process libp2p/Helia client caches every block it fetches. Blocks are persisted per runtime
+(on disk under `dataPath` in Node, in IndexedDB in the browser) so a restart or a page refresh does
+not re-fetch content that was already verified, and the cache is bounded by a size-capped LRU:
+once `maxBytes` is reached the least recently used blocks are evicted down to `lowWaterRatio` of
+the cap.
+
+Defaults are 250MB in the browser and 1GB in Node, which at a measured ~20MB/hour for 65
+communities subscribed and updating is roughly 12 hours and 2 days of continuous use respectively.
+Override with `blockstoreOptions`:
+
+```js
+const pkc = await PKC({
+    libp2pJsClientsOptions: [{ key: 'main', blockstoreOptions: { maxBytes: 50 * 1024 * 1024 } }],
+    httpRoutersOptions: ['https://peers.pleb.bot']
+})
+```
+
+Nothing is pinned: every cached block is refetchable from the network, so eviction is safe and an
+eviction that lands during an in-flight load costs a re-fetch rather than an error. Supplying your
+own `heliaOptions.blockstore` disables all of this and hands block storage to you.
 
 > When the instance runs an in-process libp2p/Helia node (`libp2pJsClientsOptions`), `heliaNode` returns the running [Helia](https://github.com/ipfs/helia) node so libraries that share the node (e.g. [@bitsocial/pubsub-voting](https://github.com/bitsocialnet/pubsub-voting), [bitsocial-seeder](https://github.com/bitsocialnet/bitsocial-seeder)) can drive it directly. This accessor is the public, semver-covered surface for reaching the node — a breaking change to what it returns is a breaking pkc-js release. Do not reach through the private `_helia` field.
 
@@ -775,6 +798,7 @@ An object which may have the following keys:
 | ---- | ---- | ------- | ----------- |
 | address | `string` or `undefined` | `undefined` | `Address` of the community |
 | signer | `Signer` or `undefined` | `undefined` | (Community owners only) Optional `Signer` of the community to create a community with a specific private key |
+| anchor | `{publicKey: string}` or `undefined` | `undefined` | (Community owners only) Create a **delegated** community: the community's identity is this anchor IPNS name, whose private key you keep, and the node generates its own signing (minter) key. Mutually exclusive with `signer`. See [docs/protocol/delegated-ipns.md](docs/protocol/delegated-ipns.md) |
 | ...community | `any` | `undefined` | `CreateCommunityOptions` can also initialize any property on the `Community` instance |
 
 #### Returns
@@ -808,6 +832,15 @@ const community = await pkc.createCommunity({signer})
 // create a new local community as the owner with a premade signer, already with settings
 const signer = await pkc.createSigner()
 const community = await pkc.createCommunity({signer, title: 'Memes', description: 'Post your memes here.'})
+
+// create a delegated community: this node signs and publishes it, but the identity is an anchor
+// key that never reaches the node. Not resolvable until the anchor record An -> Mn is published.
+const community = await pkc.createCommunity({anchor: {publicKey: '12D3KooW...'}})
+// community.address === anchor publicKey, community.signer.address === the node's minter key
+// sign the An -> Mn record with the anchor private key, which stays on this side, then hand the bytes
+// to the node. PKC.createAnchorIpnsRecord is exported for exactly this, see docs/protocol/delegated-ipns.md
+const record = await PKC.createAnchorIpnsRecord({anchorSigner: As, minterIpnsName: community.signer.address, sequence: 0})
+await community.publishAnchorRecord(record)
 
 // instantiate an already existing community instance
 const communityOptions = {address: '12D3KooW...',}
