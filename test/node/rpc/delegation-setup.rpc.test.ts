@@ -13,6 +13,7 @@ import { describeIfRpc } from "../../helpers/conditional-tests.js";
 import { messages } from "../../../dist/node/errors.js";
 import { createAnchorIpnsRecord } from "../../../dist/node/signer/index.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import type { PublishAnchorRecordRpcParam } from "../../../dist/node/clients/rpc-client/types.js";
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { SignerType } from "../../../dist/node/signer/types.js";
 
@@ -157,6 +158,50 @@ describeIfRpc.sequential("delegation setup over RPC", () => {
             } finally {
                 await halfCreated.delete();
             }
+        });
+    });
+
+    // The client re-derives a community's identity from every internal record the server sends, and the
+    // record it sends AFTER the first mint carries signature.publicKey, which is the minter. The create
+    // assertions above only cover the record sent before it. Without the anchor being replayed into
+    // ipnsHops on this second path the client's community silently becomes addressed by the key that
+    // merely signs for it, and every publication the client then addresses to it is rejected for a
+    // communityPublicKey that does not match what the node accepts.
+    describe("identity once the first update arrives over the wire", () => {
+        it("is still the anchor after the community has published a record", async () => {
+            await community.start();
+            await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+            expect(community.updateCid, "the client must have received a post-first-update record").to.be.a("string");
+
+            expect(community.publicKey).to.equal(anchorSigner.address);
+            expect(community.address).to.equal(anchorSigner.address);
+            expect(community.ipnsHops).to.deep.equal([anchorSigner.address, minterName]);
+            expect(community.anchor).to.deep.equal({ publicKey: anchorSigner.address });
+            expect(community.signer.address, "the minter is what signs the record the client just read").to.equal(minterName);
+            expect(community.anchorRecordSequence).to.equal("0");
+
+            await community.stop();
+        });
+    });
+
+    // The param schema is the one thing both ends share, and it is what stops a malformed call from
+    // reaching publishAnchorRecord as an empty record or as a community nobody named. Asserted through
+    // the client, which parses with it before anything goes on the wire.
+    describe("the shared param schema", () => {
+        it("rejects a publishAnchorRecord call with no record rather than sending an empty one", async () => {
+            const rpcClient = pkc._pkcRpcClient!;
+            await expect(rpcClient.publishAnchorRecord({ publicKey: community.address, recordBase64: "" })).rejects.toThrow();
+
+            const missingRecord = <PublishAnchorRecordRpcParam>(<Partial<PublishAnchorRecordRpcParam>>{ publicKey: community.address });
+            await expect(rpcClient.publishAnchorRecord(missingRecord)).rejects.toThrow();
+        });
+
+        // Both methods are community-scoped, so a call naming no community must fail on its params
+        // rather than resolve to whichever community the node happens to host.
+        it("rejects a call that names neither a community name nor a publicKey", async () => {
+            const rpcClient = pkc._pkcRpcClient!;
+            await expect(rpcClient.prepareAnchorPublish({})).rejects.toThrow();
+            await expect(rpcClient.publishAnchorRecord({ recordBase64: "AAAA" })).rejects.toThrow();
         });
     });
 

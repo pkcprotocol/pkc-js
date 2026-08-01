@@ -29,6 +29,8 @@ import { messages } from "../../../../dist/node/errors.js";
 import { _signJson, cleanUpBeforePublishing } from "../../../../dist/node/signer/signatures.js";
 import { getPKCAddressFromPublicKey } from "../../../../dist/node/signer/util.js";
 import { createAnchorIpnsRecord } from "../../../../dist/node/signer/index.js";
+import { getPersistedAnchorRecordBytes } from "../../../../dist/node/runtime/node/community/local-community/anchor-publishing.js";
+import { unmarshalIPNSRecord } from "ipns";
 import { ipnsNameToIpnsOverPubsubTopic, pubsubTopicToDhtKey } from "../../../../dist/node/util.js";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type Publication from "../../../../dist/node/publications/publication.js";
@@ -228,6 +230,19 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
             expect(row?.communityPublicKey).to.equal(anchorSigner.address);
         });
 
+        // Accepting a publication and being able to PUBLISH it are two different things, and every
+        // assertion above stops at acceptance. A community's record only carries content once a sync
+        // cycle has written postUpdates and posts into it, and that record is validated against itself
+        // before it goes out. A plain community reaches this state in well under a second.
+        it("publishes a record that carries the post it accepted", async () => {
+            const deadline = Date.now() + 60000;
+            while (Date.now() < deadline && !community.postUpdates) await new Promise((resolve) => setTimeout(resolve, 500));
+
+            expect(community.postUpdates, "the community must publish postUpdates once it has content").to.be.an("object");
+            expect(Object.keys(community.postUpdates!).length).to.be.greaterThan(0);
+            expect(community.posts?.pages?.hot?.comments.some((pageComment) => pageComment.cid === post.cid)).to.be.true;
+        });
+
         it("rejects a publication whose communityPublicKey is the minter", async () => {
             const comment = await pkc.createComment({
                 communityAddress: community.address,
@@ -355,6 +370,37 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
             const commentIpfs = JSON.parse(content) as { communityPublicKey?: string; communityName?: string };
             expect(commentIpfs.communityPublicKey).to.equal(anchorSigner.address);
             expect(commentIpfs.communityPublicKey).to.not.equal(minterAddress);
+        });
+
+        // fetchCid above reads the raw block and checks a field. A reader loading the same comment goes
+        // through verification, which compares the wire communityPublicKey against the community's
+        // publicKey (the anchor), and then resolves the community from that same value, walking An -> Mn
+        // before it can even find the CommentUpdate. Nothing else covers that whole path against a
+        // community whose record signer is not its identity, and the CommentUpdate is signed by the
+        // minter while the comment names the anchor, which is exactly where a check against the wrong
+        // key would surface.
+        it("a reader loads the post and its CommentUpdate, verifying through the chain", async () => {
+            // Its own instance, not readerPkc: the block above already resolved this community's record
+            // through readerPkc, and a second community instance in a pkc that has loaded that CID takes
+            // the "no need to fetch its ipfs" path, so it never hands the comment a community record to
+            // read postUpdates from. That is a reader-cache behaviour with nothing to do with
+            // delegation, and sitting on it would only mean testing the cache.
+            const commentReaderPkc = await mockRemotePKC();
+            const loadedPost = await commentReaderPkc.createComment({ cid: post.cid! });
+            try {
+                await loadedPost.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: loadedPost,
+                    predicate: async () => typeof loadedPost.updatedAt === "number"
+                });
+                expect(loadedPost.communityPublicKey).to.equal(anchorSigner.address);
+                expect(loadedPost.communityPublicKey).to.not.equal(minterAddress);
+                expect(loadedPost.content).to.equal(post.content);
+                expect(loadedPost.author.address).to.equal(post.author.address);
+            } finally {
+                await loadedPost.stop();
+                await commentReaderPkc.destroy();
+            }
         });
     });
 
@@ -492,6 +538,32 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
             const exportedDbBytes = fs.readFileSync(exportedDbPath).toString("binary");
             expect(exportedDbBytes).to.not.include(anchorSigner.privateKey);
             expect(imported.signer.privateKey).to.not.equal(anchorSigner.privateKey);
+        });
+
+        // Identity alone is not enough to run the restored community: a delegated community refuses to
+        // start without its anchor record, and the owner holding As may be long gone by the time a
+        // backup is restored. So the record and its high-water mark have to be inside the backup, and
+        // nothing above would notice if the export had carried the identity but left them behind.
+        //
+        // Asserted on the restored state rather than by starting it: the rotated community above is
+        // started in this process under the same anchor publicKey, and the started-community registry
+        // is keyed by publicKey, so a second started instance of the same identity would collide.
+        it("carries the anchor record itself, so the restored community is startable", async () => {
+            const imported = <LocalCommunity>await importPkc.createCommunity({ address: anchorSigner.address });
+            // The instance closes its db connection after loading, and the anchor record lives in keyv,
+            // which is what start() and publishAnchorRecord open it for.
+            await imported._dbHandler.initDbIfNeeded();
+
+            const recordBytes = getPersistedAnchorRecordBytes(imported);
+            expect(recordBytes, "the exported db must carry the record start() refuses to run without").to.be.instanceOf(Uint8Array);
+            expect(recordBytes!.length).to.be.greaterThan(0);
+
+            const record = unmarshalIPNSRecord(recordBytes!);
+            expect(record.value, "and it must still bind the anchor to this community's minter").to.equal(`/ipns/${minterAddress}`);
+            expect(record.sequence).to.equal(0n);
+            // The high-water mark travels in its own slot, and a restore that lost it would accept a
+            // replay of the record above as if it were new.
+            expect(imported.anchorRecordSequence).to.equal("0");
         });
     });
 

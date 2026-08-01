@@ -158,6 +158,30 @@ describeSkipIfRpc.sequential("delegation setup end to end", () => {
 
         it("refuses a minterIpnsName that is not an IPNS name, before signing anything", async () => {
             await expect(createAnchorIpnsRecord({ anchorSigner, minterIpnsName: "not-an-ipns-name", sequence: 0 })).rejects.toThrow();
+            await expect(createAnchorIpnsRecord({ anchorSigner, minterIpnsName: "", sequence: 0 })).rejects.toThrow();
+        });
+
+        // A negative sequence is not representable as the uint64 an IPNS record carries, so it has to be
+        // refused before signing rather than wrapped into an enormous positive one that no later record
+        // could ever beat.
+        it("refuses a negative sequence", async () => {
+            await expect(createAnchorIpnsRecord({ anchorSigner, minterIpnsName: minterName, sequence: -1 })).rejects.toThrow();
+            await expect(createAnchorIpnsRecord({ anchorSigner, minterIpnsName: minterName, sequence: "-1" })).rejects.toThrow();
+        });
+
+        // Every other assertion in this file signs and validates within the same second, so a lifetime
+        // that regressed to hours would keep the entire suite green and surface only as a community that
+        // silently stops resolving later, with the owner offline and As nowhere near the node. The
+        // horizon is the whole reason the owner can sign once and walk away.
+        it("signs a validity decades out, since the owner is offline by design", async () => {
+            const bytes = await createAnchorIpnsRecord({ anchorSigner, minterIpnsName: minterName, sequence: 0 });
+            const validUntil = new Date(unmarshalIPNSRecord(bytes).validity).getTime();
+            expect(Number.isFinite(validUntil), "validity must be a parseable RFC3339 timestamp").to.be.true;
+
+            const yearsFromNow = (validUntil - Date.now()) / (365 * 24 * 60 * 60 * 1000);
+            expect(yearsFromNow, "the signed record must outlive the owner's absence").to.be.greaterThan(50);
+            // The constant itself, so a call site that stopped passing it is caught too.
+            expect(ANCHOR_IPNS_RECORD_LIFETIME_MS / (365 * 24 * 60 * 60 * 1000)).to.be.greaterThan(50);
         });
 
         // This is the one step of the flow that runs in the consumer's process rather than in pkc-js,
@@ -276,6 +300,39 @@ describeSkipIfRpc.sequential("delegation setup end to end", () => {
             expect(community._lastAnchorRecordReprovideAt).to.be.a("number");
         });
 
+        // A second instance of a community that is started in THIS process does not read the db: it
+        // copies the started instance's props and then mirrors its events. Both of those paths clear
+        // anchorRecordSequence when they replay the internal record, which deliberately omits it, so
+        // both have to put it back from the instance that owns it. Every other reload in this file is
+        // of a stopped community and takes the db branch instead.
+        it("a second instance of the started community mirrors its anchor state", async () => {
+            const mirror = <LocalCommunity>await pkc.createCommunity({ address: community.address });
+            try {
+                expect(mirror).to.not.equal(community);
+                expect(mirror.anchor).to.deep.equal({ publicKey: anchorSigner.address });
+                expect(mirror.ipnsHops).to.deep.equal([anchorSigner.address, minterName]);
+                expect(mirror.publicKey).to.equal(anchorSigner.address);
+                expect(mirror.anchorRecordSequence, "copied from the started instance at create").to.equal(community.anchorRecordSequence);
+
+                // update() is what attaches the mirror to the started instance's events, which is the
+                // second of the two paths and the one a long-lived client actually sits on.
+                await mirror.update();
+                // Mirroring replays the started instance's state immediately, so only wait if this
+                // instance has not caught up yet. Waiting unconditionally would sit here until the
+                // community happened to publish again.
+                if (typeof mirror.updatedAt !== "number")
+                    await resolveWhenConditionIsTrue({ toUpdate: mirror, predicate: async () => typeof mirror.updatedAt === "number" });
+                expect(mirror._mirroredStartedOrUpdatingCommunity?.community, "this instance must be mirroring, not reading db").to.equal(
+                    community
+                );
+                expect(mirror.anchorRecordSequence, "kept across a mirrored update").to.equal(community.anchorRecordSequence);
+                expect(mirror.publicKey, "identity is still the anchor after a mirrored update").to.equal(anchorSigner.address);
+                expect(mirror.ipnsHops).to.deep.equal([anchorSigner.address, minterName]);
+            } finally {
+                await mirror.stop();
+            }
+        });
+
         it("survives a stop/start cycle with no re-publish by the owner", async () => {
             const sequenceBeforeRestart = community.anchorRecordSequence;
             await community.stop();
@@ -300,6 +357,67 @@ describeSkipIfRpc.sequential("delegation setup end to end", () => {
             community._lastAnchorRecordReprovideAt = longAgo;
             await reprovideAnchorRecordIfDue(community);
             expect(community._lastAnchorRecordReprovideAt! > longAgo, "an overdue re-provide puts again").to.be.true;
+        });
+
+        // Loading a community that HAS published takes a different branch from loading one that has not:
+        // it replays the published record, whose signature.publicKey is the minter, and identity falls
+        // back to it unless the anchor is replayed into ipnsHops first. The reload covered in
+        // local-community/delegated-community.test.ts runs before the first record exists and takes the
+        // other branch, so nothing else here would notice a delegated community coming back from db
+        // addressed by the key that merely signs for it.
+        //
+        // Left stopped: the next block works on its own fresh communities, and afterAll deletes this one.
+        it("reloads from db as the anchor once it has published, not as its own minter", async () => {
+            const sequenceBeforeReload = community.anchorRecordSequence;
+            await community.stop();
+
+            const reloaded = <LocalCommunity>await pkc.createCommunity({ address: community.address });
+            expect(reloaded.updateCid, "the reload has to take the after-first-update branch").to.be.a("string");
+            expect(reloaded.anchor).to.deep.equal({ publicKey: anchorSigner.address });
+            expect(reloaded.ipnsHops).to.deep.equal([anchorSigner.address, minterName]);
+            expect(reloaded.publicKey).to.equal(anchorSigner.address);
+            expect(reloaded.address).to.equal(anchorSigner.address);
+            expect(reloaded.signer.address, "the minter is still what signs").to.equal(minterName);
+            expect(reloaded.ipnsName, "a publisher mints under its own key, not under ipnsHops[0]").to.equal(minterName);
+            expect(reloaded.anchorRecordSequence).to.equal(sequenceBeforeReload);
+        });
+    });
+
+    // prepareAnchorPublish takes the max of what this node has accepted and what /ipns/An currently
+    // resolves to. The single-source readings are covered above (this node only) and by the rotation
+    // block in local-community/delegated-community.test.ts (the network only). The case the max exists
+    // for is this one: a node whose own mark went stale because the owner published from somewhere else.
+    // Answering from the local mark alone hands back a sequence that is already lost.
+    describe("prepareAnchorPublish when the network knows more than this node", () => {
+        it("clears the highest of the two sources, not just its own high-water mark", async () => {
+            const staleAnchor = await pkc.createSigner();
+            // Never started, so no challenge settings are needed: nothing publishes to it.
+            const staleNode = <LocalCommunity>await pkc.createCommunity({ anchor: { publicKey: staleAnchor.address } });
+            try {
+                const staleMinter = staleNode.signer.address;
+                await staleNode.publishAnchorRecord(
+                    await createAnchorIpnsRecord({ anchorSigner: staleAnchor, minterIpnsName: staleMinter, sequence: 3 })
+                );
+                expect(staleNode.anchorRecordSequence).to.equal("3");
+
+                // The owner publishes a newer binding from another node. It reaches the network without
+                // ever passing through this node, so the local high-water mark still says 3.
+                const networkSequence = 3000n;
+                const put = await putRecordThroughKubo(
+                    staleAnchor.address,
+                    await createAnchorIpnsRecord({ anchorSigner: staleAnchor, minterIpnsName: staleMinter, sequence: networkSequence })
+                );
+                expect(put.ok, put.text).to.be.true;
+
+                const prepared = await staleNode.prepareAnchorPublish();
+                expect(prepared.hasPersistedAnchorRecord).to.be.true;
+                expect(BigInt(prepared.currentAnchorRecordSequence), "the network reading has to win over the local one").to.equal(
+                    networkSequence
+                );
+                expect(BigInt(prepared.nextSequence) > networkSequence, "and the answer has to clear it").to.be.true;
+            } finally {
+                await staleNode.delete();
+            }
         });
     });
 
