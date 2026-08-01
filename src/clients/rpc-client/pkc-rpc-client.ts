@@ -36,6 +36,7 @@ import type {
     RpcResolveAuthorNameResult,
     RpcSubscriptionIdResult,
     RpcSuccessResult,
+    RpcCommunitiesStartedStateResult,
     RpcFetchCidResult,
     ExportCommunityRpcParam,
     CancelExportRpcParam,
@@ -57,6 +58,7 @@ import {
     parseRpcResolveAuthorNameResult,
     parseRpcFetchCidResult,
     parseRpcSuccessResult,
+    parseRpcCommunitiesStartedStateResult,
     parseRpcSubscriptionIdResult,
     parseRpcExportCommunityParam,
     parseRpcCancelExportParam,
@@ -486,6 +488,10 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         const resolveAuthorNameArgs = parseRpcAuthorNameParam(parsedAuthorName);
         const res = parseRpcResolveAuthorNameResult(await this._webSocketClient.call("resolveAuthorName", [resolveAuthorNameArgs]));
         return res;
+    }
+
+    async listCommunitiesStartedState(): Promise<RpcCommunitiesStartedStateResult> {
+        return parseRpcCommunitiesStartedStateResult(await this._webSocketClient.call("listCommunitiesStartedState", []));
     }
 
     async initalizeCommunitieschangeEvent() {

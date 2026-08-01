@@ -17,6 +17,7 @@ import Database, { type Database as BetterSqlite3Database } from "better-sqlite3
 import { sha256 } from "js-sha256";
 
 import lockfile from "@pkcprotocol/proper-lock-file";
+import { isCommunityStartLockedByAddress } from "./start-lock.js";
 import type { PageOptions } from "./page-generator.js";
 import type {
     InternalCommunityRecordAfterFirstUpdateType,
@@ -3097,10 +3098,7 @@ export class DbHandler {
     }
 
     async isCommunityStartLocked(communityAddress = this._community.address): Promise<boolean> {
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${communityAddress}.start.lock`);
-        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", communityAddress);
-        const isLocked = await lockfile.check(communityDbPath, { lockfilePath, realpath: false, stale: 10000 });
-        return isLocked;
+        return isCommunityStartLockedByAddress({ dataPath: this._community._pkc.dataPath!, communityAddress });
     }
 
     // Community state lock

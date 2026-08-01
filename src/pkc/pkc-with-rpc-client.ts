@@ -54,6 +54,25 @@ export class PKCWithRpcClient extends PKC {
         return this._pkcRpcClient.fetchCid({ cid: parsedCid });
     }
 
+    // `started` for every community in `this.communities`, in a single RPC round trip.
+    //
+    // The obvious way to build a community listing - `createCommunity({ address })` per address and
+    // read `.started` - is far more expensive than it looks. For a community the node owns, that
+    // call opens a communityUpdateSubscribe, waits for the node to send the community's ENTIRE
+    // internal record (preloaded posts pages included), then stops again. On the production host
+    // that is ~0.9MB of JSON per community, 14.8MB across 17, to produce 17 booleans. The node
+    // serializes it synchronously, so its event loop blocks and the calls do not overlap however
+    // hard the caller parallelizes them: ~1.5s for 17 communities.
+    //
+    // This returns the same booleans without transferring any community records, so use it whenever
+    // you want the listing rather than the communities themselves.
+    //
+    // Only available against an RPC node new enough to expose the method; callers that must support
+    // older nodes should fall back to the per-community path on ERR_RPC_METHOD_NOT_FOUND.
+    async listCommunitiesStartedState() {
+        return this._pkcRpcClient.listCommunitiesStartedState();
+    }
+
     override async resolveAuthorName(args: AuthorNameRpcParam) {
         const parsedArgs = parseRpcAuthorNameParam(args);
         return this._pkcRpcClient.resolveAuthorName(parsedArgs);

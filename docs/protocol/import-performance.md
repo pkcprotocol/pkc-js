@@ -396,6 +396,10 @@ Output verified correct (full 17-community table). Where the remaining ~4.3s goe
     one `createCommunity` round trip per community. `-q` skips them and lands at ~2.5s, so for a
     daemon with 20+ communities the next real lever is CLI/daemon side, not import side: batch the
     per-community round trips or include `started` in the communities subscription payload.
+    **Followed up on** in `perf/community-list`: the RPC node now exposes
+    `listCommunitiesStartedState`, which answers `started` for every community in one round trip
+    from start-lockfile checks (~0.7ms for 18 communities on this host) instead of ~1.5s of
+    per-community round trips. `bitsocial community list` has to call it to benefit.
 
 Caveat on the raw numbers: the production daemon is live, and roughly 1 run in 6 spikes to
 12-15s regardless of build. Those spikes are daemon-side RPC latency (they reproduce on the
