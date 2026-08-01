@@ -497,8 +497,13 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
         let exportedDbPath: string;
         let importPkc: PKC;
         let importDataPath: string;
+        let importedWithOpenDb: LocalCommunity | undefined;
 
         afterAll(async () => {
+            // The imported community below is never started, so pkc.destroy() (which only tears down
+            // started/updating communities) leaves its db connection open, and Windows refuses to unlink
+            // an open sqlite file.
+            importedWithOpenDb?._dbHandler?.destoryConnection();
             await importPkc?.destroy();
             if (importDataPath) fs.rmSync(importDataPath, { recursive: true, force: true });
         });
@@ -550,6 +555,7 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
         // is keyed by publicKey, so a second started instance of the same identity would collide.
         it("carries the anchor record itself, so the restored community is startable", async () => {
             const imported = <LocalCommunity>await importPkc.createCommunity({ address: anchorSigner.address });
+            importedWithOpenDb = imported; // afterAll closes it, see the note there
             // The instance closes its db connection after loading, and the anchor record lives in keyv,
             // which is what start() and publishAnchorRecord open it for.
             await imported._dbHandler.initDbIfNeeded();
