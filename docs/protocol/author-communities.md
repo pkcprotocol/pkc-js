@@ -230,11 +230,11 @@ present. Each payload carries its own `signature`; the reader verifies whichever
 
 > **Wire-format break (communities).** Wrapping `CommunityIpfs` in `{ community: ... }` moves the
 > community's signed fields off the root, so a pre-envelope loader fetching an enveloped record fails
-> to parse it. This is a **coordinated flag-day** for live communities, gated on a `protocolVersion`
-> bump: loaders and publishers must ship together, and old clients cannot read new records until
-> updated. Author-communities are new, so nothing old loads them; they emit envelopes from day one.
-> **Do not deploy enveloped community publishers before the envelope-aware loader has been
-> released**, or un-updated clients are stranded.
+> to parse it. This is a **coordinated flag-day** for live communities: loaders and publishers ship
+> together and every node updates at once, which is arranged out of band rather than gated on a
+> `protocolVersion` bump. Author-communities are new, so nothing old loads them; they emit envelopes
+> from day one. **Do not deploy enveloped community publishers before the envelope-aware loader has
+> been released**, or un-updated clients are stranded.
 
 ### Feed = preloaded page, embedded, `new` sort
 
