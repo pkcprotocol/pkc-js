@@ -1,12 +1,18 @@
-import forge from "node-forge";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { ed25519, x25519 } from "@noble/curves/ed25519.js";
 import type { Encrypted } from "./types.js";
+import type forgeType from "node-forge";
 
 const isProbablyBuffer = (arg: any) => arg && typeof arg !== "string" && typeof arg !== "number";
 
-const uint8ArrayToNodeForgeBuffer = (uint8Array: Uint8Array) => {
+// node-forge is ~42 modules and is only reached when a challenge message is actually
+// encrypted/decrypted, so it is loaded on first use instead of at import time. Every caller
+// below is already async. The promise is memoized so concurrent callers share one load.
+let forgePromise: Promise<typeof forgeType> | undefined;
+const getForge = () => (forgePromise ??= import("node-forge").then((m) => m.default));
+
+const uint8ArrayToNodeForgeBuffer = (forge: typeof forgeType, uint8Array: Uint8Array) => {
     const forgeBuffer = forge.util.createBuffer();
     for (const byte of uint8Array) {
         forgeBuffer.putByte(byte);
@@ -24,9 +30,11 @@ export const encryptStringAesGcm = async (plaintext: string, key: Uint8Array, iv
         iv = ed25519.utils.randomSecretKey().slice(0, 12);
     }
 
+    const forge = await getForge();
+
     // node-forge doesn't accept uint8Array
-    const keyAsForgeBuffer = uint8ArrayToNodeForgeBuffer(key);
-    const ivAsForgeBuffer = uint8ArrayToNodeForgeBuffer(iv);
+    const keyAsForgeBuffer = uint8ArrayToNodeForgeBuffer(forge, key);
+    const ivAsForgeBuffer = uint8ArrayToNodeForgeBuffer(forge, iv);
 
     const cipher = forge.cipher.createCipher("AES-GCM", keyAsForgeBuffer);
     cipher.start({ iv: ivAsForgeBuffer });
@@ -47,14 +55,16 @@ export const decryptStringAesGcm = async (ciphertext: Uint8Array, key: Uint8Arra
     if (!isProbablyBuffer(iv)) throw Error(`decryptStringAesGcm invalid iv '${iv}' not buffer`);
     if (!isProbablyBuffer(tag)) throw Error(`decryptStringAesGcm invalid tag '${tag}' not buffer`);
 
+    const forge = await getForge();
+
     // node-forge doesn't accept uint8Array
-    const keyAsForgeBuffer = uint8ArrayToNodeForgeBuffer(key);
-    const ivAsForgeBuffer = uint8ArrayToNodeForgeBuffer(iv);
-    const tagAsForgeBuffer = uint8ArrayToNodeForgeBuffer(tag);
+    const keyAsForgeBuffer = uint8ArrayToNodeForgeBuffer(forge, key);
+    const ivAsForgeBuffer = uint8ArrayToNodeForgeBuffer(forge, iv);
+    const tagAsForgeBuffer = uint8ArrayToNodeForgeBuffer(forge, tag);
 
     const cipher = forge.cipher.createDecipher("AES-GCM", keyAsForgeBuffer);
     cipher.start({ iv: ivAsForgeBuffer, tag: tagAsForgeBuffer });
-    cipher.update(uint8ArrayToNodeForgeBuffer(ciphertext));
+    cipher.update(uint8ArrayToNodeForgeBuffer(forge, ciphertext));
     cipher.finish();
     const decrypted = cipher.output.toString();
     return decrypted;

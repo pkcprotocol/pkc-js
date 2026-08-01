@@ -74,6 +74,43 @@ for (const lazyInput of lazyInputs) {
     }
 }
 
+// --- 1a. Heavy deps deferred off the eager index graph ---------------------------------------
+//
+// These are the dependency subtrees that dominated the import profile on a slow production host
+// and are now behind dynamic import()s. They are only reachable from code paths that genuinely
+// need them (link-preview scraping, challenge encryption, kubo HTTP), so an RPC-only consumer -
+// the case issue #120 is about - must never resolve or link them. A static import that pulls one
+// back onto the eager path costs hundreds of milliseconds per process and is invisible without
+// this gate, so it fails the build here.
+
+const eagerInputs = new Set([...indexClosure].flatMap((fileName) => outputs[fileName]?.inputs ?? []));
+const deferredPackages = {
+    "open-graph-scraper": "link-preview scraping (see src/runtime/node/util.ts)",
+    "probe-image-size": "link-preview image dimensions (see src/runtime/node/util.ts)",
+    hpagent: "link-preview proxy agent (see src/runtime/node/util.ts)",
+    undici: "global fetch dispatcher (see src/runtime/node/polyfill.ts)",
+    "node-forge": "challenge encryption (see src/signer/encryption.ts)"
+};
+for (const [packageName, why] of Object.entries(deferredPackages)) {
+    const offender = [...eagerInputs].find((input) => input.includes(`node_modules/${packageName}/`));
+    if (offender)
+        problems.push(
+            `"${packageName}" is in the STATIC import closure of dist/bundled/index.js (via ${offender}) - ` +
+                `it must stay behind a dynamic import: ${why}.`
+        );
+}
+
+// node:http / node:https drag in _http_agent and Node's builtin undici; only createKuboRpcClient
+// and the address-rewriter proxy need them, and both are lazy.
+const eagerExternals = new Set([...indexClosure].flatMap((fileName) => outputs[fileName]?.imports ?? []));
+for (const builtin of ["http", "https", "node:http", "node:https"]) {
+    if (eagerExternals.has(builtin))
+        problems.push(
+            `dist/bundled/index.js statically imports "${builtin}" - it pulls Node's builtin undici onto the ` +
+                `eager path. Import it inside the function that needs it instead.`
+        );
+}
+
 // --- 1b. External allowlist: only declared externals may stay bare ---------------------------
 
 for (const [fileName, out] of Object.entries(outputs)) {

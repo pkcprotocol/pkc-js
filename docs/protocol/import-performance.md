@@ -151,6 +151,47 @@ were consolidated into it).
     pays a one-time ~30ms cache-population cost. Cache dir is Node's default
     (`os.tmpdir()/node-compile-cache`), overridable with `NODE_COMPILE_CACHE`; opt out with
     `NODE_DISABLE_COMPILE_CACHE=1`.
+-   [x] **Defer the remaining heavy leaves off the eager index graph** — after the bundling work above,
+        a CPU profile of `import("@pkcprotocol/pkc-js")` taken **on the production host** (not the fast
+        dev machine) showed the eager static closure was still 647 modules, and that the bulk of the
+        non-Node-internal time was dependency subtrees no RPC-only consumer can reach. Each is now
+        behind a dynamic `import()` at the call site that actually needs it:
+
+    -   **The link-preview scraping closure (~350 modules)** — `open-graph-scraper` (+ `cheerio`,
+        `parse5`, `entities`, `htmlparser2`, `css-select`, `domutils`), `probe-image-size` (+ `needle`,
+        `iconv-lite` at 85 modules, `chardet`), and `hpagent`. All of it existed for
+        `getThumbnailPropsOfLink()` in [`src/runtime/node/util.ts`](../../src/runtime/node/util.ts),
+        which only runs when a community publishes a comment carrying a `link`.
+    -   **`undici` (~112 modules)** — imported at the very top of `index.ts` via
+        [`src/runtime/node/polyfill.ts`](../../src/runtime/node/polyfill.ts) purely to call
+        `setGlobalDispatcher()` and raise the global fetch body timeout for kubo-rpc-client. It is now
+        `applyUndiciPolyfills()`, awaited by `createKuboRpcClient()` and by the node `nativeFunctions.fetch`
+        wrapper (the single choke point for gateway/content fetches), so the dispatcher is still installed
+        before any body-streaming fetch. It has to be an explicit awaited call rather than a floating
+        `import()`: a floating promise would race the first fetch, and `index.ts` cannot use top-level
+        await because the `require` export condition points at that graph and `require(esm)` rejects TLA.
+    -   **`node-forge` (~42 modules)** — only reached when a challenge message is encrypted or decrypted
+        ([`src/signer/encryption.ts`](../../src/signer/encryption.ts)); every caller was already `async`,
+        so the module is memoized on first use.
+    -   **`node:http` / `node:https`** — imported at module scope in `runtime/node/util.ts` for one
+        `Agent` construction inside `createKuboRpcClient()`. Loading them eagerly also pulls `_http_agent`
+        and Node's own builtin undici, worth ~150ms of self-time on the slow host.
+    -   **The kubo address-rewriter setup** — `pkc.ts` statically imported
+        `setupKuboAddressesRewriterAndHttpRouters`, which drags in the rewriter proxy server (node:http +
+        node:https) and the rewriter's sqlite db. The call site was already guarded on "has http routers
+        AND kubo clients AND can create a local community", so it became a dynamic import there, matching
+        the existing helia/libp2p and LocalCommunity boundaries.
+
+    Result: the eager static closure drops **647 -> 225 inputs**. On the reference host the bundled index
+    goes 205ms -> 120ms cold and the warm-compile-cache npm entry 155ms -> 100ms. On the production host
+    the package import goes **~2.0s -> ~1.4s (-30%)**; see [production validation](#production-validation-2026-08-01)
+    below for the end-to-end CLI numbers.
+
+    [`config/verify-bundle.js`](../../config/verify-bundle.js) gained a gate for this (check 1a): the
+    static closure of `dist/bundled/index.js` may not contain `open-graph-scraper`, `probe-image-size`,
+    `hpagent`, `undici` or `node-forge`, and may not statically import `node:http`/`node:https`. Without
+    it a single stray static import silently costs every consumer process hundreds of milliseconds again.
+
 -   [ ] **Thin client entry point** — e.g. a `./client` export that pulls a minimal graph so RPC-only
         consumers never resolve/link the local-node modules at all. Likely unnecessary now that the
         heavy leaves are lazy; revisit only if the residual is still too high on slow hardware.
@@ -269,6 +310,7 @@ row here so each change shows its delta against the prior one. (Fast 8-core host
 | inline pure-JS deps (zod, undici, ...) | ~253ms | ~195ms          | ~179ms (unbundled) | ~256ms (unbundled) | kubo-rpc-client closure   | #126 (config/bundle-externals.js) |
 | inline kubo-rpc-client + unixfs-importer | ~205ms | ~155ms        | ~176ms (unbundled) | ~256ms (unbundled) | remaining externals + link | #126 (~21% vs deps-external bundle) |
 | defer kubo off the eager path (dynamic import in the client factory + CID re-sourced from `multiformats/cid`) | ~205ms | — | — | — | — | perf/rpc-import-lazy. Structural: the ~371-module kubo chunk left the static closure of `dist/bundled/index.js` (now a lazy chunk, loaded only when a PKC actually constructs a kubo client). Fast-host wall-clock delta is small (~214→205ms, ~4%); the real win is on slow hosts where evaluating the kubo chunk costs a large fraction of the ~1.8s import — pending production re-measurement. |
+| defer scraping closure + undici + node-forge + node:http + address rewriter | ~120ms | ~100ms | — | — | our zod schema construction (~14%) | perf/import-time-2. Eager static closure 647 → 225 inputs. Production host: import ~2.0s → ~1.4s. |
 
 ### Production validation (2026-06-10)
 
@@ -322,3 +364,39 @@ multiformats identity layer — plus link/exec of the bundle itself), ~1.2s the 
 uncached graph (bitsocial-cli compile-cache issue), ~2s RPC work (daemon-side; next lever
 would be batching the per-community `createCommunity` round trips or including `started` in
 the communities subscription).
+
+### Production validation (2026-08-01)
+
+Same method as above: this branch's `dist/` deployed into the bitsocial CLI's pkc-js install on the
+production host (slow host, Node v22.22.2, 17 communities in the daemon), steady state, medians of
+5-7 runs. Baseline column is the shipped v0.0.73 that host was already running.
+
+| Layer                                              | before (v0.0.73) | after (this branch)     |
+| -------------------------------------------------- | ---------------- | ----------------------- |
+| bare `node -e 0`                                   | ~0.10s           | ~0.10s                  |
+| `import("@pkcprotocol/pkc-js")` alone              | ~2.00s           | **~1.40s** (-30%)       |
+| command graph (list.js → BaseCommand → pkc-js)     | ~2.70s           | **~2.30s**              |
+| oclif boot (`bitsocial --version`)                 | ~0.50s           | ~0.50s                  |
+| full `bitsocial community list`                    | ~5.00s           | **~4.30s**              |
+| `bitsocial community list -q` (no per-community RPC) | not measured   | ~2.50s                  |
+
+Output verified correct (full 17-community table). Where the remaining ~4.3s goes:
+
+-   **~1.4s pkc-js import.** A production CPU profile puts the largest single remaining slice at
+    ~14% in our own zod schema construction (`schema-*.js` chunk, ~219ms of module-eval work
+    building the schema objects), then the eager externals kept for identity/correctness
+    (`@libp2p/peer-id` + `@libp2p/crypto/keys` pull `@noble/curves` and `js-sha3` for ~141ms;
+    `typestub-ipfs-only-hash`'s CJS closure drives the ~85ms cjs-module-lexer cost). The rest is
+    Node's own bootstrap and ESM link machinery. `@libp2p/peer-id` is used inside **synchronous**
+    zod validators in `src/schema/schema.ts` and `src/util.ts`, so deferring it is a refactor, not
+    a one-line move.
+-   **~0.9s the CLI's own uncached graph + oclif** (bitsocial-cli does not enable a compile cache
+    for modules compiled before pkc-js's bootstrap runs; still a bitsocial-cli issue).
+-   **~2s RPC work**, which is the part that scales with community count: `community list` issues
+    one `createCommunity` round trip per community. `-q` skips them and lands at ~2.5s, so for a
+    daemon with 20+ communities the next real lever is CLI/daemon side, not import side: batch the
+    per-community round trips or include `started` in the communities subscription payload.
+
+Caveat on the raw numbers: the production daemon is live, and roughly 1 run in 6 spikes to
+12-15s regardless of build. Those spikes are daemon-side RPC latency (they reproduce on the
+baseline build too), not import cost, so the medians above exclude them.

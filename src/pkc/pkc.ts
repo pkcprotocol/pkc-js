@@ -120,7 +120,10 @@ import type {
     CommentModerationTypeJson,
     CreateCommentModerationOptions
 } from "../publications/comment-moderation/types.js";
-import { setupKuboAddressesRewriterAndHttpRouters } from "../runtime/node/setup-kubo-address-rewriter-and-http-router.js";
+// setup-kubo-address-rewriter-and-http-router pulls the rewriter proxy server (node:http +
+// node:https, and through them Node's builtin undici) and the rewriter's own sqlite db. Only a PKC
+// that actually runs a local kubo node with http routers reaches it - the call below is already
+// guarded on exactly that - so it is loaded dynamically there, like helia/libp2p above.
 import CommunityEdit from "../publications/community-edit/community-edit.js";
 import type {
     CreateCommunityEditPublicationOptions,
@@ -403,7 +406,8 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
         if (this.httpRoutersOptions?.length && this.kuboRpcClientsOptions?.length && this._canCreateNewLocalCommunity()) {
             // only for node
-            const setupPromise = setupKuboAddressesRewriterAndHttpRouters(this)
+            const setupPromise = import("../runtime/node/setup-kubo-address-rewriter-and-http-router.js")
+                .then(({ setupKuboAddressesRewriterAndHttpRouters }) => setupKuboAddressesRewriterAndHttpRouters(this))
                 .then(async (addressesRewriterProxyServer) => {
                     if (this.destroyed) {
                         await addressesRewriterProxyServer.destroy();
