@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.75](https://github.com/pkcprotocol/pkc-js/compare/v0.0.74...v0.0.75) (2026-08-01)
+
+### Performance
+
+* **helia:** persist blocks per runtime behind a size-capped LRU blockstore ([#241](https://github.com/pkcprotocol/pkc-js/issues/241)) ([5c12ac8](https://github.com/pkcprotocol/pkc-js/commit/5c12ac80645e6117695a28075b6918ea74cf4fde)), closes [#240](https://github.com/pkcprotocol/pkc-js/issues/240) [#240](https://github.com/pkcprotocol/pkc-js/issues/240)
+
 ## [0.0.74](https://github.com/pkcprotocol/pkc-js/compare/v0.0.73...v0.0.74) (2026-07-30)
 
 ### Features
