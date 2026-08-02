@@ -15,6 +15,7 @@ import {
     generateMockComment,
     publishWithExpectedResult,
     publishRandomPost,
+    publishRandomReply,
     publishVote,
     getAvailablePKCConfigsToTestAgainst,
     resolveWhenConditionIsTrue,
@@ -111,6 +112,36 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 });
                 expect(referenced.raw.commentUpdate!.cid).to.equal(original.cid);
                 expect(referenced.upvoteCount).to.be.a("number");
+                await referenced.stop();
+            });
+
+            // crosspost is not replies-only like quotedCids, and neither is the thing it points at:
+            // the embedded record can itself be a reply. Tier 2 has no depth-specific path, so this
+            // is here to prove it, and to prove the reply's own tree position survives the round trip
+            // through the embedded record.
+            it("the referenced comment can be a reply, not just a post", async () => {
+                const reply = await publishRandomReply({ parentComment: original as CommentIpfsWithCidDefined, pkc });
+                const replyCrosspost = { cid: reply.cid!, comment: reply.raw.comment! };
+                const crosspostingReply = await generateMockPost({
+                    communityAddress,
+                    pkc,
+                    postProps: { crosspost: replyCrosspost }
+                });
+                await publishWithExpectedResult({ publication: crosspostingReply, expectedChallengeSuccess: true });
+
+                const referenced = await pkc.createComment({
+                    cid: crosspostingReply.crosspost!.cid,
+                    raw: { comment: crosspostingReply.crosspost!.comment }
+                });
+                expect(referenced.depth).to.equal(1);
+                expect(referenced.parentCid).to.equal(original.cid);
+
+                await referenced.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: referenced,
+                    predicate: async () => typeof referenced.updatedAt === "number"
+                });
+                expect(referenced.raw.commentUpdate!.cid).to.equal(reply.cid);
                 await referenced.stop();
             });
 
