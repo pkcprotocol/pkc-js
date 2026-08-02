@@ -88,6 +88,7 @@ export class Comment
     cid?: CommentIpfsWithCidPostCidDefined["cid"];
     parentCid?: CommentIpfsType["parentCid"];
     quotedCids?: CommentPubsubMessagePublication["quotedCids"];
+    crosspost?: CommentPubsubMessagePublication["crosspost"];
     content?: CommentPubsubMessagePublication["content"];
     // Props that get defined after challengeverification
     previousCid?: CommentIpfsType["previousCid"];
@@ -211,6 +212,7 @@ export class Comment
         this.nsfw = o.nsfw;
         this.flairs = o.flairs;
         this.quotedCids = o.quotedCids;
+        this.crosspost = o.crosspost;
     }
 
     _initLocalProps(props: {
@@ -331,6 +333,7 @@ export class Comment
         this.title = props.title;
         this.linkHtmlTagName = props.linkHtmlTagName;
         this.quotedCids = props.quotedCids;
+        this.crosspost = props.crosspost;
         // Initializing Comment Ipfs props
         if ("depth" in props && typeof props.depth === "number") {
             this.depth = props.depth;

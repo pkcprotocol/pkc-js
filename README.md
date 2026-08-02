@@ -40,6 +40,7 @@ Comment extends Publication /* (IPFS file) */ {
   nsfw?: boolean
   flairs?: Flair[] // arbitrary colored strings added by the author or mods to describe the author or comment
   quotedCids?: string[] // CIDs of comments being quoted/referenced in this reply
+  crosspost?: {cid: string, comment: Comment} // this comment IS a repost of the embedded comment, which is stored verbatim so the crossposting community can moderate it independently
   // below are added by community owner, not author
   previousCid?: string // each comment/post is a linked list of other comments/posts with same comment.depth and comment.parentCid, undefined if first comment in list
   postCid?: string // helps faster loading post info for reply direct linking, undefined for posts, a post can't know its own CID

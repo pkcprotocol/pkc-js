@@ -64,6 +64,7 @@ import {
     CommentUpdateReservedFields,
     CommentUpdateSignedPropertyNames
 } from "../publications/comment/schema.js";
+import type { Crosspost } from "../publications/comment/schema.js";
 import type { ModQueuePageIpfs, PageIpfs } from "../pages/types.js";
 import { CommunityIpfsReservedFields, CommunitySignedPropertyNames } from "../community/schema.js";
 import {
@@ -514,6 +515,55 @@ export async function verifyCommentModeration({
     return { valid: true };
 }
 
+// Tier 1 verification of an embedded crosspost: local only, no network. It proves who wrote the
+// embedded content and that they *claim* it was posted to the community named in the embedded
+// record. It proves nothing about the fields the hosting community added and the author never
+// signed (depth, thumbnailUrl*, previousCid, pseudonymityMode), nor about that community having
+// accepted the comment at all — establishing either requires loading the CommentUpdate for
+// crosspost.cid from that community, which clients do on demand. See docs/protocol/crossposts.md.
+//
+// Recursive: a crosspost of a crosspost verifies at every level. There is deliberately no depth cap
+// — the 40kb publication limit bounds what can be published, and each level of nesting eats the
+// budget for the next.
+async function _verifyCrosspost({
+    crosspost,
+    resolveAuthorNames,
+    clientsManager,
+    abortSignal
+}: {
+    crosspost: Crosspost;
+    resolveAuthorNames: boolean;
+    clientsManager: BaseClientsManager;
+    abortSignal?: AbortSignal;
+}): Promise<ValidationResult> {
+    // 1. the cid must be the hash of exactly these bytes. Because the CID covers the whole record,
+    // this is what lets a CommentUpdate signed by the referenced community later attest to the
+    // unsigned extras too.
+    const calculatedCid = await calculateIpfsHash(deterministicStringify(crosspost.comment)!);
+    if (calculatedCid !== crosspost.cid) return { valid: false, reason: messages.ERR_CROSSPOST_CID_DOES_NOT_MATCH_EMBEDDED_COMMENT };
+
+    // 2. no reserved/runtime fields on the embedded record
+    if (_isThereReservedFieldInRecord(crosspost.comment, CommentIpfsReservedFields))
+        return { valid: false, reason: messages.ERR_CROSSPOST_COMMENT_INCLUDES_RESERVED_FIELD };
+    if (crosspost.comment.author && intersection(Object.keys(crosspost.comment.author), AuthorCommentIpfsReservedFields).length > 0)
+        return { valid: false, reason: messages.ERR_CROSSPOST_COMMENT_AUTHOR_INCLUDES_RESERVED_FIELD };
+
+    // 3. the embedded record's own author signature. Deliberately NOT verifyCommentIpfs: that
+    // compares the record's community against the instance's, and the embedded record belongs to a
+    // different community by construction. Recursion into a nested crosspost happens here, since
+    // crosspost is one of the signed property names.
+    const keysCasted = <(keyof CommentPubsubMessagePublication)[]>crosspost.comment.signature.signedPropertyNames;
+    const validRes = await verifyCommentPubsubMessage({
+        comment: pick(crosspost.comment, ["signature", ...keysCasted]) as CommentPubsubMessagePublication,
+        resolveAuthorNames,
+        clientsManager,
+        abortSignal
+    });
+    if (!validRes.valid) return { valid: false, reason: messages.ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID };
+
+    return { valid: true };
+}
+
 export async function verifyCommentPubsubMessage({
     comment,
     resolveAuthorNames,
@@ -524,13 +574,26 @@ export async function verifyCommentPubsubMessage({
     resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
     abortSignal?: AbortSignal;
-}) {
+}): Promise<ValidationResult> {
     if (!_allFieldsOfRecordInSignedPropertyNames(comment))
         return { valid: false, reason: messages.ERR_COMMENT_PUBSUB_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
     const validation = await _verifyPublicationSignatureAndAuthor({
         publicationJson: comment
     });
     if (!validation.valid) return validation;
+
+    // Verified here rather than in verifyCommentIpfs so that the single call site covers both the
+    // community's acceptance path (which validates a CommentPubsubMessage) and every client fetch
+    // path (verifyCommentIpfs delegates here).
+    if (comment.crosspost) {
+        const crosspostValidation = await _verifyCrosspost({
+            crosspost: comment.crosspost,
+            resolveAuthorNames,
+            clientsManager,
+            abortSignal
+        });
+        if (!crosspostValidation.valid) return crosspostValidation;
+    }
 
     return validation;
 }

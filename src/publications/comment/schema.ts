@@ -18,7 +18,7 @@ import { difference, keys, mapToObj, omit, unique } from "remeda";
 import { messages } from "../../errors.js";
 import { keysToOmitFromSignedPropertyNames } from "../../signer/constants.js";
 import { RepliesPagesIpfsSchema } from "../../pages/schema.js";
-import type { CommentJson, CommentPubsubMessagePublication } from "./types.js";
+import type { CommentIpfsType, CommentJson, CommentPubsubMessagePublication } from "./types.js";
 
 // Comment schemas here
 
@@ -30,6 +30,36 @@ const CommentContentSchema = z.string();
 // Also add a limitation of 2000 characters to link
 // Need to have multiple types of schema for posts with or without link
 // link posts have no content
+
+// Crossposts embed the full CommentIpfs of the comment being reposted, so the crossposting
+// community's mods can moderate it as if it were the original, and so the text survives the
+// original author editing or deleting it, or the original community disappearing.
+//
+// This makes CommentIpfs self-recursive (a crosspost of a crosspost nests records), which TypeScript
+// cannot infer on its own: CommentIpfsSchema is derived from CreateCommentOptionsSchema, so a plain
+// z.lazy getter here collapses CommentSignedPropertyNames, the pick key record, and CommentIpfsSchema
+// itself to `any`. That is why this differs from the z.lazy-only idiom used by CommentUpdate.replies,
+// whose cycle runs through the pages schema rather than through the shape the pubsub schema is
+// pick()ed from. The cycle is severed by annotating CrosspostSchema with an explicit z.ZodType; the
+// interface below stays honest via the structural assertion at the bottom of this file.
+export interface Crosspost {
+    cid: string; // dedup/index key and the pointer to the canonical record. Never a second source of truth: acceptance requires cid === CID(deterministicStringify(comment))
+    comment: Omit<CommentIpfsType, "crosspost"> & { crosspost?: Crosspost };
+}
+
+// .loose() is load-bearing, not stylistic. crosspost.cid hashes the entire embedded record, so any
+// normalization of it breaks the crosspost. Zod's strip behavior is per-schema, so leaving this at
+// the default would let the CommentIpfsSchema.strip().parse() in storePublication silently delete
+// author-signed extra props from the embedded record — changing the CID that
+// deriveCommentIpfsFromCommentTableRow reconstructs, breaking page generation, and getting the
+// comment purged by the post-migration signature sweep.
+// Both generic params are pinned: zod 4's ZodType defaults Input to `unknown` (zod 3 defaulted it to
+// Output), and leaving it inferred makes z.input of any schema containing a crosspost degrade to
+// `unknown`, which breaks the z.input/z.infer equivalence the RPC parse helpers rely on.
+const CrosspostSchema: z.ZodType<Crosspost, Crosspost> = z.object({
+    cid: CidStringSchema,
+    comment: z.lazy(() => CommentIpfsSchema.loose() as unknown as z.ZodType<Crosspost["comment"], Crosspost["comment"]>)
+});
 
 export const CreateCommentOptionsSchema = z
     .object({
@@ -44,7 +74,8 @@ export const CreateCommentOptionsSchema = z
         linkHtmlTagName: z.string().min(1).optional(),
         parentCid: CidStringSchema.optional(), // The parent comment CID
         postCid: CidStringSchema.optional(), // the post cid, required if the comment is reply
-        quotedCids: z.array(CidStringSchema).optional() // CIDs of comments being quoted/referenced in this reply
+        quotedCids: z.array(CidStringSchema).optional(), // CIDs of comments being quoted/referenced in this reply
+        crosspost: CrosspostSchema.optional() // this comment IS a repost of the embedded comment. Distinct from quotedCids, which only references comments the text refers to
     })
     .merge(CreatePublicationUserOptionsSchema)
     .strict();
@@ -318,6 +349,14 @@ type CommentReservedFields = (typeof CommentPubsubMessageReservedFields)[number]
 type MissingCommentReservedField = Exclude<CommentJsonFields, CommentPublicationFields | CommentReservedFields>;
 
 type _EnsureAllCommentFieldsAreReserved = AssertTrue<MissingCommentReservedField extends never ? true : false>;
+
+// The Crosspost interface above is hand-written to sever the inference cycle, so nothing else keeps
+// it in step with the schema. This asserts the embedded record really is a CommentIpfs: if a field
+// is added to CommentIpfsSchema and the interface stops matching, this fails at compile time rather
+// than silently letting the crosspost branch drift from the rest of the record.
+type _EnsureCrosspostEmbedsACommentIpfs = AssertTrue<
+    [Crosspost["comment"]] extends [CommentIpfsType] ? ([CommentIpfsType] extends [Crosspost["comment"]] ? true : false) : false
+>;
 
 // Reserved fields for CommentIpfs — CommentPubsubMessage reserved fields minus fields that are legitimate in CommentIpfs
 export const CommentIpfsReservedFields = difference(

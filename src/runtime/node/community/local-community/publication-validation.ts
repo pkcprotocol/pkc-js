@@ -414,6 +414,12 @@ async function checkCommentPublication(
             return messages.ERR_REPLY_POST_CID_IS_NOT_PARENT_OF_REPLY;
     }
 
+    // Crossposts. The community enforces tier 1 only, and tier 1 has already run as part of the
+    // publication's signature verification (verifyCommentPubsubMessage). Nothing is fetched from the
+    // referenced community here, so accepting a publication never depends on a third party's uptime.
+    // Applies to posts and replies alike, unlike quotedCids below which is replies-only.
+    if (commentPublication.crosspost && community.features?.noCrossposts) return messages.ERR_NOT_ALLOWED_TO_PUBLISH_CROSSPOSTS;
+
     // Validate quotedCids
     if (commentPublication.quotedCids && commentPublication.quotedCids.length > 0) {
         // Only replies can have quotedCids

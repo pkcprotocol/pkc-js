@@ -1,64 +1,183 @@
-// Test foundations for crossposts (issue #32).
-// Design-only scaffolding: every case is it.todo until the feature is implemented.
-// Covers: community.features.noCrossposts, which is already reserved on CommunityFeaturesSchema
-// and currently marked "Not implemented".
+// Crossposts (issue #32) — community.features.noCrossposts.
 //
 // noCrossposts is an INBOUND rule: it governs what this community accepts, not what other
-// communities may do with this community's comments. It is enforced by the community at
-// acceptance time, alongside the other feature toggles in checkCommentPublication.
-import { describe, it } from "vitest";
+// communities may do with this community's comments. It is enforced by the community at acceptance
+// time, alongside the other feature toggles in checkCommentPublication.
+import {
+    mockPKC,
+    createSubWithNoChallenge,
+    generateMockPost,
+    generateMockComment,
+    publishWithExpectedResult,
+    mockPKCNoDataPathWithOnlyKuboClient,
+    resolveWhenConditionIsTrue,
+    publishRandomPost,
+    publishRandomReply
+} from "../../../../dist/node/test/test-util.js";
+import { messages } from "../../../../dist/node/errors.js";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
+import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
+import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
+import type { CommentIpfsWithCidDefined, CommentIpfsType } from "../../../../dist/node/publications/comment/types.js";
 
-describe("community.features.noCrossposts — default and propagation", () => {
-    it.todo("features is undefined on a fresh community and crossposts are allowed");
-    it.todo("noCrossposts is updated correctly in props after community.edit");
-    it.todo("noCrossposts propagates to a remote community instance");
-    it.todo("noCrossposts survives a community stop/start");
-    it.todo("noCrossposts is no longer marked 'Not implemented' in CommunityFeaturesSchema");
-    it.todo("setting noCrossposts: false is equivalent to leaving it unset");
-});
+describe(`community.features.noCrossposts`, async () => {
+    let pkc: PKC;
+    let remotePKC: PKC;
+    let community: LocalCommunity | RpcLocalCommunity;
+    let publishedPost: Comment;
+    let crosspost: { cid: string; comment: CommentIpfsType };
+    let crosspostPublishedBeforeFeatureEnabled: Comment;
 
-describe("noCrossposts: true rejects crossposts", () => {
-    it.todo("a post carrying a crosspost is rejected");
-    it.todo("a reply carrying a crosspost is rejected");
-    it.todo("a crosspost chain is rejected");
-    it.todo("the rejection reason is the specific noCrossposts message");
-    it.todo("the rejection happens even when the crosspost is otherwise fully valid at tier 1");
-    it.todo("the rejection happens even when the crosspost references this same community");
-    it.todo("the rejected comment is not written to the db");
-    it.todo("the rejected comment's cid is not pinned/left behind in IPFS");
-});
+    const setNoCrossposts = async (value: boolean | undefined) => {
+        await community.edit({ features: { ...community.features, noCrossposts: value } });
+    };
 
-describe("noCrossposts: true still allows everything else", () => {
-    it.todo("a plain post is accepted");
-    it.todo("a plain reply is accepted");
-    it.todo("a reply carrying quotedCids is accepted (quotedCids is not a crosspost)");
-    it.todo("a post with a link is accepted");
-    it.todo("votes, edits and moderations are unaffected");
-});
+    beforeAll(async () => {
+        pkc = await mockPKC();
+        remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
+        community = await createSubWithNoChallenge({}, pkc);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
-describe("toggling noCrossposts", () => {
-    it.todo("enabling it rejects a crosspost that was accepted moments before");
-    it.todo("disabling it re-allows crossposts");
-    it.todo("crossposts stored while it was off remain in the db after enabling it");
-    it.todo("crossposts stored while it was off are still served in pages after enabling it");
-    it.todo("crossposts stored while it was off can still be moderated, edited and voted on after enabling it");
-    it.todo("enabling it does not purge or invalidate existing crossposts");
-});
+        publishedPost = await publishRandomPost({ communityAddress: community.address, pkc: remotePKC });
+        crosspost = { cid: publishedPost.cid!, comment: publishedPost.raw.comment! };
+    });
 
-describe("enforcement is community-side, not client-side", () => {
-    it.todo("a client holding a stale community record without noCrossposts is still rejected");
-    it.todo("a hand-built publication that bypasses client-side checks is still rejected");
-    it.todo("the rejection is delivered as a challenge failure, not a schema error");
-});
+    afterAll(async () => {
+        await community.delete();
+        await pkc.destroy();
+        await remotePKC.destroy();
+    });
 
-describe("noCrossposts is inbound only", () => {
-    it.todo("a community with noCrossposts can still have its own comments crossposted elsewhere");
-    it.todo("a community without noCrossposts accepts a crosspost of a comment from a noCrossposts community");
-});
+    it.sequential(`Crossposts are allowed by default`, async () => {
+        expect(community.features?.noCrossposts).to.be.undefined;
+        const post = await generateMockPost({ communityAddress: community.address, pkc: remotePKC, postProps: { crosspost } });
+        await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+        crosspostPublishedBeforeFeatureEnabled = post;
+        expect(post.crosspost?.cid).to.equal(crosspost.cid);
+    });
 
-describe("interaction with other features", () => {
-    it.todo("noCrossposts combined with pseudonymityMode rejects before anonymization");
-    it.todo("noCrossposts combined with requirePostLink reports the crosspost reason for a crossposting post");
-    it.todo("noCrossposts combined with noNestedReplies rejects a nested crossposting reply for the crosspost reason");
-    it.todo("a malformed crosspost is a schema error regardless of noCrossposts");
+    it.sequential(`A reply carrying a crosspost is allowed by default`, async () => {
+        // Unlike quotedCids, crossposts are not restricted to one of post/reply.
+        const reply = await generateMockComment(publishedPost as CommentIpfsWithCidDefined, remotePKC, false, { crosspost });
+        await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
+    });
+
+    it.sequential(`Feature is updated correctly in props`, async () => {
+        await setNoCrossposts(true);
+        expect(community.features?.noCrossposts).to.be.true;
+
+        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: remoteCommunity,
+            predicate: async () => remoteCommunity.features?.noCrossposts === true
+        });
+        expect(remoteCommunity.features?.noCrossposts).to.be.true;
+        await remoteCommunity.stop();
+    });
+
+    it.sequential(`Can't publish a post carrying a crosspost`, async () => {
+        const post = await generateMockPost({ communityAddress: community.address, pkc: remotePKC, postProps: { crosspost } });
+        await publishWithExpectedResult({
+            publication: post,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_NOT_ALLOWED_TO_PUBLISH_CROSSPOSTS
+        });
+    });
+
+    it.sequential(`Can't publish a reply carrying a crosspost`, async () => {
+        const reply = await generateMockComment(publishedPost as CommentIpfsWithCidDefined, remotePKC, false, { crosspost });
+        await publishWithExpectedResult({
+            publication: reply,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_NOT_ALLOWED_TO_PUBLISH_CROSSPOSTS
+        });
+    });
+
+    it.sequential(`Can't publish a crosspost chain`, async () => {
+        const chained = {
+            cid: crosspostPublishedBeforeFeatureEnabled.cid!,
+            comment: crosspostPublishedBeforeFeatureEnabled.raw.comment!
+        };
+        const post = await generateMockPost({ communityAddress: community.address, pkc: remotePKC, postProps: { crosspost: chained } });
+        await publishWithExpectedResult({
+            publication: post,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_NOT_ALLOWED_TO_PUBLISH_CROSSPOSTS
+        });
+    });
+
+    it.sequential(`Can still publish a plain post`, async () => {
+        const post = await generateMockPost({ communityAddress: community.address, pkc: remotePKC });
+        await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+    });
+
+    it.sequential(`Can still publish a plain reply`, async () => {
+        const reply = await generateMockComment(publishedPost as CommentIpfsWithCidDefined, remotePKC, false);
+        await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
+    });
+
+    it.sequential(`Can still publish a reply carrying quotedCids`, async () => {
+        // quotedCids is a reference, not a crosspost. noCrossposts must not touch it.
+        const reply = await generateMockComment(publishedPost as CommentIpfsWithCidDefined, remotePKC, false, {
+            quotedCids: [publishedPost.cid!]
+        });
+        await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
+    });
+
+    it.sequential(`Crossposts stored before the feature was enabled are still readable`, async () => {
+        // Enabling the feature rejects new crossposts; it does not purge or invalidate existing ones.
+        const stored = await remotePKC.createComment({ cid: crosspostPublishedBeforeFeatureEnabled.cid! });
+        await stored.update();
+        await resolveWhenConditionIsTrue({ toUpdate: stored, predicate: async () => typeof stored.updatedAt === "number" });
+        expect(stored.crosspost?.cid).to.equal(crosspost.cid);
+        expect(stored.crosspost?.comment).to.deep.equal(crosspost.comment);
+        await stored.stop();
+    });
+
+    it.sequential(`Can still vote on a crosspost stored before the feature was enabled`, async () => {
+        const reply = await publishRandomReply({
+            parentComment: crosspostPublishedBeforeFeatureEnabled as CommentIpfsWithCidDefined,
+            pkc: remotePKC
+        });
+        expect(reply.cid).to.be.a("string");
+    });
+
+    it.sequential(`Disabling the feature re-allows crossposts`, async () => {
+        await setNoCrossposts(false);
+        const post = await generateMockPost({ communityAddress: community.address, pkc: remotePKC, postProps: { crosspost } });
+        await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+    });
+
+    it.sequential(`A client with a stale community record is still rejected`, async () => {
+        // Enforcement is community-side. A publication built without ever reading community.features
+        // is rejected all the same.
+        await setNoCrossposts(true);
+        const post = await generateMockPost({ communityAddress: community.address, pkc: remotePKC, postProps: { crosspost } });
+        await publishWithExpectedResult({
+            publication: post,
+            expectedChallengeSuccess: false,
+            expectedReason: messages.ERR_NOT_ALLOWED_TO_PUBLISH_CROSSPOSTS
+        });
+    });
+
+    it.sequential(`noCrossposts does not stop this community's comments being crossposted elsewhere`, async () => {
+        // Inbound only. A second community without the feature accepts a crosspost of a comment that
+        // lives in the noCrossposts community.
+        const otherCommunity = await createSubWithNoChallenge({}, pkc);
+        await otherCommunity.start();
+        await resolveWhenConditionIsTrue({
+            toUpdate: otherCommunity,
+            predicate: async () => typeof otherCommunity.updatedAt === "number"
+        });
+        try {
+            const post = await generateMockPost({ communityAddress: otherCommunity.address, pkc: remotePKC, postProps: { crosspost } });
+            await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+        } finally {
+            await otherCommunity.delete();
+        }
+    });
 });

@@ -53,7 +53,7 @@ export const CommunityFeaturesSchema = z.looseObject({
     noImageReplies: z.boolean().optional(), // Block only replies with image links
     noReplyLinks: z.boolean().optional(), // Block all replies that have a link field set
     noPolls: z.boolean().optional(), // Not impllemented
-    noCrossposts: z.boolean().optional(), // Not implemented
+    noCrossposts: z.boolean().optional(), // Reject comments carrying a crosspost. Inbound only: it does not stop this community's comments being crossposted elsewhere
     noNestedReplies: z.boolean().optional(), // No nested replies, like old school forums and 4chan. Maximum depth is 1
     safeForWork: z.boolean().optional(), // Informational flag indicating this community is safe for work
     authorFlairs: z.boolean().optional(), // Authors can choose their own author flairs (otherwise only mods can)
