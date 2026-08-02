@@ -1,7 +1,24 @@
 # Author Communities (profiles as delegated communities)
 
-> **Status: design (issue [#31](https://github.com/pkcprotocol/pkc-js/issues/31)).** Not yet
-> implemented. This doc records the agreed design and the open questions.
+> **Status: superseded in part, paused (issue [#31](https://github.com/pkcprotocol/pkc-js/issues/31)).**
+> Never implemented. Blocked on crossposts ([#32](https://github.com/pkcprotocol/pkc-js/issues/32)),
+> which must land first.
+>
+> **Do not implement the bespoke machinery below**: `AuthorCommunityIpfs`, the
+> `{ authorCommunity? | community? }` envelope, `community.type`, the `crossPostedComments` table,
+> `verifyAuthorCommunityPage`, and the `listAuthorComments` / `syncAuthorComments` pair. An
+> author-community is a normal community configured as a profile, whose feed is the owner's
+> crossposts, so a profile is a configuration rather than a type.
+>
+> Still accurate and shipped: delegated anchor to minter publishing
+> ([#237](https://github.com/pkcprotocol/pkc-js/pull/237), see
+> [delegated-ipns.md](delegated-ipns.md)) and read-only mode
+> ([#236](https://github.com/pkcprotocol/pkc-js/pull/236), issue #229).
+>
+> See the pause note on
+> [#31](https://github.com/pkcprotocol/pkc-js/issues/31#issuecomment-5156323152) for what survives
+> and what deletes, and the settled crosspost design on
+> [#32](https://github.com/pkcprotocol/pkc-js/issues/32#issuecomment-5156320309).
 
 ## Summary
 
