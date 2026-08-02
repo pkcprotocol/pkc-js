@@ -5,8 +5,12 @@
 // also the path where a normalization bug in page generation would surface, which is exactly what
 // the .loose() on CrosspostSchema exists to prevent: crosspost.cid hashes the embedded record whole,
 // so a single stripped prop anywhere inside it stops the record reproducing its own cid and gets the
-// comment rejected client-side. Loading these pages at all only proves verification passed; the cid
-// assertions below are what prove the bytes came through untouched.
+// comment rejected client-side.
+//
+// The reading PKC sets validatePages: true. mockPKC defaults it to false, so without this the pages
+// come back unverified and the crosspost checks above never run on this path — the tests would still
+// pass while covering only transport. The cid re-derivations below are the independent check: they
+// prove the bytes came through untouched whether or not verification is on.
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
@@ -46,7 +50,7 @@ describe("crossposts through pages", () => {
 
     beforeAll(async () => {
         pkc = await mockPKC();
-        remotePKC = await mockPKCNoDataPathWithOnlyKuboClient();
+        remotePKC = await mockPKCNoDataPathWithOnlyKuboClient({ pkcOptions: { validatePages: true } });
         community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
@@ -65,6 +69,12 @@ describe("crossposts through pages", () => {
         await community.delete();
         await pkc.destroy();
         await remotePKC.destroy();
+    });
+
+    // Without this the rest of the file silently degrades to a transport test, so fail loudly rather
+    // than quietly losing the verification coverage these exist for.
+    it("the reading PKC has page validation enabled", () => {
+        expect(remotePKC.validatePages).to.be.true;
     });
 
     describe("community.posts", () => {
