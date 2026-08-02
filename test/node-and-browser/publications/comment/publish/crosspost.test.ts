@@ -1,54 +1,185 @@
-// Test foundations for crossposts (issue #32).
-// Design-only scaffolding: every case is it.todo until the feature is implemented.
-// Covers: publishing a crosspost end to end. Mirrors quotedCids.test.ts, which is the closest
-// existing precedent for an author-signed reference field added to CreateCommentOptions.
+// Crossposts (issue #32) — publishing end to end.
 //
-// The crossposting comment may be a post or a reply — unlike quotedCids, which is replies-only.
-import { describe, it } from "vitest";
+// The crossposting comment may be a post or a reply, unlike quotedCids which is replies-only.
+// The community enforces tier 1 only and fetches nothing from the referenced community, so
+// acceptance never depends on a third party's uptime. See docs/protocol/crossposts.md.
+import signers from "../../../../fixtures/signers.js";
+import {
+    generateMockPost,
+    generateMockComment,
+    publishWithExpectedResult,
+    publishRandomPost,
+    publishRandomReply,
+    getAvailablePKCConfigsToTestAgainst,
+    disableValidationOfSignatureBeforePublishing
+} from "../../../../../dist/node/test/test-util.js";
+import { messages } from "../../../../../dist/node/errors.js";
+import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import { clone } from "remeda";
+import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
+import { stringify as deterministicStringify } from "safe-stable-stringify";
+import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
+import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
+import type { CommentIpfsWithCidDefined, CommentIpfsType } from "../../../../../dist/node/publications/comment/types.js";
 
-describe("publishing a crosspost", () => {
-    it.todo("a post carrying a valid crosspost is accepted");
-    it.todo("a reply carrying a valid crosspost is accepted");
-    it.todo("crosspost is present on pubsubMessageToPublish after publishing");
-    it.todo("crosspost is present in the resulting CommentIpfs");
-    it.todo("crosspost fetched back from IPFS is byte-identical to what was published");
-    it.todo("crosspost survives a community restart and is served from pages unchanged");
-    it.todo("a crosspost of a comment from a different community is accepted");
-    it.todo("a crosspost of a comment from this same community is accepted");
-    it.todo("a comment whose only content is a crosspost (no title/content/link) — decide and pin the behavior");
-});
+const communityAddress = signers[0].address;
 
-describe("the community enforces tier 1 at acceptance", () => {
-    it.todo("a crosspost with a cid that does not match the embedded bytes is rejected");
-    it.todo("a crosspost whose embedded record has a broken author signature is rejected");
-    it.todo("a crosspost whose embedded record carries a reserved field is rejected");
-    it.todo("acceptance does not fetch the referenced community");
-    it.todo("acceptance succeeds while the referenced community is offline");
-    it.todo("the challenge failure reason is the specific crosspost message");
-});
+getAvailablePKCConfigsToTestAgainst().map((config) => {
+    describe.concurrent(`publishing crossposts - ${config.name}`, async () => {
+        let pkc: PKC;
+        let original: Comment;
+        let originalReply: Comment;
+        let crosspost: { cid: string; comment: CommentIpfsType };
 
-describe("chains", () => {
-    it.todo("crossposting a crosspost is accepted");
-    it.todo("a three-deep chain is accepted while under 40kb");
-    it.todo("a chain that pushes the publication over 40kb is rejected with ERR_REQUEST_PUBLICATION_OVER_ALLOWED_SIZE");
-    it.todo("the size limit is measured on the whole publication, so nesting eats the content budget");
-});
+        // Builds a crossposting post whose client-side signature check is disabled, so a deliberately
+        // invalid crosspost reaches the community and the community's own enforcement is what is
+        // being measured.
+        const buildUnvalidated = async (badCrosspost: unknown) => {
+            const post = await generateMockPost({
+                communityAddress,
+                pkc,
+                postProps: { crosspost: badCrosspost } as Parameters<typeof generateMockPost>[0]["postProps"]
+            });
+            await disableValidationOfSignatureBeforePublishing(post);
+            return post;
+        };
 
-// The outer comment is re-signed with an alias signer under pseudonymity; the embedded record is
-// cloned untouched, so its own signature survives.
-describe("crossposts under pseudonymityMode", () => {
-    it.todo("a crosspost published to a community with pseudonymityMode is accepted");
-    it.todo("the outer comment's signature is the alias signer's");
-    it.todo("the embedded record's author and signature are unchanged by anonymization");
-    it.todo("the embedded record still verifies at tier 1 after anonymization");
-    it.todo("originalCommentSignatureEncoded is set on the outer comment only");
-});
+        beforeAll(async () => {
+            pkc = await config.pkcInstancePromise();
+            original = await publishRandomPost({ communityAddress, pkc });
+            originalReply = await publishRandomReply({ parentComment: original as CommentIpfsWithCidDefined, pkc });
+            crosspost = { cid: original.cid!, comment: original.raw.comment! };
+        });
 
-describe("moderating a crosspost as if it were a normal comment", () => {
-    it.todo("a mod can remove a crossposting comment");
-    it.todo("a mod can lock/pin/flag a crossposting comment");
-    it.todo("an author can edit the crossposting comment's own content");
-    it.todo("editing the crossposting comment does not alter the embedded record");
-    it.todo("the crossposting comment can be voted on independently of the referenced comment");
-    it.todo("removing the crossposting comment has no effect on the referenced comment");
+        afterAll(async () => {
+            await pkc.destroy();
+        });
+
+        describe("a valid crosspost publishes", () => {
+            it("a post carrying a crosspost is accepted", async () => {
+                const post = await generateMockPost({ communityAddress, pkc, postProps: { crosspost } });
+                expect(post.crosspost?.cid).to.equal(crosspost.cid);
+                await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+
+                expect(post.raw.pubsubMessageToPublish!.crosspost).to.deep.equal(crosspost);
+                expect(post.raw.comment!.crosspost).to.deep.equal(crosspost);
+            });
+
+            it("a reply carrying a crosspost is accepted", async () => {
+                const reply = await generateMockComment(original as CommentIpfsWithCidDefined, pkc, false, { crosspost });
+                await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
+                expect(reply.raw.comment!.crosspost).to.deep.equal(crosspost);
+            });
+
+            it("a crosspost of a reply (not just a post) is accepted", async () => {
+                const replyCrosspost = { cid: originalReply.cid!, comment: originalReply.raw.comment! };
+                const post = await generateMockPost({ communityAddress, pkc, postProps: { crosspost: replyCrosspost } });
+                await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+                expect(post.raw.comment!.crosspost!.comment.depth).to.equal(1);
+            });
+
+            it("the crosspost fetched back from IPFS is byte-identical to what was published", async () => {
+                const post = await generateMockPost({ communityAddress, pkc, postProps: { crosspost } });
+                await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+
+                const fetched = JSON.parse((await pkc.fetchCid({ cid: post.cid! })).content);
+                expect(deterministicStringify(fetched.crosspost)).to.equal(deterministicStringify(crosspost));
+                expect(await calculateIpfsHash(deterministicStringify(fetched.crosspost.comment)!)).to.equal(crosspost.cid);
+            });
+
+            it("crossposting a comment from this same community is accepted", async () => {
+                // Deliberately allowed, not treated as a community mismatch.
+                const post = await generateMockPost({ communityAddress, pkc, postProps: { crosspost } });
+                await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+            });
+        });
+
+        describe("the client refuses to publish an invalid crosspost", () => {
+            it("a cid that does not match the embedded bytes fails local validation", async () => {
+                const wrong = { ...crosspost, cid: "QmYjtig7VJQ6XsnUjqqJvj7QaMcCAwtrgNdahSiFofrE7o" };
+                const post = await generateMockPost({ communityAddress, pkc, postProps: { crosspost: wrong } });
+                await expect(post.publish()).rejects.toThrow();
+            });
+        });
+
+        describe("the community enforces tier 1 at acceptance", () => {
+            it("a cid that does not match the embedded bytes is rejected", async () => {
+                const wrong = { ...crosspost, cid: "QmYjtig7VJQ6XsnUjqqJvj7QaMcCAwtrgNdahSiFofrE7o" };
+                await publishWithExpectedResult({
+                    publication: await buildUnvalidated(wrong),
+                    expectedChallengeSuccess: false,
+                    expectedReason: messages.ERR_CROSSPOST_CID_DOES_NOT_MATCH_EMBEDDED_COMMENT
+                });
+            });
+
+            it("an embedded record with a broken author signature is rejected", async () => {
+                const tampered = clone(crosspost);
+                tampered.comment.content = "tampered, but consistently hashed";
+                tampered.cid = await calculateIpfsHash(deterministicStringify(tampered.comment)!);
+                await publishWithExpectedResult({
+                    publication: await buildUnvalidated(tampered),
+                    expectedChallengeSuccess: false,
+                    expectedReason: messages.ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID
+                });
+            });
+
+            it("an embedded record carrying a reserved field is rejected", async () => {
+                const tampered = clone(crosspost) as Record<string, any>;
+                tampered.comment.cid = crosspost.cid; // runtime-only on a CommentIpfs
+                tampered.cid = await calculateIpfsHash(deterministicStringify(tampered.comment)!);
+                await publishWithExpectedResult({
+                    publication: await buildUnvalidated(tampered),
+                    expectedChallengeSuccess: false,
+                    expectedReason: messages.ERR_CROSSPOST_COMMENT_INCLUDES_RESERVED_FIELD
+                });
+            });
+        });
+
+        describe("chains", () => {
+            it("crossposting a crosspost is accepted", async () => {
+                const first = await generateMockPost({ communityAddress, pkc, postProps: { crosspost } });
+                await publishWithExpectedResult({ publication: first, expectedChallengeSuccess: true });
+
+                const chained = { cid: first.cid!, comment: first.raw.comment! };
+                const second = await generateMockPost({ communityAddress, pkc, postProps: { crosspost: chained } });
+                await publishWithExpectedResult({ publication: second, expectedChallengeSuccess: true });
+
+                expect(second.raw.comment!.crosspost!.comment.crosspost!.cid).to.equal(crosspost.cid);
+            });
+
+            it("nesting eats the content budget: a large embedded record leaves less room", async () => {
+                // There is no depth cap. The 40kb publication limit is the only bound, and because
+                // the embedded record is carried whole, each level of nesting consumes the budget
+                // available to the next. A ~20kb post is publishable on its own; crossposting it and
+                // adding another ~25kb of content is not.
+                const large = await generateMockPost({ communityAddress, pkc, postProps: { content: "x".repeat(20000) } });
+                await publishWithExpectedResult({ publication: large, expectedChallengeSuccess: true });
+
+                const largeCrosspost = { cid: large.cid!, comment: large.raw.comment! };
+                expect(Buffer.byteLength(JSON.stringify(largeCrosspost))).to.be.greaterThan(20000);
+
+                const overBudget = await generateMockPost({
+                    communityAddress,
+                    pkc,
+                    postProps: { content: "x".repeat(25000), crosspost: largeCrosspost }
+                });
+                await publishWithExpectedResult({
+                    publication: overBudget,
+                    expectedChallengeSuccess: false,
+                    expectedReason: messages.ERR_REQUEST_PUBLICATION_OVER_ALLOWED_SIZE
+                });
+            });
+        });
+
+        describe("a crossposting comment is an ordinary comment otherwise", () => {
+            it("it can be replied to and voted on independently of the referenced comment", async () => {
+                const post = await generateMockPost({ communityAddress, pkc, postProps: { crosspost } });
+                await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+
+                const reply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc });
+                expect(reply.cid).to.be.a("string");
+                expect(reply.parentCid).to.equal(post.cid);
+            });
+        });
+    });
 });

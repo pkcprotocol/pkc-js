@@ -1,4 +1,5 @@
 import { it, describe, beforeAll, afterAll, expect } from "vitest";
+import env from "../../../dist/node/version.js";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
@@ -275,10 +276,10 @@ describeSkipIfRpc("v39 → v40 DB migration (challengeCommentUpdate column on co
         expect(row.challengeCommentUpdate).to.be.null;
     });
 
-    it("DB version was bumped to 40", () => {
+    it("DB version was bumped to the latest", () => {
         const priv = getPrivate(dbHandler!);
         const userVersion = priv._db.pragma("user_version", { simple: true }) as number;
-        expect(userVersion).to.equal(40);
+        expect(userVersion).to.equal(env.DB_VERSION);
     });
 
     it("new rows can write/read challengeCommentUpdate JSON", () => {

@@ -1,4 +1,5 @@
 import { it, describe, beforeAll, afterAll, expect } from "vitest";
+import env from "../../../dist/node/version.js";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
@@ -288,10 +289,10 @@ describeSkipIfRpc("v40 → v41 DB migration (crosspost column on comments)", fun
         expect(row.timestamp).to.equal(now);
     });
 
-    it("DB version was bumped to 41", () => {
+    it("DB version was bumped to the latest", () => {
         const priv = getPrivate(dbHandler!);
         const userVersion = priv._db.pragma("user_version", { simple: true }) as number;
-        expect(userVersion).to.equal(41);
+        expect(userVersion).to.equal(env.DB_VERSION);
     });
 
     it("new rows can write/read crosspost JSON", () => {

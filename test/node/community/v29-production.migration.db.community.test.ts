@@ -1,4 +1,5 @@
 import { it, describe, beforeAll, afterAll, expect } from "vitest";
+import env from "../../../dist/node/version.js";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { deriveCommentIpfsFromCommentTableRow } from "../../../dist/node/runtime/node/util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
@@ -833,7 +834,7 @@ describeSkipIfRpc("v29 production data → v37 migration", function () {
     // ── Schema migration ──
 
     it("DB version is updated to latest", () => {
-        expect(dbHandler!.getDbVersion()).to.equal(40);
+        expect(dbHandler!.getDbVersion()).to.equal(env.DB_VERSION);
     });
 
     it("subplebbitAddress column removed from comments, commentEdits, commentModerations", () => {
