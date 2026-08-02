@@ -17,12 +17,14 @@ import {
     publishRandomPost,
     publishVote,
     getAvailablePKCConfigsToTestAgainst,
-    resolveWhenConditionIsTrue
+    resolveWhenConditionIsTrue,
+    addStringToIpfs
 } from "../../../dist/node/test/test-util.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsType, CommentIpfsWithCidDefined } from "../../../dist/node/publications/comment/types.js";
 import { messages } from "../../../dist/node/errors.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
 
 const communityAddress = signers[0].address;
 
@@ -188,6 +190,45 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(referenced.updatedAt, "a CommentUpdate must not resolve for forged bytes").to.be.undefined;
                 expect(referenced.raw.commentUpdate).to.be.undefined;
                 await referenced.stop();
+            });
+        });
+
+        // The cid/bytes check lives in verifyCommentPubsubMessage, which verifyCommentIpfs delegates
+        // to, so it guards fetches as well as the community's acceptance path. Tested through a load
+        // rather than a direct verify call because the delegation is the thing that could regress:
+        // moving the check into the community's path alone would leave every unit test green while
+        // clients silently stopped rejecting a forged embed on fetch. See crosspost/verification.test.ts
+        // for the checks themselves.
+        describe("loading a comment whose crosspost.cid does not match the embedded bytes", () => {
+            // A record the author validly signed over a mismatched crosspost. Tampering with a
+            // published comment's crosspost would break its own outer signature and fail on that
+            // first, so the crossposting comment is signed *after* the crosspost is broken.
+            const plantMismatchedCrosspostOnIpfs = async () => {
+                const mismatched = JSON.parse(JSON.stringify(crosspost));
+                mismatched.comment.content = "the crossposter rewrote this and left cid alone";
+                expect(await calculateIpfsHash(deterministicStringify(mismatched.comment)!)).to.not.equal(mismatched.cid);
+
+                const signed = await generateMockPost({ communityAddress, pkc, postProps: { crosspost: mismatched } });
+                // depth: what a community adds when it accepts a post, making this CommentIpfs-shaped
+                const record = { ...signed.raw.pubsubMessageToPublish!, depth: 0 };
+                return await addStringToIpfs(JSON.stringify(record));
+            };
+
+            it("pkc.getComment rejects it, naming the cid mismatch as the reason", async () => {
+                const cid = await plantMismatchedCrosspostOnIpfs();
+                // Captured rather than asserted inside a catch, so that "it loaded fine" reports as
+                // itself instead of as an assertion error swallowed by the catch block.
+                let error: PKCError | undefined;
+                try {
+                    await pkc.getComment({ cid });
+                } catch (e) {
+                    error = e as PKCError;
+                }
+                expect(error, "loading a comment with a mismatched crosspost.cid must not succeed").to.exist;
+                expect(error!.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
+                // The specific reason, not just "invalid": the outer signature over these bytes is
+                // genuine, so a generic failure would mean something else went wrong.
+                expect(error!.details.commentIpfsValidation.reason).to.equal(messages.ERR_CROSSPOST_CID_DOES_NOT_MATCH_EMBEDDED_COMMENT);
             });
         });
 
