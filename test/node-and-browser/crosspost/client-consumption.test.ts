@@ -7,6 +7,8 @@
 // the CID hashes the entire record, a valid update is that community attesting to exactly these
 // bytes, unsigned extras included. See docs/protocol/crossposts.md.
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
+import { stringify as deterministicStringify } from "safe-stable-stringify";
 import signers from "../../fixtures/signers.js";
 import {
     generateMockPost,
@@ -135,6 +137,57 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 });
                 expect(theCrosspost.upvoteCount).to.equal(0);
                 await theCrosspost.stop();
+            });
+        });
+
+        // Everything here is unsigned by the author, so whoever builds the crosspost can choose it
+        // freely and tier 1 still passes: the cid check only proves the cid matches whatever bytes
+        // are present, and the signature check only covers signedPropertyNames. These are the cases
+        // behind the client rules in docs/protocol/crossposts.md.
+        describe("what tier 1 does NOT establish", () => {
+            // Forges a field the hosting community would normally set, keeping cid consistent with
+            // the forged bytes so tier 1 has nothing to object to.
+            const forge = async (extra: Record<string, unknown>) => {
+                const comment = JSON.parse(JSON.stringify(crosspost.comment));
+                Object.assign(comment, extra);
+                return { cid: await calculateIpfsHash(deterministicStringify(comment)!), comment };
+            };
+
+            it("thumbnailUrl on the embedded record is attacker-chosen and still passes tier 1", async () => {
+                const forged = await forge({ thumbnailUrl: "https://example.com/attacker.png" });
+                const post = await generateMockPost({ communityAddress, pkc, postProps: { crosspost: forged } });
+                // The community accepts it: thumbnailUrl is not in signedPropertyNames, so the
+                // original author's signature still verifies over the forged record.
+                await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+                expect(post.raw.comment!.crosspost!.comment.thumbnailUrl).to.equal("https://example.com/attacker.png");
+                expect(crosspost.comment.thumbnailUrl).to.be.undefined;
+            });
+
+            it("depth on the embedded record is attacker-chosen and still passes tier 1", async () => {
+                const forged = await forge({ depth: 7 });
+                const post = await generateMockPost({ communityAddress, pkc, postProps: { crosspost: forged } });
+                await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+                expect(post.raw.comment!.crosspost!.comment.depth).to.equal(7);
+                expect(crosspost.comment.depth).to.equal(0);
+            });
+
+            it("tier 2 is what rejects the forgery: no CommentUpdate exists for the forged cid", async () => {
+                const forged = await forge({ thumbnailUrl: "https://example.com/attacker.png" });
+                expect(forged.cid).to.not.equal(crosspost.cid);
+
+                // The referenced community never issued a CommentUpdate for these bytes, so an
+                // instance built from the forged record has nothing to load. That is the whole
+                // reason "crossposted from C" and thumbnailUrl must not be presented as fact at
+                // tier 1.
+                const referenced = await pkc.createComment({ cid: forged.cid, raw: { comment: forged.comment } });
+                await referenced.update();
+                await new Promise((resolve) => setTimeout(resolve, 5000));
+                // updatedAt/raw.commentUpdate are the signal that a CommentUpdate resolved. The
+                // "update" event is not — it also fires for the comment props the instance was
+                // constructed with, which for a forged record are simply the forged bytes.
+                expect(referenced.updatedAt, "a CommentUpdate must not resolve for forged bytes").to.be.undefined;
+                expect(referenced.raw.commentUpdate).to.be.undefined;
+                await referenced.stop();
             });
         });
 
