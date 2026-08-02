@@ -22,6 +22,9 @@ import type { CommentIpfsType, CommentPubsubMessagePublication } from "../../../
 
 const communityAddress = signers[0].address;
 
+// TextEncoder, not Buffer.byteLength — this file runs in the browser bundle too, where Buffer is absent
+const byteLength = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
+
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe.concurrent(`crosspost tier-1 verification - ${config.name}`, async () => {
         let pkc: PKC;
@@ -263,7 +266,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 let nestingLevels = 1;
                 for (let i = 0; i < 200; i++) {
                     const signed = await signCrossposting(ref);
-                    if (Buffer.byteLength(JSON.stringify(signed)) > 40000) break;
+                    if (byteLength(signed) > 40000) break;
                     deepest = signed;
                     nestingLevels = i + 1;
                     const asRecord = { ...signed, depth: 0 } as unknown as CommentIpfsType; // comment.depth: a post
@@ -274,7 +277,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             it("the most deeply nested chain that fits under 40kb verifies at every level", async () => {
                 const { deepest, nestingLevels } = await buildDeepestChainWithinLimit();
-                expect(Buffer.byteLength(JSON.stringify(deepest))).to.be.lessThan(40000);
+                expect(byteLength(deepest)).to.be.lessThan(40000);
                 // Measured at 62 nested crossposts when this was written. The band is wide on purpose:
                 // the exact number moves whenever a wire field is added. A jump outside it means the
                 // per-level byte cost changed materially and the nesting bound moved with it.
@@ -293,7 +296,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 let deepest = await signCrossposting(ref);
                 for (let i = 0; i < 200; i++) {
                     const signed = await signCrossposting(ref);
-                    if (Buffer.byteLength(JSON.stringify(signed)) > 40000) break;
+                    if (byteLength(signed) > 40000) break;
                     deepest = signed;
                     const asRecord = { ...signed, depth: 0 } as unknown as CommentIpfsType; // comment.depth: a post
                     ref = { cid: await calculateIpfsHash(deterministicStringify(asRecord)!), comment: asRecord };

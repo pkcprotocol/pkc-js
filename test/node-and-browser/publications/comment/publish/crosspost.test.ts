@@ -156,7 +156,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 await publishWithExpectedResult({ publication: large, expectedChallengeSuccess: true });
 
                 const largeCrosspost = { cid: large.cid!, comment: large.raw.comment! };
-                expect(Buffer.byteLength(JSON.stringify(largeCrosspost))).to.be.greaterThan(20000);
+                // TextEncoder, not Buffer.byteLength — this file runs in the browser bundle too
+                expect(new TextEncoder().encode(JSON.stringify(largeCrosspost)).length).to.be.greaterThan(20000);
 
                 const overBudget = await generateMockPost({
                     communityAddress,
