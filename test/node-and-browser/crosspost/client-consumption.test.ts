@@ -230,6 +230,59 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 // genuine, so a generic failure would mean something else went wrong.
                 expect(error!.details.commentIpfsValidation.reason).to.equal(messages.ERR_CROSSPOST_CID_DOES_NOT_MATCH_EMBEDDED_COMMENT);
             });
+
+            // The same rejection through the updating path, where it surfaces as an "error" event
+            // instead of a throw. Worth covering separately: this is the path a client that renders a
+            // feed actually uses, and it has its own failure mode, namely applying the record's props
+            // anyway or carrying on updating after a critical error.
+            it("update() emits it as an error event and stops updating", async () => {
+                const cid = await plantMismatchedCrosspostOnIpfs();
+                const comment = await pkc.createComment({ cid });
+                const errors: PKCError[] = [];
+                comment.on("error", (err) => errors.push(err as PKCError));
+
+                await comment.update();
+                await resolveWhenConditionIsTrue({ toUpdate: comment, predicate: async () => errors.length >= 1, eventName: "error" });
+
+                expect(errors[0].code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
+                expect(errors[0].details.commentIpfsValidation.reason).to.equal(messages.ERR_CROSSPOST_CID_DOES_NOT_MATCH_EMBEDDED_COMMENT);
+                // None of the rejected record's props may be applied, crosspost included.
+                expect(comment.crosspost).to.be.undefined;
+                expect(comment.content).to.be.undefined;
+                expect(comment.updatedAt).to.be.undefined;
+                // A bad record is not going to become good, so this is a terminal failure, not a retry.
+                expect(comment.state).to.equal("stopped");
+                expect(comment.updatingState).to.equal("failed");
+                await comment.stop();
+            });
+
+            // validateComment is the explicit "is this comment trustworthy" call a client makes on
+            // records it got from somewhere else, e.g. a page it already holds. Same check, but it
+            // wraps the reason under its own error code, so the code is worth pinning too.
+            it("pkc.validateComment rejects it as ERR_INVALID_COMMENT_IPFS", async () => {
+                // A comment loaded normally, so raw.commentUpdate and postCid are real: validateComment
+                // requires both before it verifies anything. Only raw.comment is swapped for the
+                // mismatched record, which is what the CommentIpfs check then rejects.
+                const loaded = await pkc.createComment({ cid: crossposting.cid! });
+                await loaded.update();
+                await resolveWhenConditionIsTrue({ toUpdate: loaded, predicate: async () => typeof loaded.updatedAt === "number" });
+                await loaded.stop();
+
+                const mismatched = JSON.parse(JSON.stringify(crosspost));
+                mismatched.comment.content = "the crossposter rewrote this and left cid alone";
+                const signed = await generateMockPost({ communityAddress, pkc, postProps: { crosspost: mismatched } });
+                loaded.raw.comment = { ...signed.raw.pubsubMessageToPublish!, depth: 0 } as CommentIpfsType;
+
+                let error: PKCError | undefined;
+                try {
+                    await pkc.validateComment(loaded);
+                } catch (e) {
+                    error = e as PKCError;
+                }
+                expect(error, "validateComment must not accept a mismatched crosspost.cid").to.exist;
+                expect(error!.code).to.equal("ERR_INVALID_COMMENT_IPFS");
+                expect(error!.details.commentIpfsValidity.reason).to.equal(messages.ERR_CROSSPOST_CID_DOES_NOT_MATCH_EMBEDDED_COMMENT);
+            });
         });
 
         // crosspost and quotedCids are both author-signed references and are not interchangeable.
