@@ -146,8 +146,34 @@ Both are author-signed references and they are not interchangeable.
 | Placement | replies only | posts and replies |
 | Identity | does not change what the post is | it is the post's identity |
 
-## Not implemented
+## Back-references are not tracked
 
-"Crossposted to a, b, c" back-references. There is currently no way to know without either
-restricting to subscribed communities or publishing a reply to the original, and it is not needed to
-ship crossposts.
+The pointer goes one way only. A crossposting comment embeds the original, so from a crosspost you
+can always reach the comment it reposts. Nothing points the other way: the original comment has no
+record of having been crossposted. It was published before the crosspost existed, and it is an
+immutable `CommentIpfs`, so it can never gain one.
+
+This means the reverse view some UIs show, "crossposted to a, b, c" rendered on the *original*
+post, cannot be answered. Producing that list means finding every crosspost whose `crosspost.cid`
+is the original, and there is no global index of communities to search. Enumerating every community
+that exists is not possible.
+
+Two workarounds exist, and neither is implemented:
+
+- **Restrict to subscribed communities.** Scan the feeds the client already loads for crossposts
+  referencing the comment. Cheap, but the answer is really "crossposted to communities *you*
+  follow", so two users see different lists for the same post and crossposts into communities you
+  do not follow are invisible.
+- **Publish a reply to the original.** When crossposting, also publish a reply under the original
+  pointing at the new crosspost, so the back-reference lives in a reply tree clients already load.
+  This depends on the original community accepting that reply: you have to pass its challenge, you
+  may be banned there, its mods can remove the reply, and the community may be offline or gone. It
+  also adds a machine-generated reply to every popular thread.
+
+Knowing who crossposted a comment and where is not important for now, so neither is planned. This
+costs nothing at the record level: a crosspost carries the same data either way, and a back-
+reference scheme could be added later without changing the wire format, since a reply carrying a
+CID is expressible today with `quotedCids`.
+
+What clients *can* render today is the forward direction, on the crosspost itself: "this is a
+repost of X", with the embedded record available offline and verifiable at tier 1.
