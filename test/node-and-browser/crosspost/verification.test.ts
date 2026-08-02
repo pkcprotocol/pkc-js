@@ -163,7 +163,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         describe("chains verify recursively", () => {
             it("a two-level chain verifies at every level", async () => {
                 const inner = await signCrossposting(crosspostRef);
-                const innerAsRecord = { ...inner, depth: 0 };
+                const innerAsRecord = { ...inner, depth: 0 }; // comment.depth: a post
                 const chain = { cid: await calculateIpfsHash(deterministicStringify(innerAsRecord)!), comment: innerAsRecord };
                 expect(await verify(await signCrossposting(chain))).to.deep.equal({ valid: true });
             });
@@ -174,7 +174,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 brokenInner.cid = await calculateIpfsHash(deterministicStringify(brokenInner.comment)!);
 
                 const mid = await signCrossposting(brokenInner);
-                const midAsRecord = { ...mid, depth: 0 };
+                const midAsRecord = { ...mid, depth: 0 }; // comment.depth: a post
                 const chain = { cid: await calculateIpfsHash(deterministicStringify(midAsRecord)!), comment: midAsRecord };
                 expect(await verify(await signCrossposting(chain))).to.deep.equal({
                     valid: false,
@@ -182,15 +182,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 });
             });
 
-            // The three checks above are each exercised at depth 1. Recursion means they must also
-            // hold at depth 2 and beyond: a check that silently stops descending would let an
-            // attacker hide a bad record one level further down than anyone tests.
+            // "level" below counts crosspost nesting, not comment.depth: every record here is a post.
+            // The three checks above are each exercised one crosspost in. Recursion means they must
+            // also hold two crossposts in and beyond, since a check that silently stops descending
+            // would let an attacker hide a bad record one level further down than anyone tests.
             //
             // On the reason these assert: _verifyCrosspost flattens every recursive failure to
             // ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID, because the recursion runs through
             // verifyCommentPubsubMessage and its result is mapped to that one message regardless of
-            // which check actually failed. So a cid mismatch or a reserved field below depth 1 is
-            // reported as a bad signature. Rejection is the property that matters and these pin it;
+            // which check actually failed. So a cid mismatch or a reserved field more than one
+            // crosspost in is reported as a bad signature. Rejection is what matters and these pin it;
             // the message is pinned too so that improving it is a deliberate edit rather than an
             // accidental change nobody notices.
             const wrapNextLevel = async (inner: { cid: string; comment: CommentIpfsType }) => {
@@ -234,9 +235,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 });
             });
 
-            // Depth 1 is the one level where the specific reason does survive, so it stays distinct
-            // from the flattened cases above.
-            it("at depth 1 the specific failing check is still reported", async () => {
+            // The outermost crosspost is the one level where the specific reason survives, so it
+            // stays distinct from the flattened cases above.
+            it("on a directly embedded record the specific failing check is still reported", async () => {
                 const badCid = clone(crosspostRef);
                 badCid.cid = await calculateIpfsHash("some other bytes entirely");
                 expect(await verify(await signCrossposting(badCid))).to.deep.equal({
@@ -246,40 +247,44 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         });
 
-        // There is deliberately no nesting-depth cap: the 40kb publication limit is the only bound.
-        // These pin what that bound actually buys, so a change that shrinks the per-level byte cost
-        // (and therefore lets chains get much deeper) or that makes verification stop descending
-        // shows up as a failure rather than as a silent shift.
-        describe("the size limit is the only depth bound", () => {
-            // Builds the deepest chain that still fits under the publication size limit.
+        // There is deliberately no cap on how many crossposts can nest inside one another: the 40kb
+        // publication limit is the only bound. These pin what that bound actually buys, so a change
+        // that shrinks the per-level byte cost (and therefore lets chains nest further) or that makes
+        // verification stop descending shows up as a failure rather than as a silent shift.
+        //
+        // "nesting" here is crosspost chaining (crosspost.comment.crosspost.comment...), which is a
+        // different axis from comment.depth, the reply depth in the comment tree. Every record built
+        // below is a post, comment.depth 0; only the crosspost chain gets longer.
+        describe("the size limit is the only bound on crosspost nesting", () => {
+            // Builds the most deeply nested chain that still fits under the publication size limit.
             const buildDeepestChainWithinLimit = async () => {
                 let ref = crosspostRef as { cid: string; comment: CommentIpfsType };
                 let deepest = await signCrossposting(ref);
-                let depth = 1;
+                let nestingLevels = 1;
                 for (let i = 0; i < 200; i++) {
                     const signed = await signCrossposting(ref);
                     if (Buffer.byteLength(JSON.stringify(signed)) > 40000) break;
                     deepest = signed;
-                    depth = i + 1;
-                    const asRecord = { ...signed, depth: 0 } as unknown as CommentIpfsType;
+                    nestingLevels = i + 1;
+                    const asRecord = { ...signed, depth: 0 } as unknown as CommentIpfsType; // comment.depth: a post
                     ref = { cid: await calculateIpfsHash(deterministicStringify(asRecord)!), comment: asRecord };
                 }
-                return { deepest, depth };
+                return { deepest, nestingLevels };
             };
 
-            it("the deepest chain that fits under 40kb verifies at every level", async () => {
-                const { deepest, depth } = await buildDeepestChainWithinLimit();
+            it("the most deeply nested chain that fits under 40kb verifies at every level", async () => {
+                const { deepest, nestingLevels } = await buildDeepestChainWithinLimit();
                 expect(Buffer.byteLength(JSON.stringify(deepest))).to.be.lessThan(40000);
-                // Measured at 62 levels when this was written. The band is wide on purpose: the exact
-                // number moves whenever a wire field is added. A jump outside it means the per-level
-                // cost changed materially and the depth bound moved with it.
-                expect(depth).to.be.within(20, 150);
+                // Measured at 62 nested crossposts when this was written. The band is wide on purpose:
+                // the exact number moves whenever a wire field is added. A jump outside it means the
+                // per-level byte cost changed materially and the nesting bound moved with it.
+                expect(nestingLevels).to.be.within(20, 150);
                 expect(await verify(deepest)).to.deep.equal({ valid: true });
             });
 
-            it("a broken signature at the bottom of a max-depth chain is still caught", async () => {
-                // The recursion has to reach the very bottom. If it ever short-circuits at some depth,
-                // this is what notices.
+            it("a broken signature at the bottom of a maximally nested chain is still caught", async () => {
+                // The recursion has to reach the innermost crosspost. If it ever short-circuits part
+                // way down the chain, this is what notices.
                 const broken = clone(crosspostRef);
                 broken.comment.content = "tampered at the bottom of a very deep chain";
                 broken.cid = await calculateIpfsHash(deterministicStringify(broken.comment)!);
@@ -290,7 +295,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     const signed = await signCrossposting(ref);
                     if (Buffer.byteLength(JSON.stringify(signed)) > 40000) break;
                     deepest = signed;
-                    const asRecord = { ...signed, depth: 0 } as unknown as CommentIpfsType;
+                    const asRecord = { ...signed, depth: 0 } as unknown as CommentIpfsType; // comment.depth: a post
                     ref = { cid: await calculateIpfsHash(deterministicStringify(asRecord)!), comment: asRecord };
                 }
                 expect(await verify(deepest)).to.deep.equal({
