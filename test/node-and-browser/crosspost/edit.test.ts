@@ -61,10 +61,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         describe("editing the crossposting comment", () => {
             it.sequential("its own author editing the content leaves crosspost intact", async () => {
+                // Held in a constant rather than compared against crossposting.content: that is the
+                // publishing instance, and if it ever picks up the CommentUpdate for its own edit
+                // the assertion would fail for a reason having nothing to do with crossposts.
+                const editedContent = "the crossposter changed their commentary" + Date.now();
                 const commentEdit = await pkc.createCommentEdit({
                     communityAddress,
                     commentCid: crossposting.cid,
-                    content: "the crossposter changed their commentary" + Date.now(),
+                    content: editedContent,
                     signer: crossposting.signer
                 });
                 await publishWithExpectedResult({ publication: commentEdit, expectedChallengeSuccess: true });
@@ -72,9 +76,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 const loaded = await reloadCrossposting();
                 await resolveWhenConditionIsTrue({
                     toUpdate: loaded,
-                    predicate: async () => typeof loaded.edit?.content === "string"
+                    predicate: async () => loaded.content === editedContent
                 });
-                expect(loaded.content).to.not.equal(crossposting.content);
+                expect(loaded.content).to.equal(editedContent);
                 expect(loaded.crosspost?.cid).to.equal(crosspost.cid);
                 expect(loaded.crosspost?.comment).to.deep.equal(crosspost.comment);
                 await loaded.stop();

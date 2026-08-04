@@ -214,7 +214,22 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 // tier 1.
                 const referenced = await pkc.createComment({ cid: forged.cid, raw: { comment: forged.comment } });
                 await referenced.update();
-                await new Promise((resolve) => setTimeout(resolve, 5000));
+
+                // A negative cannot be proven by waiting a fixed amount of time: on a slow runner
+                // the wait would elapse before the update loop had its chance and the test would
+                // pass for the wrong reason. Run a genuine record alongside it instead and wait on
+                // that. Once a real cid has resolved a CommentUpdate, the same loop has had every
+                // opportunity to resolve one for the forged cid.
+                //
+                // A freshly published post rather than crosspost.cid: this file is describe.concurrent
+                // and other tests hold instances for that cid on the same pkc, so stopping a control
+                // built from it would tear down an update loop they are still waiting on.
+                const controlPost = await publishRandomPost({ communityAddress, pkc });
+                const control = await pkc.createComment({ cid: controlPost.cid! });
+                await control.update();
+                await resolveWhenConditionIsTrue({ toUpdate: control, predicate: async () => typeof control.updatedAt === "number" });
+                await control.stop();
+
                 // updatedAt/raw.commentUpdate are the signal that a CommentUpdate resolved. The
                 // "update" event is not — it also fires for the comment props the instance was
                 // constructed with, which for a forged record are simply the forged bytes.

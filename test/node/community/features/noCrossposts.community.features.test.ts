@@ -69,7 +69,7 @@ describe(`community.features.noCrossposts`, async () => {
         await setNoCrossposts(true);
         expect(community.features?.noCrossposts).to.be.true;
 
-        const remoteCommunity = await remotePKC.getCommunity({ address: community.address });
+        const remoteCommunity = await remotePKC.createCommunity({ address: community.address });
         await remoteCommunity.update();
         await resolveWhenConditionIsTrue({
             toUpdate: remoteCommunity,

@@ -30,6 +30,7 @@ import {
     waitTillReplyInParentPagesInstance
 } from "../../../dist/node/test/test-util.js";
 import { messages } from "../../../dist/node/errors.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
@@ -154,7 +155,13 @@ describe("crossposts through pages", () => {
     // The tests above are served from the preloaded page inlined in the CommentUpdate. This one
     // forces the replies to chunk so the crossposting reply is only reachable by fetching a pageCid
     // over IPFS, which is a different code path (getPage -> verifyPage) than the preloaded one.
-    describe("a page fetched by pageCid rather than preloaded", () => {
+    //
+    // Skipped under RPC: forceLocalSubPagesToAlwaysGenerateMultipleChunks mutates the LocalCommunity's
+    // in-process page-generation internals, and under RPC the community runs in the RPC server process,
+    // so the patch lands on a proxy and the pages never chunk. The beforeAll then hangs waiting for a
+    // reply that only a chunked page would carry. Every other call site of that helper is skipped for
+    // the same reason. The page path itself is already covered above under both configs.
+    describeSkipIfRpc("a page fetched by pageCid rather than preloaded", () => {
         let chunkingCleanup: () => void;
         let parentPost: Comment;
         let remoteParent: Comment;

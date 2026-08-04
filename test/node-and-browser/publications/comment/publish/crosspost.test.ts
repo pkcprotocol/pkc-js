@@ -98,7 +98,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             it("a cid that does not match the embedded bytes fails local validation", async () => {
                 const wrong = { ...crosspost, cid: "QmYjtig7VJQ6XsnUjqqJvj7QaMcCAwtrgNdahSiFofrE7o" };
                 const post = await generateMockPost({ communityAddress, pkc, postProps: { crosspost: wrong } });
-                await expect(post.publish()).rejects.toThrow();
+                // Asserting the reason, not just that something threw: a bare toThrow() would also
+                // pass on a network failure or a broken fixture, so it would not prove check 1 of
+                // tier 1 is what refused the publication.
+                await expect(post.publish()).rejects.toMatchObject({
+                    code: "ERR_SIGNATURE_IS_INVALID",
+                    details: { signatureValidity: { reason: messages.ERR_CROSSPOST_CID_DOES_NOT_MATCH_EMBEDDED_COMMENT } }
+                });
             });
         });
 

@@ -91,7 +91,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("adding a field to the embedded record without updating cid is rejected", async () => {
-                const tampered = clone(crosspostRef) as Record<string, any>;
+                const tampered = clone(crosspostRef);
                 tampered.comment.thumbnailUrl = "https://example.com/attacker.png";
                 expect(await verify(await signCrossposting(tampered))).to.deep.equal({
                     valid: false,
@@ -100,7 +100,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("removing a field from the embedded record without updating cid is rejected", async () => {
-                const tampered = clone(crosspostRef) as Record<string, any>;
+                const tampered = clone(crosspostRef);
                 delete tampered.comment.title;
                 expect(await verify(await signCrossposting(tampered))).to.deep.equal({
                     valid: false,
@@ -303,14 +303,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("check 3 still applies: a reserved field on the unsigned nested record is rejected", async () => {
-                const reserved = clone(crosspostRef) as Record<string, any>;
-                reserved.comment.cid = crosspostRef.cid; // `cid` is runtime-only on a CommentIpfs
+                // `cid` is runtime-only on a CommentIpfs, so widening just that one field keeps the
+                // rest of the record type-checked.
+                const reserved = clone(crosspostRef) as { cid: string; comment: CommentIpfsType & { cid?: string } };
+                reserved.comment.cid = crosspostRef.cid;
                 reserved.cid = await calculateIpfsHash(deterministicStringify(reserved.comment)!);
-                expect(
-                    await verify(
-                        await signCrossposting(await embedWithUnsignedCrosspost(reserved as { cid: string; comment: CommentIpfsType }))
-                    )
-                ).to.deep.equal({
+                expect(await verify(await signCrossposting(await embedWithUnsignedCrosspost(reserved)))).to.deep.equal({
                     valid: false,
                     reason: messages.ERR_CROSSPOST_COMMENT_INCLUDES_RESERVED_FIELD
                 });
