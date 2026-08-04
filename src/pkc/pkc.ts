@@ -139,6 +139,7 @@ import type { Libp2pJsClient } from "../helia/libp2pjsClient.js";
 import type { AuthorNameRpcParam, CidRpcParam, RpcFetchCidResult } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { cleanWireAuthor, normalizeCreatePublicationAuthor } from "../publications/publication-author.js";
+import { stripNameResolvedFromCrosspost } from "../publications/comment/crosspost-runtime.js";
 import { IndexedTrackedInstanceRegistry, TrackedInstanceRegistry } from "./tracked-instance-registry.js";
 import {
     findUpdatingCommunity,
@@ -533,6 +534,12 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             }
             if (isEmpty(cleanedAuthor)) cleanedAuthor = undefined;
         }
+        // A client re-crossposting what it read passes comment.crosspost straight back in, and that is
+        // the runtime copy, which may carry author.nameResolved. It is about to be signed and hashed
+        // into crosspost.cid, so strip it. finalOptions is already a deep clone, so this cannot reach
+        // back into the caller's object. Nothing else in the embedded record is normalized: it is a
+        // record somebody else signed and its bytes have to survive verbatim.
+        if ("crosspost" in finalOptions && finalOptions.crosspost) stripNameResolvedFromCrosspost(finalOptions.crosspost);
         const filledTimestamp = typeof finalOptions.timestamp !== "number" ? timestamp() : finalOptions.timestamp;
         const filledSigner = await this.createSigner(finalOptions.signer);
         const filledProtocolVersion = finalOptions.protocolVersion || env.PROTOCOL_VERSION;
@@ -591,6 +598,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         if (options.raw.commentUpdate) commentInstance._initCommentUpdate(options.raw.commentUpdate);
         // nameResolved is strictly runtime — never carry it over when cloning
         if (commentInstance.author?.nameResolved !== undefined) delete commentInstance.author.nameResolved;
+        if (commentInstance.crosspost) stripNameResolvedFromCrosspost(commentInstance.crosspost);
         return commentInstance;
     }
 
@@ -656,6 +664,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             else commentInstance._initIpfsProps(parseCommentIpfsSchemaWithPKCErrorIfItFails(commentIpfs));
             // nameResolved is strictly runtime — never carry it over
             if (commentInstance.author?.nameResolved !== undefined) delete commentInstance.author.nameResolved;
+            if (commentInstance.crosspost) stripNameResolvedFromCrosspost(commentInstance.crosspost);
         } else if ("signature" in options) {
             // parsedOptions is CommentPubsubMessage
             const parsedOptions = parseCommentPubsubMessagePublicationWithPKCErrorIfItFails(options);

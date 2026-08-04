@@ -30,6 +30,12 @@ import { BaseClientsManager } from "../clients/base-client-manager.js";
 import { parseJsonWithPKCErrorIfFails, parsePageIpfsSchemaWithPKCErrorIfItFails } from "../schema/schema-util.js";
 import type { CommunityIpfsType } from "../community/types.js";
 import { buildRuntimeAuthor } from "../publications/publication-author.js";
+import {
+    buildCrosspostRuntimeFieldsFromCache,
+    cloneCrosspostForRuntime,
+    extractCrosspostRuntimeFields
+} from "../publications/comment/crosspost-runtime.js";
+import type { CrosspostRuntimeFields } from "../publications/comment/crosspost-runtime.js";
 
 export const TIMEFRAMES_TO_SECONDS: Record<Timeframe, number> = Object.freeze({
     HOUR: 3600, // 60 * 60
@@ -172,6 +178,8 @@ export function mapModqueuePageIpfsCommentToModQueuePageJsonComment(
         shortCid: shortifyCid(pageComment.commentUpdate.cid),
         shortCommunityAddress: shortifyAddress(communityAddr),
         postCid,
+        // See the note in mapPageIpfsCommentToPageJsonComment
+        ...(pageComment.comment.crosspost ? { crosspost: cloneCrosspostForRuntime(pageComment.comment.crosspost) } : {}),
         raw: {
             comment: pageComment.comment,
             commentUpdate: pageComment.commentUpdate
@@ -233,6 +241,9 @@ export function mapPageIpfsCommentToPageJsonComment(pageComment: PageIpfs["comme
         // TODO flairs merging strategy will likely change — currently: mod flairs > author edit flairs > original comment flairs
         flairs: pageComment.commentUpdate.flairs || pageComment.commentUpdate.edit?.flairs || pageComment.comment.flairs,
         postCid,
+        // A copy, so applying the runtime author.nameResolved below never touches raw.comment, whose
+        // bytes crosspost.cid hashes. See src/publications/comment/crosspost-runtime.ts.
+        ...(pageComment.comment.crosspost ? { crosspost: cloneCrosspostForRuntime(pageComment.comment.crosspost) } : {}),
         raw: {
             comment: pageComment.comment,
             commentUpdate: pageComment.commentUpdate
@@ -349,6 +360,7 @@ export function findCommentInHierarchicalPageIpfsRecursively(page: PageIpfs, tar
 // Runtime fields types — derived from Comment so tsc catches changes
 export type CommentRuntimeFields = {
     author?: Partial<Pick<Comment["author"], "nameResolved">>;
+    crosspost?: CrosspostRuntimeFields;
 };
 
 export type PageRuntimeFields = {
@@ -359,12 +371,22 @@ function _buildCommentRuntimeFields(
     comment: PageIpfs["comments"][0] | ModQueuePageIpfs["comments"][0],
     cache: LRUCache<string, boolean>
 ): CommentRuntimeFields {
+    const fields: CommentRuntimeFields = {};
+
+    // The embedded author of a crossposting comment in this page, whose verdict the RPC client has no
+    // way to reach on its own.
+    const crosspost = comment.comment.crosspost
+        ? buildCrosspostRuntimeFieldsFromCache({ crosspost: comment.comment.crosspost, cache })
+        : undefined;
+    if (crosspost) fields.crosspost = crosspost;
+
     const domain = getAuthorNameFromWire(comment.comment.author);
-    if (!domain) return {};
+    if (!domain) return fields;
     const key = sha256(domain + comment.comment.signature.publicKey);
     const cached = cache.get(key);
-    if (typeof cached !== "boolean") return {};
-    return { author: { nameResolved: cached } };
+    if (typeof cached !== "boolean") return fields;
+    fields.author = { nameResolved: cached };
+    return fields;
 }
 
 export function buildPageRuntimeFields(page: PageIpfs | ModQueuePageIpfs, cache: LRUCache<string, boolean>): PageRuntimeFields {
@@ -404,6 +426,10 @@ function extractCommentRuntimeFieldsFromParsedComment(
 ): CommentRuntimeFields & { replies?: { pages?: Record<string, PageRuntimeFields> } } {
     const runtimeFields: CommentRuntimeFields & { replies?: { pages?: Record<string, PageRuntimeFields> } } = {};
     if (typeof comment.author?.nameResolved === "boolean") runtimeFields.author = { nameResolved: comment.author.nameResolved };
+    if (comment.crosspost) {
+        const crosspost = extractCrosspostRuntimeFields(comment.crosspost);
+        if (crosspost) runtimeFields.crosspost = crosspost;
+    }
 
     const repliesPages = "replies" in comment ? comment.replies?.pages : undefined;
     if (repliesPages) {

@@ -143,9 +143,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 });
             });
 
+            // shortAddress rather than nameResolved, even though nameResolved is the field this check
+            // matters most for: createComment now strips nameResolved from a crosspost before signing
+            // (issue #251), so building the record through it would move the cid and fire check 1
+            // instead. crosspost/name-resolved.test.ts covers nameResolved specifically, by signing
+            // directly the way a foreign implementation would.
             it("an embedded record whose author carries a reserved field is rejected", async () => {
                 const tampered = clone(crosspostRef) as Record<string, any>;
-                tampered.comment.author = { ...tampered.comment.author, nameResolved: true };
+                tampered.comment.author = { ...tampered.comment.author, shortAddress: "12D3KooWN5rL" };
                 tampered.cid = await calculateIpfsHash(deterministicStringify(tampered.comment)!);
                 expect(await verify(await signCrossposting(tampered))).to.deep.equal({
                     valid: false,
@@ -228,7 +233,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             it("check 3 still applies at the innermost level: a reserved author field on the inner record is rejected", async () => {
                 const reservedInner = clone(crosspostRef) as Record<string, any>;
-                reservedInner.comment.author = { ...reservedInner.comment.author, nameResolved: true };
+                // shortAddress rather than nameResolved, for the reason given on check 3 above. It
+                // matters more here: an inner failure flattens to the signature message either way, so
+                // a stripped field would move the inner cid and this would still pass, on check 1.
+                reservedInner.comment.author = { ...reservedInner.comment.author, shortAddress: "12D3KooWN5rL" };
                 reservedInner.cid = await calculateIpfsHash(deterministicStringify(reservedInner.comment)!);
 
                 // flattened to the signature message, see above

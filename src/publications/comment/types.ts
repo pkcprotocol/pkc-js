@@ -16,6 +16,7 @@ import {
     DbRepliesSortEntrySchema,
     DbPostsSchema
 } from "./schema.js";
+import type { Crosspost } from "./schema.js";
 import { CommunityAuthorSchema } from "../../schema/schema.js";
 import { RpcCommentEventResultSchema, RpcCommentUpdateResultSchema } from "../../clients/rpc-client/schema.js";
 import type { JsonOfClass, RuntimeAuthorWithCommentUpdateType } from "../../types.js";
@@ -43,6 +44,17 @@ export type CommentUpdateForDisapprovedPendingComment = z.infer<typeof CommentUp
 export type CommentUpdateForChallengeVerification = z.infer<typeof CommentUpdateForChallengeVerificationSchema>;
 
 export type CommentIpfsType = z.infer<typeof CommentIpfsSchema>;
+
+// What a Comment instance exposes as comment.crosspost, as opposed to the wire record kept at
+// comment.raw.comment.crosspost. Identical to Crosspost except that each level's author may carry
+// nameResolved, which is runtime-only and never on the wire. See src/publications/comment/crosspost-runtime.ts.
+export type CrosspostRuntime = {
+    cid: Crosspost["cid"];
+    comment: Omit<Crosspost["comment"], "author" | "crosspost"> & {
+        author?: NonNullable<Crosspost["comment"]["author"]> & { nameResolved?: boolean };
+        crosspost?: CrosspostRuntime;
+    };
+};
 
 export type CommentChallengeRequestToEncryptType = z.infer<typeof CommentChallengeRequestToEncryptSchema>;
 

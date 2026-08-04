@@ -15,6 +15,7 @@ import { PKC } from "../pkc/pkc.js";
 import { parsePageCidParams } from "./schema-util.js";
 import { getAuthorNameFromRuntime } from "../publications/publication-author.js";
 import { sha256 } from "js-sha256";
+import { applyNameResolvedCacheToCrosspost } from "../publications/comment/crosspost-runtime.js";
 import type { PageRuntimeFields } from "./util.js";
 
 type BaseProps = {
@@ -70,6 +71,12 @@ export class BasePages {
     _applyNameResolvedCacheToPage(page: PageTypeJson | ModQueuePageTypeJson) {
         const cache = this._clientsManager._pkc._memCaches.nameResolvedCache;
         for (const comment of page.comments) {
+            // The embedded author of a crossposting comment in this page. Only a cached verdict is
+            // applied, which is free; no resolution is triggered on its behalf, since a page holds
+            // many comments and each could name a different domain. A Comment instance does trigger
+            // one for its own crosspost, see Comment._resolveAuthorNamesInBackground.
+            if (comment.crosspost) applyNameResolvedCacheToCrosspost({ crosspost: comment.crosspost, cache });
+
             const domain = getAuthorNameFromRuntime(comment.author);
             if (!domain) continue;
             const cacheKey = sha256(domain + comment.signature.publicKey);
