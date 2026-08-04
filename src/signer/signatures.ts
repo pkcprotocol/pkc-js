@@ -561,6 +561,24 @@ async function _verifyCrosspost({
     });
     if (!validRes.valid) return { valid: false, reason: messages.ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID };
 
+    // 4. a nested crosspost the embedded record did not sign. signedPropertyNames lives inside
+    // `signature` and is therefore not covered by it, and _signJson derives it from the fields
+    // actually present — so a record signed with no crosspost simply omits it from the list, and
+    // attaching one afterwards keeps the signature valid. The pick above would then hide that nested
+    // record from the recursion in verifyCommentPubsubMessage, leaving an arbitrary subtree carried,
+    // stored and renderable with none of the three checks ever applied to it. Verify it here off the
+    // raw record instead. Guarded on the signed case having already descended, otherwise a chain
+    // would be walked twice per level.
+    if (crosspost.comment.crosspost && !keysCasted.includes("crosspost")) {
+        const unsignedNested = await _verifyCrosspost({
+            crosspost: crosspost.comment.crosspost,
+            resolveAuthorNames,
+            clientsManager,
+            abortSignal
+        });
+        if (!unsignedNested.valid) return unsignedNested;
+    }
+
     return { valid: true };
 }
 

@@ -250,6 +250,71 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         });
 
+        // signedPropertyNames lives inside `signature`, which is not part of the signed bytes, so a
+        // record gets to choose which of its own fields are verified. Nothing exotic is needed to
+        // exploit that: _signJson derives the list from the fields actually present, so a post signed
+        // without a crosspost simply has no `crosspost` entry, and attaching one afterwards leaves
+        // the signature valid. The pick in check 2 then hides the nested record from the recursion in
+        // verifyCommentPubsubMessage, so checks 1 and 3 never run on it either and an arbitrary
+        // subtree rides along verified by nothing.
+        //
+        // These reasons are the specific ones rather than the flattened
+        // ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID above, because this recursion returns
+        // _verifyCrosspost's result directly instead of routing it back through
+        // verifyCommentPubsubMessage.
+        describe("a record cannot skip its own subtree by leaving crosspost out of signedPropertyNames", () => {
+            // { cid, comment } whose comment carries an UNSIGNED crosspost pointing at `nested`.
+            const embedWithUnsignedCrosspost = async (nested: { cid: string; comment: CommentIpfsType }) => {
+                const carrier = (await generateMockPost({ communityAddress, pkc })).raw.pubsubMessageToPublish!;
+                const record = { ...carrier, depth: 0, crosspost: nested } as unknown as CommentIpfsType; // comment.depth: a post
+                return { cid: await calculateIpfsHash(deterministicStringify(record)!), comment: record };
+            };
+
+            it("the premise: a comment signed without a crosspost does not list one as signed", async () => {
+                const plain = (await generateMockPost({ communityAddress, pkc })).raw.pubsubMessageToPublish!;
+                expect(plain.signature.signedPropertyNames).to.not.include("crosspost");
+            });
+
+            it("check 1 still applies: a cid not matching the unsigned nested bytes is rejected", async () => {
+                const badCid = clone(crosspostRef);
+                badCid.cid = await calculateIpfsHash("some other bytes entirely");
+                expect(await verify(await signCrossposting(await embedWithUnsignedCrosspost(badCid)))).to.deep.equal({
+                    valid: false,
+                    reason: messages.ERR_CROSSPOST_CID_DOES_NOT_MATCH_EMBEDDED_COMMENT
+                });
+            });
+
+            it("check 2 still applies: a broken signature on the unsigned nested record is rejected", async () => {
+                const broken = clone(crosspostRef);
+                broken.comment.content = "tampered at the bottom of the chain";
+                broken.cid = await calculateIpfsHash(deterministicStringify(broken.comment)!);
+                expect(await verify(await signCrossposting(await embedWithUnsignedCrosspost(broken)))).to.deep.equal({
+                    valid: false,
+                    reason: messages.ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID
+                });
+            });
+
+            it("check 3 still applies: a reserved field on the unsigned nested record is rejected", async () => {
+                const reserved = clone(crosspostRef) as Record<string, any>;
+                reserved.comment.cid = crosspostRef.cid; // `cid` is runtime-only on a CommentIpfs
+                reserved.cid = await calculateIpfsHash(deterministicStringify(reserved.comment)!);
+                expect(
+                    await verify(
+                        await signCrossposting(await embedWithUnsignedCrosspost(reserved as { cid: string; comment: CommentIpfsType }))
+                    )
+                ).to.deep.equal({
+                    valid: false,
+                    reason: messages.ERR_CROSSPOST_COMMENT_INCLUDES_RESERVED_FIELD
+                });
+            });
+
+            it("a well-formed unsigned nested crosspost still verifies", async () => {
+                expect(await verify(await signCrossposting(await embedWithUnsignedCrosspost(crosspostRef)))).to.deep.equal({
+                    valid: true
+                });
+            });
+        });
+
         // There is deliberately no cap on how many crossposts can nest inside one another: the 40kb
         // publication limit is the only bound. These pin what that bound actually buys, so a change
         // that shrinks the per-level byte cost (and therefore lets chains nest further) or that makes
