@@ -29,11 +29,14 @@ import {
     waitTillPostInCommunityInstancePages,
     waitTillReplyInParentPagesInstance
 } from "../../../dist/node/test/test-util.js";
+import { messages } from "../../../dist/node/errors.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsType, CommentIpfsWithCidDefined } from "../../../dist/node/publications/comment/types.js";
+import type { PageTypeJson } from "../../../dist/node/pages/types.js";
 
 describe("crossposts through pages", () => {
     let pkc: PKC;
@@ -200,6 +203,160 @@ describe("crossposts through pages", () => {
             expect(inPage!.crosspost?.cid).to.equal(crosspost.cid);
             expect(inPage!.crosspost?.comment).to.deep.equal(crosspost.comment);
             expect(await embeddedCidOf(inPage!.raw.comment)).to.equal(crosspost.cid);
+        });
+    });
+
+    // Everything above proves a good crosspost survives the page path. That is only half of it: the
+    // reason verifyPageComment runs verifyCommentIpfs at all is to reject a bad one, and a page is
+    // the load path a feed client actually uses. crosspost/client-consumption.test.ts covers the
+    // rejection through getComment, update() and validateComment, none of which touch pages.
+    //
+    // Tampering after the fact rather than publishing a bad crosspost: the community enforces tier 1
+    // at acceptance, so it will never mint a page containing one. validatePage is the manual entry
+    // point for exactly this, and it requires validatePages: false, hence its own PKC.
+    describe("a page carrying a bad crosspost is rejected", () => {
+        let manualPKC: PKC;
+        let manualCommunity: RemoteCommunity;
+        let validPostsPage: PageTypeJson;
+        let manualOriginal: Comment;
+        let validRepliesPage: PageTypeJson;
+
+        // A CommentIpfs whose author validly signed over the crosspost it carries, so the outer
+        // signature is genuine and whatever fails is one of the three crosspost checks. Tampering
+        // with an already-published comment's crosspost instead would break its own signature first
+        // and the test would pass for the wrong reason.
+        const recordCrossposting = async (badCrosspost: unknown): Promise<CommentIpfsType> => {
+            const signed = await generateMockPost({
+                communityAddress: community.address,
+                pkc: remotePKC,
+                postProps: { crosspost: badCrosspost } as Partial<Parameters<typeof generateMockPost>[0]["postProps"]>
+            });
+            // depth: what the community adds on acceptance, making this CommentIpfs-shaped
+            return { ...signed.raw.pubsubMessageToPublish!, depth: 0 } as unknown as CommentIpfsType;
+        };
+
+        const mismatchedCid = () => {
+            const bad = JSON.parse(JSON.stringify(crosspost));
+            bad.comment.content = "the crossposter rewrote this and left cid alone";
+            return bad;
+        };
+
+        const brokenEmbeddedSignature = async () => {
+            const bad = JSON.parse(JSON.stringify(crosspost));
+            bad.comment.content = "tampered, and cid updated to match so check 1 passes";
+            bad.cid = await calculateIpfsHash(deterministicStringify(bad.comment)!);
+            return bad;
+        };
+
+        const reservedFieldOnEmbedded = async () => {
+            const bad = JSON.parse(JSON.stringify(crosspost));
+            bad.comment.cid = crosspost.cid; // cid is runtime-only on a CommentIpfs
+            bad.cid = await calculateIpfsHash(deterministicStringify(bad.comment)!);
+            return bad;
+        };
+
+        // Swaps the crossposting comment's record inside a copy of a real page.
+        const pageWithRecordSwappedIn = (page: PageTypeJson, targetCid: string, record: CommentIpfsType): PageTypeJson => {
+            const copy = JSON.parse(JSON.stringify(page)) as PageTypeJson;
+            const target = copy.comments.find((c) => c.cid === targetCid);
+            if (!target) throw Error("the crossposting comment is not in this page, the test setup is wrong");
+            target.raw.comment = record;
+            return copy;
+        };
+
+        const expectRejected = async (
+            validate: () => Promise<void>,
+            expectedCode: "ERR_POSTS_PAGE_IS_INVALID" | "ERR_REPLIES_PAGE_IS_INVALID",
+            expectedReason: string
+        ) => {
+            // Captured rather than asserted inside a catch, so "it validated fine" reports as itself
+            // instead of as an assertion error swallowed by the catch block.
+            let error: PKCError | undefined;
+            try {
+                await validate();
+            } catch (e) {
+                error = e as PKCError;
+            }
+            expect(error, "a page carrying a bad crosspost must not validate").to.exist;
+            expect(error!.code).to.equal(expectedCode);
+            expect(error!.details.signatureValidity.reason).to.equal(expectedReason);
+        };
+
+        beforeAll(async () => {
+            manualPKC = await mockPKCNoDataPathWithOnlyKuboClient({ pkcOptions: { validatePages: false } });
+
+            manualCommunity = await manualPKC.createCommunity({ address: community.address });
+            await manualCommunity.update();
+            await waitTillPostInCommunityInstancePages(
+                crosspostingPost as Required<Pick<CommentIpfsWithCidDefined, "cid"> & { communityAddress: string }>,
+                manualCommunity
+            );
+            validPostsPage = manualCommunity.posts.pages.hot!;
+
+            manualOriginal = await manualPKC.createComment({ cid: original.cid! });
+            await manualOriginal.update();
+            await waitTillReplyInParentPagesInstance(
+                crosspostingReply as Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>,
+                manualOriginal
+            );
+            validRepliesPage = manualOriginal.replies.pages.best!;
+        });
+
+        afterAll(async () => {
+            await manualOriginal.stop();
+            await manualCommunity.stop();
+            await manualPKC.destroy();
+        });
+
+        // Without this the rejection tests below could be passing on the tampering rather than on the
+        // crosspost, so pin that the untouched page is accepted.
+        it("the untampered posts page validates", async () => {
+            await manualCommunity.posts.validatePage(validPostsPage);
+        });
+
+        it("rejects a posts page whose comment has a mismatched crosspost.cid", async () => {
+            const record = await recordCrossposting(mismatchedCid());
+            await expectRejected(
+                () => manualCommunity.posts.validatePage(pageWithRecordSwappedIn(validPostsPage, crosspostingPost.cid!, record)),
+                "ERR_POSTS_PAGE_IS_INVALID",
+                messages.ERR_CROSSPOST_CID_DOES_NOT_MATCH_EMBEDDED_COMMENT
+            );
+        });
+
+        it("rejects a posts page whose embedded record has a broken author signature", async () => {
+            const record = await recordCrossposting(await brokenEmbeddedSignature());
+            await expectRejected(
+                () => manualCommunity.posts.validatePage(pageWithRecordSwappedIn(validPostsPage, crosspostingPost.cid!, record)),
+                "ERR_POSTS_PAGE_IS_INVALID",
+                messages.ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID
+            );
+        });
+
+        it("rejects a posts page whose embedded record carries a reserved field", async () => {
+            const record = await recordCrossposting(await reservedFieldOnEmbedded());
+            await expectRejected(
+                () => manualCommunity.posts.validatePage(pageWithRecordSwappedIn(validPostsPage, crosspostingPost.cid!, record)),
+                "ERR_POSTS_PAGE_IS_INVALID",
+                messages.ERR_CROSSPOST_COMMENT_INCLUDES_RESERVED_FIELD
+            );
+        });
+
+        // Replies pages are verified through a different entry point than posts pages, with a parent
+        // comment in hand, so the delegation to verifyCommentIpfs is worth pinning separately.
+        it("the untampered replies page validates", async () => {
+            await manualOriginal.replies.validatePage(validRepliesPage);
+        });
+
+        it("rejects a replies page whose comment has a mismatched crosspost.cid", async () => {
+            const asReply = await generateMockComment(original as CommentIpfsWithCidDefined, remotePKC, false, {
+                crosspost: mismatchedCid()
+            });
+            const record = { ...asReply.raw.pubsubMessageToPublish!, depth: 1 } as unknown as CommentIpfsType;
+            await expectRejected(
+                () => manualOriginal.replies.validatePage(pageWithRecordSwappedIn(validRepliesPage, crosspostingReply.cid!, record)),
+                "ERR_REPLIES_PAGE_IS_INVALID",
+                messages.ERR_CROSSPOST_CID_DOES_NOT_MATCH_EMBEDDED_COMMENT
+            );
         });
     });
 });
