@@ -50,6 +50,8 @@ every client fetch path, since `verifyCommentIpfs` delegates to it.
 1. `CID(deterministicStringify(crosspost.comment)) === crosspost.cid`
 2. the embedded record's author signature verifies
 3. the embedded record contains no reserved/runtime fields
+4. a nested `crosspost` the embedded record did not sign is verified from the raw record, so a chain
+   cannot opt out of its own checks. See below.
 
 This proves who wrote the content, and that they *claim* it was posted to the community named in the
 embedded record. It proves nothing about the unsigned extras, or about that community having
@@ -58,6 +60,34 @@ accepted it.
 The embedded record is deliberately **not** run through `verifyCommentIpfs`: that compares the
 record's community against the instance's, and the embedded record belongs to a different community
 by construction.
+
+#### Why check 4 exists: a chain must not choose whether it is verified
+
+Checks 1 to 3 only exist for a given record if the recursion reached it, and until check 4 the
+recursion was implicit: `_verifyCrosspost` delegates to `verifyCommentPubsubMessage`, which descends
+on `comment.crosspost`, and it was handed a record already narrowed by
+`pick(comment, ["signature", ...signedPropertyNames])`.
+
+`signedPropertyNames` lives inside `signature`, which is not part of the signed bytes, so a record
+chooses it freely. Nothing exotic is needed: `_signJson` derives the list from the fields actually
+present, so a post signed with no crosspost simply has no `crosspost` entry, and attaching one
+afterwards leaves the signature valid. The pick then hid that nested record from the recursion, and
+an arbitrary subtree rode along with none of the three checks applied — a nested `cid` that lies
+about its own bytes (so a tier-2 fetch attests to content that community never saw) and reserved
+runtime fields the checks exist to reject.
+
+Check 4 reads `crosspost.comment.crosspost` off the raw record instead, so every level is checked
+regardless of what the level above signed. It is guarded on the signed case having already
+descended, otherwise a chain would be walked twice per level.
+
+Note this means verified does not imply signed for a nested crosspost. That is deliberate and safe:
+shrinking `signedPropertyNames` invalidates the signature of any record the attacker did not sign
+themselves, so a record reaching check 4 was always fabricated by the attacker anyway.
+
+The cause is not crosspost-specific. Every path that picks by `signedPropertyNames` verifies a
+subset of what it renders, and it does not bite elsewhere only because community acceptance runs
+`_allFieldsOfRecordInSignedPropertyNames` on the un-picked record. A client verifying a cid it did
+not get from a community-signed page or `CommentUpdate` has no such backstop. Tracked in #249.
 
 ### Tier 2 — one fetch
 
@@ -82,7 +112,26 @@ await original.update();
 - Do not render `thumbnailUrl*` from an embedded crosspost at tier 1. It is attacker-chosen until
   tier 2.
 - Do not present "crossposted from C" as fact at tier 1. It is an author claim until tier 2.
+- Do not present the embedded record's **author** as fact either. See below.
 - Karma and deletion/removal state require tier 2 by definition.
+
+#### TODO: the embedded record's author never gets `nameResolved`
+
+`crosspost` is inert data on the instance: `comment.ts` assigns it through and nothing else reads
+it. `_resolveAuthorNamesInBackground` collects the comment's own author and its reply-page authors,
+never `crosspost.comment.author`, so `crosspost.comment.author.nameResolved` is always `undefined`.
+
+Tier 1 does not cover the gap. `address` is derived as `name || publicKey`, so an author name is
+only a claim until it resolves: anyone can generate a keypair, set `author.name` to someone else's
+domain, and sign a record that verifies cleanly. What normally catches that is domain resolution
+setting `nameResolved: false`, and it does not run here.
+
+So a client rendering "originally by `<name>`" from an embedded record has **no signal at all**,
+even after tier 1 passes.
+
+Planned, not implemented. When it lands, `nameResolved` stays a **runtime** field exactly as it is
+today: derived locally, never on the wire, and in the reserved-field lists so an incoming record
+carrying it is rejected. See `docs/protocol/wire-vs-runtime.md`.
 
 ## Host community acceptance
 
