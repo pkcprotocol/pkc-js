@@ -115,23 +115,52 @@ await original.update();
 - Do not present the embedded record's **author** as fact either. See below.
 - Karma and deletion/removal state require tier 2 by definition.
 
-#### TODO: the embedded record's author never gets `nameResolved`
+#### The embedded record's author: `crosspost.comment.author.nameResolved`
 
-`crosspost` is inert data on the instance: `comment.ts` assigns it through and nothing else reads
-it. `_resolveAuthorNamesInBackground` collects the comment's own author and its reply-page authors,
-never `crosspost.comment.author`, so `crosspost.comment.author.nameResolved` is always `undefined`.
+Tier 1 proves who **signed** the embedded record, not who they are. `address` is derived as
+`name || publicKey`, so an author name is only a claim: anyone can generate a keypair, set
+`author.name` to somebody else's domain, and sign a record that passes all three checks. What
+catches that is domain resolution, which sets `nameResolved`.
 
-Tier 1 does not cover the gap. `address` is derived as `name || publicKey`, so an author name is
-only a claim until it resolves: anyone can generate a keypair, set `author.name` to someone else's
-domain, and sign a record that verifies cleanly. What normally catches that is domain resolution
-setting `nameResolved: false`, and it does not run here.
+```ts
+comment.crosspost.comment.author.nameResolved;
+```
 
-So a client rendering "originally by `<name>`" from an embedded record has **no signal at all**,
-even after tier 1 passes.
+| value | meaning |
+|---|---|
+| `true` | the name's TXT record points at the key that signed the embedded record |
+| `false` | it points at somebody else. Do not render the name as an identity |
+| `undefined` | not resolved yet, no resolver in this instance for that TLD, or the author has no name. **Not** a verdict |
 
-Planned, not implemented. When it lands, `nameResolved` stays a **runtime** field exactly as it is
-today: derived locally, never on the wire, and in the reserved-field lists so an incoming record
-carrying it is rejected. See `docs/protocol/wire-vs-runtime.md`.
+`nameResolved` says nothing about whether the referenced community ever accepted the comment. That
+is still tier 2.
+
+**`comment.crosspost` is a copy, `comment.raw.comment.crosspost` is the wire record.** `crosspost.cid`
+hashes the embedded record whole, so writing a runtime field into the wire object would stop it
+reproducing its own cid, break page generation and get the comment purged by the signature sweep.
+The copy is one shallow copy per chain level plus a copy of each level's author; everything below an
+author is shared by reference. `nameResolved` is the only field written into it.
+
+Passing the copy back to `createComment` is the normal way to re-crosspost something you just read,
+and it round trips: the publish path strips `nameResolved` at every level before signing, and a
+record that arrives on the wire still carrying it is rejected by check 3.
+
+**Only the first chain level triggers a resolution.** A chain is attacker-controlled in both depth
+and content, so walking all of it would turn one fetched comment into an unbounded number of name
+resolutions. Deeper levels, and crossposting comments inside a page, still pick up a verdict already
+in `nameResolvedCache`, they just do not get one triggered on their behalf.
+
+RPC clients receive the verdict through the `runtimeFields` transport rather than resolving locally,
+since they usually have no `nameResolvers` configured and would wrongly conclude `false`.
+
+See `docs/protocol/wire-vs-runtime.md` and issue #251.
+
+#### Open question: a crosspost is not "content"
+
+`CreateCommentOptionsWithRefinementSchema` still requires `link || content || title`, and `crosspost`
+is not in that list, so a comment whose only payload is the crosspost cannot be created. For a post
+this is moot, since posts need a title anyway. For a reply it means a bare "reposting this" is not
+expressible without writing something. Undecided whether `crosspost` should satisfy the refinement.
 
 ## Host community acceptance
 
