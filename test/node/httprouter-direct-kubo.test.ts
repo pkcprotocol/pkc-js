@@ -20,7 +20,6 @@ import { path as getKuboBinaryPath } from "kubo";
 import PKC from "../../dist/node/index.js";
 import { createSubWithNoChallenge, resolveWhenConditionIsTrue } from "../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../helpers/conditional-tests.js";
-import { findFreePort } from "../helpers/free-port.js";
 import { MockHttpRouter } from "../../dist/node/runtime/node/test/mock-http-router.js";
 import type { PKC as PKCType } from "../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
@@ -33,13 +32,15 @@ const ISOLATED_KUBO_API_PORT = 25190;
 const ISOLATED_KUBO_GATEWAY_PORT = 25191;
 const ISOLATED_KUBO_SWARM_PORT = 25192;
 const kuboApiUrl = `http://localhost:${ISOLATED_KUBO_API_PORT}/api/v0`;
-// The port a rewriter proxy WOULD bind if this file's PKC instances started one. Claimed per-run via
-// PKC_ADDRESSES_REWRITER_START_PORT instead of probing the production default (19575): that default
-// is process-wide, every PKC built without an explicit httpRoutersOptions spins up a proxy on it
-// (the schema default is six production routers), and test/node/httprouter.test.ts deliberately runs
-// one there. Probing a port other files legitimately occupy made this assertion fail purely on
-// vitest --parallel scheduling. Assigned in beforeAll, before any PKC is constructed.
-let legacyRewriterProxyPort: number;
+// The port a rewriter proxy WOULD bind if this file's PKC instances started one. Claimed via
+// PKC_ADDRESSES_REWRITER_START_PORT instead of probing the production default (19575), because that
+// default is not this file's to assert on: ports are machine-wide, every PKC built without an
+// explicit httpRoutersOptions claims 19575 upward (the schema default is six production routers),
+// and test/node/httprouter.test.ts deliberately runs one on its own base. Probing a port other files
+// legitimately occupy made this assertion fail purely on vitest --parallel scheduling. 19800 is
+// outside that band, outside the Linux ephemeral range (32768-60999) so the OS will not hand it to
+// an unrelated socket, and unused elsewhere in the repo.
+const legacyRewriterProxyPort = 19800;
 
 async function getKuboConfig(key: string): Promise<unknown> {
     const res = await fetch(`${kuboApiUrl}/config?arg=${encodeURIComponent(key)}`, { method: "POST" });
@@ -151,9 +152,10 @@ describeSkipIfRpc(`kubo#11213 regression: Kubo provides valid addresses directly
     const repoDir = path.join(process.cwd(), `.tmp/kubo-direct-router-test-${uuidv4()}`);
     let mockHttpRouter: MockHttpRouter;
     let kuboProcess: ChildProcess | undefined;
+    let previousStartPortEnv: string | undefined;
 
     beforeAll(async () => {
-        legacyRewriterProxyPort = await findFreePort();
+        previousStartPortEnv = process.env.PKC_ADDRESSES_REWRITER_START_PORT;
         process.env.PKC_ADDRESSES_REWRITER_START_PORT = String(legacyRewriterProxyPort);
         mockHttpRouter = new MockHttpRouter();
         await mockHttpRouter.start();
@@ -167,7 +169,10 @@ describeSkipIfRpc(`kubo#11213 regression: Kubo provides valid addresses directly
             fs.rmSync(repoDir, { recursive: true, force: true });
         } catch {}
         if (mockHttpRouter) await mockHttpRouter.destroy();
-        delete process.env.PKC_ADDRESSES_REWRITER_START_PORT;
+        // Restore rather than delete: the variable is process-wide, so an outer runner or suite may
+        // have set it and is entitled to still see its own value after this file is done.
+        if (previousStartPortEnv === undefined) delete process.env.PKC_ADDRESSES_REWRITER_START_PORT;
+        else process.env.PKC_ADDRESSES_REWRITER_START_PORT = previousStartPortEnv;
     }, 60_000);
 
     // run once with the sweep provider disabled (current production config set by

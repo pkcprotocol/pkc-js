@@ -2,7 +2,6 @@ import { beforeAll, afterAll } from "vitest";
 import PKC from "../../dist/node/index.js";
 import { createSubWithNoChallenge, resolveWhenConditionIsTrue } from "../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../helpers/conditional-tests.js";
-import { findFreePort } from "../helpers/free-port.js";
 import { MockHttpRouter } from "../../dist/node/runtime/node/test/mock-http-router.js";
 import type { PKC as PKCType } from "../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
@@ -14,16 +13,22 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
     let mockHttpRouter: MockHttpRouter;
     let httpRouterUrls: string[] = [];
 
-    // Claimed per-run rather than hardcoded to the production default (19575). This file both starts
-    // a rewriter proxy and asserts which port it landed on, so sharing that constant with any other
-    // parallel test file makes both sides flaky — see test/node/httprouter-direct-kubo.test.ts, which
-    // asserts the opposite (that no proxy is listening).
-    let startPort: number;
+    // A base of this file's own, claimed via PKC_ADDRESSES_REWRITER_START_PORT, rather than the
+    // production default of 19575. This file both starts a rewriter proxy and asserts which port it
+    // landed on, so it cannot share a base with anything else running concurrently. 19575 is the
+    // worst possible choice for that: ports are machine-wide, and every PKC built without an explicit
+    // httpRoutersOptions claims 19575 upward (the schema default is six production routers), so any
+    // other test file in flight under --parallel occupies that band. 19700 is outside it, outside the
+    // Linux ephemeral range (32768-60999) so the OS will not hand it to an unrelated socket, and
+    // unused elsewhere in the repo. See test/node/httprouter-direct-kubo.test.ts, which asserts the
+    // opposite (that no proxy is listening) on its own base.
+    const startPort = 19700;
 
     let pkc: PKCType;
+    let previousStartPortEnv: string | undefined;
 
     beforeAll(async () => {
-        startPort = await findFreePort();
+        previousStartPortEnv = process.env.PKC_ADDRESSES_REWRITER_START_PORT;
         process.env.PKC_ADDRESSES_REWRITER_START_PORT = String(startPort);
         mockHttpRouter = new MockHttpRouter();
         await mockHttpRouter.start();
@@ -37,7 +42,10 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
         if (mockHttpRouter) {
             await mockHttpRouter.destroy();
         }
-        delete process.env.PKC_ADDRESSES_REWRITER_START_PORT;
+        // Restore rather than delete: the variable is process-wide, so an outer runner or suite may
+        // have set it and is entitled to still see its own value after this file is done.
+        if (previousStartPortEnv === undefined) delete process.env.PKC_ADDRESSES_REWRITER_START_PORT;
+        else process.env.PKC_ADDRESSES_REWRITER_START_PORT = previousStartPortEnv;
     });
 
     it(`address rewriter proxy should not be taken before we start pkc`, async () => {

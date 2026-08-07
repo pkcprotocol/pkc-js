@@ -6,6 +6,8 @@ import { PKCError } from "../../pkc-error.js";
 import { isDeepEqual } from "remeda";
 import tcpPortUsed from "tcp-port-used";
 
+const MAX_TCP_PORT = 65535;
+
 type KuboRouterEntry = {
     Type: string;
     Parameters: {
@@ -182,7 +184,7 @@ export async function setupKuboAddressesRewriterAndHttpRouters(pkc: PKC): Promis
     // endpoint set bounces the daemon, so the base has to stay stable across restarts.
     const parsedStartPortOverride = Number(process.env.PKC_ADDRESSES_REWRITER_START_PORT);
     let addressesRewriterStartPort =
-        Number.isInteger(parsedStartPortOverride) && parsedStartPortOverride > 0 && parsedStartPortOverride <= 65535
+        Number.isInteger(parsedStartPortOverride) && parsedStartPortOverride > 0 && parsedStartPortOverride <= MAX_TCP_PORT
             ? parsedStartPortOverride
             : 19575;
     for (const httpRouter of pkc.httpRoutersOptions) {
@@ -201,9 +203,16 @@ export async function setupKuboAddressesRewriterAndHttpRouters(pkc: PKC): Promis
 
         let port = addressesRewriterStartPort;
         const hostname = "127.0.0.1";
-        while (await tcpPortUsed.check(port, hostname))
-            // keep increasing port till we find an empty port
+        // keep increasing port till we find an empty port. Bounded at the top of the TCP range:
+        // tcpPortUsed.check rejects anything above it with "invalid port", so an unbounded walk would
+        // surface exhaustion as that opaque error instead of saying what actually went wrong.
+        while (await tcpPortUsed.check(port, hostname)) {
             port++;
+            if (port > MAX_TCP_PORT)
+                throw Error(
+                    `No free loopback port for the addresses rewriter proxy between ${addressesRewriterStartPort} and ${MAX_TCP_PORT}`
+                );
+        }
 
         const addressesRewriterProxyServer = new AddressesRewriterProxyServer({
             kuboClients: Object.values(pkc.clients.kuboRpcClients).map((kubo) => kubo._client),
