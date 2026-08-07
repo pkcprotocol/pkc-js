@@ -1,0 +1,52 @@
+# validate the PR title, which becomes the squashed commit message and drives the changelog
+name: CI PR title
+
+on:
+  pull_request:
+    types:
+      - 'opened'
+      - 'edited'
+      - 'reopened'
+      - 'synchronize'
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lint-pr-title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Installed by version from package.json rather than `npm ci` so the check stays in sync
+      # with the husky commit-msg hook without pulling the full devDependency tree.
+      - name: Install commitlint
+        run: |
+          CLI=$(node -p "require('./package.json').devDependencies['@commitlint/cli']")
+          CONFIG=$(node -p "require('./package.json').devDependencies['@commitlint/config-conventional']")
+          npm i --no-save --no-package-lock --no-audit --no-fund "@commitlint/cli@$CLI" "@commitlint/config-conventional@$CONFIG"
+
+      # The husky commit-msg hook only sees local commits. GitHub applies the squash message
+      # server-side from the PR title, so without this the title is never linted at all.
+      - name: Lint PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$PR_TITLE" | npx commitlint --config commitlint.config.cjs
+
+      - name: Check the PR title does not hide releasable commits
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits" \
+            --paginate --jq '.[].commit.message | split("\n")[0]' > "$RUNNER_TEMP/commit-subjects.txt"
+          node .github/workflows/check-pr-title-type.cjs "$RUNNER_TEMP/commit-subjects.txt"
