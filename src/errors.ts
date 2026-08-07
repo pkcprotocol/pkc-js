@@ -23,7 +23,7 @@ export enum messages {
     ERR_TIMEOUT_WAITING_FOR_PUBSUB_TOPIC_PEERS = "Timeout waiting for propagation of pubsub topic peers",
     ERR_PUBSUB_TOPIC_PEER_WAIT_ABORTED = "Aborted while waiting for a peer to subscribe to a pubsub topic",
     ERR_IPNS_DIRECT_FETCH_ABORTED = "Aborted while fetching an IPNS record directly from subscribers/providers",
-    ERR_TIMED_OUT_RM_MFS_FILE = "Timed out removing MFS paths. We may need to nuke the whole MFS directory and republish everything",
+    ERR_TIMED_OUT_RM_MFS_FILE = "Timed out removing MFS paths",
     ERR_ABORTED_RESOLVING_TEXT_RECORD = "Aborted resolving text record on domain",
     // PKC errors
     ERR_CALLED_COMMUNITY_STOP_WITHOUT_UPDATE = "community.stop() called without calling update() first",

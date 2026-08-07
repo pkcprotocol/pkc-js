@@ -29,12 +29,9 @@ for (let i = 0; i < depthsToTest.length; i += batchSize) {
 }
 
 for (const batch of depthBatches) {
-    // Depth suites run sequentially: each one starts its own local community whose sync loop writes
-    // postUpdates to Kubo MFS. Running them concurrently (on top of vitest file parallelism) wedges
-    // Kubo's MFS on slow Windows CI runners (ipfs/kubo#10842) and times out the whole node-local job.
     describe(`Approved modqueue batch [${batch.join(",")}]`, () => {
         for (const pendingCommentDepth of batch) {
-            describeSkipIfRpc.sequential(`Approved comments after pending approval, with depth ` + pendingCommentDepth, async () => {
+            describeSkipIfRpc(`Approved comments after pending approval, with depth ` + pendingCommentDepth, async () => {
                 let pkc: PKCType;
                 let community: LocalCommunity | RpcLocalCommunity;
                 let approvedComment: Comment;
@@ -82,7 +79,7 @@ for (const batch of depthBatches) {
                     await remotePKC.destroy();
                 });
 
-                it.sequential("Should approve comment using createCommentModeration with approved: true", async () => {
+                it("Should approve comment using createCommentModeration with approved: true", async () => {
                     const commentModeration = await pkc.createCommentModeration({
                         communityAddress: community.address,
                         signer: modSigner,
@@ -93,7 +90,7 @@ for (const batch of depthBatches) {
                     await publishWithExpectedResult({ publication: commentModeration, expectedChallengeSuccess: true });
                 });
 
-                it.sequential(`pending comment after approval will receive updates now`, async () => {
+                it(`pending comment after approval will receive updates now`, async () => {
                     await resolveWhenConditionIsTrue({
                         toUpdate: approvedComment,
                         predicate: async () => Boolean(approvedComment.updatedAt)
@@ -117,7 +114,7 @@ for (const batch of depthBatches) {
                 });
 
                 if (pendingCommentDepth === 0)
-                    it.sequential(`Approved post is now reflected in community.lastPostCid`, async () => {
+                    it(`Approved post is now reflected in community.lastPostCid`, async () => {
                         await resolveWhenConditionIsTrue({
                             toUpdate: community,
                             predicate: async () => community.lastPostCid === approvedComment.cid
@@ -125,7 +122,7 @@ for (const batch of depthBatches) {
                         expect(community.lastPostCid).to.equal(approvedComment.cid);
                     });
 
-                it.sequential(`Approved comment now appears in community.lastCommentCid`, async () => {
+                it(`Approved comment now appears in community.lastCommentCid`, async () => {
                     await resolveWhenConditionIsTrue({
                         toUpdate: community,
                         predicate: async () => community.lastCommentCid === approvedComment.cid
@@ -135,7 +132,7 @@ for (const batch of depthBatches) {
                 });
 
                 if (pendingCommentDepth > 0) {
-                    it.sequential(`Approved reply show up in parentComment.replyCount`, async () => {
+                    it(`Approved reply show up in parentComment.replyCount`, async () => {
                         expect((await getCommentWithCommentUpdateProps({ cid: approvedComment.parentCid!, pkc })).replyCount).to.equal(1);
                     });
                     it(`Approved reply show up in parentComment.childCount`, async () => {

@@ -13,11 +13,23 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
     let mockHttpRouter: MockHttpRouter;
     let httpRouterUrls: string[] = [];
 
-    const startPort = 19575;
+    // A base of this file's own, claimed via PKC_ADDRESSES_REWRITER_START_PORT, rather than the
+    // production default of 19575. This file both starts a rewriter proxy and asserts which port it
+    // landed on, so it cannot share a base with anything else running concurrently. 19575 is the
+    // worst possible choice for that: ports are machine-wide, and every PKC built without an explicit
+    // httpRoutersOptions claims 19575 upward (the schema default is six production routers), so any
+    // other test file in flight under --parallel occupies that band. 19700 is outside it, outside the
+    // Linux ephemeral range (32768-60999) so the OS will not hand it to an unrelated socket, and
+    // unused elsewhere in the repo. See test/node/httprouter-direct-kubo.test.ts, which asserts the
+    // opposite (that no proxy is listening) on its own base.
+    const startPort = 19700;
 
     let pkc: PKCType;
+    let previousStartPortEnv: string | undefined;
 
     beforeAll(async () => {
+        previousStartPortEnv = process.env.PKC_ADDRESSES_REWRITER_START_PORT;
+        process.env.PKC_ADDRESSES_REWRITER_START_PORT = String(startPort);
         mockHttpRouter = new MockHttpRouter();
         await mockHttpRouter.start();
         httpRouterUrls = [mockHttpRouter.url];
@@ -30,6 +42,10 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
         if (mockHttpRouter) {
             await mockHttpRouter.destroy();
         }
+        // Restore rather than delete: the variable is process-wide, so an outer runner or suite may
+        // have set it and is entitled to still see its own value after this file is done.
+        if (previousStartPortEnv === undefined) delete process.env.PKC_ADDRESSES_REWRITER_START_PORT;
+        else process.env.PKC_ADDRESSES_REWRITER_START_PORT = previousStartPortEnv;
     });
 
     it(`address rewriter proxy should not be taken before we start pkc`, async () => {

@@ -1,5 +1,4 @@
 import pLimit from "p-limit";
-import pTimeout from "p-timeout";
 import Logger from "../../../../logger.js";
 import { genToArray, removeMfsFilesSafely, statMfsPathSafely } from "../../../../util.js";
 import type { DbRepliesSortEntry } from "../../../../publications/comment/types.js";
@@ -124,43 +123,133 @@ export async function repinCommentUpdateIfNeeded(community: LocalCommunity) {
     community._dbHandler.forceUpdateOnAllComments(); // pkc-js will recalculate and publish all comment updates
 }
 
-export async function cleanUpIpfsRepoRarely(community: LocalCommunity, force = false) {
-    const log = Logger("pkc-js:local-community:syncIpnsWithDb:_cleanUpIpfsRepoRarely");
-    if (Math.random() < 0.00001 || force) {
-        let gcCids = 0;
-        const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
+// GC once the repo is within this fraction of Datastore.StorageMax. Kubo's own --enable-gc makes the
+// same decision from Datastore.StorageGCWatermark (default 90), so we mirror it instead of inventing
+// a second policy — a node that later switches to the daemon flag behaves identically.
+const GC_HIGH_WATERMARK = 0.9;
 
-        // Workaround for ipfs/kubo#10842: repo.gc walks the live set from the *persisted* MFS
-        // root, so any MFS dir-node block boxo still holds in memory (not yet flushed to disk)
-        // looks unreferenced and gets collected. The next MFS traversal then tries to fetch a
-        // now-deleted block with no timeout while holding the MFS mutex, wedging every files.*
-        // op on the daemon. Flushing the whole MFS first persists those in-memory nodes so the
-        // GC live-walk sees them as referenced. We flush "/" (not a single community subtree)
-        // because GC walks the entire MFS, so the whole tree must be on disk. If the flush
-        // itself times out the daemon is already unhealthy — skip GC rather than risk arming
-        // the race. Note: with many communities writing concurrently, a write during the GC
-        // walk can still mutate MFS, so this narrows the window rather than closing it 100%.
+// Floor between two GC runs on one daemon. Once a repo is above the watermark it tends to STAY above
+// it (GC only reclaims unpinned blocks), so without a floor every sync of every community would
+// trigger a fresh GC.
+const MIN_MS_BETWEEN_GC = 60 * 60 * 1000;
+
+// repo.gc and repo.stat are whole-daemon operations, but cleanUpIpfsRepoIfDue runs once per community
+// sync — a node hosting dozens of communities calls it dozens of times per interval against a single
+// shared daemon. Both pieces of state are therefore keyed by Kubo RPC URL, not by community: the
+// timestamp so the interval floor is per-daemon, and the in-flight promise so concurrent callers join
+// one GC run instead of each starting their own.
+const lastGcFinishedAtByKuboUrl = new Map<string, number>();
+const inFlightGcByKuboUrl = new Map<string, Promise<void>>();
+
+// Exported for tests: module state outlives a single community, so a suite that asserts on the
+// interval floor has to be able to clear it between cases.
+export function _resetRepoGcSchedulingState() {
+    lastGcFinishedAtByKuboUrl.clear();
+    inFlightGcByKuboUrl.clear();
+}
+
+export async function cleanUpIpfsRepoIfDue(community: LocalCommunity, force = false): Promise<void> {
+    const log = Logger("pkc-js:local-community:syncIpnsWithDb:_cleanUpIpfsRepoIfDue");
+    const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
+    const kuboUrl = String(kuboRpc.url);
+
+    const inFlight = inFlightGcByKuboUrl.get(kuboUrl);
+    if (inFlight) return inFlight; // another community's sync is already GCing this daemon
+
+    // No await between the get() above and the set() below, so no second caller can interleave here.
+    const gcRun = _runRepoGcIfDue({ community, kuboUrl, force, log }).finally(() => inFlightGcByKuboUrl.delete(kuboUrl));
+    inFlightGcByKuboUrl.set(kuboUrl, gcRun);
+    return gcRun;
+}
+
+async function _runRepoGcIfDue({
+    community,
+    kuboUrl,
+    force,
+    log
+}: {
+    community: LocalCommunity;
+    kuboUrl: string;
+    force: boolean;
+    log: Logger;
+}): Promise<void> {
+    const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
+
+    let repoSizeBefore: bigint | undefined;
+
+    if (!force) {
+        const lastGcFinishedAt = lastGcFinishedAtByKuboUrl.get(kuboUrl);
+        if (typeof lastGcFinishedAt === "number" && Date.now() - lastGcFinishedAt < MIN_MS_BETWEEN_GC) return;
+
+        let repoStat: Awaited<ReturnType<typeof kuboRpc._client.repo.stat>>;
         try {
-            await pTimeout(kuboRpc._client.files.flush("/"), {
-                milliseconds: 15_000,
-                message: "Timed out flushing MFS root before repo.gc"
-            });
+            // size-only: the default repo/stat also counts every object, which walks the whole
+            // flatfs blockstore — on the repos this feature exists for that is millions of files.
+            repoStat = await kuboRpc._client.repo.stat({ searchParams: new URLSearchParams({ "size-only": "true" }) });
         } catch (e) {
-            log.error("Skipping repo.gc: failed to flush MFS root beforehand (ipfs/kubo#10842 safeguard)", e);
+            log.error("Skipping repo.gc: failed to read repo.stat from the kubo node", kuboUrl, e);
             return;
         }
 
-        try {
-            for await (const res of kuboRpc._client.repo.gc({ quiet: true })) {
-                if (res.cid) gcCids++;
-                else log.error("Failed to GC ipfs repo due to error", res.err);
-            }
-        } catch (e) {
-            log.error("Failed to GC ipfs repo due to error", e);
-        }
+        repoSizeBefore = repoStat.repoSize;
 
-        log("GC cleaned", gcCids, "cids out of the IPFS node");
+        // storageMax comes from Datastore.StorageMax. If the daemon reports no ceiling there is
+        // nothing to compare against, so fall back to GCing on the interval alone rather than
+        // never GCing at all.
+        if (repoStat.storageMax > 0n) {
+            const gcThreshold = (repoStat.storageMax * BigInt(Math.round(GC_HIGH_WATERMARK * 100))) / 100n;
+            if (repoStat.repoSize < gcThreshold) {
+                log.trace(
+                    "Skipping repo.gc on",
+                    kuboUrl,
+                    "- repo size",
+                    repoStat.repoSize,
+                    "is below the",
+                    `${GC_HIGH_WATERMARK * 100}%`,
+                    "watermark",
+                    gcThreshold,
+                    "of StorageMax",
+                    repoStat.storageMax
+                );
+                return;
+            }
+        }
     }
+
+    let gcCids = 0;
+    try {
+        for await (const res of kuboRpc._client.repo.gc({ quiet: true })) {
+            if (res.cid) gcCids++;
+            else log.error("Failed to GC ipfs repo due to error", res.err);
+        }
+    } catch (e) {
+        log.error("Failed to GC ipfs repo due to error", e);
+        return;
+    } finally {
+        // Stamped on failure too: a daemon that can't GC is a daemon we should back off from, not
+        // one to retry against every 20s sync for the rest of its life.
+        lastGcFinishedAtByKuboUrl.set(kuboUrl, Date.now());
+    }
+
+    // How much a GC actually reclaims is the open question on pkc-js#225: the affected node had
+    // >11k recursive pins, and GC never touches pinned data. Log it rather than assume.
+    let repoSizeAfter: bigint | undefined;
+    try {
+        repoSizeAfter = (await kuboRpc._client.repo.stat({ searchParams: new URLSearchParams({ "size-only": "true" }) })).repoSize;
+    } catch (e) {
+        log.trace("repo.gc finished but the follow-up repo.stat failed", e);
+    }
+
+    log(
+        "GC cleaned",
+        gcCids,
+        "cids out of the IPFS node",
+        kuboUrl,
+        "- repo size",
+        repoSizeBefore ?? "unknown",
+        "->",
+        repoSizeAfter ?? "unknown"
+    );
 }
 
 export async function addAllCidsUnderPurgedCommentToBeRemoved(

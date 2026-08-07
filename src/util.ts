@@ -903,7 +903,17 @@ export async function writeKuboFilesWithTimeout({
     timeoutMs?: number;
 }): Promise<void> {
     const numOfRetries = inputNumOfRetries ?? 3;
-    const timeoutMilliseconds = timeoutMs ?? 15_000;
+    // 60s, not the 15s this used to be. Since kubo 0.43.0 a repo GC and in-flight MFS writes hold
+    // each other off, so a write can legitimately pause for the length of a GC and then succeed —
+    // the changelog calls this out explicitly. A 15s budget turns that ordinary contention into a
+    // failed sync.
+    const timeoutMilliseconds = timeoutMs ?? 60_000;
+
+    // kubo 0.43.0 honors `timeout` on files.write, so hand the daemon the same budget: it aborts the
+    // op server-side and releases the MFS lock, where a bare client-side abort would leave the write
+    // running under the lock. pTimeout stays as the backstop for a daemon that never answers at all,
+    // with enough slack that the server's own (more informative) error normally wins the race.
+    const writeOptions: FilesWriteOptions = { timeout: timeoutMilliseconds, ...options };
 
     return new Promise((resolve, reject) => {
         const operation = retry.operation({
@@ -914,9 +924,9 @@ export async function writeKuboFilesWithTimeout({
 
         operation.attempt(async (currentAttempt) => {
             try {
-                await pTimeout(kuboRpcClient.files.write(path, content, options), {
-                    milliseconds: timeoutMilliseconds,
-                    message: `Timed out writing to MFS path ${path} after ${timeoutMilliseconds}ms`
+                await pTimeout(kuboRpcClient.files.write(path, content, writeOptions), {
+                    milliseconds: timeoutMilliseconds + 5_000,
+                    message: `Timed out writing to MFS path ${path} after ${timeoutMilliseconds + 5_000}ms`
                 });
                 resolve();
             } catch (error) {

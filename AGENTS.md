@@ -11,7 +11,7 @@ Instructions for AI agents working on this codebase. Rules are ranked by priorit
 | Running tests | Use `node test/run-test-config.js --pkc-config ${pkc-config} ${testPath}` |
 | Bug reported | Reproduce deterministically in a test case first |
 | Debugging CI failures | Download the `per-test-logs-*` and `test-server-log-*` artifacts from the failed run; check per-test stderr logs first, then `test_server.log` for community-side errors |
-| CI hang/timeout that looks like Kubo (MFS `Timed out writing/removing MFS path`, `UND_ERR_HEADERS_TIMEOUT`, `ERR_TIMED_OUT_RM_MFS_FILE`, ipfs/kubo#10842) | Download the `kubo-logs-node-local-*` artifact: it has each daemon's `kubo_*_golog_*.log` (Go debug log) and the `kubo-debug/goroutine-*.txt` pprof dumps captured on failure. Grep the dumps for `boxo/mfs`/`Flush`/`Lock` to see where MFS is wedged — client-side `pkc-js` logs only show the timeout, not the daemon-side cause |
+| CI hang/timeout that looks like Kubo (MFS `Timed out writing/removing MFS path`, `UND_ERR_HEADERS_TIMEOUT`, `ERR_TIMED_OUT_RM_MFS_FILE`) | Download the `kubo-logs-node-local-*` artifact: it has each daemon's `kubo_*_golog_*.log` (Go debug log) and the `kubo-debug/goroutine-*.txt` pprof dumps captured on failure. Grep the dumps for `boxo/mfs`/`Flush`/`Lock` to see where MFS is blocked — client-side `pkc-js` logs only show the timeout, not the daemon-side cause. Since kubo 0.43.0 an MFS timeout is normally *contention*, not a wedge: `repo gc` and in-flight MFS writes hold each other off, and a stuck write now errors instead of hanging forever. A genuinely wedged daemon (the old ipfs/kubo#10842 signature) should no longer occur — if one does, that is an upstream regression worth reporting |
 
 ## Protocol Context
 

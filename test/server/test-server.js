@@ -175,7 +175,10 @@ const startIpfsNode = async (nodeArgs) => {
     fs.writeFileSync(ipfsConfigPath, JSON.stringify(ipfsConfig), "utf8");
 
     const daemonArgs = nodeArgs.daemonArgs?.length ? nodeArgs.daemonArgs.trim().split(/\s+/) : [];
-    const spawnArgs = ["daemon", ...daemonArgs];
+    // --migrate: `ipfs init` above is wrapped in try/catch and silently reuses an existing
+    // .test-ipfs-* repo, so a dev machine that ran an older kubo keeps its old repo version. Without
+    // this the daemon just refuses to start after a kubo bump, with no obvious link to the upgrade.
+    const spawnArgs = ["daemon", "--migrate", ...daemonArgs];
     console.log(`${ipfsPath} ${spawnArgs.join(" ")}`);
 
     // 🔧 ENHANCED: Create environment for IPFS process with debug logging enabled by default
