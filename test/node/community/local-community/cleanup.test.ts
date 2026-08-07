@@ -6,10 +6,11 @@
 //   - export shape for the remaining functions
 // Full coverage lives in the integration suite (test/node/community/garbage.collection.community.test.ts etc.).
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
+    _resetRepoGcSchedulingState,
     addAllCidsUnderPurgedCommentToBeRemoved,
-    cleanUpIpfsRepoRarely,
+    cleanUpIpfsRepoIfDue,
     purgeDisapprovedCommentsOlderThan,
     repinCommentUpdateIfNeeded,
     repinCommentsIPFSIfNeeded,
@@ -23,7 +24,7 @@ describe("cleanup: export shape", () => {
     it("exports all the expected helpers", () => {
         // Smoke check: every cleanup helper is a function. Heavy coverage is integration.
         expect(typeof addAllCidsUnderPurgedCommentToBeRemoved).to.equal("function");
-        expect(typeof cleanUpIpfsRepoRarely).to.equal("function");
+        expect(typeof cleanUpIpfsRepoIfDue).to.equal("function");
         expect(typeof purgeDisapprovedCommentsOlderThan).to.equal("function");
         expect(typeof repinCommentUpdateIfNeeded).to.equal("function");
         expect(typeof repinCommentsIPFSIfNeeded).to.equal("function");
@@ -193,62 +194,141 @@ describe("cleanup: repinCommentUpdateIfNeeded", () => {
     });
 });
 
-describe("cleanup: cleanUpIpfsRepoRarely", () => {
-    it("skips GC when not forced and random gate doesn't fire", async () => {
-        const getDefaultKuboRpcClient = vi.fn();
+describe("cleanup: cleanUpIpfsRepoIfDue", () => {
+    // Builds a fake community wired to one kubo URL. repoSize/storageMax drive the watermark check;
+    // repo.gc records its calls so a test can assert whether it ran.
+    const makeCommunity = ({
+        url = "http://localhost:15001/api/v0",
+        repoSize = 1n,
+        storageMax = 100n,
+        gcImpl
+    }: {
+        url?: string;
+        repoSize?: bigint;
+        storageMax?: bigint;
+        gcImpl?: () => AsyncGenerator<{ cid: string }>;
+    } = {}) => {
+        const stat = vi.fn(async (_options?: { searchParams?: URLSearchParams }) => ({
+            numObjects: 0n,
+            repoPath: "/repo",
+            repoSize,
+            version: "fs-repo@18",
+            storageMax
+        }));
+        const gc = vi.fn(
+            gcImpl ??
+                (() =>
+                    (async function* () {
+                        yield { cid: "QmCollected" };
+                    })())
+        );
+        // One stable client object: tests below re-stub methods on it after construction.
+        const kuboRpcClient = { url, _client: { repo: { stat, gc } } };
         const community = {
-            _clientsManager: { getDefaultKuboRpcClient }
+            _clientsManager: { getDefaultKuboRpcClient: () => kuboRpcClient }
         } as unknown as LocalCommunity;
+        return { community, kuboRpcClient, stat, gc };
+    };
 
-        // Stub Math.random to a value guaranteed to fail the 0.00001 threshold.
-        const original = Math.random;
-        Math.random = () => 0.5;
-        try {
-            await cleanUpIpfsRepoRarely(community);
-        } finally {
-            Math.random = original;
-        }
+    beforeEach(() => _resetRepoGcSchedulingState());
 
-        expect(getDefaultKuboRpcClient).not.toHaveBeenCalled();
+    it("skips GC when the repo is below the StorageMax watermark", async () => {
+        const { community, stat, gc } = makeCommunity({ repoSize: 10n, storageMax: 100n });
+
+        await cleanUpIpfsRepoIfDue(community);
+
+        expect(stat).toHaveBeenCalledTimes(1);
+        expect(gc).not.toHaveBeenCalled();
     });
 
-    // Regression for ipfs/kubo#10842: repo.gc must be preceded by a full MFS flush so the GC
-    // live-walk doesn't collect MFS dir-node blocks boxo still holds in memory.
-    it("flushes the MFS root ('/') before running repo.gc", async () => {
-        const callOrder: string[] = [];
-        const flush = vi.fn(async (path: string) => {
-            callOrder.push(`flush:${path}`);
-        });
-        // repo.gc returns an async iterable.
-        const gc = vi.fn(() => {
-            callOrder.push("gc");
-            return (async function* () {
-                yield { cid: "QmCollected" };
-            })();
-        });
-        const community = {
-            _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { files: { flush }, repo: { gc } } }) }
-        } as unknown as LocalCommunity;
+    it("runs GC once the repo reaches the watermark", async () => {
+        const { community, gc } = makeCommunity({ repoSize: 95n, storageMax: 100n });
 
-        await cleanUpIpfsRepoRarely(community, true); // force=true bypasses the random gate
+        await cleanUpIpfsRepoIfDue(community);
 
-        expect(flush).toHaveBeenCalledWith("/");
         expect(gc).toHaveBeenCalledTimes(1);
-        // Flush must happen strictly before GC.
-        expect(callOrder).to.deep.equal(["flush:/", "gc"]);
     });
 
-    it("skips repo.gc when the MFS root flush fails (daemon already unhealthy)", async () => {
-        const flush = vi.fn().mockRejectedValue(new Error("Timed out flushing MFS root before repo.gc"));
-        const gc = vi.fn();
-        const community = {
-            _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { files: { flush }, repo: { gc } } }) }
-        } as unknown as LocalCommunity;
+    it("asks the daemon for size-only stats, not a full object count", async () => {
+        // A default repo/stat counts every object, which walks the whole flatfs blockstore — millions
+        // of files on exactly the repos this feature exists for.
+        const { community, stat } = makeCommunity({ repoSize: 10n, storageMax: 100n });
 
-        await cleanUpIpfsRepoRarely(community, true);
+        await cleanUpIpfsRepoIfDue(community);
 
-        expect(flush).toHaveBeenCalledWith("/");
-        expect(gc).not.toHaveBeenCalled(); // GC skipped because the flush safeguard failed
+        const passedSearchParams = stat.mock.calls[0]?.[0]?.searchParams as URLSearchParams | undefined;
+        expect(passedSearchParams?.get("size-only")).to.equal("true");
+    });
+
+    it("does not GC again within the interval floor, even while still over the watermark", async () => {
+        const { community, gc } = makeCommunity({ repoSize: 95n, storageMax: 100n });
+
+        await cleanUpIpfsRepoIfDue(community);
+        await cleanUpIpfsRepoIfDue(community);
+        await cleanUpIpfsRepoIfDue(community);
+
+        expect(gc).toHaveBeenCalledTimes(1);
+    });
+
+    it("GCs on the interval alone when the daemon reports no StorageMax", async () => {
+        const { community, gc } = makeCommunity({ repoSize: 10n, storageMax: 0n });
+
+        await cleanUpIpfsRepoIfDue(community);
+
+        expect(gc).toHaveBeenCalledTimes(1);
+    });
+
+    // repo.gc is a whole-daemon operation but this runs once per community sync, so a node hosting
+    // dozens of communities calls it dozens of times against one daemon within the same tick.
+    it("collapses concurrent callers on one kubo url into a single GC run", async () => {
+        let releaseGc: () => void = () => {};
+        const gcStarted = new Promise<void>((resolve) => (releaseGc = resolve));
+        const { community, gc } = makeCommunity({
+            repoSize: 95n,
+            storageMax: 100n,
+            gcImpl: () =>
+                (async function* () {
+                    await gcStarted;
+                    yield { cid: "QmCollected" };
+                })()
+        });
+
+        const runs = [cleanUpIpfsRepoIfDue(community), cleanUpIpfsRepoIfDue(community), cleanUpIpfsRepoIfDue(community)];
+        releaseGc();
+        await Promise.all(runs);
+
+        expect(gc).toHaveBeenCalledTimes(1);
+    });
+
+    it("keys the interval floor per kubo url, so a second daemon still GCs", async () => {
+        const first = makeCommunity({ url: "http://localhost:15001/api/v0", repoSize: 95n, storageMax: 100n });
+        const second = makeCommunity({ url: "http://localhost:15004/api/v0", repoSize: 95n, storageMax: 100n });
+
+        await cleanUpIpfsRepoIfDue(first.community);
+        await cleanUpIpfsRepoIfDue(second.community);
+
+        expect(first.gc).toHaveBeenCalledTimes(1);
+        expect(second.gc).toHaveBeenCalledTimes(1);
+    });
+
+    it("force bypasses both the interval floor and the watermark", async () => {
+        const { community, stat, gc } = makeCommunity({ repoSize: 1n, storageMax: 100n });
+
+        await cleanUpIpfsRepoIfDue(community, true);
+        await cleanUpIpfsRepoIfDue(community, true);
+
+        expect(gc).toHaveBeenCalledTimes(2);
+        // force skips the due-check entirely; the only stat calls are the post-GC size readings.
+        expect(stat).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not throw when repo.stat fails, and leaves GC unrun", async () => {
+        const { community, kuboRpcClient, gc } = makeCommunity({ repoSize: 95n, storageMax: 100n });
+        kuboRpcClient._client.repo.stat = vi.fn().mockRejectedValue(new Error("fetch failed"));
+
+        await cleanUpIpfsRepoIfDue(community);
+
+        expect(gc).not.toHaveBeenCalled();
     });
 });
 

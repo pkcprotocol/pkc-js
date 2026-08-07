@@ -28,7 +28,7 @@ import {
     syncPostUpdatesWithIpfs,
     updateCommentsThatNeedToBeUpdated
 } from "./comment-updates.js";
-import { cleanUpIpfsRepoRarely, purgeDisapprovedCommentsOlderThan, unpinStaleCids } from "./cleanup.js";
+import { cleanUpIpfsRepoIfDue, purgeDisapprovedCommentsOlderThan, unpinStaleCids } from "./cleanup.js";
 import { providePubsubTopicRoutingCidsIfNeeded } from "./pubsub.js";
 
 export async function calculateNewPostUpdates(community: LocalCommunity): Promise<CommunityIpfsType["postUpdates"]> {
@@ -159,33 +159,14 @@ async function calculateNextCommunityRecord(
 
     const stats = community._dbHandler.queryCommunityStats();
 
-    if (commentUpdateRowsToPublishToIpfs.length > 0) {
-        try {
-            await syncPostUpdatesWithIpfs(community, commentUpdateRowsToPublishToIpfs);
-        } catch (e) {
-            const err = <Error>e;
-            const isMfsTimeout =
-                err.message.includes("Timed out writing to MFS path") || err.message.includes("Timed out removing MFS paths");
-            if (isMfsTimeout) {
-                // Workaround for ipfs/kubo#10842: deeply nested MFS paths hang, but rm of the community root is fast.
-                log.error(
-                    `MFS sync stuck for community ${community.address} - auto-nuking /${community.address} and forcing a full republish. See https://github.com/ipfs/kubo/issues/10842 for upstream context.`
-                );
-                const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
-                try {
-                    await kuboRpc._client.files.rm("/" + community.address, {
-                        recursive: true,
-                        //@ts-expect-error force is not in FilesRmOptions
-                        force: true
-                    });
-                } catch (rmErr) {
-                    log.error(`Auto-nuke files.rm of /${community.address} failed:`, rmErr);
-                }
-                community._dbHandler.forceUpdateOnAllComments();
-            }
-            throw e;
-        }
-    }
+    // No MFS-timeout recovery branch here on purpose. Until kubo 0.43.0 an MFS timeout meant the
+    // daemon was permanently wedged (ipfs/kubo#10842), so we nuked /<address> and forced a full
+    // republish. 0.43.0 both removes the wedge and makes a timeout an ordinary, recoverable event:
+    // GC and in-flight MFS writes now hold each other off, so "a single write can pause for the
+    // length of a GC and, with a short client timeout, look like it timed out and then succeed on
+    // retry". Nuking a community's whole postUpdates tree over that would turn a few seconds of
+    // contention into a full republish. Let the error propagate and let the retries do their job.
+    if (commentUpdateRowsToPublishToIpfs.length > 0) await syncPostUpdatesWithIpfs(community, commentUpdateRowsToPublishToIpfs);
 
     const newPostUpdates = await community._calculateNewPostUpdates();
     const newModQueue = await community._pageGenerator.generateModQueuePages();
@@ -440,7 +421,7 @@ export async function syncIpnsWithDb(community: LocalCommunity) {
         const commentUpdateRows = await updateCommentsThatNeedToBeUpdated(community);
         requireCommunityUpdateIfModQueueChanged(community);
         await updateCommunityIpnsIfNeeded(community, commentUpdateRows);
-        await cleanUpIpfsRepoRarely(community);
+        await cleanUpIpfsRepoIfDue(community);
     } catch (e) {
         //@ts-expect-error
         e.details = { ...e.details, communityAddress: community.address };
