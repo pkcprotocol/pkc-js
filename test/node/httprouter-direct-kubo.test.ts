@@ -20,6 +20,7 @@ import { path as getKuboBinaryPath } from "kubo";
 import PKC from "../../dist/node/index.js";
 import { createSubWithNoChallenge, resolveWhenConditionIsTrue } from "../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../helpers/conditional-tests.js";
+import { findFreePort } from "../helpers/free-port.js";
 import { MockHttpRouter } from "../../dist/node/runtime/node/test/mock-http-router.js";
 import type { PKC as PKCType } from "../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
@@ -32,7 +33,13 @@ const ISOLATED_KUBO_API_PORT = 25190;
 const ISOLATED_KUBO_GATEWAY_PORT = 25191;
 const ISOLATED_KUBO_SWARM_PORT = 25192;
 const kuboApiUrl = `http://localhost:${ISOLATED_KUBO_API_PORT}/api/v0`;
-const legacyRewriterProxyPort = 19575; // first port the removed address rewriter proxy used to listen on
+// The port a rewriter proxy WOULD bind if this file's PKC instances started one. Claimed per-run via
+// PKC_ADDRESSES_REWRITER_START_PORT instead of probing the production default (19575): that default
+// is process-wide, every PKC built without an explicit httpRoutersOptions spins up a proxy on it
+// (the schema default is six production routers), and test/node/httprouter.test.ts deliberately runs
+// one there. Probing a port other files legitimately occupy made this assertion fail purely on
+// vitest --parallel scheduling. Assigned in beforeAll, before any PKC is constructed.
+let legacyRewriterProxyPort: number;
 
 async function getKuboConfig(key: string): Promise<unknown> {
     const res = await fetch(`${kuboApiUrl}/config?arg=${encodeURIComponent(key)}`, { method: "POST" });
@@ -146,6 +153,8 @@ describeSkipIfRpc(`kubo#11213 regression: Kubo provides valid addresses directly
     let kuboProcess: ChildProcess | undefined;
 
     beforeAll(async () => {
+        legacyRewriterProxyPort = await findFreePort();
+        process.env.PKC_ADDRESSES_REWRITER_START_PORT = String(legacyRewriterProxyPort);
         mockHttpRouter = new MockHttpRouter();
         await mockHttpRouter.start();
         initIsolatedKuboRepo(repoDir);
@@ -158,6 +167,7 @@ describeSkipIfRpc(`kubo#11213 regression: Kubo provides valid addresses directly
             fs.rmSync(repoDir, { recursive: true, force: true });
         } catch {}
         if (mockHttpRouter) await mockHttpRouter.destroy();
+        delete process.env.PKC_ADDRESSES_REWRITER_START_PORT;
     }, 60_000);
 
     // run once with the sweep provider disabled (current production config set by

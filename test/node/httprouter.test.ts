@@ -2,6 +2,7 @@ import { beforeAll, afterAll } from "vitest";
 import PKC from "../../dist/node/index.js";
 import { createSubWithNoChallenge, resolveWhenConditionIsTrue } from "../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../helpers/conditional-tests.js";
+import { findFreePort } from "../helpers/free-port.js";
 import { MockHttpRouter } from "../../dist/node/runtime/node/test/mock-http-router.js";
 import type { PKC as PKCType } from "../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
@@ -13,11 +14,17 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
     let mockHttpRouter: MockHttpRouter;
     let httpRouterUrls: string[] = [];
 
-    const startPort = 19575;
+    // Claimed per-run rather than hardcoded to the production default (19575). This file both starts
+    // a rewriter proxy and asserts which port it landed on, so sharing that constant with any other
+    // parallel test file makes both sides flaky — see test/node/httprouter-direct-kubo.test.ts, which
+    // asserts the opposite (that no proxy is listening).
+    let startPort: number;
 
     let pkc: PKCType;
 
     beforeAll(async () => {
+        startPort = await findFreePort();
+        process.env.PKC_ADDRESSES_REWRITER_START_PORT = String(startPort);
         mockHttpRouter = new MockHttpRouter();
         await mockHttpRouter.start();
         httpRouterUrls = [mockHttpRouter.url];
@@ -30,6 +37,7 @@ describeSkipIfRpc(`Testing HTTP router settings and address rewriter`, async () 
         if (mockHttpRouter) {
             await mockHttpRouter.destroy();
         }
+        delete process.env.PKC_ADDRESSES_REWRITER_START_PORT;
     });
 
     it(`address rewriter proxy should not be taken before we start pkc`, async () => {

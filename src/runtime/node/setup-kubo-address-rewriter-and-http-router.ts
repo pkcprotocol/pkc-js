@@ -171,7 +171,20 @@ export async function setupKuboAddressesRewriterAndHttpRouters(pkc: PKC): Promis
 
     const httpRouterProxyUrls: string[] = [];
     const proxyServers: AddressesRewriterProxyServer[] = [];
-    let addressesRewriterStartPort = 19575; // use port 19575 as first port, looks like IPRTR (IPFS ROUTER)
+    // Port 19575 looks like IPRTR (IPFS ROUTER). The loop below walks upward from here to the first
+    // free port, so a busy 19575 is not fatal.
+    //
+    // PKC_ADDRESSES_REWRITER_START_PORT moves that base. It exists for tests: the port is process-wide
+    // and shared by every PKC instance, so two test files that both assume 19575 — one starting a
+    // proxy on it, one asserting it is free — collide whenever vitest's --parallel scheduling puts
+    // them in flight together. Each file can now claim its own base instead. Left unset in
+    // production on purpose: the chosen port is written into Kubo's Routing config, and a changed
+    // endpoint set bounces the daemon, so the base has to stay stable across restarts.
+    const parsedStartPortOverride = Number(process.env.PKC_ADDRESSES_REWRITER_START_PORT);
+    let addressesRewriterStartPort =
+        Number.isInteger(parsedStartPortOverride) && parsedStartPortOverride > 0 && parsedStartPortOverride <= 65535
+            ? parsedStartPortOverride
+            : 19575;
     for (const httpRouter of pkc.httpRoutersOptions) {
         if (pkc.destroyed) break;
         const startedProxyUrl = await _getStartedProxyUrl(pkc, httpRouter);
