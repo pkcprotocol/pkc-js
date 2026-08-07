@@ -1,5 +1,7 @@
 # Changelog
 
+## [0.0.78](https://github.com/pkcprotocol/pkc-js/compare/v0.0.77...v0.0.78) (2026-08-07)
+
 ## [0.0.77](https://github.com/pkcprotocol/pkc-js/compare/v0.0.76...v0.0.77) (2026-08-07)
 
 ## [0.0.76](https://github.com/pkcprotocol/pkc-js/compare/v0.0.75...v0.0.76) (2026-08-01)
