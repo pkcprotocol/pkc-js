@@ -23,11 +23,7 @@ import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-c
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 
-// Suites run sequentially: each one starts local communities whose sync loops write postUpdates to
-// Kubo MFS, and teardowns rm/mv community MFS dirs. Running them concurrently (on top of vitest file
-// parallelism) wedges Kubo's MFS on slow Windows CI runners (ipfs/kubo#10842) and times out the
-// whole node-local job.
-describe.sequential(`community.start`, async () => {
+describe(`community.start`, async () => {
     let pkc: PKCType;
     let community: LocalCommunity | RpcLocalCommunity;
     beforeAll(async () => {
@@ -150,7 +146,7 @@ describe.sequential(`community.start`, async () => {
     });
 });
 
-describe.sequential(`community.started`, async () => {
+describe(`community.started`, async () => {
     let pkc: PKCType;
     let community: LocalCommunity | RpcLocalCommunity;
     beforeAll(async () => {
@@ -198,7 +194,7 @@ describe.sequential(`community.started`, async () => {
         expect(anotherCommunity.started).to.be.false;
     });
 });
-describe.sequential(`Start lock`, async () => {
+describe(`Start lock`, async () => {
     let pkc: PKCType;
     let dataPath: string;
     beforeAll(async () => {
@@ -451,7 +447,7 @@ describe.sequential(`Start lock`, async () => {
     });
 });
 
-describe.sequential(`Publish loop resiliency`, async () => {
+describe(`Publish loop resiliency`, async () => {
     let pkc: PKCType;
     let community: LocalCommunity | RpcLocalCommunity;
     let remotePKC: PKCType;
@@ -524,11 +520,6 @@ describe.sequential(`Publish loop resiliency`, async () => {
         // Force the probabilistic gate in shouldResolveDomainForVerification (Math.random() < 0.005)
         // so the publish-time verification path runs deterministically. The gate is private to throttle
         // resolver calls in production.
-        // MUST NOT mock to a value < 0.00001: cleanUpIpfsRepoRarely gates repo.gc on
-        // Math.random() < 0.00001, and this process-wide mock spans whole sync loops. Mocking to 0
-        // force-fired a full repo.gc on EVERY sync of the shared Kubo daemon, which races concurrent
-        // MFS writes from parallel test files and permanently wedges the daemon (ipfs/kubo#10842) —
-        // the root cause of the node-local CI 28-min timeouts. See issue #136.
         const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.004);
         try {
             const community = (await createSubWithNoChallenge({}, customPkc)) as LocalCommunity;
@@ -555,8 +546,7 @@ describe.sequential(`Publish loop resiliency`, async () => {
                 ]
             }
         });
-        // 0.004 fires the shouldResolveDomainForVerification gate (< 0.005) WITHOUT firing the
-        // cleanUpIpfsRepoRarely repo.gc gate (< 0.00001) — see the comment in the test above (issue #136).
+        // 0.004 fires the shouldResolveDomainForVerification gate (< 0.005) — see the test above.
         const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.004);
         try {
             const community = (await createSubWithNoChallenge({}, customPkc)) as LocalCommunity;
