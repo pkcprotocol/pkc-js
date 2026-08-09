@@ -1,4 +1,4 @@
-import { beforeAll, describe, it, beforeEach, afterEach, expect } from "vitest";
+import { beforeAll, describe, it, beforeEach, afterEach, expect, vi } from "vitest";
 import {
     getAvailablePKCConfigsToTestAgainst,
     findOrPublishCommentWithDepth,
@@ -428,7 +428,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 await resolveWhenConditionIsTrue({ toUpdate: reply, predicate: async () => typeof reply.updatedAt === "number" });
 
                 await postMirror.stop();
-                await new Promise((resolve) => setTimeout(resolve, 100)); // need to wait some time to propgate events
+                // A settle wait, not a condition wait: the assertions below are that stop() did NOT
+                // tear down the post entry, and a negative can't be polled for.
+                await new Promise((resolve) => setTimeout(resolve, 100));
 
                 // The reply is still updating, so the updating post instance it depends on must survive
                 expect(reply.state).to.equal("updating");
@@ -440,11 +442,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(reply.upvoteCount).to.be.greaterThan(0);
 
                 await reply.stop();
-                await new Promise((resolve) => setTimeout(resolve, 100)); // need to wait some time to propgate events
 
-                // Once the last dependent is gone, both entries should be cleaned up
-                expect(findUpdatingComment(pkc, { cid: reply.cid! })).to.be.undefined;
-                expect(findUpdatingComment(pkc, { cid: post.cid! })).to.be.undefined;
+                // Once the last dependent is gone, both entries should be cleaned up. The cleanup
+                // propagates asynchronously after stop(), so poll rather than fixed-wait.
+                await vi.waitFor(
+                    () => {
+                        expect(findUpdatingComment(pkc, { cid: reply.cid! })).to.be.undefined;
+                        expect(findUpdatingComment(pkc, { cid: post.cid! })).to.be.undefined;
+                    },
+                    { timeout: 5_000 }
+                );
             }
         );
 

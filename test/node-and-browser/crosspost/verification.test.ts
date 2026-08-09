@@ -220,19 +220,25 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("check 2 still applies at the innermost level: a reserved field on the inner record is rejected", async () => {
-                const reservedInner = clone(crosspostRef) as Record<string, any>;
-                reservedInner.comment.cid = crosspostRef.cid; // `cid` is runtime-only on a CommentIpfs
+                // `cid` is runtime-only on a CommentIpfs, so widening just that one field keeps the
+                // rest of the record type-checked.
+                const reservedInner = clone(crosspostRef) as { cid: string; comment: CommentIpfsType & { cid?: string } };
+                reservedInner.comment.cid = crosspostRef.cid;
                 reservedInner.cid = await calculateIpfsHash(deterministicStringify(reservedInner.comment)!);
 
                 // flattened to the signature message, see above
-                expect(await verify(await signCrossposting(await wrapNextLevel(reservedInner as any)))).to.deep.equal({
+                expect(await verify(await signCrossposting(await wrapNextLevel(reservedInner)))).to.deep.equal({
                     valid: false,
                     reason: messages.ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID
                 });
             });
 
             it("check 2 still applies at the innermost level: a reserved author field on the inner record is rejected", async () => {
-                const reservedInner = clone(crosspostRef) as Record<string, any>;
+                // `shortAddress` is runtime-only on the author, so widen just that one field.
+                const reservedInner = clone(crosspostRef) as {
+                    cid: string;
+                    comment: CommentIpfsType & { author: CommentIpfsType["author"] & { shortAddress?: string } };
+                };
                 // shortAddress rather than nameResolved, for the reason given on check 2 above. It
                 // matters more here: an inner failure flattens to the signature message either way, so
                 // a stripped field would move the inner cid and this would still pass, on check 1.
@@ -240,7 +246,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 reservedInner.cid = await calculateIpfsHash(deterministicStringify(reservedInner.comment)!);
 
                 // flattened to the signature message, see above
-                expect(await verify(await signCrossposting(await wrapNextLevel(reservedInner as any)))).to.deep.equal({
+                expect(await verify(await signCrossposting(await wrapNextLevel(reservedInner)))).to.deep.equal({
                     valid: false,
                     reason: messages.ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID
                 });
@@ -387,7 +393,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             it("the most deeply nested chain that fits under 40kb verifies at every level", async () => {
                 const { deepest, nestingLevels } = await buildDeepestChainWithinLimit();
-                expect(byteLength(deepest)).to.be.lessThan(40000);
+                // at.most, not lessThan: exactly 40000 bytes is a legal publication (the community
+                // rejects only sizes over 40kb), and the builder keeps a record that lands on it.
+                expect(byteLength(deepest)).to.be.at.most(40000);
                 // Measured at 62 nested crossposts when this was written. The band is wide on purpose:
                 // the exact number moves whenever a wire field is added. A jump outside it means the
                 // per-level byte cost changed materially and the nesting bound moved with it.

@@ -191,13 +191,15 @@ currently **no depth cap**: the 40kb publication limit bounds what can be publis
 of nesting eats the budget for the next, so long chains cannot enter through a community's
 challenge exchange.
 
-#### Open question: depth on the client ingest paths
+### Open question: depth on the client ingest paths
 
 Whether that stays the design is open, tracked in issue #250. The 40kb bound holds only for
 publication. Every client path that ingests a `CommentIpfs` (fetching a comment by cid, loading a
-page) allows 1MB, and a deep chain is cheap to mint: `signedPropertyNames` is derived from the
-fields present, so one genuinely signed record can be nested into itself to arbitrary depth with
-only the outermost level's signature covering `crosspost`. Measured at that size:
+page) allows 1MB, and a deep chain is cheap to mint. It does not even need signatures that verify:
+the zod parse runs before any signature check, so a chain of well-formed records with garbage
+signatures reaches the recursive parse regardless. And a chain that does verify at every level is
+no harder to build, since an attacker signing each level with their own key passes all four tier-1
+checks. Measured at that size:
 
 - At roughly 1000 levels, comfortably under the 1MB cap, zod's recursive parse overflows the stack,
   and the `RangeError` escapes raw from `pkc.getComment`, `Comment.update()` and page parsing
