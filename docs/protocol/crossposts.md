@@ -187,8 +187,35 @@ as a community mismatch.
 ## Chains
 
 Crossposting a crosspost nests records, and verification recurses through every level. There is
-deliberately **no depth cap**: the 40kb publication limit bounds what can be published, and each
-level of nesting eats the budget for the next, so long chains simply cannot be published.
+currently **no depth cap**: the 40kb publication limit bounds what can be published, and each level
+of nesting eats the budget for the next, so long chains cannot enter through a community's
+challenge exchange.
+
+#### Open question: depth on the client ingest paths
+
+Whether that stays the design is open, tracked in issue #250. The 40kb bound holds only for
+publication. Every client path that ingests a `CommentIpfs` (fetching a comment by cid, loading a
+page) allows 1MB, and a deep chain is cheap to mint: `signedPropertyNames` is derived from the
+fields present, so one genuinely signed record can be nested into itself to arbitrary depth with
+only the outermost level's signature covering `crosspost`. Measured at that size:
+
+- At roughly 1000 levels, comfortably under the 1MB cap, zod's recursive parse overflows the stack,
+  and the `RangeError` escapes raw from `pkc.getComment`, `Comment.update()` and page parsing
+  rather than as a `PKCError`. The overflow depth is engine and stack dependent, so it is not a
+  clean rejection boundary: the same record can parse on one client and throw on another.
+- `_verifyCrosspost` stringifies and hashes the entire remaining subtree at every level, so
+  verifying a chain costs O(levels × total bytes) rather than O(total bytes). Invisible at 40kb,
+  roughly 600x more work at 1MB, per distinct record.
+
+The decision is between keeping no cap while making deep chains deterministic to reject and linear
+to verify, or capping depth explicitly and updating this section. Catching non-zod throws in the
+parse helpers, so a malformed record fails as `ERR_INVALID_COMMENT_IPFS_SCHEMA` instead of a
+`RangeError`, is needed under either outcome.
+
+For prior art, see the issue: mainstream feed apps (Reddit, Twitter/X, Bluesky, Mastodon) all
+store a reference rather than embedding, render exactly one embed level, and Reddit flattens a
+crosspost of a crosspost to the original, a behavior our wire format can express today by
+embedding the chain's innermost record verbatim.
 
 ## The embedded record must never be normalized
 
