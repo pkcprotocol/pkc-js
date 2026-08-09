@@ -41,7 +41,8 @@ import {
     findUpdatingComment,
     findUpdatingCommunity,
     listStartedCommunities,
-    listUpdatingCommunities
+    listUpdatingCommunities,
+    untrackUpdatingComment
 } from "../../pkc/tracked-instance-registry-util.js";
 
 const fetchCommentLogger = Logger("pkc-js:comment:client-manager:fetchAndVerifyCommentCid");
@@ -1146,6 +1147,10 @@ export class CommentClientsManager extends PublicationClientsManager {
         this._postForUpdating.comment.on("updatingstatechange", this._postForUpdating.updatingstatechange);
 
         this._postForUpdating.comment.on("error", this._postForUpdating.error);
+        // This reply depends on the post instance for its CommentUpdates, so it has to hold a
+        // listener count on it, otherwise the last direct mirror of the post calling stop() would
+        // tear down pkc._updatingComments[postCid] while this reply is still updating
+        this._postForUpdating.comment._numOfListenersForUpdatingInstance++;
         return this._postForUpdating;
     }
 
@@ -1201,8 +1206,23 @@ export class CommentClientsManager extends PublicationClientsManager {
         this._postForUpdating.comment.removeListener("error", this._postForUpdating.error);
         this._postForUpdating.comment.removeListener("update", this._postForUpdating.update);
 
-        // only stop if it's mirroring the actual comment instance updating at pkc._updatingComments
-        if (this._postForUpdating.comment._updatingCommentInstance) await this._postForUpdating.comment.stop();
+        const postForUpdating = this._postForUpdating.comment;
+        postForUpdating._numOfListenersForUpdatingInstance--;
+        if (postForUpdating._updatingCommentInstance) {
+            // this reply created its own post instance mirroring pkc._updatingComments[postCid]; no other comment holds it
+            await postForUpdating.stop();
+        } else if (postForUpdating._numOfListenersForUpdatingInstance === 0 && postForUpdating.state !== "stopped") {
+            // this reply was the last user of pkc._updatingComments[postCid]
+            await postForUpdating.stop();
+        } else if (
+            postForUpdating._numOfListenersForUpdatingInstance === 0 &&
+            postForUpdating.state === "stopped" &&
+            postForUpdating.cid &&
+            findUpdatingComment(this._pkc, { cid: postForUpdating.cid }) === postForUpdating
+        ) {
+            // No listeners left and the updating post is already stopped; remove the stale entry
+            untrackUpdatingComment(this._pkc, postForUpdating);
+        }
         this._parentFirstPageCidsAlreadyLoaded.clear();
         this._postForUpdating = undefined;
     }

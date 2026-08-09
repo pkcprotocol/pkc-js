@@ -5,6 +5,7 @@ import {
     isPKCFetchingUsingGateways,
     publishRandomPost,
     publishRandomReply,
+    publishVote,
     resolveWhenConditionIsTrue,
     addStringToIpfs,
     createMockedCommunityIpns
@@ -407,6 +408,45 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // When the recursion bug is fixed this should be undefined, so the test will start passing.
             expect(thrownError).to.be.undefined;
         });
+
+        // with rpc clients we don't create a post instance, the rpc server does it for us
+        itSkipIfRpc(
+            `Stopping the last direct mirror of a post shouldn't tear down the updating post while a reply still depends on it for updates (issue #255)`,
+            async () => {
+                const post = await publishRandomPost({ communityAddress: communityAddress, pkc: pkc });
+                const publishedReply = await publishRandomReply({ parentComment: post as CommentIpfsWithCidDefined, pkc: pkc });
+
+                // A direct mirror of the post creates pkc._updatingComments[post.cid] and holds its only refcount
+                const postMirror = await pkc.createComment({ cid: post.cid });
+                await postMirror.update();
+                await resolveWhenConditionIsTrue({ toUpdate: postMirror, predicate: async () => typeof postMirror.updatedAt === "number" });
+                expect(findUpdatingComment(pkc, { cid: post.cid! })).to.exist;
+
+                // The reply subscribes to that same updating post instance to receive its CommentUpdates
+                const reply = await pkc.createComment({ cid: publishedReply.cid });
+                await reply.update();
+                await resolveWhenConditionIsTrue({ toUpdate: reply, predicate: async () => typeof reply.updatedAt === "number" });
+
+                await postMirror.stop();
+                await new Promise((resolve) => setTimeout(resolve, 100)); // need to wait some time to propgate events
+
+                // The reply is still updating, so the updating post instance it depends on must survive
+                expect(reply.state).to.equal("updating");
+                expect(findUpdatingComment(pkc, { cid: post.cid! })).to.exist;
+
+                // And the reply must keep receiving new CommentUpdates end to end
+                await publishVote({ commentCid: reply.cid!, communityAddress: communityAddress, vote: 1, pkc: pkc });
+                await resolveWhenConditionIsTrue({ toUpdate: reply, predicate: async () => (reply.upvoteCount ?? 0) > 0 });
+                expect(reply.upvoteCount).to.be.greaterThan(0);
+
+                await reply.stop();
+                await new Promise((resolve) => setTimeout(resolve, 100)); // need to wait some time to propgate events
+
+                // Once the last dependent is gone, both entries should be cleaned up
+                expect(findUpdatingComment(pkc, { cid: reply.cid! })).to.be.undefined;
+                expect(findUpdatingComment(pkc, { cid: post.cid! })).to.be.undefined;
+            }
+        );
 
         // with rpc clients we don't create a post instance, the rpc server does it for us
         itSkipIfRpc(
