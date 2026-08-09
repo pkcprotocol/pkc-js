@@ -378,16 +378,23 @@ export async function connectToPubsubPeers({
             };
             throw e;
         }
+    } finally {
+        // Provider stream ended (all router records merged, or the stream was aborted): sweep any
+        // retryable peers not already re-dialed via peer:update, and detach the listener. The
+        // retries run in the background like the initial dials — a successful retry fires
+        // peer:connected/subscription-change, which resolves the subscriber wait below without
+        // delaying it — and crucially they do NOT wait for the initial dials to settle (issue #215):
+        // most peer:update-triggered retries have already fired mid-stream, seconds before a slow
+        // relay-circuit dial would have released the old batch pass.
+        //
+        // This has to run in a finally: the catch above rethrows, and on that path the
+        // "peer:update" listener registered by createAddrMergeRetryScheduler was never detached.
+        // Every leaked onPeerUpdate closure retains runRetry's scope — including the logger it
+        // captured — for the lifetime of the page. onProviderStreamEnded is idempotent (it
+        // guards on listenerRemoved), so running it on every path is safe.
+        retryScheduler.onProviderStreamEnded();
     }
 
-    // Provider stream ended (all router records merged, or the stream was aborted): sweep any
-    // retryable peers not already re-dialed via peer:update, and detach the listener. The
-    // retries run in the background like the initial dials — a successful retry fires
-    // peer:connected/subscription-change, which resolves the subscriber wait below without
-    // delaying it — and crucially they do NOT wait for the initial dials to settle (issue #215):
-    // most peer:update-triggered retries have already fired mid-stream, seconds before a slow
-    // relay-circuit dial would have released the old batch pass.
-    retryScheduler.onProviderStreamEnded();
     inflightDialPromises.push(...retryScheduler.retryTasks);
 
     // Wait for the gossipsub subscription-change event — this is the signal that bitswap can
