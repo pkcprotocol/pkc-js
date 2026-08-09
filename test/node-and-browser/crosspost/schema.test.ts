@@ -3,12 +3,17 @@
 import { describe, it, expect } from "vitest";
 import {
     CommentIpfsSchema,
+    CommentIpfsWithRefinmentSchema,
     CommentSignedPropertyNames,
     CommentPubsubMessageReservedFields,
-    CommentIpfsReservedFields
+    CommentIpfsReservedFields,
+    CreateCommentOptionsWithRefinementSchema,
+    CommentPubsubMessageWithFlexibleAuthorRefinementSchema
 } from "../../../dist/node/publications/comment/schema.js";
+import { messages } from "../../../dist/node/errors.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import validCommentIpfsFixture from "../../fixtures/signatures/comment/commentUpdate/valid_comment_ipfs.json" with { type: "json" };
+import signers from "../../fixtures/signers.js";
 
 const sig = {
     type: "ed25519",
@@ -89,6 +94,65 @@ describe("derived lists pick up crosspost with no hand-editing", () => {
         for (const list of [CommentPubsubMessageReservedFields, CommentIpfsReservedFields])
             expect(list.includes("crosspost")).to.equal(list.includes("quotedCids"));
         expect(CommentSignedPropertyNames.includes("crosspost")).to.equal(CommentSignedPropertyNames.includes("quotedCids"));
+    });
+});
+
+// A crosspost with nothing added is a "retweet". The refinement that otherwise requires
+// link || content || title accepts crosspost as a fourth payload kind (issue #254).
+describe("a bare crosspost satisfies the content/link/title refinement", () => {
+    const crosspost = () => ({ cid: "QmYjtig7VJQ6XsnUjqqJvj7QaMcCAwtrgNdahSiFofrE7o", comment: embedded() });
+
+    const bareCreateOptions = () => ({
+        signer: { privateKey: signers[0].privateKey, type: "ed25519" },
+        communityPublicKey: signers[1].publicKey,
+        crosspost: crosspost()
+    });
+
+    it("create options whose only payload is a crosspost parse (a bare crosspost post)", () => {
+        expect(CreateCommentOptionsWithRefinementSchema.safeParse(bareCreateOptions()).success).to.be.true;
+    });
+
+    it("a bare crosspost reply parses too", () => {
+        const reply = {
+            ...bareCreateOptions(),
+            parentCid: "QmYjtig7VJQ6XsnUjqqJvj7QaMcCAwtrgNdahSiFofrE7o",
+            postCid: "QmYjtig7VJQ6XsnUjqqJvj7QaMcCAwtrgNdahSiFofrE7o"
+        };
+        expect(CreateCommentOptionsWithRefinementSchema.safeParse(reply).success).to.be.true;
+    });
+
+    it("create options with neither crosspost nor content/link/title are still refused", () => {
+        const empty = bareCreateOptions() as Record<string, unknown>;
+        delete empty.crosspost;
+        const res = CreateCommentOptionsWithRefinementSchema.safeParse(empty);
+        if (res.success) throw new Error("expected the parse to fail");
+        expect(res.error.issues[0].message).to.equal(messages.ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE);
+    });
+
+    // This is the schema the community parses request.comment with, so it decides acceptance.
+    const barePubsubMessage = () => ({
+        signature: { ...sig, signedPropertyNames: ["crosspost", "author", "protocolVersion", "timestamp"] },
+        timestamp: 1700000000,
+        protocolVersion: "1.0.0",
+        communityPublicKey: signers[1].publicKey,
+        crosspost: crosspost()
+    });
+
+    it("the community-side pubsub message schema accepts a bare crosspost", () => {
+        expect(CommentPubsubMessageWithFlexibleAuthorRefinementSchema.safeParse(barePubsubMessage()).success).to.be.true;
+    });
+
+    it("the community-side pubsub message schema still refuses a comment with no payload at all", () => {
+        const empty = barePubsubMessage() as Record<string, unknown>;
+        delete empty.crosspost;
+        const res = CommentPubsubMessageWithFlexibleAuthorRefinementSchema.safeParse(empty);
+        if (res.success) throw new Error("expected the parse to fail");
+        expect(res.error.issues[0].message).to.equal(messages.ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE);
+    });
+
+    it("a CommentIpfs whose only payload is a crosspost passes the refinement schema", () => {
+        const bareIpfs = { ...barePubsubMessage(), depth: 0 };
+        expect(CommentIpfsWithRefinmentSchema.safeParse(bareIpfs).success).to.be.true;
     });
 });
 

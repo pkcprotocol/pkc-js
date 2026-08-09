@@ -296,7 +296,7 @@ export enum messages {
     ERR_COMMENT_CONTENT_CONTAINS_MARKDOWN_AUDIO = "This community does not allow embedding audio in markdown content",
     ERR_REPLY_HAS_SPOILER_ENABLED = "This community does not allow authors to mark replies as spoilers",
     ERR_NESTED_REPLIES_NOT_ALLOWED = "This community does not allow nested replies (depth > 1)",
-    ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE = "Comment has no content, link or title",
+    ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE = "Comment has no content, link, title or crosspost",
     ERR_COMMENT_EDIT_HAS_NO_EDIT_FIELD = "CommentEdit has no editable field. At least one of content, deleted, flairs, spoiler or nsfw must be defined",
     ERR_COMMENT_MODERATION_HAS_NO_MODERATION_FIELD = "CommentModeration has no moderation field. At least one moderation field other than reason must be defined",
     ERR_REQUEST_ENCRYPTED_IS_INVALID_JSON_AFTER_DECRYPTION = "request.encrypted is an invalid json after decrypting",

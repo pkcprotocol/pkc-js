@@ -81,8 +81,10 @@ export const CreateCommentOptionsSchema = z
     .strict();
 
 // This one is used for parsing user's input
+// crosspost counts as payload on its own: a comment that only reposts another comment (a
+// "retweet") is valid with no content, link or title. See docs/protocol/crossposts.md.
 export const CreateCommentOptionsWithRefinementSchema = CreateCommentOptionsSchema.refine(
-    (arg) => arg.link || arg.content || arg.title,
+    (arg) => arg.link || arg.content || arg.title || arg.crosspost,
     messages.ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE
 )
     .refine((arg) => (arg.parentCid ? arg.postCid : true), messages.ERR_REPLY_HAS_NOT_DEFINED_POST_CID)
@@ -107,12 +109,12 @@ export const CommentPubsubMessageWithFlexibleAuthorSchema = CommentPubsubMessage
 
 // This is used by the community when parsing request.comment
 export const CommentPubsubMessageWithFlexibleAuthorRefinementSchema = CommentPubsubMessageWithFlexibleAuthorSchema.loose().refine(
-    (arg) => arg.link || arg.content || arg.title,
+    (arg) => arg.link || arg.content || arg.title || arg.crosspost,
     messages.ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE
 );
 
 export const CommentPubsubMessageWithRefinementSchema = CommentPubsubMessagePublicationSchema.refine(
-    (arg) => arg.link || arg.content || arg.title,
+    (arg) => arg.link || arg.content || arg.title || arg.crosspost,
     messages.ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE
 ).refine((arg) => (arg.parentCid ? arg.postCid : true), messages.ERR_REPLY_HAS_NOT_DEFINED_POST_CID);
 
@@ -137,7 +139,7 @@ export const CommentIpfsSchema = CommentPubsubMessageWithFlexibleAuthorSchema.ex
 
 // This one should be used for parsing user's input or from gateway/p2p etc
 export const CommentIpfsWithRefinmentSchema = CommentIpfsSchema.refine(
-    (arg) => arg.link || arg.content || arg.title,
+    (arg) => arg.link || arg.content || arg.title || arg.crosspost,
     messages.ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE
 );
 

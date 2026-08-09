@@ -155,12 +155,21 @@ since they usually have no `nameResolvers` configured and would wrongly conclude
 
 See `docs/protocol/wire-vs-runtime.md` and issue #251.
 
-#### Open question: a crosspost is not "content"
+#### A crosspost is payload on its own (bare crossposts)
 
-`CreateCommentOptionsWithRefinementSchema` still requires `link || content || title`, and `crosspost`
-is not in that list, so a comment whose only payload is the crosspost cannot be created. For a post
-this is moot, since posts need a title anyway. For a reply it means a bare "reposting this" is not
-expressible without writing something. Undecided whether `crosspost` should satisfy the refinement.
+A comment whose only payload is the crosspost is valid, as a post or a reply. This is the
+twitter-style "retweet": repost with nothing added. Issue #254.
+
+The `link || content || title` refinement accepts `crosspost` as a fourth payload kind, in all four
+places it appears: `CreateCommentOptionsWithRefinementSchema` (user input),
+`CommentPubsubMessageWithFlexibleAuthorRefinementSchema` (the community's parse of
+`request.comment`, so acceptance too), `CommentPubsubMessageWithRefinementSchema` and
+`CommentIpfsWithRefinmentSchema`. A comment with none of the four is still refused with
+`ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE`.
+
+Clients rendering a bare crosspost have only the embedded record to show, so the tier rules above
+apply with no dilution: at tier 1 the embedded title/content are author-signed and safe to render,
+the unsigned extras and the claimed origin community are not.
 
 ## Host community acceptance
 

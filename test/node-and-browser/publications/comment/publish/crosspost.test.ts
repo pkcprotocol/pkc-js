@@ -94,6 +94,41 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         });
 
+        describe("a bare crosspost publishes (a retweet: no content, link or title)", () => {
+            it("a post whose only payload is the crosspost is accepted", async () => {
+                const post = await pkc.createComment({ communityAddress, signer: await pkc.createSigner(), crosspost });
+                expect(post.content).to.be.undefined;
+                expect(post.link).to.be.undefined;
+                expect(post.title).to.be.undefined;
+
+                await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+
+                expect(post.raw.comment!.crosspost).to.deep.equal(crosspost);
+                expect(post.raw.comment!.content).to.be.undefined;
+                expect(post.raw.comment!.link).to.be.undefined;
+                expect(post.raw.comment!.title).to.be.undefined;
+            });
+
+            it("a reply whose only payload is the crosspost is accepted", async () => {
+                const reply = await pkc.createComment({
+                    communityAddress,
+                    signer: await pkc.createSigner(),
+                    parentCid: original.cid!,
+                    postCid: original.postCid!,
+                    crosspost
+                });
+                await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
+                expect(reply.raw.comment!.crosspost).to.deep.equal(crosspost);
+                expect(reply.raw.comment!.content).to.be.undefined;
+            });
+
+            it("a comment with neither crosspost nor content, link or title is still refused", async () => {
+                await expect(pkc.createComment({ communityAddress, signer: await pkc.createSigner() })).rejects.toMatchObject({
+                    code: "ERR_INVALID_CREATE_COMMENT_ARGS_SCHEMA"
+                });
+            });
+        });
+
         describe("the client refuses to publish an invalid crosspost", () => {
             it("a cid that does not match the embedded bytes fails local validation", async () => {
                 const wrong = { ...crosspost, cid: "QmYjtig7VJQ6XsnUjqqJvj7QaMcCAwtrgNdahSiFofrE7o" };
