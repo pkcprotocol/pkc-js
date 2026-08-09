@@ -226,9 +226,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 // built from it would tear down an update loop they are still waiting on.
                 const controlPost = await publishRandomPost({ communityAddress, pkc });
                 const control = await pkc.createComment({ cid: controlPost.cid! });
-                await control.update();
-                await resolveWhenConditionIsTrue({ toUpdate: control, predicate: async () => typeof control.updatedAt === "number" });
-                await control.stop();
+                try {
+                    await control.update();
+                    await resolveWhenConditionIsTrue({ toUpdate: control, predicate: async () => typeof control.updatedAt === "number" });
+                } finally {
+                    await control.stop();
+                }
 
                 // updatedAt/raw.commentUpdate are the signal that a CommentUpdate resolved. The
                 // "update" event is not — it also fires for the comment props the instance was

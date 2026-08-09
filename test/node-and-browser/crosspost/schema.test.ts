@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import {
     CommentIpfsSchema,
-    CommentIpfsWithRefinmentSchema,
+    CommentIpfsWithRefinementSchema,
     CommentSignedPropertyNames,
     CommentPubsubMessageReservedFields,
     CommentIpfsReservedFields,
@@ -152,7 +152,7 @@ describe("a bare crosspost satisfies the content/link/title refinement", () => {
 
     it("a CommentIpfs whose only payload is a crosspost passes the refinement schema", () => {
         const bareIpfs = { ...barePubsubMessage(), depth: 0 };
-        expect(CommentIpfsWithRefinmentSchema.safeParse(bareIpfs).success).to.be.true;
+        expect(CommentIpfsWithRefinementSchema.safeParse(bareIpfs).success).to.be.true;
     });
 });
 

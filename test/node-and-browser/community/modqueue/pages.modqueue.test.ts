@@ -151,7 +151,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             } catch (e) {
                 const error = e as PKCError;
                 expect(error.code).to.equal("ERR_MOD_QUEUE_PAGE_IS_INVALID");
-                expect(error.details.signatureValidity.reason).to.equal(messages.ERR_COMMENT_UPDATE_DIFFERENT_CID_THAN_COMMENT);
+                // the forged parentCid is an author-signable field absent from signedPropertyNames,
+                // so verification rejects the record before ever comparing commentUpdate.cid
+                expect(error.details.signatureValidity.reason).to.equal(
+                    messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
+                );
             } finally {
                 await pkc.destroy();
             }

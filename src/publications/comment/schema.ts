@@ -138,7 +138,7 @@ export const CommentIpfsSchema = CommentPubsubMessageWithFlexibleAuthorSchema.ex
 }).strict();
 
 // This one should be used for parsing user's input or from gateway/p2p etc
-export const CommentIpfsWithRefinmentSchema = CommentIpfsSchema.refine(
+export const CommentIpfsWithRefinementSchema = CommentIpfsSchema.refine(
     (arg) => arg.link || arg.content || arg.title || arg.crosspost,
     messages.ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE
 );

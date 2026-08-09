@@ -164,7 +164,7 @@ The `link || content || title` refinement accepts `crosspost` as a fourth payloa
 places it appears: `CreateCommentOptionsWithRefinementSchema` (user input),
 `CommentPubsubMessageWithFlexibleAuthorRefinementSchema` (the community's parse of
 `request.comment`, so acceptance too), `CommentPubsubMessageWithRefinementSchema` and
-`CommentIpfsWithRefinmentSchema`. A comment with none of the four is still refused with
+`CommentIpfsWithRefinementSchema`. A comment with none of the four is still refused with
 `ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE`.
 
 Clients rendering a bare crosspost have only the embedded record to show, so the tier rules above
