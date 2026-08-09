@@ -396,13 +396,30 @@ describeSkipIfRpc("verify Comment", async () => {
         expect(tamperedVerification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
 
+    // communityName/communityPublicKey are author-signable, and verifyCommentIpfs rejects a record
+    // carrying a signable field outside signature.signedPropertyNames (issue #249). So the records
+    // below are signed fresh with the community fields included, rather than patched onto a fixture
+    // after signing, which is exactly the forgery the guard exists to reject.
+    const signCommentIpfsWithCommunityFields = async (communityFields: { communityName?: string; communityPublicKey?: string }) => {
+        const signer = await pkc.createSigner();
+        const commentToSign: CommentOptionsToSign = {
+            ...createCommentToSign({ communityAddress: communityFields.communityName ?? signers[0].address, signer }),
+            ...communityFields
+        };
+        return {
+            ...omit(commentToSign, ["signer", "communityAddress"]),
+            signature: await signComment({ comment: commentToSign, pkc }),
+            depth: 0
+        } as CommentIpfsType;
+    };
+
     it(`verifyCommentIpfs passes when communityPublicKey differs from community but communityName matches (key rotation)`, async () => {
-        const comment = clone(validCommentFixture) as CommentIpfsType;
         // Simulate key rotation: comment was published under old key, community now has new key.
-        // Add new-format fields; old communityAddress stays for signature validity since it's in signedPropertyNames.
-        // getCommunityAddressFromRecord returns communityName first, so the address check uses the domain, not the key.
-        (comment as Record<string, unknown>).communityName = "example.eth";
-        (comment as Record<string, unknown>).communityPublicKey = signers[6].address; // "old" key, differs from community's current
+        // getCommunityNameFromWire returns communityName first, so the address check uses the domain, not the key.
+        const comment = await signCommentIpfsWithCommunityFields({
+            communityName: "example.eth",
+            communityPublicKey: signers[6].address // "old" key, differs from community's current
+        });
 
         const verification = await verifyCommentIpfs({
             comment,
@@ -415,8 +432,7 @@ describeSkipIfRpc("verify Comment", async () => {
     });
 
     it(`verifyCommentIpfs returns invalid when communityName from record mismatches communityNameFromInstance`, async () => {
-        const comment = clone(validCommentFixture) as CommentIpfsType;
-        (comment as Record<string, unknown>).communityName = "real.eth";
+        const comment = await signCommentIpfsWithCommunityFields({ communityName: "real.eth" });
 
         const verification = await verifyCommentIpfs({
             comment,
@@ -429,8 +445,7 @@ describeSkipIfRpc("verify Comment", async () => {
     });
 
     it(`verifyCommentIpfs passes when communityName aliases match (.eth vs .bso)`, async () => {
-        const comment = clone(validCommentFixture) as CommentIpfsType;
-        (comment as Record<string, unknown>).communityName = "example.eth";
+        const comment = await signCommentIpfsWithCommunityFields({ communityName: "example.eth" });
 
         const verification = await verifyCommentIpfs({
             comment,
@@ -440,6 +455,25 @@ describeSkipIfRpc("verify Comment", async () => {
             communityNameFromInstance: "example.bso"
         });
         expect(verification).to.deep.equal({ valid: true });
+    });
+
+    it(`verifyCommentIpfs rejects a record whose communityName was attached after signing (issue #249)`, async () => {
+        // The pre-fix behavior this replaces: patching communityName onto an already-signed record
+        // used to verify, letting anyone re-label a comment as belonging to a different community.
+        const comment = clone(validCommentFixture) as CommentIpfsType;
+        (comment as Record<string, unknown>).communityName = "example.eth";
+
+        const verification = await verifyCommentIpfs({
+            comment,
+            clientsManager: pkc._clientsManager,
+            resolveAuthorNames: false,
+            calculatedCommentCid: "QmUnsignedCommunityNameTest",
+            communityNameFromInstance: "example.eth"
+        });
+        expect(verification).to.deep.equal({
+            valid: false,
+            reason: messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
+        });
     });
 
     it(`verifyCommentIpfs passes when communityPublicKeyFromInstance differs from record`, async () => {

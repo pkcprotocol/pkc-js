@@ -89,6 +89,7 @@ All in `src/signer/signatures.ts`:
 - The `signature` field itself is never in `signedPropertyNames`.
 - `CommentUpdate.edit.signature.publicKey` must match the original comment's `signature.publicKey`: prevents someone else's edit from being injected.
 - Old publications may have different `signedPropertyNames` than new ones (backward compat): always use the list from the actual signature object, not a hardcoded const.
+- A comment record must sign every signable field it carries: `verifyCommentIpfs` and `_verifyCrosspost` reject a record where a field in `CommentSignedPropertyNames` is present but missing from `signature.signedPropertyNames`, checked on the un-picked record (issue #249). Community-generated `CommentIpfs` fields (`depth`, `thumbnailUrl*`, `previousCid`, `pseudonymityMode`) and unknown extra props from future protocol versions are exempt. Community acceptance is stricter still: `_allFieldsOfRecordInSignedPropertyNames` requires every field of the pubsub record to be signed.
 
 ## Common Mistakes
 

@@ -109,9 +109,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         });
 
-        describe("check 2: the embedded record's author signature", () => {
+        describe("check 4: the embedded record's author signature", () => {
             it("a tampered embedded signature is rejected", async () => {
-                // Re-point cid at the tampered bytes so check 1 passes and check 2 is what fails.
+                // Re-point cid at the tampered bytes so check 1 passes and check 4 is what fails.
                 const tampered = clone(crosspostRef);
                 tampered.comment.content = "tampered, but consistently hashed";
                 tampered.cid = await calculateIpfsHash(deterministicStringify(tampered.comment)!);
@@ -132,7 +132,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         });
 
-        describe("check 3: no reserved fields on the embedded record", () => {
+        describe("check 2: no reserved fields on the embedded record", () => {
             it("an embedded record carrying a reserved field is rejected", async () => {
                 const tampered = clone(crosspostRef) as Record<string, any>;
                 tampered.comment.cid = crosspostRef.cid; // `cid` is runtime-only on a CommentIpfs
@@ -219,7 +219,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 });
             });
 
-            it("check 3 still applies at the innermost level: a reserved field on the inner record is rejected", async () => {
+            it("check 2 still applies at the innermost level: a reserved field on the inner record is rejected", async () => {
                 const reservedInner = clone(crosspostRef) as Record<string, any>;
                 reservedInner.comment.cid = crosspostRef.cid; // `cid` is runtime-only on a CommentIpfs
                 reservedInner.cid = await calculateIpfsHash(deterministicStringify(reservedInner.comment)!);
@@ -231,9 +231,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 });
             });
 
-            it("check 3 still applies at the innermost level: a reserved author field on the inner record is rejected", async () => {
+            it("check 2 still applies at the innermost level: a reserved author field on the inner record is rejected", async () => {
                 const reservedInner = clone(crosspostRef) as Record<string, any>;
-                // shortAddress rather than nameResolved, for the reason given on check 3 above. It
+                // shortAddress rather than nameResolved, for the reason given on check 2 above. It
                 // matters more here: an inner failure flattens to the signature message either way, so
                 // a stripped field would move the inner cid and this would still pass, on check 1.
                 reservedInner.comment.author = { ...reservedInner.comment.author, shortAddress: "12D3KooWN5rL" };
@@ -259,18 +259,23 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         // signedPropertyNames lives inside `signature`, which is not part of the signed bytes, so a
-        // record gets to choose which of its own fields are verified. Nothing exotic is needed to
-        // exploit that: _signJson derives the list from the fields actually present, so a post signed
-        // without a crosspost simply has no `crosspost` entry, and attaching one afterwards leaves
-        // the signature valid. The pick in check 2 then hides the nested record from the recursion in
-        // verifyCommentPubsubMessage, so checks 1 and 3 never run on it either and an arbitrary
-        // subtree rides along verified by nothing.
+        // record used to get to choose which of its own fields were verified. Nothing exotic was
+        // needed to exploit that: _signJson derives the list from the fields actually present, so a
+        // post signed without a crosspost simply has no `crosspost` entry, and attaching one
+        // afterwards leaves the signature valid while the pick in check 4 hides the nested record
+        // from the recursion. Issue #249.
+        //
+        // The fix rejects such a record outright: any author-signable field (one in
+        // CommentSignedPropertyNames) present on the un-picked record but absent from
+        // signature.signedPropertyNames invalidates it, so verified implies signed again. The guard
+        // is deliberately restricted to the signable set: community-generated CommentIpfs fields
+        // (depth, thumbnailUrl*, previousCid, pseudonymityMode) are legitimately unsigned, and
+        // unknown extra props from future protocol versions must keep surviving loads.
         //
         // These reasons are the specific ones rather than the flattened
-        // ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID above, because this recursion returns
-        // _verifyCrosspost's result directly instead of routing it back through
-        // verifyCommentPubsubMessage.
-        describe("a record cannot skip its own subtree by leaving crosspost out of signedPropertyNames", () => {
+        // ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID above, because the guard runs in
+        // _verifyCrosspost on the directly embedded record.
+        describe("a record carrying an unsigned signable field is rejected outright (issue #249)", () => {
             // { cid, comment } whose comment carries an UNSIGNED crosspost pointing at `nested`.
             const embedWithUnsignedCrosspost = async (nested: { cid: string; comment: CommentIpfsType }) => {
                 const carrier = (await generateMockPost({ communityAddress, pkc })).raw.pubsubMessageToPublish!;
@@ -283,41 +288,75 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(plain.signature.signedPropertyNames).to.not.include("crosspost");
             });
 
-            it("check 1 still applies: a cid not matching the unsigned nested bytes is rejected", async () => {
+            it("an embedded record with an unsigned crosspost is rejected, even a well-formed one", async () => {
+                expect(await verify(await signCrossposting(await embedWithUnsignedCrosspost(crosspostRef)))).to.deep.equal({
+                    valid: false,
+                    reason: messages.ERR_CROSSPOST_COMMENT_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
+                });
+            });
+
+            it("the unsigned subtree no longer decides the outcome: a tampered unsigned nested crosspost is rejected the same way", async () => {
                 const badCid = clone(crosspostRef);
                 badCid.cid = await calculateIpfsHash("some other bytes entirely");
                 expect(await verify(await signCrossposting(await embedWithUnsignedCrosspost(badCid)))).to.deep.equal({
                     valid: false,
-                    reason: messages.ERR_CROSSPOST_CID_DOES_NOT_MATCH_EMBEDDED_COMMENT
+                    reason: messages.ERR_CROSSPOST_COMMENT_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
                 });
             });
 
-            it("check 2 still applies: a broken signature on the unsigned nested record is rejected", async () => {
-                const broken = clone(crosspostRef);
-                broken.comment.content = "tampered at the bottom of the chain";
-                broken.cid = await calculateIpfsHash(deterministicStringify(broken.comment)!);
-                expect(await verify(await signCrossposting(await embedWithUnsignedCrosspost(broken)))).to.deep.equal({
+            it("an unsigned non-crosspost signable field is rejected the same way", async () => {
+                const carrier = (await generateMockPost({ communityAddress, pkc })).raw.pubsubMessageToPublish!;
+                expect(carrier.signature.signedPropertyNames).to.not.include("spoiler");
+                const record = { ...carrier, depth: 0, spoiler: true } as unknown as CommentIpfsType; // comment.depth: a post
+                const embedded = { cid: await calculateIpfsHash(deterministicStringify(record)!), comment: record };
+                expect(await verify(await signCrossposting(embedded))).to.deep.equal({
                     valid: false,
-                    reason: messages.ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID
+                    reason: messages.ERR_CROSSPOST_COMMENT_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
                 });
             });
 
-            it("check 3 still applies: a reserved field on the unsigned nested record is rejected", async () => {
-                // `cid` is runtime-only on a CommentIpfs, so widening just that one field keeps the
-                // rest of the record type-checked.
-                const reserved = clone(crosspostRef) as { cid: string; comment: CommentIpfsType & { cid?: string } };
-                reserved.comment.cid = crosspostRef.cid;
-                reserved.cid = await calculateIpfsHash(deterministicStringify(reserved.comment)!);
-                expect(await verify(await signCrossposting(await embedWithUnsignedCrosspost(reserved)))).to.deep.equal({
+            it("control: community-generated unsigned fields do not trigger the guard", async () => {
+                // crosspostRef.comment carries depth (and possibly thumbnail fields) unsigned, since
+                // the hosting community adds them after the author signs.
+                expect(crosspostRef.comment.signature.signedPropertyNames).to.not.include("depth");
+                expect(await verify(await signCrossposting(crosspostRef))).to.deep.equal({ valid: true });
+            });
+        });
+
+        // The same rule on the other picking path: a cid the client did not get from a
+        // community-signed page or CommentUpdate goes through verifyCommentIpfs, which also picks by
+        // signedPropertyNames before delegating. The guard runs on the raw record before that pick.
+        describe("verifyCommentIpfs enforces the same rule on the raw record (issue #249)", () => {
+            const verifyAsIpfs = async (record: CommentIpfsType) =>
+                verifyCommentIpfs({
+                    comment: record,
+                    calculatedCommentCid: await calculateIpfsHash(deterministicStringify(record)!),
+                    resolveAuthorNames: false,
+                    clientsManager
+                });
+
+            it("a CommentIpfs carrying an unsigned crosspost is rejected", async () => {
+                const carrier = (await generateMockPost({ communityAddress, pkc })).raw.pubsubMessageToPublish!;
+                const record = { ...carrier, depth: 0, crosspost: crosspostRef } as unknown as CommentIpfsType;
+                expect(await verifyAsIpfs(record)).to.deep.equal({
                     valid: false,
-                    reason: messages.ERR_CROSSPOST_COMMENT_INCLUDES_RESERVED_FIELD
+                    reason: messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
                 });
             });
 
-            it("a well-formed unsigned nested crosspost still verifies", async () => {
-                expect(await verify(await signCrossposting(await embedWithUnsignedCrosspost(crosspostRef)))).to.deep.equal({
-                    valid: true
+            it("a CommentIpfs carrying an unsigned non-crosspost signable field is rejected", async () => {
+                const carrier = (await generateMockPost({ communityAddress, pkc })).raw.pubsubMessageToPublish!;
+                const record = { ...carrier, depth: 0, spoiler: true } as unknown as CommentIpfsType;
+                expect(await verifyAsIpfs(record)).to.deep.equal({
+                    valid: false,
+                    reason: messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
                 });
+            });
+
+            it("control: the same record with the crosspost signed verifies", async () => {
+                const signed = await signCrossposting(crosspostRef);
+                const record = { ...signed, depth: 0 } as unknown as CommentIpfsType;
+                expect(await verifyAsIpfs(record)).to.deep.equal({ valid: true });
             });
         });
 

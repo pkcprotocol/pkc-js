@@ -276,15 +276,48 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // Simulate a domain-based community that rotated its key: old comments have communityPublicKey set to the old key,
             // but communityName matches the community's domain address. This should NOT be an error because
             // getCommunityAddressFromRecord returns communityName first, so the address check uses the domain.
-            const commentIpfs = JSON.parse(JSON.stringify(validCommentFixture));
-            commentIpfs.communityName = "example.eth";
-            commentIpfs.communityPublicKey = signers[6].address; // "old" key, differs from community's current key
-            const cid = await addStringToIpfs(JSON.stringify(commentIpfs));
+            // communityName/communityPublicKey are author-signable, and a record carrying them outside
+            // signature.signedPropertyNames is rejected (issue #249), so the record is signed fresh
+            // with them included instead of patching them onto an already-signed fixture.
+            const signer = signers[7];
+            const log = Logger("pkc-js:test:getcomment:key-rotation");
+            const signedPropertyNames = ["content", "title", "communityName", "communityPublicKey", "protocolVersion", "timestamp"];
+            const commentIpfs = {
+                content: `Key rotation content ${Date.now()}`,
+                title: `Key rotation title ${Date.now()}`,
+                communityName: "example.eth",
+                communityPublicKey: signers[6].address, // "old" key, differs from community's current key
+                protocolVersion: "1.0.0",
+                timestamp: Math.floor(Date.now() / 1000),
+                depth: 0
+            };
+            const signature = await _signJson(signedPropertyNames, cleanUpBeforePublishing(commentIpfs), signer, log);
+            const cid = await addStringToIpfs(JSON.stringify({ ...commentIpfs, signature }));
 
             const loadedComment = await pkc.getComment({ cid, communityAddress: "example.eth" });
             expect(loadedComment.communityAddress).to.equal("example.eth");
             expect(loadedComment.communityPublicKey).to.equal(signers[6].address);
             expect(loadedComment.communityName).to.equal("example.eth");
+        });
+
+        it(`pkc.getComment rejects a CommentIpfs whose communityName was attached after signing (issue #249)`, async () => {
+            // The forgery the signable-field guard exists to reject: re-labeling an already-signed
+            // comment as belonging to a different community without invalidating its signature.
+            const commentIpfs = JSON.parse(JSON.stringify(validCommentFixture));
+            commentIpfs.communityName = "example.eth";
+            commentIpfs.communityPublicKey = signers[6].address;
+            const cid = await addStringToIpfs(JSON.stringify(commentIpfs));
+
+            try {
+                await pkc.getComment({ cid, communityAddress: "example.eth" });
+                expect.fail("should not succeed");
+            } catch (e) {
+                const error = e as PKCError;
+                expect(error.code).to.equal("ERR_COMMENT_IPFS_SIGNATURE_IS_INVALID");
+                expect(error.details.commentIpfsValidation.reason).to.equal(
+                    messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
+                );
+            }
         });
 
         it(`pkc.getComment succeeds when communityPublicKey differs from CommentIpfs (pure key rotation, no domain)`, async () => {

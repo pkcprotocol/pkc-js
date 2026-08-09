@@ -112,6 +112,8 @@ export enum messages {
     ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID = "The embedded crosspost.comment has an invalid author signature",
     ERR_CROSSPOST_COMMENT_INCLUDES_RESERVED_FIELD = "The embedded crosspost.comment includes a reserved field",
     ERR_CROSSPOST_COMMENT_AUTHOR_INCLUDES_RESERVED_FIELD = "The embedded crosspost.comment author includes a reserved field",
+    ERR_CROSSPOST_COMMENT_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES = "The embedded crosspost.comment includes an author-signable field that's not included in signature.signedPropertyNames",
+    ERR_COMMENT_IPFS_RECORD_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES = "CommentIpfs record includes an author-signable field that's not included in signature.signedPropertyNames",
     ERR_NOT_ALLOWED_TO_PUBLISH_CROSSPOSTS = "This community does not allow crossposts",
     ERR_INVALID_COMMUNITY_IPFS_SCHEMA = "The loaded Community record has an invalid schema",
     ERR_INVALID_COMMENT_UPDATE_SCHEMA = "The schema of Comment Update is invalid",

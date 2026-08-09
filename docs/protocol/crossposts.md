@@ -48,10 +48,10 @@ Implemented in `_verifyCrosspost` in `src/signer/signatures.ts`, called from
 every client fetch path, since `verifyCommentIpfs` delegates to it.
 
 1. `CID(deterministicStringify(crosspost.comment)) === crosspost.cid`
-2. the embedded record's author signature verifies
-3. the embedded record contains no reserved/runtime fields
-4. a nested `crosspost` the embedded record did not sign is verified from the raw record, so a chain
-   cannot opt out of its own checks. See below.
+2. the embedded record contains no reserved/runtime fields
+3. every signable field the embedded record carries is in its `signature.signedPropertyNames`, so a
+   chain cannot opt out of its own checks. See below.
+4. the embedded record's author signature verifies, recursing into a nested crosspost
 
 This proves who wrote the content, and that they *claim* it was posted to the community named in the
 embedded record. It proves nothing about the unsigned extras, or about that community having
@@ -61,33 +61,33 @@ The embedded record is deliberately **not** run through `verifyCommentIpfs`: tha
 record's community against the instance's, and the embedded record belongs to a different community
 by construction.
 
-#### Why check 4 exists: a chain must not choose whether it is verified
-
-Checks 1 to 3 only exist for a given record if the recursion reached it, and until check 4 the
-recursion was implicit: `_verifyCrosspost` delegates to `verifyCommentPubsubMessage`, which descends
-on `comment.crosspost`, and it was handed a record already narrowed by
-`pick(comment, ["signature", ...signedPropertyNames])`.
+#### Why check 3 exists: a record must not choose which of its fields are verified
 
 `signedPropertyNames` lives inside `signature`, which is not part of the signed bytes, so a record
 chooses it freely. Nothing exotic is needed: `_signJson` derives the list from the fields actually
 present, so a post signed with no crosspost simply has no `crosspost` entry, and attaching one
-afterwards leaves the signature valid. The pick then hid that nested record from the recursion, and
-an arbitrary subtree rode along with none of the three checks applied — a nested `cid` that lies
-about its own bytes (so a tier-2 fetch attests to content that community never saw) and reserved
-runtime fields the checks exist to reject.
+afterwards leaves the signature valid. Check 4 then narrows the record to
+`pick(comment, ["signature", ...signedPropertyNames])` before descending, which would hide the
+attached subtree from the recursion entirely: an arbitrary nested record would ride along with none
+of the checks applied — a nested `cid` free to lie about its own bytes (so a tier-2 fetch attests to
+content that community never saw) and reserved runtime fields the checks exist to reject — while
+remaining in what gets stored and rendered.
 
-Check 4 reads `crosspost.comment.crosspost` off the raw record instead, so every level is checked
-regardless of what the level above signed. It is guarded on the signed case having already
-descended, otherwise a chain would be walked twice per level.
+Check 3 rejects such a record outright, and for every signable field, not just `crosspost`: a field
+in `CommentSignedPropertyNames` present on the raw record but absent from `signedPropertyNames`
+fails verification (`_isThereUnsignedSignableFieldInRecord` in `src/signer/signatures.ts`).
+Verified therefore implies signed at every chain level. The guard is deliberately restricted to the
+signable set: community-generated fields (`depth`, `thumbnailUrl*`, `previousCid`,
+`pseudonymityMode`) are legitimately unsigned, and unknown author-signed extra props from future
+protocol versions must keep surviving loads.
 
-Note this means verified does not imply signed for a nested crosspost. That is deliberate and safe:
-shrinking `signedPropertyNames` invalidates the signature of any record the attacker did not sign
-themselves, so a record reaching check 4 was always fabricated by the attacker anyway.
-
-The cause is not crosspost-specific. Every path that picks by `signedPropertyNames` verifies a
-subset of what it renders, and it does not bite elsewhere only because community acceptance runs
-`_allFieldsOfRecordInSignedPropertyNames` on the un-picked record. A client verifying a cid it did
-not get from a community-signed page or `CommentUpdate` has no such backstop. Tracked in #249.
+The cause was never crosspost-specific. Every path that picks by `signedPropertyNames` verifies a
+subset of what it renders. Community acceptance was always covered, since it runs
+`_allFieldsOfRecordInSignedPropertyNames` on the un-picked pubsub record; the signable-field guard
+now also runs in `verifyCommentIpfs` on the raw record before its pick, covering a client that
+verifies a cid it did not get from a community-signed page or `CommentUpdate`. This closed #249,
+and is also why, for example, a `communityName` attached to an already-signed record no longer
+verifies: re-labeling a comment as belonging to a different community requires re-signing it.
 
 ### Tier 2 — one fetch
 
@@ -143,7 +143,7 @@ author is shared by reference. `nameResolved` is the only field written into it.
 
 Passing the copy back to `createComment` is the normal way to re-crosspost something you just read,
 and it round trips: the publish path strips `nameResolved` at every level before signing, and a
-record that arrives on the wire still carrying it is rejected by check 3.
+record that arrives on the wire still carrying it is rejected by check 2 (reserved fields).
 
 **Only the first chain level triggers a resolution.** A chain is attacker-controlled in both depth
 and content, so walking all of it would turn one fetched comment into an unbounded number of name
