@@ -11,20 +11,23 @@ import {
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { default as nodeNativeFunctions } from "./native-functions.js";
+import { applyUndiciPolyfills } from "./polyfill.js";
 import type { KuboRpcClient, NativeFunctions } from "../../types.js";
 import path from "path";
 import assert from "assert";
-import scraper from "open-graph-scraper";
-import { HttpProxyAgent, HttpsProxyAgent } from "hpagent";
+// open-graph-scraper + probe-image-size + hpagent drag in the whole HTML/image scraping closure
+// (cheerio, parse5, entities, iconv-lite, chardet, needle, undici - ~350 modules, the single
+// largest block of the eager import graph). Only getThumbnailPropsOfLink needs them, and only a
+// community that actually publishes a link comment calls it, so they are dynamic-imported below.
 import { PKCError } from "../../pkc-error.js";
-import probe from "probe-image-size";
 import { PKC } from "../../pkc/pkc.js";
 import { STORAGE_KEYS } from "../../constants.js";
 import { RemoteCommunity } from "../../community/remote-community.js";
 import os from "os";
 import type { OpenGraphScraperOptions } from "open-graph-scraper/types";
-import { Agent as HttpAgent } from "http";
-import { Agent as HttpsAgent } from "https";
+// node:http / node:https are imported inside createKuboRpcClient (their only consumer) rather
+// than here: loading them at module scope drags in _http_agent and Node's builtin undici, which
+// an RPC-only process never needs.
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 // kubo-rpc-client (~371 modules) is dynamic-imported inside createKuboRpcClient (below) so it stays
 // off the eager import path; only a PKC that actually constructs a kubo client pays for it.
@@ -83,6 +86,7 @@ async function _getThumbnailUrlOfLink(url: string, agent?: { https: any; http: a
 
     if (agent) options["agent"] = agent;
 
+    const { default: scraper } = await import("open-graph-scraper");
     const res = await scraper(options);
 
     if (res.error) {
@@ -97,6 +101,14 @@ async function _getThumbnailUrlOfLink(url: string, agent?: { https: any; http: a
     };
 }
 
+async function _createProxyAgent(proxyHttpUrl: string) {
+    const { HttpProxyAgent, HttpsProxyAgent } = await import("hpagent");
+    return {
+        http: new HttpProxyAgent({ proxy: proxyHttpUrl }),
+        https: new HttpsProxyAgent({ proxy: proxyHttpUrl })
+    };
+}
+
 // Should be moved to community.ts
 export async function getThumbnailPropsOfLink(
     url: string,
@@ -105,12 +117,7 @@ export async function getThumbnailPropsOfLink(
 ): Promise<{ thumbnailUrl: string; thumbnailUrlWidth?: number; thumbnailUrlHeight?: number } | undefined> {
     const log = Logger(`pkc-js:community:getThumbnailUrlOfLink`);
 
-    const agent = proxyHttpUrl
-        ? {
-              http: new HttpProxyAgent({ proxy: proxyHttpUrl }),
-              https: new HttpsProxyAgent({ proxy: proxyHttpUrl })
-          }
-        : undefined;
+    const agent = proxyHttpUrl ? await _createProxyAgent(proxyHttpUrl) : undefined;
 
     let thumbnailOg: Awaited<ReturnType<typeof _getThumbnailUrlOfLink>>;
 
@@ -159,6 +166,7 @@ export async function getThumbnailPropsOfLink(
 }
 
 async function fetchDimensionsOfImage(imageUrl: string, agent?: any): Promise<{ width: number; height: number } | undefined> {
+    const { default: probe } = await import("probe-image-size");
     const result = await probe(imageUrl, { agent });
     if (typeof result?.width === "number") return { width: result.width, height: result.height };
 }
@@ -487,18 +495,19 @@ export async function moveCommunityDbToDeletedDirectory(communityAddress: string
     }
 }
 
-export async function createKuboRpcClient(
-    kuboRpcClientOptions: KuboRpcClient["_clientOptions"]
-): Promise<KuboRpcClient["_client"]> {
+export async function createKuboRpcClient(kuboRpcClientOptions: KuboRpcClient["_clientOptions"]): Promise<KuboRpcClient["_client"]> {
     const log = Logger("pkc-js:pkc:createKuboRpcClient");
     log.trace("Creating a new kubo client on node with options", kuboRpcClientOptions);
+    // raises the global fetch body timeout that kubo-rpc-client needs; see runtime/node/polyfill.ts
+    // for why this is awaited here instead of running at import time
+    await applyUndiciPolyfills();
     const { create: CreateKuboRpcClient } = await import("kubo-rpc-client");
     const isHttpsAgent =
         (typeof kuboRpcClientOptions.url === "string" && kuboRpcClientOptions.url.startsWith("https")) ||
         kuboRpcClientOptions?.protocol === "https" ||
         (kuboRpcClientOptions.url instanceof URL && kuboRpcClientOptions?.url?.protocol === "https:") ||
         kuboRpcClientOptions.url?.toString()?.includes("https");
-    const Agent = isHttpsAgent ? HttpsAgent : HttpAgent;
+    const { Agent } = isHttpsAgent ? await import("node:https") : await import("node:http");
 
     const onehourMs = 1000 * 60 * 60;
 
