@@ -1,9 +1,14 @@
-// Regression test for kubo#11213 (Routing.Type=custom publishing unresolved/empty/0.0.0.0
-// addresses in IPIP-526 provider records), fixed in Kubo >= 0.41. The removed address rewriter
-// proxy (#128) existed solely to work around that bug. Complements test/node/httprouter.test.ts:
-// here Kubo's Routing config is set DIRECTLY in the repo config (bypassing pkc's
-// _setupHttpRoutersWithKuboNodeInBackground entirely) and the provider records Kubo publishes
-// natively to a MockHttpRouter are asserted valid, with Provide.DHT.SweepEnabled both off and on.
+// Regression test for the two Kubo bugs the removed address rewriter proxy (#128, removed in #262)
+// worked around:
+//   - kubo#11213: Routing.Type=custom publishing unresolved/empty/0.0.0.0 addresses in IPIP-526
+//     provider records. Fixed in Kubo >= 0.41.
+//   - kubo#11369: the browser-dialable transports (webrtc-direct, AutoTLS /tls/ws) being dropped
+//     from provider records PUT to a delegated HTTP router, leaving browsers that found the node
+//     through a router with nothing they could dial. Fixed in Kubo 0.43.0 (kubo#11394).
+// Complements test/node/httprouter.test.ts: here Kubo's Routing config is set DIRECTLY in the repo
+// config (bypassing pkc's _setupHttpRoutersWithKuboNodeInBackground entirely) and the provider
+// records Kubo publishes natively to a MockHttpRouter are asserted valid, with
+// Provide.DHT.SweepEnabled both off and on.
 //
 // This file spawns its OWN throwaway Kubo daemon (pattern copied from
 // test/node/community/mfs-unflushed-limit.community.test.ts) instead of restarting the shared
@@ -24,23 +29,16 @@ import { MockHttpRouter } from "../../dist/node/runtime/node/test/mock-http-rout
 import type { PKC as PKCType } from "../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
 
-import tcpPortUsed from "tcp-port-used";
-
 // Ports chosen to not collide with the test server daemons (API 15001-15006, swarm 24001-24006)
 // or the isolated daemon of mfs-unflushed-limit.community.test.ts (25090-25092)
 const ISOLATED_KUBO_API_PORT = 25190;
 const ISOLATED_KUBO_GATEWAY_PORT = 25191;
 const ISOLATED_KUBO_SWARM_PORT = 25192;
+// The daemon also listens on webrtc-direct here, so the provider records it publishes must carry a
+// browser-dialable addr. That is what kubo#11369 dropped; without a browser transport in the listen
+// set the regression would be invisible to this test.
+const ISOLATED_KUBO_WEBRTC_PORT = 25193;
 const kuboApiUrl = `http://localhost:${ISOLATED_KUBO_API_PORT}/api/v0`;
-// The port a rewriter proxy WOULD bind if this file's PKC instances started one. Claimed via
-// PKC_ADDRESSES_REWRITER_START_PORT instead of probing the production default (19575), because that
-// default is not this file's to assert on: ports are machine-wide, every PKC built without an
-// explicit httpRoutersOptions claims 19575 upward (the schema default is six production routers),
-// and test/node/httprouter.test.ts deliberately runs one on its own base. Probing a port other files
-// legitimately occupy made this assertion fail purely on vitest --parallel scheduling. 19800 is
-// outside that band, outside the Linux ephemeral range (32768-60999) so the OS will not hand it to
-// an unrelated socket, and unused elsewhere in the repo.
-const legacyRewriterProxyPort = 19800;
 
 async function getKuboConfig(key: string): Promise<unknown> {
     const res = await fetch(`${kuboApiUrl}/config?arg=${encodeURIComponent(key)}`, { method: "POST" });
@@ -66,7 +64,16 @@ function initIsolatedKuboRepo(repoDir: string): void {
 
     execFileSync(ipfsBin, ["config", "Addresses.API", `/ip4/127.0.0.1/tcp/${ISOLATED_KUBO_API_PORT}`], { env });
     execFileSync(ipfsBin, ["config", "Addresses.Gateway", `/ip4/127.0.0.1/tcp/${ISOLATED_KUBO_GATEWAY_PORT}`], { env });
-    execFileSync(ipfsBin, ["config", "--json", "Addresses.Swarm", `["/ip4/127.0.0.1/tcp/${ISOLATED_KUBO_SWARM_PORT}"]`], { env });
+    execFileSync(
+        ipfsBin,
+        [
+            "config",
+            "--json",
+            "Addresses.Swarm",
+            `["/ip4/127.0.0.1/tcp/${ISOLATED_KUBO_SWARM_PORT}", "/ip4/127.0.0.1/udp/${ISOLATED_KUBO_WEBRTC_PORT}/webrtc-direct"]`
+        ],
+        { env }
+    );
     execFileSync(ipfsBin, ["config", "--json", "API.HTTPHeaders.Access-Control-Allow-Origin", '["*"]'], { env });
     execFileSync(ipfsBin, ["bootstrap", "rm", "--all"], { stdio: "ignore", env });
     execFileSync(ipfsBin, ["config", "--json", "Discovery.MDNS.Enabled", "false"], { env });
@@ -120,7 +127,7 @@ async function killKuboDaemon(proc: ChildProcess): Promise<void> {
     });
 }
 
-// Same Routing config shape that setupKuboAddressesRewriterAndHttpRouters builds, set manually so
+// Same Routing config shape that setupKuboHttpRouters builds, set manually so
 // pkc's own setup stays out of the path entirely
 function buildDirectRoutingConfig(httpRouterUrl: string) {
     return {
@@ -152,11 +159,8 @@ describeSkipIfRpc(`kubo#11213 regression: Kubo provides valid addresses directly
     const repoDir = path.join(process.cwd(), `.tmp/kubo-direct-router-test-${uuidv4()}`);
     let mockHttpRouter: MockHttpRouter;
     let kuboProcess: ChildProcess | undefined;
-    let previousStartPortEnv: string | undefined;
 
     beforeAll(async () => {
-        previousStartPortEnv = process.env.PKC_ADDRESSES_REWRITER_START_PORT;
-        process.env.PKC_ADDRESSES_REWRITER_START_PORT = String(legacyRewriterProxyPort);
         mockHttpRouter = new MockHttpRouter();
         await mockHttpRouter.start();
         initIsolatedKuboRepo(repoDir);
@@ -169,14 +173,10 @@ describeSkipIfRpc(`kubo#11213 regression: Kubo provides valid addresses directly
             fs.rmSync(repoDir, { recursive: true, force: true });
         } catch {}
         if (mockHttpRouter) await mockHttpRouter.destroy();
-        // Restore rather than delete: the variable is process-wide, so an outer runner or suite may
-        // have set it and is entitled to still see its own value after this file is done.
-        if (previousStartPortEnv === undefined) delete process.env.PKC_ADDRESSES_REWRITER_START_PORT;
-        else process.env.PKC_ADDRESSES_REWRITER_START_PORT = previousStartPortEnv;
     }, 60_000);
 
     // run once with the sweep provider disabled (current production config set by
-    // setupKuboAddressesRewriterAndHttpRouters) and once enabled, in case the kubo#11213 fix behaves differently
+    // setupKuboHttpRouters) and once enabled, in case the kubo#11213 fix behaves differently
     // between the legacy and sweep provide paths
     for (const sweepEnabled of [false, true]) {
         describe(`Provide.DHT.SweepEnabled=${sweepEnabled}`, () => {
@@ -207,10 +207,6 @@ describeSkipIfRpc(`kubo#11213 regression: Kubo provides valid addresses directly
                     if (pkc) await pkc.destroy();
                 } catch {}
             }, 60_000);
-
-            it(`no legacy address rewriter proxy is running`, async () => {
-                expect(await tcpPortUsed.check(legacyRewriterProxyPort)).to.be.false;
-            });
 
             it(`Kubo Routing.Routers points directly at the mock http router (no proxy)`, async () => {
                 const routers = (await getKuboConfig("Routing.Routers")) as Record<string, { Parameters: { Endpoint: string } }>;
@@ -295,6 +291,34 @@ describeSkipIfRpc(`kubo#11213 regression: Kubo provides valid addresses directly
 
                 const hasPutRequest = putRequests.length > 0;
                 expect(hasPutRequest).to.be.true;
+            });
+
+            // The kubo#11369 regression, and the reason the address rewriter proxy existed: Kubo
+            // listens on webrtc-direct (see initIsolatedKuboRepo) and `ipfs id` advertises it, but
+            // everything it PUT to a delegated HTTP router carried only tcp/quic/webtransport. A
+            // browser that found this node through the router had no dialable address. Asserting on
+            // the record the router actually stored, not on `ipfs id`, is the whole point: the two
+            // disagreeing is exactly what the bug looked like.
+            it(`the webrtc-direct addr Kubo listens on survives into the record the router stored (kubo#11369)`, async () => {
+                const kuboRpcClient = pkc.clients.kuboRpcClients[kuboApiUrl]._client;
+                const kuboId = await kuboRpcClient.id();
+                const selfAddrs = kuboId.addresses.map(String);
+                expect(
+                    selfAddrs.some((addr) => addr.includes("/webrtc-direct")),
+                    `Kubo is not advertising a webrtc-direct addr at all, so this test proves nothing: ${JSON.stringify(selfAddrs)}`
+                ).to.be.true;
+
+                const storedProviders = mockHttpRouter.getProvidersFor(community!.pubsubTopicRoutingCid!) as Array<{
+                    ID: string;
+                    Addrs: string[];
+                }>;
+                expect(storedProviders.length).to.be.at.least(1);
+                const selfProvider = storedProviders.find((provider) => provider.ID === String(kuboId.id));
+                expect(selfProvider, `no provider record for our own peer id ${String(kuboId.id)}`).to.not.be.undefined;
+                expect(
+                    selfProvider!.Addrs.some((addr) => addr.includes("/webrtc-direct")),
+                    `provider record dropped the browser-dialable transports: ${JSON.stringify(selfProvider!.Addrs)}`
+                ).to.be.true;
             });
         });
     }

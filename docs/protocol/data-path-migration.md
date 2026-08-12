@@ -22,8 +22,12 @@ The new directory layout:
   lru-storage/            # LRU cache storage
   rpc-server/             # RPC server state (if running as RPC server)
     rpc-state.db
-  .address-rewriter/      # address rewriter cache
 ```
+
+Older data paths may still contain a `.address-rewriter/` directory. It held the address rewriter
+proxy's SQLite request log and failed-key list. pkc-js no longer writes it (the proxy was removed
+once kubo 0.43.0 started publishing browser-dialable addresses to HTTP routers itself), and the
+directory can be deleted.
 
 ## What pkc-js Handles Automatically
 

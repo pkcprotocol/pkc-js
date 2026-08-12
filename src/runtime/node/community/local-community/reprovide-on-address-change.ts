@@ -1,11 +1,21 @@
 import Logger from "../../../../logger.js";
 import { flat, isDeepEqual, unique } from "remeda";
 import { CID } from "multiformats/cid";
-import { normalizeSelfAddrsForProvider } from "../../addresses-rewriter-proxy-server.js";
 
-// How often LocalCommunity polls its own node for browser-dialable address changes.
-// Matches the address-rewriter proxy's own 60s refresh so a rotation is noticed within one cycle.
+// How often LocalCommunity polls its own node for browser-dialable address changes. One minute is
+// short enough that a rotated WebRTC certhash or a re-issued AutoTLS name is noticed while the old
+// provider record is still fresh at the routers.
 export const ADDRESS_REPROVIDE_POLL_INTERVAL_MS = 60 * 1000;
+
+// `ipfs id` returns self-addresses with a trailing `/p2p/<peerId>` while `swarm addrs`
+// returns the same transports without it, so unioning them yields each address twice plus
+// non-standard `/p2p`-suffixed entries. The `/routing/v1` provider schema carries the peer id
+// in the separate `ID` field and expects transport-only `Addrs`, so strip the trailing
+// `/p2p/<peerId>` and dedupe before comparing or announcing.
+export function normalizeSelfAddrsForProvider(addrs: string[], peerId: string): string[] {
+    const suffix = `/p2p/${peerId}`;
+    return unique(addrs.map((addr) => (addr.endsWith(suffix) ? addr.slice(0, -suffix.length) : addr)));
+}
 
 // Minimal structural view of the kubo rpc client used here. Kept narrow so the core logic can be
 // unit-tested with a fake client without dragging in the full kubo-rpc-client surface. The real
@@ -28,15 +38,15 @@ export type AddressChangeReprovidable = {
 };
 
 // Transports a browser can actually dial. These are exactly the addresses that rotate/expire frequently
-// (WebRTC-direct certhash rotation, AutoTLS WSS) and that kubo prunes from HTTP-router announces, so they
-// are the ones whose change must trigger a fresh provide. Plain TCP/QUIC changes are irrelevant to browsers.
+// (WebRTC-direct certhash rotation, AutoTLS WSS), so they are the ones whose change must trigger a fresh
+// provide. Plain TCP/QUIC changes are irrelevant to browsers.
 export function isBrowserDialableAddr(addr: string): boolean {
     return addr.includes("/webrtc") || addr.includes("/ws");
 }
 
-// Fetch the node's current browser-dialable self-addresses, normalized the same way the address-rewriter
-// proxy normalizes them before announcing (strip the trailing /p2p/<peerId>, dedupe), then sorted so the
-// result can be compared by value across calls.
+// Fetch the node's current browser-dialable self-addresses, normalized the way a provider record carries
+// them (strip the trailing /p2p/<peerId>, dedupe), then sorted so the result can be compared by value
+// across calls.
 export async function getBrowserDialableSelfAddrs(client: ReprovideKuboRpcClient): Promise<string[]> {
     const idRes = await client.id();
     const peerId = idRes.id.toString();
@@ -67,8 +77,8 @@ function connectionCriticalCids(community: AddressChangeReprovidable): string[] 
 
 /**
  * Re-provide the connection-critical CIDs when the node's browser-dialable (WSS/WebRTC) self-addresses
- * have changed since the last provide. This pushes the current addresses to the HTTP routers (via the
- * address-rewriter proxy) so browsers don't get NoValidAddressesError against stale/dead addresses.
+ * have changed since the last provide. This pushes the current addresses to the HTTP routers so browsers
+ * don't get NoValidAddressesError against stale/dead addresses.
  *
  * The first observation only establishes a baseline (start() already force-provides these CIDs with fresh
  * addresses via providePubsubTopicRoutingCidsIfNeeded); subsequent changes trigger a re-provide.

@@ -9,7 +9,7 @@
 // Two independent bugs, one test each:
 //
 //   Bug 1 — the Kubo restart races auto-start instead of preceding it. Auto-start must await the
-//           PKC `_addressRewriterSetupPromise` (the router reconcile + shutdown) before dispatching
+//           PKC `_httpRouterSetupPromise` (the router reconcile + shutdown) before dispatching
 //           any `community.start()`, so it never runs against a Kubo node about to be shut down.
 //
 //   Bug 2 — no retry on transient auto-start failure. A `fetch failed` / socket-closed error caused
@@ -42,8 +42,8 @@ interface PKCWsServerPrivateAccess {
     pkc: PKCType;
 }
 
-// `_addressRewriterSetupPromise` is private on PKC; this narrow view lets the test stub it.
-type PKCWithRewriterPromise = { _addressRewriterSetupPromise?: Promise<void> };
+// `_httpRouterSetupPromise` is private on PKC; this narrow view lets the test stub it.
+type PKCWithHttpRouterSetupPromise = { _httpRouterSetupPromise?: Promise<void> };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -114,7 +114,7 @@ describeSkipIfRpc(`RPC auto-start survives boot-time Kubo restart (issue #158)`,
     };
 
     describe("Bug 1: auto-start waits for the HTTP-router / Kubo-restart reconcile before dispatching", () => {
-        it("does not dispatch community.start() until _addressRewriterSetupPromise resolves", async () => {
+        it("does not dispatch community.start() until _httpRouterSetupPromise resolves", async () => {
             const dataPath = temporaryDirectory();
             const rpcServerPort = 19170;
             const communityAddress = await seedStartedCommunityState(dataPath, rpcServerPort);
@@ -125,9 +125,9 @@ describeSkipIfRpc(`RPC auto-start survives boot-time Kubo restart (issue #158)`,
 
             // Simulate the background router reconcile: a promise that resolves only when we say so
             // (in production it resolves after the /shutdown POST + Kubo restart settle).
-            let resolveRewriterSetup!: () => void;
-            (priv.pkc as unknown as PKCWithRewriterPromise)._addressRewriterSetupPromise = new Promise<void>((resolve) => {
-                resolveRewriterSetup = resolve;
+            let resolveHttpRouterSetup!: () => void;
+            (priv.pkc as unknown as PKCWithHttpRouterSetupPromise)._httpRouterSetupPromise = new Promise<void>((resolve) => {
+                resolveHttpRouterSetup = resolve;
             });
 
             let startDispatched = false;
@@ -144,12 +144,12 @@ describeSkipIfRpc(`RPC auto-start survives boot-time Kubo restart (issue #158)`,
             const autoStartDone = priv._autoStartPreviousCommunities();
 
             // Give auto-start ample time to (incorrectly) dispatch a start while the reconcile is
-            // still pending. With the fix it must block on _addressRewriterSetupPromise.
+            // still pending. With the fix it must block on _httpRouterSetupPromise.
             await sleep(1000);
             expect(startDispatched, "auto-start dispatched community.start() before the Kubo-restart reconcile settled").to.be.false;
 
             // Now let the reconcile settle; auto-start should proceed and start the community.
-            resolveRewriterSetup();
+            resolveHttpRouterSetup();
             await autoStartDone;
 
             expect(startDispatched).to.be.true;

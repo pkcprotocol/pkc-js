@@ -417,7 +417,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
         const pkc = await this._getPKCInstance();
 
-        // Bug 1 (issue #158): the background HTTP-router / address-rewriter reconcile may POST
+        // Bug 1 (issue #158): the background HTTP-router reconcile may POST
         // /shutdown to the embedded Kubo to force a restart. If auto-start dispatches community
         // starts while that restart is in flight, those starts hit the dying Kubo socket and throw
         // `fetch failed`. Wait for the reconcile to settle before touching the node.

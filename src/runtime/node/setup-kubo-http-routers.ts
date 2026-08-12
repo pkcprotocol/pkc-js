@@ -1,12 +1,8 @@
 import { PKC } from "../../pkc/pkc.js";
-import retry, { RetryOperation } from "retry";
-import { AddressesRewriterProxyServer } from "./addresses-rewriter-proxy-server.js";
+import retry from "retry";
 import Logger from "../../logger.js";
 import { PKCError } from "../../pkc-error.js";
 import { isDeepEqual } from "remeda";
-import tcpPortUsed from "tcp-port-used";
-
-const MAX_TCP_PORT = 65535;
 
 type KuboRouterEntry = {
     Type: string;
@@ -137,112 +133,30 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboR
     }
 }
 
-async function _getStartedProxyUrl(pkc: PKC, httpRouterUrl: string) {
-    if (pkc.destroyed) return undefined;
-    const mappingKeyName = `httprouter_proxy_${httpRouterUrl}`;
-    try {
-        const urlOfProxyOfHttpRouter = <string | undefined>await pkc._storage.getItem(mappingKeyName);
-        if (pkc.destroyed) return undefined;
-        if (urlOfProxyOfHttpRouter) {
-            const proxyHttpUrl = new URL(urlOfProxyOfHttpRouter);
-            if (await tcpPortUsed.check(Number(proxyHttpUrl.port), "127.0.0.1")) return urlOfProxyOfHttpRouter;
-            if (pkc.destroyed) return undefined;
-            await pkc._storage.removeItem(mappingKeyName);
-        }
-        return undefined;
-    } catch (error) {
-        if (pkc.destroyed && error instanceof Error && error.message.includes("database connection is not open")) {
-            return undefined;
-        }
-        throw error;
-    }
-}
-
-export async function setupKuboAddressesRewriterAndHttpRouters(pkc: PKC): Promise<{ destroy: () => Promise<void> }> {
-    if (pkc.destroyed) {
-        return {
-            destroy: async () => {}
-        };
-    }
+// Kubo publishes the provider records to these routers itself. It used to drop the browser-dialable
+// transports (AutoTLS /tls/ws and webrtc-direct) from anything it PUT to a delegated HTTP router,
+// which is why every router URL below used to be a loopback AddressesRewriterProxyServer that
+// rewrote `Addrs` on the way through. Kubo 0.43.0 fixed that (ipfs/kubo#11394, closing the
+// ipfs/kubo#11369 we filed), so Kubo now points straight at the real routers. Do not reintroduce a
+// rewriting proxy: the addrs it could reconstruct (kubo id + swarm addrs) carry no certhash, so a
+// rewritten webrtc-direct/webtransport addr is one no browser can dial.
+export async function setupKuboHttpRouters(pkc: PKC): Promise<void> {
+    if (pkc.destroyed) return;
     if (!Array.isArray(pkc.kuboRpcClientsOptions) || pkc.kuboRpcClientsOptions.length <= 0)
         throw Error("need ipfs http client to be defined");
     if (!Array.isArray(pkc.httpRoutersOptions) || pkc.httpRoutersOptions.length <= 0) throw Error("Need http router options to defined");
 
-    const log = Logger("pkc-js:node:setupKuboAddressesRewriterAndHttpRouters");
-    // Set up http proxies first to rewrite addresses
+    const log = Logger("pkc-js:node:setupKuboHttpRouters");
 
-    const httpRouterProxyUrls: string[] = [];
-    const proxyServers: AddressesRewriterProxyServer[] = [];
-    // Port 19575 looks like IPRTR (IPFS ROUTER). The loop below walks upward from here to the first
-    // free port, so a busy 19575 is not fatal.
-    //
-    // PKC_ADDRESSES_REWRITER_START_PORT moves that base. It exists for tests: the port is process-wide
-    // and shared by every PKC instance, so two test files that both assume 19575 — one starting a
-    // proxy on it, one asserting it is free — collide whenever vitest's --parallel scheduling puts
-    // them in flight together. Each file can now claim its own base instead. Left unset in
-    // production on purpose: the chosen port is written into Kubo's Routing config, and a changed
-    // endpoint set bounces the daemon, so the base has to stay stable across restarts.
-    const parsedStartPortOverride = Number(process.env.PKC_ADDRESSES_REWRITER_START_PORT);
-    let addressesRewriterStartPort =
-        Number.isInteger(parsedStartPortOverride) && parsedStartPortOverride > 0 && parsedStartPortOverride <= MAX_TCP_PORT
-            ? parsedStartPortOverride
-            : 19575;
-    for (const httpRouter of pkc.httpRoutersOptions) {
-        if (pkc.destroyed) break;
-        const startedProxyUrl = await _getStartedProxyUrl(pkc, httpRouter);
-        if (startedProxyUrl) {
-            // Intentionally not tracked in proxyServers: this proxy was started by a previous PKC
-            // instance in the same process and persisted via storage. We have no server handle to it
-            // and must not destroy() it on teardown, since another instance may still rely on it. It
-            // is bounded (one proxy per httpRouter, reusing the same stored URL) and lives until the
-            // process exits, so this is reuse by design, not a leak.
-            httpRouterProxyUrls.push(startedProxyUrl);
-            continue;
-        }
-        // launch the proxy server
+    const httpRouterUrls = [...pkc.httpRoutersOptions].sort(); // make sure it's always the same order
 
-        let port = addressesRewriterStartPort;
-        const hostname = "127.0.0.1";
-        // keep increasing port till we find an empty port. Bounded at the top of the TCP range:
-        // tcpPortUsed.check rejects anything above it with "invalid port", so an unbounded walk would
-        // surface exhaustion as that opaque error instead of saying what actually went wrong.
-        while (await tcpPortUsed.check(port, hostname)) {
-            port++;
-            if (port > MAX_TCP_PORT)
-                throw Error(
-                    `No free loopback port for the addresses rewriter proxy between ${addressesRewriterStartPort} and ${MAX_TCP_PORT}`
-                );
-        }
-
-        const addressesRewriterProxyServer = new AddressesRewriterProxyServer({
-            kuboClients: Object.values(pkc.clients.kuboRpcClients).map((kubo) => kubo._client),
-            port,
-            hostname,
-            proxyTargetUrl: httpRouter,
-            pkc
-        });
-        await addressesRewriterProxyServer.listen();
-        if (pkc.destroyed) {
-            await addressesRewriterProxyServer.destroy();
-            break;
-        }
-        proxyServers.push(addressesRewriterProxyServer);
-
-        // save the proxy urls to use them later
-
-        const httpRouterProxyUrl = `http://${hostname}:${port}`;
-        httpRouterProxyUrls.push(httpRouterProxyUrl);
-    }
-    httpRouterProxyUrls.sort(); // make sure it's always the same order
-
-    // Set up http routers to use proxies
     const kuboClients = pkc.clients.kuboRpcClients;
     const parallelRouters: NonNullable<KuboRouterEntry["Parameters"]["Routers"]> = [];
     const httpRoutersConfig: KuboRoutersMap = {
         HttpRoutersParallel: { Type: "parallel", Parameters: { Routers: parallelRouters } },
         HttpRouterNotSupported: { Type: "http", Parameters: { Endpoint: "http://kubohttprouternotsupported" } }
     };
-    for (const [i, httpRouterUrl] of httpRouterProxyUrls.entries()) {
+    for (const [i, httpRouterUrl] of httpRouterUrls.entries()) {
         const RouterName = `HttpRouter${i + 1}`;
         httpRoutersConfig[RouterName] = {
             Type: "http",
@@ -277,7 +191,13 @@ export async function setupKuboAddressesRewriterAndHttpRouters(pkc: PKC): Promis
     const settingOptionRetryOption = retry.operation({ forever: true, factor: 2, maxTimeout: 60 * 1000 });
 
     const setHttpRouterOnAllNodes = new Promise((resolve) => {
-        settingOptionRetryOption.attempt(async (curAttempt) => {
+        settingOptionRetryOption.attempt(async () => {
+            // A destroyed PKC has nothing left to configure, and `forever: true` would otherwise keep
+            // retrying against a torn-down instance for the life of the process.
+            if (pkc.destroyed) {
+                resolve(1);
+                return;
+            }
             for (const kuboClient of Object.values(kuboClients)) {
                 try {
                     await _setHttpRouterOptionsOnKuboNode(kuboClient, routingValue);
@@ -292,11 +212,5 @@ export async function setupKuboAddressesRewriterAndHttpRouters(pkc: PKC): Promis
 
     await setHttpRouterOnAllNodes;
     settingOptionRetryOption.stop();
-    return {
-        destroy: async () => {
-            for (const proxyServer of proxyServers) {
-                await proxyServer.destroy();
-            }
-        }
-    };
+    log.trace("Set http router config on all kubo nodes", Object.keys(kuboClients), "to", httpRouterUrls);
 }
