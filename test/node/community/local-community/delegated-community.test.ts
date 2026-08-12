@@ -210,10 +210,13 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
             await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         });
 
-        it("publishes a record signed by the minter, and never puts the anchor on the wire", async () => {
+        it("publishes a record signed by the minter that carries the signed anchor claim (#257)", async () => {
             const record = community.raw.communityIpfs!;
             expect(await getPKCAddressFromPublicKey(record.signature.publicKey)).to.equal(minterAddress);
-            expect(record).to.not.have.property("anchor");
+            // Since #257 the anchor claim is a signed wire field: it is what lets a reader who reached
+            // the record through the minter recover the identity. Runtime fields still stay off the wire.
+            expect(record.anchor).to.deep.equal({ publicKey: anchorSigner.address });
+            expect(record.signature.signedPropertyNames).to.include("anchor");
             expect(record).to.not.have.property("ipnsHops");
         });
 
@@ -251,10 +254,12 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
                 signer: await pkc.createSigner()
             });
             await injectCommunityPublicKey(comment, minterAddress);
+            // The minter label gets its own error code (#257): unlike an unrelated key, it means the
+            // client reached this community but signed to the rotating serving key instead of the anchor.
             await publishWithExpectedResult({
                 publication: comment,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_PUBLICATION_INVALID_COMMUNITY_PUBLIC_KEY
+                expectedReason: messages.ERR_PUBLICATION_SIGNED_TO_MINTER_INSTEAD_OF_ANCHOR
             });
         });
 
@@ -295,7 +300,7 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
             await publishWithExpectedResult({
                 publication: rejected,
                 expectedChallengeSuccess: false,
-                expectedReason: messages.ERR_PUBLICATION_INVALID_COMMUNITY_PUBLIC_KEY
+                expectedReason: messages.ERR_PUBLICATION_SIGNED_TO_MINTER_INSTEAD_OF_ANCHOR
             });
         });
 
