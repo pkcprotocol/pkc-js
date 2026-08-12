@@ -189,6 +189,28 @@ async function _readRepoSizeSafely({
     }
 }
 
+// Bytes arrive as bigint. Repo sizes are nowhere near Number.MAX_SAFE_INTEGER (9PB), so converting
+// once for the human-readable scaling is exact in every case we can actually hit.
+function _formatBytes(bytes: bigint): string {
+    const asNumber = Number(bytes);
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    const magnitude = Math.abs(asNumber);
+    const unitIndex = magnitude < 1 ? 0 : Math.min(Math.floor(Math.log(magnitude) / Math.log(1024)), units.length - 1);
+    const scaled = asNumber / 1024 ** unitIndex;
+    return unitIndex === 0 ? `${asNumber}B` : `${scaled.toFixed(2)}${units[unitIndex]}`;
+}
+
+// Exported for tests. The repo can legitimately end a sweep BIGGER than it started: GC and the
+// community syncs writing new blocks run against the same daemon, and nothing pauses publishing for
+// the duration. Report that case as what it is instead of logging a negative reclaim.
+export function _describeReclaimedSpace({ before, after }: { before: bigint | undefined; after: bigint | undefined }): string {
+    if (typeof before !== "bigint" || typeof after !== "bigint") return "reclaimed an unknown amount, repo.stat was unavailable";
+
+    const sizes = `(${_formatBytes(before)} -> ${_formatBytes(after)})`;
+    if (after > before) return `reclaimed no space, the repo grew ${_formatBytes(after - before)} during the sweep ${sizes}`;
+    return `reclaimed ${_formatBytes(before - after)} ${sizes}`;
+}
+
 async function _runRepoGcIfDue({
     community,
     kuboUrl,
@@ -234,10 +256,8 @@ async function _runRepoGcIfDue({
         gcCids,
         "cids out of the IPFS node",
         kuboUrl,
-        "- repo size",
-        repoSizeBefore ?? "unknown",
-        "->",
-        repoSizeAfter ?? "unknown"
+        "and",
+        _describeReclaimedSpace({ before: repoSizeBefore, after: repoSizeAfter })
     );
 }
 

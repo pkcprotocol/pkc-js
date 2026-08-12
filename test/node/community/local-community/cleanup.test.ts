@@ -8,6 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
+    _describeReclaimedSpace,
     _resetRepoGcSchedulingState,
     addAllCidsUnderPurgedCommentToBeRemoved,
     cleanUpIpfsRepoIfDue,
@@ -313,6 +314,42 @@ describe("cleanup: cleanUpIpfsRepoIfDue", () => {
         await cleanUpIpfsRepoIfDue(community);
 
         expect(gc).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe("cleanup: _describeReclaimedSpace", () => {
+    // The cid count from repo.gc says how many blocks went; only these numbers say whether that
+    // mattered. On pkc-js#225 a repo that stays huge after a sweep is the signal that everything
+    // left is pinned, which no GC schedule can fix.
+    it("reports the reclaimed bytes and both sizes", () => {
+        const oneGb = 1024n ** 3n;
+        expect(_describeReclaimedSpace({ before: 12n * oneGb, after: 10n * oneGb })).to.equal("reclaimed 2.00GB (12.00GB -> 10.00GB)");
+    });
+
+    it("scales each unit and keeps raw bytes below 1KB", () => {
+        expect(_describeReclaimedSpace({ before: 900n, after: 400n })).to.equal("reclaimed 500B (900B -> 400B)");
+        expect(_describeReclaimedSpace({ before: 5n * 1024n * 1024n, after: 1n * 1024n * 1024n })).to.equal(
+            "reclaimed 4.00MB (5.00MB -> 1.00MB)"
+        );
+    });
+
+    it("reports a repo that grew during the sweep, rather than a negative reclaim", () => {
+        // GC and the community syncs writing new blocks share one daemon, and nothing pauses
+        // publishing for the length of a sweep, so after > before is a real outcome.
+        expect(_describeReclaimedSpace({ before: 10n * 1024n * 1024n, after: 12n * 1024n * 1024n })).to.equal(
+            "reclaimed no space, the repo grew 2.00MB during the sweep (10.00MB -> 12.00MB)"
+        );
+    });
+
+    it("says so when repo.stat gave us nothing, on either side", () => {
+        const unavailable = "reclaimed an unknown amount, repo.stat was unavailable";
+        expect(_describeReclaimedSpace({ before: undefined, after: 10n })).to.equal(unavailable);
+        expect(_describeReclaimedSpace({ before: 10n, after: undefined })).to.equal(unavailable);
+        expect(_describeReclaimedSpace({ before: undefined, after: undefined })).to.equal(unavailable);
+    });
+
+    it("does not treat a zero-byte reclaim as unknown", () => {
+        expect(_describeReclaimedSpace({ before: 0n, after: 0n })).to.equal("reclaimed 0B (0B -> 0B)");
     });
 });
 
