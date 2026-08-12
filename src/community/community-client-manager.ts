@@ -935,11 +935,33 @@ export class CommunityClientsManager extends PKCClientsManager {
                     const confirmingGatewayUrl = Object.keys(gatewayFetches).find(
                         (gatewayUrl) =>
                             gatewayFetches[gatewayUrl].error?.details?.status === 304 ||
-                            gatewayFetches[gatewayUrl].error?.code === "ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD"
+                            gatewayFetches[gatewayUrl].error?.code ===
+                                "ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD"
                     );
                     if (confirmingGatewayUrl) {
+                        // cleanUp() above already cleared every per-gateway timeout, and the raw IPNS
+                        // record fetches inside the walk carry no deadline of their own, so stopSignal
+                        // alone would let a stalled gateway hold this await (and therefore the whole
+                        // update-loop iteration) far past the community-ipns budget every other fetch
+                        // in this function respects. Give the walk that same budget. The listener is
+                        // removed in the finally rather than composed with AbortSignal.any because
+                        // stopSignal lives as long as the community and this runs on every poll.
+                        const chainWalkAbortController = new AbortController();
+                        const chainWalkTimeoutId = setTimeout(
+                            () =>
+                                chainWalkAbortController.abort(
+                                    "Aborting delegated chain upgrade because it timed out after " + timeoutMs + "ms"
+                                ),
+                            timeoutMs
+                        );
+                        const onStopAbortChainWalk = () => chainWalkAbortController.abort(stopSignal?.reason);
+                        stopSignal?.addEventListener("abort", onStopAbortChainWalk, { once: true });
                         try {
-                            const chain = await this._resolveIpnsChainViaGateway(confirmingGatewayUrl, ipnsName, stopSignal);
+                            const chain = await this._resolveIpnsChainViaGateway(
+                                confirmingGatewayUrl,
+                                ipnsName,
+                                chainWalkAbortController.signal
+                            );
                             if (this._community.updateCid && chain.terminalCidV0 === this._community.updateCid)
                                 this._community.ipnsHops = chain.ipnsHops;
                         } catch (chainWalkError) {
@@ -947,6 +969,9 @@ export class CommunityClientsManager extends PKCClientsManager {
                                 `Failed to upgrade the delegated chain of ${ipnsName} after a confirmed consumed record, will retry next poll`,
                                 chainWalkError
                             );
+                        } finally {
+                            clearTimeout(chainWalkTimeoutId);
+                            stopSignal?.removeEventListener("abort", onStopAbortChainWalk);
                         }
                     }
                 }
