@@ -123,14 +123,19 @@ export async function repinCommentUpdateIfNeeded(community: LocalCommunity) {
     community._dbHandler.forceUpdateOnAllComments(); // pkc-js will recalculate and publish all comment updates
 }
 
-// GC once the repo is within this fraction of Datastore.StorageMax. Kubo's own --enable-gc makes the
-// same decision from Datastore.StorageGCWatermark (default 90), so we mirror it instead of inventing
-// a second policy — a node that later switches to the daemon flag behaves identically.
-const GC_HIGH_WATERMARK = 0.9;
-
-// Floor between two GC runs on one daemon. Once a repo is above the watermark it tends to STAY above
-// it (GC only reclaims unpinned blocks), so without a floor every sync of every community would
-// trigger a fresh GC.
+// Floor between two GC runs on one daemon, and the whole of the GC policy: once an hour we sweep,
+// unconditionally.
+//
+// repo.gc over the RPC is not conditional. Kubo consults Datastore.StorageGCWatermark only from the
+// daemon's own `--enable-gc` loop; /api/v0/repo/gc always runs a full sweep. pkc-js never spawns the
+// daemon (the operator hands us a kubo RPC URL that may not even be local), so we cannot delegate to
+// that loop and the schedule has to live here.
+//
+// The floor is what makes it a schedule. This runs at the end of every community sync on a default
+// 20s publishInterval, and the in-flight promise below only merges callers that actually overlap —
+// the moment a run settles the next sync tick is free to start another. Without the floor a node
+// hosting dozens of communities GCs back to back forever, and since kubo 0.43.0 GC and in-flight MFS
+// writes hold each other off, so that steady state would stall every postUpdates write on the node.
 const MIN_MS_BETWEEN_GC = 60 * 60 * 1000;
 
 // repo.gc and repo.stat are whole-daemon operations, but cleanUpIpfsRepoIfDue runs once per community
@@ -162,6 +167,28 @@ export async function cleanUpIpfsRepoIfDue(community: LocalCommunity, force = fa
     return gcRun;
 }
 
+type KuboRpcClient = ReturnType<LocalCommunity["_clientsManager"]["getDefaultKuboRpcClient"]>;
+
+// size-only: a default repo/stat also counts every object, which walks the whole flatfs blockstore —
+// on the repos this feature exists for that is millions of files. Nothing branches on the result, it
+// only feeds the log line, so a failing daemon costs us the number and not the GC.
+async function _readRepoSizeSafely({
+    kuboRpc,
+    kuboUrl,
+    log
+}: {
+    kuboRpc: KuboRpcClient;
+    kuboUrl: string;
+    log: Logger;
+}): Promise<bigint | undefined> {
+    try {
+        return (await kuboRpc._client.repo.stat({ searchParams: new URLSearchParams({ "size-only": "true" }) })).repoSize;
+    } catch (e) {
+        log.trace("Failed to read repo size from the kubo node", kuboUrl, e);
+        return undefined;
+    }
+}
+
 async function _runRepoGcIfDue({
     community,
     kuboUrl,
@@ -175,46 +202,13 @@ async function _runRepoGcIfDue({
 }): Promise<void> {
     const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
 
-    let repoSizeBefore: bigint | undefined;
-
     if (!force) {
         const lastGcFinishedAt = lastGcFinishedAtByKuboUrl.get(kuboUrl);
         if (typeof lastGcFinishedAt === "number" && Date.now() - lastGcFinishedAt < MIN_MS_BETWEEN_GC) return;
-
-        let repoStat: Awaited<ReturnType<typeof kuboRpc._client.repo.stat>>;
-        try {
-            // size-only: the default repo/stat also counts every object, which walks the whole
-            // flatfs blockstore — on the repos this feature exists for that is millions of files.
-            repoStat = await kuboRpc._client.repo.stat({ searchParams: new URLSearchParams({ "size-only": "true" }) });
-        } catch (e) {
-            log.error("Skipping repo.gc: failed to read repo.stat from the kubo node", kuboUrl, e);
-            return;
-        }
-
-        repoSizeBefore = repoStat.repoSize;
-
-        // storageMax comes from Datastore.StorageMax. If the daemon reports no ceiling there is
-        // nothing to compare against, so fall back to GCing on the interval alone rather than
-        // never GCing at all.
-        if (repoStat.storageMax > 0n) {
-            const gcThreshold = (repoStat.storageMax * BigInt(Math.round(GC_HIGH_WATERMARK * 100))) / 100n;
-            if (repoStat.repoSize < gcThreshold) {
-                log.trace(
-                    "Skipping repo.gc on",
-                    kuboUrl,
-                    "- repo size",
-                    repoStat.repoSize,
-                    "is below the",
-                    `${GC_HIGH_WATERMARK * 100}%`,
-                    "watermark",
-                    gcThreshold,
-                    "of StorageMax",
-                    repoStat.storageMax
-                );
-                return;
-            }
-        }
     }
+
+    // Read purely for the before/after line at the end, so a failure here must not skip the sweep.
+    const repoSizeBefore = await _readRepoSizeSafely({ kuboRpc, kuboUrl, log });
 
     let gcCids = 0;
     try {
@@ -233,12 +227,7 @@ async function _runRepoGcIfDue({
 
     // How much a GC actually reclaims is the open question on pkc-js#225: the affected node had
     // >11k recursive pins, and GC never touches pinned data. Log it rather than assume.
-    let repoSizeAfter: bigint | undefined;
-    try {
-        repoSizeAfter = (await kuboRpc._client.repo.stat({ searchParams: new URLSearchParams({ "size-only": "true" }) })).repoSize;
-    } catch (e) {
-        log.trace("repo.gc finished but the follow-up repo.stat failed", e);
-    }
+    const repoSizeAfter = await _readRepoSizeSafely({ kuboRpc, kuboUrl, log });
 
     log(
         "GC cleaned",
