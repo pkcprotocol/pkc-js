@@ -49,12 +49,21 @@ describeSkipIfRpc.sequential("anchor claim end-to-end: reader behind a minter-po
             true,
             false
         );
-        community = <LocalCommunity>await createSubWithNoChallenge({ anchor: { publicKey: anchorSigner.address }, name: DOMAIN }, ownerPkc);
+        community = <LocalCommunity>await createSubWithNoChallenge({ anchor: { publicKey: anchorSigner.address } }, ownerPkc);
         minterAddress = community.signer.address;
         // First publish: the owner signs sequence 0 locally; As never reaches the node.
         await community.publishAnchorRecord(await createAnchorIpnsRecord({ anchorSigner, minterIpnsName: minterAddress, sequence: 0 }));
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        // createCommunity forbids anchor + any other identifier, so the domain lands via the
+        // established edit({address}) flow, which re-keys the instance to the domain (a name-only
+        // edit would leave community.address as the anchor key and the acceptance check would reject
+        // domain-named publications). The owner-side domain check resolves it against the anchor
+        // (ownerPkc's resolver maps it there). Wait for the record that carries the domain: a reader
+        // addressing the community by the domain matches the record's `name`, so a pre-edit record
+        // (no name yet) would be rejected.
+        await community.edit({ address: DOMAIN });
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => community.raw.communityIpfs?.name === DOMAIN });
 
         readerPkc = await mockRemotePKC({
             mockResolve: false,

@@ -576,15 +576,18 @@ export class CommunityClientsManager extends PKCClientsManager {
                 // we found a new record that is verified.
                 // Key the cache by the ANCHOR identity (domain or anchor IPNS name), not by the
                 // record's signature key — for a delegated community the content is signed by the
-                // terminal (minter) key, but the user-facing identity is the anchor. ipnsName here
-                // is the anchor (ipnsHops[0]). For a non-delegated community the anchor equals the
-                // signature-derived address, so this is unchanged.
-                const anchorIdentityAddress = subRes.community.name || ipnsName;
+                // terminal (minter) key, but the user-facing identity is the anchor. The record's
+                // signed anchor claim is the authority (#257): ipnsName is only the name the fetch
+                // travelled through, which behind a minter-pointing TXT is the MINTER — caching that
+                // as publicKey would make every publication sign to the minter and be rejected. For a
+                // non-delegated community (no claim) ipnsName is the identity, unchanged.
+                const identityPublicKey = subRes.community.anchor?.publicKey ?? ipnsName;
+                const anchorIdentityAddress = subRes.community.name || identityPublicKey;
                 this._pkc._memCaches.communityForPublishing.set(anchorIdentityAddress, {
                     encryption: subRes.community.encryption,
                     pubsubTopic: subRes.community.pubsubTopic,
                     address: anchorIdentityAddress,
-                    publicKey: ipnsName,
+                    publicKey: identityPublicKey,
                     name: subRes.community.name
                 });
             }
@@ -920,7 +923,35 @@ export class CommunityClientsManager extends PKCClientsManager {
                         err.details?.status === 304 ||
                         err.code === "ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD"
                 );
-            if (hasGatewayConfirmingCurrentRecord) return undefined; // any gateway confirmed we already have the latest consumed record
+            if (hasGatewayConfirmingCurrentRecord) {
+                // Any gateway confirmed we already have the latest consumed record. The conditional
+                // request (If-None-Match -> 304) aborts before the delegated chain walk, so a
+                // re-anchored community (#257: identity adopted from the record's anchor claim after
+                // reaching it through the minter) would keep the stale single-hop ipnsHops forever —
+                // the other transports re-resolve the chain on every poll. Upgrade the chain once:
+                // walk it via a confirming gateway and adopt it only if its terminal lands on the very
+                // CID we already consumed, so a lying gateway cannot bind us to a different record.
+                if (this._community.anchor && this._community.ipnsHops?.[0] !== ipnsName) {
+                    const confirmingGatewayUrl = Object.keys(gatewayFetches).find(
+                        (gatewayUrl) =>
+                            gatewayFetches[gatewayUrl].error?.details?.status === 304 ||
+                            gatewayFetches[gatewayUrl].error?.code === "ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD"
+                    );
+                    if (confirmingGatewayUrl) {
+                        try {
+                            const chain = await this._resolveIpnsChainViaGateway(confirmingGatewayUrl, ipnsName, stopSignal);
+                            if (this._community.updateCid && chain.terminalCidV0 === this._community.updateCid)
+                                this._community.ipnsHops = chain.ipnsHops;
+                        } catch (chainWalkError) {
+                            log.trace(
+                                `Failed to upgrade the delegated chain of ${ipnsName} after a confirmed consumed record, will retry next poll`,
+                                chainWalkError
+                            );
+                        }
+                    }
+                }
+                return undefined;
+            }
 
             const combinedError = new FailedToFetchCommunityFromGatewaysError({
                 ipnsName,

@@ -278,7 +278,12 @@ nonRpcConfigs.forEach((config) => {
             const migrationErrors = collectMigrationErrors(community);
             try {
                 await community.update();
-                await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => community.nameResolved === true });
+                // nameResolved flips to true at migration time, before the record has loaded, so the
+                // wait must require the loaded record too.
+                await resolveWhenConditionIsTrue({
+                    toUpdate: community,
+                    predicate: async () => community.nameResolved === true && typeof community.updatedAt === "number"
+                });
                 expect(community.updatedAt).to.be.a("number");
                 expect(community.publicKey).to.equal(anchorName);
                 expect(community.nameResolved).to.be.true;
@@ -299,8 +304,11 @@ nonRpcConfigs.forEach((config) => {
             const migrationErrors = collectMigrationErrors(community);
             try {
                 await community.update();
+                // Migration emits "update" then "error", and the dead key never produces another
+                // update event — so the wait must ride the error event itself.
                 await resolveWhenConditionIsTrue({
                     toUpdate: community,
+                    eventName: "error",
                     predicate: async () => migrationErrors.length > 0
                 });
                 expect(community.publicKey).to.equal(deadKey);
