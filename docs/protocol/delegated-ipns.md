@@ -48,9 +48,17 @@ The owner revokes by coming online and re-pointing `An` to a new `Mn'`.
   anchor `An` (or its domain). Per [names-and-addresses.md](names-and-addresses.md) the
   address is immutable, so this is **new-community-only** — existing communities cannot
   migrate.
+- **The record declares its anchor (#257).** A delegated `CommunityIpfs` carries a **signed**
+  `anchor: { publicKey }` field (the B58 IPNS name, same representation as `community.publicKey`).
+  The claim is what lets a reader who reached the record through the minter — or any non-anchor
+  hop — recover the true identity: `community.publicKey = record.anchor?.publicKey ?? ipnsHops[0]`.
+  A **chain-loaded** record (more than one hop walked) must claim the chain's anchor, or the record
+  is invalid (`ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_DOES_NOT_MATCH_CHAIN_ANCHOR`). A non-delegated
+  record carries no claim.
 - **Content is signed by the terminal (minter) key.** `CommunityIpfs.signature.publicKey`
   derives to `Mn`, **not** `An`. The `An → Mn` binding is established by the
-  cryptographically-verified IPNS record chain, not by the content signature.
+  cryptographically-verified IPNS record chain, not by the content signature; the record's anchor
+  claim states the binding, the chain proves it.
 - A **non-delegated** community is just the degenerate single-hop case: the chain is
   `[An]`, the terminal equals the anchor, and the content is signed by `An`. All the logic
   below collapses to the original behaviour, so nothing changes for normal communities.
@@ -90,6 +98,57 @@ own:
 
 A non-delegated community passes a single-element chain, where anchor and terminal are the same
 key, and both checks collapse to the pre-delegation behaviour.
+
+Page comments are additionally checked against the record's **anchor claim** whenever it is present
+(#257), regardless of whether the record carries a `name`. For non-delegated records the name-based
+check wins over the key check (key-rotation tolerance: old comments legitimately carry a rotated-away
+key); a delegated community has no such excuse, because the anchor is precisely the key that stays
+stable across minter rotations.
+
+## Domains, the anchor claim, and `nameResolved` (#257)
+
+The governing principle:
+
+> **The record's signed anchor claim defines identity; the domain TXT record is only a routing hint
+> we always follow; `nameResolved` reports whether the hint points at the identity.**
+
+A delegated community's domain must point at the **anchor** — the same rule the publisher enforces on
+its own domain in `_assertDomainResolvesCorrectly`. What a reader experiences per TXT target
+(An = anchor, Mn = minter, X = unrelated key):
+
+| created as | TXT → | end state |
+|---|---|---|
+| `{address: domain}` | An | chain load, identity An, `nameResolved: true` |
+| `{address: domain}` | Mn | loads via Mn, the claim **re-anchors** identity to An, `nameResolved: false` |
+| `{address: domain}` | dead key | load error, `nameResolved` stays `undefined` |
+| `{publicKey: An, name: domain}` | An | chain load, `nameResolved: true` |
+| `{publicKey: An, name: domain}` | Mn | one transient migration error, then the claim re-anchors back to An, `nameResolved: false` |
+| `{publicKey: An, name: domain}` | X | genuine key migration to X (data cleared, error emitted) |
+| `{publicKey: An, name: domain}` | unresolvable | `nameResolved: false`, identity and record kept |
+| `{publicKey: Mn, name: domain}` | Mn | loads via Mn, the claim re-anchors to An, `nameResolved: false` |
+| `{publicKey: Mn, name: domain}` | An | migration to An, the claim confirms it, `nameResolved: true` |
+| `{address: An}` (raw), record names the domain | Mn | `nameResolved: false`, identity stays An |
+
+Mechanics behind the table:
+
+- **TXT mismatches act immediately.** When background resolution finds the TXT pointing at a key
+  other than `community.publicKey`, the key-migration path fires at once (wipe +
+  `ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY` + refetch via the TXT's key) — unless the
+  resolved key is a **non-anchor hop of the community's own loaded chain**, which is a misconfigured
+  TXT, not a migration: identity is untouched and `nameResolved` becomes `false`.
+- **The claim self-corrects a wrong turn.** If following the TXT lands a record whose anchor claim
+  names the identity the reader already had (or any anchor), the instance re-anchors to the claim.
+  A re-anchor invalidates any `nameResolved` verdict computed against the previous identity; it is
+  re-classified against the claimed one.
+- **After a re-anchor, fetches route through the anchor chain.** A reader never stays pinned to the
+  hop its TXT happened to name: the anchor is the authoritative pointer, so rotation keeps working
+  even while the domain is misconfigured.
+- **Publications always label the identity.** `publication.communityPublicKey` is taken from
+  `community.publicKey`, which after re-anchoring is the anchor — so a reader behind a
+  minter-pointing TXT still publishes publications the community accepts. A publication that does
+  arrive labelled with the community's own minter is rejected with the dedicated
+  `ERR_PUBLICATION_SIGNED_TO_MINTER_INSTEAD_OF_ANCHOR` (an unrelated key keeps the generic
+  `ERR_PUBLICATION_INVALID_COMMUNITY_PUBLIC_KEY`).
 
 ### Per resolution path
 
@@ -156,6 +215,10 @@ that no longer publishes the community.
 `pubsubTopic` backfill, and this node's own `ipnsName` / `ipnsPubsubTopic` / routing CID. A publisher
 mints under its own key, so unlike a reader it never derives those from `ipnsHops[0]`
 (`LocalCommunity` overrides `_updateIpnsPubsubPropsIfNeeded` to enforce this).
+
+**Every minted record carries the signed anchor claim** (#257): `anchor: { publicKey: An }` is a
+regular signed `CommunityIpfs` field, picked up automatically from the community's persisted anchor.
+A non-delegated community mints no claim.
 
 A non-delegated community is the degenerate case: no anchor, no `ipnsHops`, and every rule above
 collapses to `signer.address`.
@@ -302,6 +365,11 @@ gateway's recursion was trusted). If a DHT walk were involved, the per-hop delta
 - If `Ms` leaks, an attacker can publish under `Mn` (including a sequence-exhaustion lock)
   until the owner rotates `An` to a new `Mn'`. `As` never touches the network after the
   initial publish.
+- **A record's anchor claim is proven, not trusted, when a chain was walked** — a chain-loaded record
+  claiming anything but the chain's anchor is invalid. On a **single-hop** load (a reader addressing
+  the minter directly, e.g. behind a misconfigured TXT) the claim is adopted before the chain has
+  proven it; the very next fetch routes through the claimed anchor's chain, so a forged claim buys an
+  attacker at most one transient record until the anchor chain fails to confirm the binding.
 - pkc-js **never accepts content whose signer is not the terminal of the validated chain**, on
   every resolution path — kubo RPC, helia, and gateways alike. Over a gateway the `An → Mn` binding
   is verified by independently fetching and signature-checking each IPNS record

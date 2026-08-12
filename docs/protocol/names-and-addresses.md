@@ -34,6 +34,10 @@ Domains are resolved via the `nameResolvers` plugin system configured on the PKC
 ```
 
 - `nameResolved: boolean | undefined`: tracks whether domain resolution succeeded. This is a **runtime-only** field.
+  For a **delegated** community it means specifically "the TXT record points at the **anchor**" — a domain
+  pointing at the community's own minter (or any non-anchor hop of its chain) is `nameResolved: false`,
+  not a key migration. See [delegated-ipns.md](delegated-ipns.md), "Domains, the anchor claim, and
+  `nameResolved`".
 - Resolution happens on the RPC server for browser clients, RPC clients don't need `nameResolvers` configured locally.
 
 ## Caching responsibility
