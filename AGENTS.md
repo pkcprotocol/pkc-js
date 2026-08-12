@@ -70,6 +70,13 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 
 - When given a prompt to implement a feature, create a GitHub issue for it using `gh issue create`. Keep the issue body up to date with your implementation plan and progress as work proceeds. Once the feature is fully implemented, close the issue with `gh issue close`.
 - Never include identifying information in GitHub issues, PR descriptions, or commit messages. This includes absolute home-directory paths (e.g. `/home/<username>/...`), usernames, machine hostnames, personal email addresses, or other local-machine details. Use repo-relative paths and generic placeholders instead.
+- PR titles and commit subjects MUST pass commitlint (`@commitlint/config-conventional`): `type(scope): subject`, and **at most 100 characters total**, including the `type(scope): ` prefix. The `lint-pr-title` CI job runs commitlint on the PR title, so an over-long title fails CI even when every test passes. Before creating or renaming a PR, verify the title locally:
+
+  ```bash
+  printf '%s\n' "$TITLE" | npx commitlint --config commitlint.config.cjs
+  ```
+
+  If the subject does not fit, shorten it — do not split it with `;` or move detail into the title. Put the detail in the PR body.
 
 ## SHOULD Rules
 
