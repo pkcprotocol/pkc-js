@@ -627,12 +627,21 @@ export async function verifyCommunity({
     // A caller bug rather than an invalid record, same as the unusable-page throw below.
     if (!Array.isArray(communityIpnsHops) || communityIpnsHops.length === 0)
         throw Error("verifyCommunity needs a non-empty communityIpnsHops to verify a community record against");
-    const communityIdentityIpnsName = communityIpnsHops[0];
+    // The record's signed anchor claim defines the identity (#257): it recovers the anchor even when
+    // the record was reached by addressing the minter directly, where ipnsHops is [minter]. Records
+    // without a claim (non-delegated) fall back to the chain's first hop.
+    const communityIdentityIpnsName = community.anchor?.publicKey ?? communityIpnsHops[0];
     const terminalIpnsName = communityIpnsHops[communityIpnsHops.length - 1];
     if (!_allFieldsOfRecordInSignedPropertyNames(community))
         return { valid: false, reason: messages.ERR_COMMUNITY_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
     if (_isThereReservedFieldInRecord(community, CommunityIpfsReservedFields))
         return { valid: false, reason: messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD };
+    // A chain-loaded record must claim the chain's anchor (#257). The anchor-signed IPNS record
+    // already binds the anchor to the minter cryptographically; a record reached through that binding
+    // that claims a different anchor (or none at all) is either minted by a stale/misconfigured node
+    // or attempting to serve one community's content under another community's identity.
+    if (communityIpnsHops.length > 1 && community.anchor?.publicKey !== communityIpnsHops[0])
+        return { valid: false, reason: messages.ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_DOES_NOT_MATCH_CHAIN_ANCHOR };
     const signatureValidity = await _verifyJsonSignature(community);
     if (!signatureValidity) return { valid: false, reason: messages.ERR_COMMUNITY_SIGNATURE_IS_INVALID };
     const cacheIfValidWithDefault = typeof cacheIfValid === "boolean" ? cacheIfValid : true;
@@ -648,7 +657,8 @@ export async function verifyCommunity({
         // The two are the same key on a non-delegated community.
         publicKey: communityIdentityIpnsName,
         name: community.name,
-        signature: community.signature
+        signature: community.signature,
+        anchor: community.anchor
     };
 
     if (community.posts?.pages && validatePages)
@@ -910,7 +920,16 @@ type ParentCommentForVerifyingPages =
     | Pick<CommentIpfsWithCidDefined, "postCid"> // when we're verifying a flat page
     | { cid: undefined; depth: -1; postCid: undefined }; // when we're verifying a community posts page
 
-type CommunityForVerifyingPages = { publicKey?: string; name?: string; signature?: CommunityIpfsType["signature"] };
+type CommunityForVerifyingPages = {
+    publicKey?: string;
+    name?: string;
+    signature?: CommunityIpfsType["signature"];
+    // The community record's signed anchor claim (#257). When present, page comments'
+    // communityPublicKey is checked against it in addition to the name: the anchor is stable across
+    // minter rotations, so the key-rotation tolerance that makes the name win for non-delegated
+    // communities has no legitimate delegated counterpart.
+    anchor?: CommunityIpfsType["anchor"];
+};
 
 export async function verifyPageComment({
     pageComment,
@@ -955,6 +974,14 @@ export async function verifyPageComment({
 
     // Check that the comment belongs to the same community as the page
     const commentRecord = pageComment.comment;
+    // A delegated community's anchor claim is checked unconditionally (#257): unlike a rotated key,
+    // the anchor is the stable identity across minter rotations, so every comment in a delegated
+    // community's pages must be labelled with it, name or no name.
+    if (community.anchor?.publicKey) {
+        const communityPublicKeyFromRecord = getCommunityPublicKeyFromWire(commentRecord);
+        if (communityPublicKeyFromRecord && !areEquivalentCommunityAddresses(communityPublicKeyFromRecord, community.anchor.publicKey))
+            return { valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY };
+    }
     if (community.name) {
         // Domain-based community: only check name mismatch (key rotation is allowed)
         const communityNameFromRecord = getCommunityNameFromWire(commentRecord);

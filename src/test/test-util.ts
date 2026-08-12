@@ -1758,7 +1758,7 @@ export async function createNewIpns() {
 // so this helper constructs the chain directly via kubo.
 export async function createDelegatedCommunityIpns(
     communityOpts?: Partial<CommunityIpfsType>,
-    opts?: { contentSigner?: SignerType; intermediateHopsCount?: number }
+    opts?: { contentSigner?: SignerType; intermediateHopsCount?: number; omitAnchorClaim?: boolean }
 ) {
     // anchor (owner) keypair (An)
     const anchor = await createNewIpns();
@@ -1777,9 +1777,14 @@ export async function createDelegatedCommunityIpns(
             posts: undefined,
             pubsubTopic: minter.signer.address,
             encryption: encryptionForSigner((opts?.contentSigner ?? minter.signer) as { publicKey: string }),
+            // The signed anchor claim (#257): a delegated record must declare its anchor, and a
+            // chain-loaded record whose claim mismatches the chain's anchor is invalid. Tests
+            // simulating a pre-claim (or forged) record pass omitAnchorClaim.
+            anchor: opts?.omitAnchorClaim ? undefined : { publicKey: anchor.signer.address },
             ...communityOpts
         };
         if (!communityRecord.posts) delete communityRecord.posts;
+        if (!communityRecord.anchor) delete communityRecord.anchor;
 
         // content is signed by the MINTER key (Mn) by default — the terminal of the chain. A test
         // may override contentSigner to simulate a record whose signer is NOT the terminal key.

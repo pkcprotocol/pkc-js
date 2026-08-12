@@ -270,8 +270,14 @@ export class CommunityClientsManager extends PKCClientsManager {
             communityLoadingRes?.community &&
             (this._community.raw.communityIpfs?.updatedAt || 0) < communityLoadingRes.community.updatedAt
         ) {
+            const publicKeyBeforeApply = this._community.publicKey;
             this._community.initCommunityIpfsPropsNoMerge(communityLoadingRes.community);
             this._community.updateCid = communityLoadingRes.cid;
+            // Re-anchor (#257): a record whose anchor claim moves the identity (e.g. loaded by
+            // addressing the minter, claim recovers the anchor) invalidates any nameResolved verdict
+            // computed against the previous identity — the triggers below re-classify against the
+            // claimed one.
+            if (publicKeyBeforeApply && this._community.publicKey !== publicKeyBeforeApply) this._community.nameResolved = undefined;
             // If we just discovered a name, trigger background resolution now (don't wait for next loop)
             if (
                 !isStringDomain(this._community.address) &&
@@ -280,6 +286,16 @@ export class CommunityClientsManager extends PKCClientsManager {
                 typeof this._community.nameResolved !== "boolean"
             ) {
                 this._resolveNameInBackground(this._community.name);
+            } else if (
+                isStringDomain(this._community.address) &&
+                this._community.publicKey &&
+                typeof this._community.nameResolved !== "boolean"
+            ) {
+                // A domain-addressed community classifies its name right after the record lands: a
+                // pre-load domain-vs-publicKey mismatch is deferred inside _resolveNameInBackground,
+                // because only the loaded chain can tell a key migration from a delegated community
+                // whose TXT record points at its own minter (#257).
+                this._resolveNameInBackground(this._community.address);
             }
             log(
                 `Remote Community`,
@@ -352,6 +368,24 @@ export class CommunityClientsManager extends PKCClientsManager {
         }
     }
 
+    // The non-anchor hops (minter and any intermediates) of the community's own validated chain, or
+    // undefined while no record has been loaded and the chain is unknown: every key the loaded record
+    // is known to travel through (resolved hops + the record's signer) minus the identity itself. A
+    // non-delegated community with a loaded record answers []. Gated on the loaded record, not on
+    // ipnsHops alone: fetchNewUpdateForCommunity seeds a provisional single-hop ipnsHops for domain
+    // addresses before anything loads, and that provisional value says nothing about whether the
+    // community is delegated. The identity is subtracted rather than hops[0] because a re-anchored
+    // instance (loaded by addressing the minter directly, identity from the record's anchor claim)
+    // has ipnsHops = [minter] while its identity is the anchor.
+    private _nonAnchorHopsOfLoadedChain(): string[] | undefined {
+        const loadedRecord = this._community.raw.communityIpfs;
+        if (!loadedRecord) return undefined;
+        const chainKeys = new Set<string>(this._community.ipnsHops ?? []);
+        chainKeys.add(getPKCAddressFromPublicKeySync(loadedRecord.signature.publicKey));
+        if (this._community.publicKey) chainKeys.delete(this._community.publicKey);
+        return [...chainKeys];
+    }
+
     private _resolveNameInBackground(name: string) {
         const log = Logger("pkc-js:community-client-manager:_resolveNameInBackground");
         const setNameResolvedAndEmitUpdate = (newNameResolved: boolean) => {
@@ -371,6 +405,20 @@ export class CommunityClientsManager extends PKCClientsManager {
         })
             .then((resolved) => {
                 if (resolved && resolved !== this._community.publicKey) {
+                    const nonAnchorHops = this._nonAnchorHopsOfLoadedChain();
+                    if (nonAnchorHops?.includes(resolved)) {
+                        // The name resolves to a non-anchor hop of this community's OWN validated chain
+                        // (e.g. its minter): a misconfigured TXT record on a delegated community, not a
+                        // key migration. A delegated community's domain must point at the anchor — the
+                        // identity readers resolve — the same rule the publisher side enforces in
+                        // _assertDomainResolvesCorrectly. Migrating here would silently demote the
+                        // community identity to the rotating minter key and wipe its loaded record (#257).
+                        log(
+                            `Community name ${name} resolves to ${resolved}, a non-anchor hop of the community's own chain, instead of its identity ${this._community.publicKey}. Marking nameResolved false`
+                        );
+                        setNameResolvedAndEmitUpdate(false);
+                        return;
+                    }
                     // Key change detected: name now points to a different key.
                     // Most likely: cached publicKey is stale after community key migration.
                     log("Key migration detected for", name, "old:", this._community.publicKey, "new:", resolved);
@@ -449,7 +497,14 @@ export class CommunityClientsManager extends PKCClientsManager {
             let ipnsName: string | null;
             const isDomain = isStringDomain(communityAddress);
 
-            if (this._community.publicKey && (isDomain || (!isDomain && this._community.name && this._community.nameResolved === true))) {
+            // A record with an anchor claim routes through the identity (the anchor chain) no matter
+            // how the instance was addressed (#257): the anchor is the rotation-safe pointer, so a
+            // reader must never stay pinned to the minter it happened to reach the record through.
+            const hasAnchorClaim = Boolean(this._community.anchor);
+            if (
+                this._community.publicKey &&
+                (isDomain || hasAnchorClaim || (!isDomain && this._community.name && this._community.nameResolved === true))
+            ) {
                 // Once a domain has been verified against a public key, keep fetching through the current public key
                 // even if the immutable address on the instance is a raw IPNS key.
                 ipnsName = this._community.publicKey;
