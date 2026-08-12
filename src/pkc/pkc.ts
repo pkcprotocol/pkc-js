@@ -120,7 +120,7 @@ import type {
     CommentModerationTypeJson,
     CreateCommentModerationOptions
 } from "../publications/comment-moderation/types.js";
-import { setupKuboAddressesRewriterAndHttpRouters } from "../runtime/node/setup-kubo-address-rewriter-and-http-router.js";
+import { setupKuboHttpRouters } from "../runtime/node/setup-kubo-http-routers.js";
 import CommunityEdit from "../publications/community-edit/community-edit.js";
 import type {
     CreateCommunityEditPublicationOptions,
@@ -198,8 +198,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     private _communityFsWatchAbort?: AbortController;
     private _destroyAbortController?: AbortController;
 
-    private _addressRewriterDestroy?: () => Promise<void>;
-    private _addressRewriterSetupPromise?: Promise<void>;
+    private _httpRouterSetupPromise?: Promise<void>;
     destroyed = false;
     private _promiseToWaitForFirstCommunitieschangeEvent: Promise<string[]>;
 
@@ -406,36 +405,28 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
         if (this.httpRoutersOptions?.length && this.kuboRpcClientsOptions?.length && this._canCreateNewLocalCommunity()) {
             // only for node
-            const setupPromise = setupKuboAddressesRewriterAndHttpRouters(this)
-                .then(async (addressesRewriterProxyServer) => {
-                    if (this.destroyed) {
-                        await addressesRewriterProxyServer.destroy();
-                        return;
-                    }
-
-                    log(
-                        "Set http router options and their proxies successfully on all connected ipfs",
-                        Object.keys(this.clients.kuboRpcClients)
-                    );
-                    this._addressRewriterDestroy = addressesRewriterProxyServer.destroy;
+            const setupPromise = setupKuboHttpRouters(this)
+                .then(() => {
+                    if (this.destroyed) return;
+                    log("Set http router options successfully on all connected ipfs", Object.keys(this.clients.kuboRpcClients));
                 })
                 .catch((e: Error) => {
                     if (this.destroyed) return;
-                    log.error("Failed to set http router options and their proxies on ipfs nodes due to error", e);
+                    log.error("Failed to set http router options on ipfs nodes due to error", e);
                     this.emit("error", e);
                 });
 
-            this._addressRewriterSetupPromise = setupPromise;
+            this._httpRouterSetupPromise = setupPromise;
         }
     }
 
-    // Resolves once the background HTTP-router / address-rewriter reconcile has finished. On Node
-    // with an embedded Kubo this reconcile may POST /shutdown to the node to force a restart (see
-    // setup-kubo-address-rewriter-and-http-router.ts), so callers that need to talk to a stable
-    // Kubo immediately after boot (e.g. RPC auto-start) should await this first to avoid racing the
-    // restart window. No-op when there is no router setup in flight.
+    // Resolves once the background HTTP-router reconcile has finished. On Node with an embedded Kubo
+    // this reconcile may POST /shutdown to the node to force a restart (see
+    // setup-kubo-http-routers.ts), so callers that need to talk to a stable Kubo immediately after
+    // boot (e.g. RPC auto-start) should await this first to avoid racing the restart window. No-op
+    // when there is no router setup in flight.
     async _waitForHttpRoutersSetupToSettle(): Promise<void> {
-        if (this._addressRewriterSetupPromise) await this._addressRewriterSetupPromise;
+        if (this._httpRouterSetupPromise) await this._httpRouterSetupPromise;
     }
 
     async _init() {
@@ -1228,14 +1219,9 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
         if (this._communityFsWatchAbort) this._communityFsWatchAbort.abort();
 
-        if (this._addressRewriterSetupPromise) {
-            await this._addressRewriterSetupPromise;
-            this._addressRewriterSetupPromise = undefined;
-        }
-
-        if (this._addressRewriterDestroy) {
-            await this._addressRewriterDestroy();
-            this._addressRewriterDestroy = undefined;
+        if (this._httpRouterSetupPromise) {
+            await this._httpRouterSetupPromise;
+            this._httpRouterSetupPromise = undefined;
         }
         await this._storage.destroy();
         for (const storage of Object.values(this._storageLRUs)) await storage.destroy();
