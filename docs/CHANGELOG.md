@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.79](https://github.com/pkcprotocol/pkc-js/compare/v0.0.78...v0.0.79) (2026-08-12)
+
+### Bug Fixes
+
+* **helia:** detach peer:update listener when the provider stream throws ([#256](https://github.com/pkcprotocol/pkc-js/issues/256)) ([488c1cb](https://github.com/pkcprotocol/pkc-js/commit/488c1cbad6afb55dfe5bd29addf1e08c06f552c2))
+* **kubo:** run repo GC hourly per daemon instead of on a StorageMax watermark ([#259](https://github.com/pkcprotocol/pkc-js/issues/259)) ([7a0c849](https://github.com/pkcprotocol/pkc-js/commit/7a0c849dd2ccf7e980bdd0af22c552a769c70770)), closes [#225](https://github.com/pkcprotocol/pkc-js/issues/225) [#225](https://github.com/pkcprotocol/pkc-js/issues/225) [pkcprotocol/pkc-js#225](https://github.com/pkcprotocol/pkc-js/issues/225) [pkcprotocol/pkc-js#258](https://github.com/pkcprotocol/pkc-js/issues/258) [#225](https://github.com/pkcprotocol/pkc-js/issues/225) [pkcprotocol/pkc-js#258](https://github.com/pkcprotocol/pkc-js/issues/258)
+
 ## [0.0.78](https://github.com/pkcprotocol/pkc-js/compare/v0.0.77...v0.0.78) (2026-08-07)
 
 ## [0.0.77](https://github.com/pkcprotocol/pkc-js/compare/v0.0.76...v0.0.77) (2026-08-07)
