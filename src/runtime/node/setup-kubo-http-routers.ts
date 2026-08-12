@@ -49,12 +49,16 @@ function _mergeRouterConfigs(existingConfig: KuboRoutingConfig | undefined, newC
     };
 }
 
-async function _setProvideDhtSweepEnabledOnKuboNode(kuboClient: PKC["clients"]["kuboRpcClients"][string], sweepEnabled: boolean) {
+async function _setProvideDhtSweepEnabledOnKuboNode(
+    kuboClient: PKC["clients"]["kuboRpcClients"][string],
+    sweepEnabled: boolean,
+    signal: AbortSignal
+) {
     const log = Logger("pkc-js:pkc:_init:retrySettingHttpRoutersOnIpfsNodes:setProvideDhtSweepEnabledOnIpfsNode");
     const configKey = "Provide.DHT.SweepEnabled";
     const url = `${kuboClient._clientOptions.url}/config?arg=${configKey}&arg=${JSON.stringify(sweepEnabled)}&json=true`;
     try {
-        await fetch(url, { method: "POST", headers: kuboClient._clientOptions.headers });
+        await fetch(url, { method: "POST", headers: kuboClient._clientOptions.headers, signal });
     } catch (e) {
         const error = new PKCError("ERR_FAILED_TO_SET_CONFIG_ON_KUBO_NODE", {
             fullUrl: url,
@@ -69,13 +73,17 @@ async function _setProvideDhtSweepEnabledOnKuboNode(kuboClient: PKC["clients"]["
     log.trace("Succeeded in setting config key", configKey, "on node", kuboClient._clientOptions.url, "to be", sweepEnabled);
 }
 
-async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboRpcClients"][string], routingValue: KuboRoutingConfig) {
+async function _setHttpRouterOptionsOnKuboNode(
+    kuboClient: PKC["clients"]["kuboRpcClients"][string],
+    routingValue: KuboRoutingConfig,
+    signal: AbortSignal
+) {
     const log = Logger("pkc-js:pkc:_init:retrySettingHttpRoutersOnIpfsNodes:setHttpRouterOptionsOnIpfsNode");
     const routingKey = "Routing";
 
     let routingConfigBeforeChanging: KuboRoutingConfig | undefined;
     try {
-        routingConfigBeforeChanging = <KuboRoutingConfig>await kuboClient._client.config.get(routingKey);
+        routingConfigBeforeChanging = <KuboRoutingConfig>await kuboClient._client.config.get(routingKey, { signal });
     } catch (e) {
         const error = new PKCError("ERR_FAILED_TO_GET_CONFIG_ON_KUBO_NODE", {
             actualError: e,
@@ -90,7 +98,7 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboR
 
     const url = `${kuboClient._clientOptions.url}/config?arg=${routingKey}&arg=${JSON.stringify(mergedRoutingValue)}&json=true`;
     try {
-        await fetch(url, { method: "POST", headers: kuboClient._clientOptions.headers });
+        await fetch(url, { method: "POST", headers: kuboClient._clientOptions.headers, signal });
     } catch (e) {
         const error = new PKCError("ERR_FAILED_TO_SET_CONFIG_ON_KUBO_NODE", {
             fullUrl: url,
@@ -104,7 +112,7 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboR
     }
     log.trace("Succeeded in setting config key", routingKey, "on node", kuboClient._clientOptions.url, "to be", mergedRoutingValue);
 
-    await _setProvideDhtSweepEnabledOnKuboNode(kuboClient, false);
+    await _setProvideDhtSweepEnabledOnKuboNode(kuboClient, false, signal);
 
     const endpointsBefore: string[] = Object.values(routingConfigBeforeChanging?.Routers || {})
         .map((router) => router.Parameters?.Endpoint)
@@ -120,7 +128,7 @@ async function _setHttpRouterOptionsOnKuboNode(kuboClient: PKC["clients"]["kuboR
         );
         const shutdownUrl = `${kuboClient._clientOptions.url}/shutdown`;
         try {
-            await fetch(shutdownUrl, { method: "POST", headers: kuboClient._clientOptions.headers });
+            await fetch(shutdownUrl, { method: "POST", headers: kuboClient._clientOptions.headers, signal });
         } catch (e) {
             const error = new PKCError("ERR_FAILED_TO_SHUTDOWN_KUBO_NODE", {
                 actualError: e,
@@ -190,27 +198,52 @@ export async function setupKuboHttpRouters(pkc: PKC): Promise<void> {
     // (hours between attempts after enough failures), which would stall router setup indefinitely.
     const settingOptionRetryOption = retry.operation({ forever: true, factor: 2, maxTimeout: 60 * 1000 });
 
-    const setHttpRouterOnAllNodes = new Promise((resolve) => {
+    // destroy() aborts this signal before it awaits the setup promise, so it doubles as the cancel
+    // signal for both the in-flight requests below and the retry schedule.
+    const destroySignal = pkc._getDestroyAbortSignal();
+    let removeDestroyListener: (() => void) | undefined;
+
+    const setHttpRouterOnAllNodes = new Promise<void>((resolve) => {
+        // The `pkc.destroyed` check below only runs at the top of an attempt, so a destroy landing
+        // inside a backoff window would otherwise make destroy() wait out the remaining delay (up to
+        // maxTimeout). stop() drops the scheduled attempt (it clears the timer and empties both the
+        // pending and cached timeouts, so a racing retry() schedules nothing) and resolving lets
+        // destroy() move on immediately.
+        const onDestroy = () => {
+            settingOptionRetryOption.stop();
+            resolve();
+        };
+        if (destroySignal.aborted) {
+            onDestroy();
+            return;
+        }
+        destroySignal.addEventListener("abort", onDestroy, { once: true });
+        removeDestroyListener = () => destroySignal.removeEventListener("abort", onDestroy);
+
         settingOptionRetryOption.attempt(async () => {
             // A destroyed PKC has nothing left to configure, and `forever: true` would otherwise keep
             // retrying against a torn-down instance for the life of the process.
             if (pkc.destroyed) {
-                resolve(1);
+                resolve();
                 return;
             }
             for (const kuboClient of Object.values(kuboClients)) {
                 try {
-                    await _setHttpRouterOptionsOnKuboNode(kuboClient, routingValue);
+                    await _setHttpRouterOptionsOnKuboNode(kuboClient, routingValue, destroySignal);
                 } catch (e) {
                     settingOptionRetryOption.retry(<Error>e);
                     return;
                 }
             }
-            resolve(1);
+            resolve();
         });
     });
 
     await setHttpRouterOnAllNodes;
+    // Detach before returning: the destroy signal outlives this call, and leaving the listener on it
+    // would accumulate one per setup for the life of the instance.
+    removeDestroyListener?.();
     settingOptionRetryOption.stop();
+    if (pkc.destroyed) return;
     log.trace("Set http router config on all kubo nodes", Object.keys(kuboClients), "to", httpRouterUrls);
 }

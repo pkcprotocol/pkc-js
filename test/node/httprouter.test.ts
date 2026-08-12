@@ -1,4 +1,5 @@
 import { beforeAll, afterAll } from "vitest";
+import path from "path";
 import PKC from "../../dist/node/index.js";
 import { createSubWithNoChallenge, resolveWhenConditionIsTrue } from "../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../helpers/conditional-tests.js";
@@ -6,6 +7,9 @@ import { MockHttpRouter } from "../../dist/node/runtime/node/test/mock-http-rout
 import type { PKC as PKCType } from "../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
 
+// Skipped under RPC: the whole suite is about the local Kubo node's own `Routing` config, which only
+// the PKC that owns that node can read or write. An RPC client talks to a remote PKC and has no
+// kuboRpcClientsOptions of its own, so there is no Kubo config for it to assert against.
 // pkc used to put a loopback AddressesRewriterProxyServer between Kubo and every HTTP router, because
 // Kubo dropped the browser-dialable transports from the provider records it PUT to a delegated
 // router (ipfs/kubo#11369). Kubo 0.43.0 fixed that (ipfs/kubo#11394), the proxy is gone (#262), and
@@ -148,6 +152,28 @@ describeSkipIfRpc(`Testing HTTP router settings`, async () => {
         expect(hasPutRequest).to.be.true;
 
         await community.delete();
+    });
+
+    it(`pkc.destroy() does not wait out the router-setup backoff when the kubo node is unreachable`, async () => {
+        // Router setup retries forever with an exponential backoff (factor 2, capped at 60s). When the
+        // kubo node never answers, destroy() awaits that setup promise, so without cancelling the retry
+        // schedule it blocks for whatever is left of the current backoff window. Let a few attempts
+        // fail first so the pending window is several seconds wide, then assert destroy() returns
+        // without waiting for it.
+        const unreachableKuboUrl = "http://localhost:15111/api/v0"; // nothing listens here
+        const pkcWithUnreachableKubo = await PKC({
+            kuboRpcClientsOptions: [unreachableKuboUrl],
+            httpRoutersOptions: httpRouterUrls,
+            dataPath: path.join(process.cwd(), ".tmp", "httprouter-destroy-cancels-backoff")
+        });
+        pkcWithUnreachableKubo.on("error", () => {}); // setup failures are expected here
+
+        // attempts fail at t=0/1s/3s/7s, so by t=8s the pending retry is the 8s one (fires at t=15s)
+        await new Promise((resolve) => setTimeout(resolve, 8000));
+
+        const destroyStartedAt = Date.now();
+        await pkcWithUnreachableKubo.destroy();
+        expect(Date.now() - destroyStartedAt).to.be.lessThan(3000);
     });
 
     it(`pkc.destroy() leaves the kubo node's Routing config pointing at the http router`, async () => {
