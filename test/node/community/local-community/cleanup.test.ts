@@ -8,6 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
+    _describeReclaimedSpace,
     _resetRepoGcSchedulingState,
     addAllCidsUnderPurgedCommentToBeRemoved,
     cleanUpIpfsRepoIfDue,
@@ -195,17 +196,15 @@ describe("cleanup: repinCommentUpdateIfNeeded", () => {
 });
 
 describe("cleanup: cleanUpIpfsRepoIfDue", () => {
-    // Builds a fake community wired to one kubo URL. repoSize/storageMax drive the watermark check;
-    // repo.gc records its calls so a test can assert whether it ran.
+    // Builds a fake community wired to one kubo URL. repoSize only feeds the before/after log line —
+    // nothing branches on it — while repo.gc records its calls so a test can assert whether it ran.
     const makeCommunity = ({
         url = "http://localhost:15001/api/v0",
         repoSize = 1n,
-        storageMax = 100n,
         gcImpl
     }: {
         url?: string;
         repoSize?: bigint;
-        storageMax?: bigint;
         gcImpl?: () => AsyncGenerator<{ cid: string }>;
     } = {}) => {
         const stat = vi.fn(async (_options?: { searchParams?: URLSearchParams }) => ({
@@ -213,7 +212,7 @@ describe("cleanup: cleanUpIpfsRepoIfDue", () => {
             repoPath: "/repo",
             repoSize,
             version: "fs-repo@18",
-            storageMax
+            storageMax: 100n
         }));
         const gc = vi.fn(
             gcImpl ??
@@ -232,17 +231,11 @@ describe("cleanup: cleanUpIpfsRepoIfDue", () => {
 
     beforeEach(() => _resetRepoGcSchedulingState());
 
-    it("skips GC when the repo is below the StorageMax watermark", async () => {
-        const { community, stat, gc } = makeCommunity({ repoSize: 10n, storageMax: 100n });
-
-        await cleanUpIpfsRepoIfDue(community);
-
-        expect(stat).toHaveBeenCalledTimes(1);
-        expect(gc).not.toHaveBeenCalled();
-    });
-
-    it("runs GC once the repo reaches the watermark", async () => {
-        const { community, gc } = makeCommunity({ repoSize: 95n, storageMax: 100n });
+    // /api/v0/repo/gc has no watermark of its own — Datastore.StorageGCWatermark is only read by the
+    // daemon's `--enable-gc` loop, which pkc-js cannot turn on since it never spawns the daemon. The
+    // interval floor is therefore the entire policy, and repo size must not gate the sweep.
+    it("GCs on the interval alone, whatever the repo size", async () => {
+        const { community, gc } = makeCommunity({ repoSize: 1n });
 
         await cleanUpIpfsRepoIfDue(community);
 
@@ -252,27 +245,21 @@ describe("cleanup: cleanUpIpfsRepoIfDue", () => {
     it("asks the daemon for size-only stats, not a full object count", async () => {
         // A default repo/stat counts every object, which walks the whole flatfs blockstore — millions
         // of files on exactly the repos this feature exists for.
-        const { community, stat } = makeCommunity({ repoSize: 10n, storageMax: 100n });
+        const { community, stat } = makeCommunity();
 
         await cleanUpIpfsRepoIfDue(community);
 
-        const passedSearchParams = stat.mock.calls[0]?.[0]?.searchParams as URLSearchParams | undefined;
-        expect(passedSearchParams?.get("size-only")).to.equal("true");
+        for (const call of stat.mock.calls) {
+            const passedSearchParams = call?.[0]?.searchParams as URLSearchParams | undefined;
+            expect(passedSearchParams?.get("size-only")).to.equal("true");
+        }
     });
 
-    it("does not GC again within the interval floor, even while still over the watermark", async () => {
-        const { community, gc } = makeCommunity({ repoSize: 95n, storageMax: 100n });
+    it("does not GC again within the interval floor", async () => {
+        const { community, gc } = makeCommunity();
 
         await cleanUpIpfsRepoIfDue(community);
         await cleanUpIpfsRepoIfDue(community);
-        await cleanUpIpfsRepoIfDue(community);
-
-        expect(gc).toHaveBeenCalledTimes(1);
-    });
-
-    it("GCs on the interval alone when the daemon reports no StorageMax", async () => {
-        const { community, gc } = makeCommunity({ repoSize: 10n, storageMax: 0n });
-
         await cleanUpIpfsRepoIfDue(community);
 
         expect(gc).toHaveBeenCalledTimes(1);
@@ -284,8 +271,6 @@ describe("cleanup: cleanUpIpfsRepoIfDue", () => {
         let releaseGc: () => void = () => {};
         const gcStarted = new Promise<void>((resolve) => (releaseGc = resolve));
         const { community, gc } = makeCommunity({
-            repoSize: 95n,
-            storageMax: 100n,
             gcImpl: () =>
                 (async function* () {
                     await gcStarted;
@@ -301,8 +286,8 @@ describe("cleanup: cleanUpIpfsRepoIfDue", () => {
     });
 
     it("keys the interval floor per kubo url, so a second daemon still GCs", async () => {
-        const first = makeCommunity({ url: "http://localhost:15001/api/v0", repoSize: 95n, storageMax: 100n });
-        const second = makeCommunity({ url: "http://localhost:15004/api/v0", repoSize: 95n, storageMax: 100n });
+        const first = makeCommunity({ url: "http://localhost:15001/api/v0" });
+        const second = makeCommunity({ url: "http://localhost:15004/api/v0" });
 
         await cleanUpIpfsRepoIfDue(first.community);
         await cleanUpIpfsRepoIfDue(second.community);
@@ -311,24 +296,60 @@ describe("cleanup: cleanUpIpfsRepoIfDue", () => {
         expect(second.gc).toHaveBeenCalledTimes(1);
     });
 
-    it("force bypasses both the interval floor and the watermark", async () => {
-        const { community, stat, gc } = makeCommunity({ repoSize: 1n, storageMax: 100n });
+    it("force bypasses the interval floor", async () => {
+        const { community, gc } = makeCommunity();
 
         await cleanUpIpfsRepoIfDue(community, true);
         await cleanUpIpfsRepoIfDue(community, true);
 
         expect(gc).toHaveBeenCalledTimes(2);
-        // force skips the due-check entirely; the only stat calls are the post-GC size readings.
-        expect(stat).toHaveBeenCalledTimes(2);
     });
 
-    it("does not throw when repo.stat fails, and leaves GC unrun", async () => {
-        const { community, kuboRpcClient, gc } = makeCommunity({ repoSize: 95n, storageMax: 100n });
+    // repo.stat is only read to log how much the sweep reclaimed, so a daemon that cannot answer it
+    // must still get GCed. Gating on it would mean a node under memory pressure never reclaims.
+    it("still GCs when repo.stat fails, losing only the size readings", async () => {
+        const { community, kuboRpcClient, gc } = makeCommunity();
         kuboRpcClient._client.repo.stat = vi.fn().mockRejectedValue(new Error("fetch failed"));
 
         await cleanUpIpfsRepoIfDue(community);
 
-        expect(gc).not.toHaveBeenCalled();
+        expect(gc).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe("cleanup: _describeReclaimedSpace", () => {
+    // The cid count from repo.gc says how many blocks went; only these numbers say whether that
+    // mattered. On pkc-js#225 a repo that stays huge after a sweep is the signal that everything
+    // left is pinned, which no GC schedule can fix.
+    it("reports the reclaimed bytes and both sizes", () => {
+        const oneGb = 1024n ** 3n;
+        expect(_describeReclaimedSpace({ before: 12n * oneGb, after: 10n * oneGb })).to.equal("reclaimed 2.00GB (12.00GB -> 10.00GB)");
+    });
+
+    it("scales each unit and keeps raw bytes below 1KB", () => {
+        expect(_describeReclaimedSpace({ before: 900n, after: 400n })).to.equal("reclaimed 500B (900B -> 400B)");
+        expect(_describeReclaimedSpace({ before: 5n * 1024n * 1024n, after: 1n * 1024n * 1024n })).to.equal(
+            "reclaimed 4.00MB (5.00MB -> 1.00MB)"
+        );
+    });
+
+    it("reports a repo that grew during the sweep, rather than a negative reclaim", () => {
+        // GC and the community syncs writing new blocks share one daemon, and nothing pauses
+        // publishing for the length of a sweep, so after > before is a real outcome.
+        expect(_describeReclaimedSpace({ before: 10n * 1024n * 1024n, after: 12n * 1024n * 1024n })).to.equal(
+            "reclaimed no space, the repo grew 2.00MB during the sweep (10.00MB -> 12.00MB)"
+        );
+    });
+
+    it("says so when repo.stat gave us nothing, on either side", () => {
+        const unavailable = "reclaimed an unknown amount, repo.stat was unavailable";
+        expect(_describeReclaimedSpace({ before: undefined, after: 10n })).to.equal(unavailable);
+        expect(_describeReclaimedSpace({ before: 10n, after: undefined })).to.equal(unavailable);
+        expect(_describeReclaimedSpace({ before: undefined, after: undefined })).to.equal(unavailable);
+    });
+
+    it("does not treat a zero-byte reclaim as unknown", () => {
+        expect(_describeReclaimedSpace({ before: 0n, after: 0n })).to.equal("reclaimed 0B (0B -> 0B)");
     });
 });
 
