@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.80](https://github.com/pkcprotocol/pkc-js/compare/v0.0.79...v0.0.80) (2026-08-12)
+
+### Features
+
+* **community:** delegated records advertise their anchor; claim-first nameResolved ([#260](https://github.com/pkcprotocol/pkc-js/issues/260)) ([8ba6cb5](https://github.com/pkcprotocol/pkc-js/commit/8ba6cb5e0e117108884c694c4ff31febad5b9d37)), closes [#257](https://github.com/pkcprotocol/pkc-js/issues/257) [#257](https://github.com/pkcprotocol/pkc-js/issues/257) [#257](https://github.com/pkcprotocol/pkc-js/issues/257) [#257](https://github.com/pkcprotocol/pkc-js/issues/257) [#257](https://github.com/pkcprotocol/pkc-js/issues/257) [#261](https://github.com/pkcprotocol/pkc-js/issues/261) [#261](https://github.com/pkcprotocol/pkc-js/issues/261)
+
 ## [0.0.79](https://github.com/pkcprotocol/pkc-js/compare/v0.0.78...v0.0.79) (2026-08-12)
 
 ### Bug Fixes
