@@ -405,4 +405,91 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         });
         await tempPKC.destroy();
     });
+
+    // The signed anchor claim (#257): a delegated record declares its anchor, a chain-loaded record
+    // must claim the chain's anchor, and page comments are checked against the claim regardless of
+    // the record's name (the name-wins rotation tolerance has no delegated counterpart).
+    describe("anchor claim (#257)", () => {
+        // anchor = signers[1] (An), minter = signers[0] (Mn, signs the record)
+        const anchorName = () => signers[1].address;
+        const minterName = () => signers[0].address;
+
+        async function signedDelegatedRecord(overrides: Partial<CommunityIpfsType> & { omitClaim?: boolean }): Promise<CommunityIpfsType> {
+            const { omitClaim, ...recordOverrides } = overrides;
+            const record = clone(newFormatFixture) as CommunityIpfsType & Record<string, unknown>;
+            delete record.posts; // isolate the record-level rules from page validation
+            delete record.signature;
+            Object.assign(record, recordOverrides);
+            if (omitClaim) delete record.anchor;
+            const signature = await signCommunity({ community: record as Omit<CommunityIpfsType, "signature">, signer: signers[0] });
+            return { ...record, signature } as CommunityIpfsType;
+        }
+
+        function verify(community: CommunityIpfsType, communityIpnsHops: string[], validatePages = false) {
+            return verifyCommunity({
+                community,
+                communityIpnsHops,
+                resolveAuthorNames: pkc.resolveAuthorNames,
+                clientsManager: pkc._clientsManager,
+                validatePages,
+                cacheIfValid: false
+            });
+        }
+
+        it("a chain-loaded record claiming the chain's anchor is valid", async () => {
+            const record = await signedDelegatedRecord({ anchor: { publicKey: anchorName() } });
+            expect(await verify(record, [anchorName(), minterName()])).to.deep.equal({ valid: true });
+        });
+
+        it("a chain-loaded record with no claim is invalid", async () => {
+            const record = await signedDelegatedRecord({ omitClaim: true });
+            expect(await verify(record, [anchorName(), minterName()])).to.deep.equal({
+                valid: false,
+                reason: messages.ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_DOES_NOT_MATCH_CHAIN_ANCHOR
+            });
+        });
+
+        it("a chain-loaded record claiming a different anchor is invalid", async () => {
+            const record = await signedDelegatedRecord({ anchor: { publicKey: signers[3].address } });
+            expect(await verify(record, [anchorName(), minterName()])).to.deep.equal({
+                valid: false,
+                reason: messages.ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_DOES_NOT_MATCH_CHAIN_ANCHOR
+            });
+        });
+
+        it("a record reached by addressing the minter directly (single hop) keeps its claim valid", async () => {
+            // This is the re-anchor case: the chain rule only binds when a delegation hop was actually
+            // walked; a single-hop load cannot contradict the claim. Valid here does NOT mean trusted:
+            // verifyCommunity is offline, and the claim of a single-hop record is proven against the
+            // claimed anchor's own chain before it ever reaches this function (#261), by
+            // _proveAnchorClaimIfUnwalked in the community clients manager — which hands the proven
+            // (two-hop) chain down, so the single-hop shape below is only reachable offline.
+            // The end-to-end refusal of an unendorsed claim is covered in
+            // test/node-and-browser/community/delegated-ipns.test.ts.
+            const record = await signedDelegatedRecord({ anchor: { publicKey: anchorName() } });
+            expect(await verify(record, [minterName()])).to.deep.equal({ valid: true });
+        });
+
+        it("page comments are checked against the claim even when the record has a name", async () => {
+            // Pre-#257, a record with a `name` skipped the page comments' communityPublicKey check
+            // entirely (key-rotation tolerance). The claim closes that hole: a live community's pages
+            // are labelled with ITS identity (signers[0]), which cannot pass under a record claiming a
+            // different anchor, name or no name.
+            const liveCommunity = await pkc.createCommunity({ address: signers[0].address });
+            await liveCommunity.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: liveCommunity,
+                predicate: async () => (liveCommunity.raw.communityIpfs?.posts?.pages?.hot?.comments.length ?? 0) > 0
+            });
+            await liveCommunity.stop();
+            const record = clone(liveCommunity.raw.communityIpfs!) as CommunityIpfsType & Record<string, unknown>;
+            delete record.signature;
+            (record as CommunityIpfsType).anchor = { publicKey: anchorName() };
+            (record as CommunityIpfsType).name = "claimed-domain.bso";
+            const signature = await signCommunity({ community: record as Omit<CommunityIpfsType, "signature">, signer: signers[0] });
+            const resigned = { ...record, signature } as CommunityIpfsType;
+            const validation = await verify(resigned, [anchorName(), minterName()], true);
+            expect(validation).to.deep.equal({ valid: false, reason: messages.ERR_COMMUNITY_POSTS_INVALID });
+        });
+    });
 });

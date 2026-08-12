@@ -52,8 +52,10 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
     override startedState!: CommunityStartedState;
     override signer!: RpcLocalCommunityLocalProps["signer"];
     // Set only on a delegated community, where signer above is the minter (Mn) and this is the
-    // anchor (An) the community is addressed by. See docs/protocol/delegated-ipns.md.
-    anchor?: RpcLocalCommunityLocalProps["anchor"];
+    // anchor (An) the community is addressed by. Since #257 this is also a signed wire field on the
+    // record itself (declared on RemoteCommunity); on a local community it exists before the first
+    // record is minted. See docs/protocol/delegated-ipns.md.
+    override anchor?: RpcLocalCommunityLocalProps["anchor"];
     // Highest anchor sequence this community's node has accepted. Undefined on a delegated community
     // means no anchor record has ever been published for it, which is exactly when the owner signs
     // sequence 0 rather than asking prepareAnchorPublish (which refuses to guess). It also means the

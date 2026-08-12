@@ -211,6 +211,17 @@ export const ChallengeFileFactorySchema = z.function({ input: [ChallengeFileFact
 
 // Community actual schemas here
 
+// The anchor (An) of a delegated community: the identity keypair whose private half (As) never
+// reaches the node running the community. publicKey here is the B58 IPNS name, the same
+// representation community.publicKey uses, NOT the base64 raw key that signer.publicKey and
+// encryption.publicKey carry. See docs/protocol/delegated-ipns.md.
+// anchor.publicKey becomes the delegated community's address, so an invalid value here would otherwise
+// only surface much later, inside peerIdFromString during publishAnchorRecord, long after the community
+// was created and keyed by it. Validate it as the IPNS name it has to be, at creation.
+export const CommunityAnchorSchema = z
+    .object({ publicKey: z.string().refine((arg) => isIpnsName(arg), messages.ERR_ANCHOR_PUBLIC_KEY_IS_INVALID) })
+    .strict();
+
 export const CommunityIpfsSchema = z
     .object({
         posts: PostsPagesIpfsSchema.optional(),
@@ -219,6 +230,12 @@ export const CommunityIpfsSchema = z
         signature: JsonSignatureSchema,
         encryption: CommunityEncryptionSchema,
         name: z.string().min(1).optional(), // domain name of the community (e.g. "memes.eth"); address is now instance-only
+        // The community's signed anchor claim (#257): present exactly when the community is delegated.
+        // The record is signed by the minter, but the identity readers address is the anchor — this
+        // field is what lets a reader who reached the record through the minter (or any non-anchor
+        // hop) recover the true identity. On a chain load the claim must equal ipnsHops[0], enforced
+        // in verifyCommunity. See docs/protocol/delegated-ipns.md.
+        anchor: CommunityAnchorSchema.optional(),
         createdAt: PKCTimestampSchema,
         updatedAt: PKCTimestampSchema,
         pubsubTopic: PubsubTopicSchema.optional(),
@@ -302,17 +319,6 @@ export const CommunityEditOptionsSchema = CommunityIpfsSchema.pick({
         roles: CommunityRolesToEditSchema.optional()
     })
     .partial()
-    .strict();
-
-// The anchor (An) of a delegated community: the identity keypair whose private half (As) never
-// reaches the node running the community. publicKey here is the B58 IPNS name, the same
-// representation community.publicKey uses, NOT the base64 raw key that signer.publicKey and
-// encryption.publicKey carry. See docs/protocol/delegated-ipns.md.
-// anchor.publicKey becomes the delegated community's address, so an invalid value here would otherwise
-// only surface much later, inside peerIdFromString during publishAnchorRecord, long after the community
-// was created and keyed by it. Validate it as the IPNS name it has to be, at creation.
-export const CommunityAnchorSchema = z
-    .object({ publicKey: z.string().refine((arg) => isIpnsName(arg), messages.ERR_ANCHOR_PUBLIC_KEY_IS_INVALID) })
     .strict();
 
 // These are the options to create a new local community, provided by user

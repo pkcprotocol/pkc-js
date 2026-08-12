@@ -135,8 +135,14 @@ async function checkWireFormatAndCommunityAuthor(
     // minter we sign with — comparing against signer.address here would reject every remote
     // publication. See docs/protocol/delegated-ipns.md.
     const pubCommunityPublicKey = getCommunityPublicKeyFromWire(publication as Record<string, unknown>);
-    if (!pubCommunityPublicKey || pubCommunityPublicKey !== communityIdentityPublicKey(community))
+    if (!pubCommunityPublicKey || pubCommunityPublicKey !== communityIdentityPublicKey(community)) {
+        // A publication labelled with this delegated community's own minter gets a specific rejection
+        // (#257): the client reached the community but signed to the rotating serving key instead of
+        // the anchor identity, which is a fixable client/TXT misconfiguration and not an unrelated key.
+        if (community.anchor && pubCommunityPublicKey === community.signer.address)
+            return messages.ERR_PUBLICATION_SIGNED_TO_MINTER_INSTEAD_OF_ANCHOR;
         return messages.ERR_PUBLICATION_INVALID_COMMUNITY_PUBLIC_KEY;
+    }
 
     // communityName, if present, must match this community's address
     const pubCommunityName = getCommunityNameFromWire(publication as Record<string, unknown>);

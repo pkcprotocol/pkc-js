@@ -798,7 +798,7 @@ An object which may have the following keys:
 | ---- | ---- | ------- | ----------- |
 | address | `string` or `undefined` | `undefined` | `Address` of the community |
 | signer | `Signer` or `undefined` | `undefined` | (Community owners only) Optional `Signer` of the community to create a community with a specific private key |
-| anchor | `{publicKey: string}` or `undefined` | `undefined` | (Community owners only) Create a **delegated** community: the community's identity is this anchor IPNS name, whose private key you keep, and the node generates its own signing (minter) key. Mutually exclusive with `signer`. See [docs/protocol/delegated-ipns.md](docs/protocol/delegated-ipns.md) |
+| anchor | `{publicKey: string}` or `undefined` | `undefined` | (Community owners only) Create a **delegated** community: the community's identity is this anchor IPNS name, whose private key you keep, and the node generates its own signing (minter) key. Mutually exclusive with `signer`. Every record the community publishes advertises this anchor in a signed `anchor` field, so readers who reach the record through the minter recover the identity. See [docs/protocol/delegated-ipns.md](docs/protocol/delegated-ipns.md) |
 | ...community | `any` | `undefined` | `CreateCommunityOptions` can also initialize any property on the `Community` instance |
 
 #### Returns

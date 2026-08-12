@@ -270,8 +270,14 @@ export class CommunityClientsManager extends PKCClientsManager {
             communityLoadingRes?.community &&
             (this._community.raw.communityIpfs?.updatedAt || 0) < communityLoadingRes.community.updatedAt
         ) {
+            const publicKeyBeforeApply = this._community.publicKey;
             this._community.initCommunityIpfsPropsNoMerge(communityLoadingRes.community);
             this._community.updateCid = communityLoadingRes.cid;
+            // Re-anchor (#257): a record whose anchor claim moves the identity (e.g. loaded by
+            // addressing the minter, claim recovers the anchor) invalidates any nameResolved verdict
+            // computed against the previous identity — the triggers below re-classify against the
+            // claimed one.
+            if (publicKeyBeforeApply && this._community.publicKey !== publicKeyBeforeApply) this._community.nameResolved = undefined;
             // If we just discovered a name, trigger background resolution now (don't wait for next loop)
             if (
                 !isStringDomain(this._community.address) &&
@@ -280,6 +286,16 @@ export class CommunityClientsManager extends PKCClientsManager {
                 typeof this._community.nameResolved !== "boolean"
             ) {
                 this._resolveNameInBackground(this._community.name);
+            } else if (
+                isStringDomain(this._community.address) &&
+                this._community.publicKey &&
+                typeof this._community.nameResolved !== "boolean"
+            ) {
+                // A domain-addressed community classifies its name right after the record lands: a
+                // pre-load domain-vs-publicKey mismatch is deferred inside _resolveNameInBackground,
+                // because only the loaded chain can tell a key migration from a delegated community
+                // whose TXT record points at its own minter (#257).
+                this._resolveNameInBackground(this._community.address);
             }
             log(
                 `Remote Community`,
@@ -352,6 +368,24 @@ export class CommunityClientsManager extends PKCClientsManager {
         }
     }
 
+    // The non-anchor hops (minter and any intermediates) of the community's own validated chain, or
+    // undefined while no record has been loaded and the chain is unknown: every key the loaded record
+    // is known to travel through (resolved hops + the record's signer) minus the identity itself. A
+    // non-delegated community with a loaded record answers []. Gated on the loaded record, not on
+    // ipnsHops alone: fetchNewUpdateForCommunity seeds a provisional single-hop ipnsHops for domain
+    // addresses before anything loads, and that provisional value says nothing about whether the
+    // community is delegated. The identity is subtracted rather than hops[0] because a re-anchored
+    // instance (loaded by addressing the minter directly, identity from the record's anchor claim)
+    // has ipnsHops = [minter] while its identity is the anchor.
+    private _nonAnchorHopsOfLoadedChain(): string[] | undefined {
+        const loadedRecord = this._community.raw.communityIpfs;
+        if (!loadedRecord) return undefined;
+        const chainKeys = new Set<string>(this._community.ipnsHops ?? []);
+        chainKeys.add(getPKCAddressFromPublicKeySync(loadedRecord.signature.publicKey));
+        if (this._community.publicKey) chainKeys.delete(this._community.publicKey);
+        return [...chainKeys];
+    }
+
     private _resolveNameInBackground(name: string) {
         const log = Logger("pkc-js:community-client-manager:_resolveNameInBackground");
         const setNameResolvedAndEmitUpdate = (newNameResolved: boolean) => {
@@ -371,6 +405,20 @@ export class CommunityClientsManager extends PKCClientsManager {
         })
             .then((resolved) => {
                 if (resolved && resolved !== this._community.publicKey) {
+                    const nonAnchorHops = this._nonAnchorHopsOfLoadedChain();
+                    if (nonAnchorHops?.includes(resolved)) {
+                        // The name resolves to a non-anchor hop of this community's OWN validated chain
+                        // (e.g. its minter): a misconfigured TXT record on a delegated community, not a
+                        // key migration. A delegated community's domain must point at the anchor — the
+                        // identity readers resolve — the same rule the publisher side enforces in
+                        // _assertDomainResolvesCorrectly. Migrating here would silently demote the
+                        // community identity to the rotating minter key and wipe its loaded record (#257).
+                        log(
+                            `Community name ${name} resolves to ${resolved}, a non-anchor hop of the community's own chain, instead of its identity ${this._community.publicKey}. Marking nameResolved false`
+                        );
+                        setNameResolvedAndEmitUpdate(false);
+                        return;
+                    }
                     // Key change detected: name now points to a different key.
                     // Most likely: cached publicKey is stale after community key migration.
                     log("Key migration detected for", name, "old:", this._community.publicKey, "new:", resolved);
@@ -449,7 +497,14 @@ export class CommunityClientsManager extends PKCClientsManager {
             let ipnsName: string | null;
             const isDomain = isStringDomain(communityAddress);
 
-            if (this._community.publicKey && (isDomain || (!isDomain && this._community.name && this._community.nameResolved === true))) {
+            // A record with an anchor claim routes through the identity (the anchor chain) no matter
+            // how the instance was addressed (#257): the anchor is the rotation-safe pointer, so a
+            // reader must never stay pinned to the minter it happened to reach the record through.
+            const hasAnchorClaim = Boolean(this._community.anchor);
+            if (
+                this._community.publicKey &&
+                (isDomain || hasAnchorClaim || (!isDomain && this._community.name && this._community.nameResolved === true))
+            ) {
                 // Once a domain has been verified against a public key, keep fetching through the current public key
                 // even if the immutable address on the instance is a raw IPNS key.
                 ipnsName = this._community.publicKey;
@@ -521,15 +576,18 @@ export class CommunityClientsManager extends PKCClientsManager {
                 // we found a new record that is verified.
                 // Key the cache by the ANCHOR identity (domain or anchor IPNS name), not by the
                 // record's signature key — for a delegated community the content is signed by the
-                // terminal (minter) key, but the user-facing identity is the anchor. ipnsName here
-                // is the anchor (ipnsHops[0]). For a non-delegated community the anchor equals the
-                // signature-derived address, so this is unchanged.
-                const anchorIdentityAddress = subRes.community.name || ipnsName;
+                // terminal (minter) key, but the user-facing identity is the anchor. The record's
+                // signed anchor claim is the authority (#257): ipnsName is only the name the fetch
+                // travelled through, which behind a minter-pointing TXT is the MINTER — caching that
+                // as publicKey would make every publication sign to the minter and be rejected. For a
+                // non-delegated community (no claim) ipnsName is the identity, unchanged.
+                const identityPublicKey = subRes.community.anchor?.publicKey ?? ipnsName;
+                const anchorIdentityAddress = subRes.community.name || identityPublicKey;
                 this._pkc._memCaches.communityForPublishing.set(anchorIdentityAddress, {
                     encryption: subRes.community.encryption,
                     pubsubTopic: subRes.community.pubsubTopic,
                     address: anchorIdentityAddress,
-                    publicKey: ipnsName,
+                    publicKey: identityPublicKey,
                     name: subRes.community.name
                 });
             }
@@ -595,9 +653,24 @@ export class CommunityClientsManager extends PKCClientsManager {
                 parseJsonWithPKCErrorIfFails(rawCommunityJsonString)
             );
 
+            // Prove the record's anchor claim when this resolution walked no chain that could contradict
+            // it (#261), and adopt the proven chain as this community's hops.
+            const provenIpnsHops = await this._proveAnchorClaimIfUnwalked({
+                communityJson: communityIpfs,
+                ipnsHops,
+                resolveChainOfClaimedAnchor: async (claimedAnchor) =>
+                    (
+                        await this.resolveIpnsToCidP2P(claimedAnchor, {
+                            timeoutMs: this._pkc._timeouts["community-ipns"],
+                            abortSignal: this._community._getStopAbortSignal()
+                        })
+                    ).ipnsHops
+            });
+            this._community.ipnsHops = provenIpnsHops;
+
             const errInRecord = await this._findErrorInCommunityRecord({
                 communityJson: communityIpfs,
-                communityIpnsHops: ipnsHops,
+                communityIpnsHops: provenIpnsHops,
                 cidOfCommunityIpns: latestCommunityCid
             });
 
@@ -702,6 +775,15 @@ export class CommunityClientsManager extends PKCClientsManager {
                             gatewayUrl
                         });
                 }
+                // Prove the record's anchor claim when the tiering above walked no chain that could
+                // contradict it (#261). The walk goes through the SAME untrusted gateway that served
+                // the body: it cannot forge a hop's signature, so it cannot manufacture an endorsement.
+                ipnsHops = await this._proveAnchorClaimIfUnwalked({
+                    communityJson: communityIpfs,
+                    ipnsHops,
+                    resolveChainOfClaimedAnchor: async (claimedAnchor) =>
+                        (await this._resolveIpnsChainViaGateway(gatewayUrl, claimedAnchor, abortController.signal)).ipnsHops
+                });
                 // Keep the resolved hops attached to THIS gateway's result; the winner (and its
                 // matching hops) is chosen later in _findRecentCommunity. Mutating
                 // this._community.ipnsHops here would let a slower/losing gateway overwrite it.
@@ -865,7 +947,60 @@ export class CommunityClientsManager extends PKCClientsManager {
                         err.details?.status === 304 ||
                         err.code === "ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD"
                 );
-            if (hasGatewayConfirmingCurrentRecord) return undefined; // any gateway confirmed we already have the latest consumed record
+            if (hasGatewayConfirmingCurrentRecord) {
+                // Any gateway confirmed we already have the latest consumed record. The conditional
+                // request (If-None-Match -> 304) aborts before the delegated chain walk, so a
+                // re-anchored community (#257: identity adopted from the record's anchor claim after
+                // reaching it through the minter) would keep the stale single-hop ipnsHops forever —
+                // the other transports re-resolve the chain on every poll. Upgrade the chain once:
+                // walk it via a confirming gateway and adopt it only if its terminal lands on the very
+                // CID we already consumed, so a lying gateway cannot bind us to a different record.
+                if (this._community.anchor && this._community.ipnsHops?.[0] !== ipnsName) {
+                    const confirmingGatewayUrl = Object.keys(gatewayFetches).find(
+                        (gatewayUrl) =>
+                            gatewayFetches[gatewayUrl].error?.details?.status === 304 ||
+                            gatewayFetches[gatewayUrl].error?.code ===
+                                "ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD"
+                    );
+                    if (confirmingGatewayUrl) {
+                        // cleanUp() above already cleared every per-gateway timeout, and the raw IPNS
+                        // record fetches inside the walk carry no deadline of their own, so stopSignal
+                        // alone would let a stalled gateway hold this await (and therefore the whole
+                        // update-loop iteration) far past the community-ipns budget every other fetch
+                        // in this function respects. Give the walk that same budget. The listener is
+                        // removed in the finally rather than composed with AbortSignal.any because
+                        // stopSignal lives as long as the community and this runs on every poll.
+                        const chainWalkAbortController = new AbortController();
+                        const chainWalkTimeoutId = setTimeout(
+                            () =>
+                                chainWalkAbortController.abort(
+                                    "Aborting delegated chain upgrade because it timed out after " + timeoutMs + "ms"
+                                ),
+                            timeoutMs
+                        );
+                        const onStopAbortChainWalk = () => chainWalkAbortController.abort(stopSignal?.reason);
+                        stopSignal?.addEventListener("abort", onStopAbortChainWalk, { once: true });
+                        try {
+                            const chain = await this._resolveIpnsChainViaGateway(
+                                confirmingGatewayUrl,
+                                ipnsName,
+                                chainWalkAbortController.signal
+                            );
+                            if (this._community.updateCid && chain.terminalCidV0 === this._community.updateCid)
+                                this._community.ipnsHops = chain.ipnsHops;
+                        } catch (chainWalkError) {
+                            log.trace(
+                                `Failed to upgrade the delegated chain of ${ipnsName} after a confirmed consumed record, will retry next poll`,
+                                chainWalkError
+                            );
+                        } finally {
+                            clearTimeout(chainWalkTimeoutId);
+                            stopSignal?.removeEventListener("abort", onStopAbortChainWalk);
+                        }
+                    }
+                }
+                return undefined;
+            }
 
             const combinedError = new FailedToFetchCommunityFromGatewaysError({
                 ipnsName,
@@ -945,6 +1080,59 @@ export class CommunityClientsManager extends PKCClientsManager {
                 ipnsHops
             });
         }
+    }
+
+    // A record's anchor claim is only proven by the resolution that fetched it when a delegation hop
+    // was actually walked — the chain rule in verifyCommunity then binds the claim to the chain's
+    // anchor. A SINGLE-HOP load walks nothing: a reader addressing the minter directly (behind a TXT
+    // record pointing at the minter, or by raw key) receives the claim with nothing contradicting it,
+    // and the claim is not decoration — it becomes community.publicKey, the ipns-over-pubsub topic,
+    // the key of the publish cache and the subject of the nameResolved verdict. Trusting it there
+    // would let any minter serve its own content under a well-known community's identity (#261).
+    //
+    // So prove it: resolve the CLAIMED anchor and require its own chain to end at the key that signed
+    // this record. The binding proven is the delegation An -> Mn, not the CID, so an honest claim
+    // cannot fail because the minter published a newer record between the two resolutions. On success
+    // the proven chain replaces the single-hop one, which is also the chain every later poll produces
+    // (a claim re-anchors subsequent fetches through the anchor), so the instance never reports a
+    // transient half-chain. See docs/protocol/delegated-ipns.md.
+    private async _proveAnchorClaimIfUnwalked({
+        communityJson,
+        ipnsHops,
+        resolveChainOfClaimedAnchor
+    }: {
+        communityJson: CommunityIpfsType;
+        // The chain this resolution walked, [anchor, ..., terminal].
+        ipnsHops: string[];
+        // Walks the claimed anchor's chain over the SAME transport that served the record, and returns
+        // its hops. Throwing here is a transport/validation failure, not a verdict on the claim.
+        resolveChainOfClaimedAnchor: (claimedAnchor: string) => Promise<string[]>;
+    }): Promise<string[]> {
+        const log = Logger("pkc-js:community-client-manager:_proveAnchorClaimIfUnwalked");
+        // A walked chain already settles the claim: verifyCommunity accepts it only if it names the
+        // chain's anchor. Re-proving a claim that contradicts a walked chain would let a record swap
+        // the identity the reader asked for, so this path deliberately does nothing there.
+        if (ipnsHops.length > 1) return ipnsHops;
+        const claimedAnchor = communityJson.anchor?.publicKey;
+        if (!claimedAnchor) return ipnsHops; // not a delegated record
+        const loadedName = ipnsHops[0];
+        if (this._areEquivalentCommunityAddresses(claimedAnchor, loadedName)) return ipnsHops; // claims the name it was loaded from
+
+        const provenHops = await resolveChainOfClaimedAnchor(claimedAnchor);
+        const anchorDelegatesTo = provenHops[provenHops.length - 1];
+        if (!this._areEquivalentCommunityAddresses(anchorDelegatesTo, loadedName))
+            throw new PKCError("ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_IS_NOT_ENDORSED", {
+                claimedAnchor,
+                // The key that signed the record and whose IPNS record we loaded it from, i.e. the key
+                // the claimed anchor would have to delegate to for the claim to hold.
+                recordIpnsName: loadedName,
+                anchorDelegatesTo,
+                claimedAnchorHops: provenHops,
+                communityAddress: this._getCommunityAddressFromInstance(),
+                recordSignerAddress: getPKCAddressFromPublicKeySync(communityJson.signature.publicKey)
+            });
+        log.trace(`Anchor claim of ${loadedName} proven: ${claimedAnchor} delegates to it. Adopting the chain`, provenHops);
+        return provenHops;
     }
 
     private async _findErrorInCommunityRecord({

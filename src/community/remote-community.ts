@@ -30,7 +30,8 @@ import type {
     CommunityEvents,
     CommunityExportRecord,
     ExportCommunityUserOptions,
-    ExportCommunityModLogsOptions
+    ExportCommunityModLogsOptions,
+    CommunityAnchor
 } from "./types.js";
 import type { CommentModerationTableRow } from "../publications/comment-moderation/types.js";
 import { difference, keys, omit, pick } from "remeda";
@@ -89,6 +90,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     updateCid?: string;
     declare ipnsName?: string;
     declare ipnsHops?: string[]; // the resolved IPNS delegation chain [anchor, ..., terminal]; single element for non-delegated communities. See docs/protocol/delegated-ipns.md
+    anchor?: CommunityAnchor; // the record's signed anchor claim (#257): present exactly when the community is delegated; defines the identity readers address
     declare ipnsPubsubTopic?: string; // ipns over pubsub topic
     declare ipnsPubsubTopicRoutingCid?: string; // peers of community.ipnsPubsubTopic, use this cid with http routers to find peers of ipns-over-pubsub
     pubsubTopicRoutingCid?: string; // peers of community.pubsubTopic, use this cid with http routers to find peers of community.pubsubTopic
@@ -302,15 +304,17 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         // The IPNS name we resolve/subscribe to is the ANCHOR of the (possibly delegated) chain.
         // For a delegated community the content is signed by the terminal (minter) key, so deriving
         // the ipns name from signature.publicKey would point us at the minter instead of the anchor.
-        // ipnsHops[0] is the anchor; prefer it when the resolution chain is known.
+        // The record's signed anchor claim wins over ipnsHops[0] (#257): a record reached by
+        // addressing the minter directly has ipnsHops = [minter], and subsequent fetches must route
+        // through the anchor chain — the anchor is the authoritative, rotation-safe pointer.
         // See docs/protocol/delegated-ipns.md.
-        const anchorFromHops = this.ipnsHops?.[0];
+        const anchorFromClaimOrHops = this.anchor?.publicKey ?? this.ipnsHops?.[0];
         if ("ipnsName" in newProps && newProps.ipnsName) {
             this.ipnsName = newProps.ipnsName;
             this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(this.ipnsName);
             this.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this.ipnsPubsubTopic);
-        } else if (anchorFromHops) {
-            this.ipnsName = anchorFromHops;
+        } else if (anchorFromClaimOrHops) {
+            this.ipnsName = anchorFromClaimOrHops;
             this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(this.ipnsName);
             this.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this.ipnsPubsubTopic);
         } else if (newProps.signature?.publicKey && this.signature?.publicKey !== newProps.signature?.publicKey) {
@@ -341,6 +345,12 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         // See docs/protocol/delegated-ipns.md.
         const incomingIpnsHops = (newProps as { ipnsHops?: unknown }).ipnsHops;
         if (Array.isArray(incomingIpnsHops) && incomingIpnsHops.length > 0) this._ipnsHops = incomingIpnsHops as string[];
+        // The record's signed anchor claim (#257). Assigned before the identity derivation below,
+        // which prefers it over ipnsHops[0]. A full record without the claim clears it — the record
+        // is the authority, and a stale claim surviving a non-delegated record would fabricate an
+        // identity — while clone/options sources simply carry it when they have it.
+        if ("anchor" in newProps) this.anchor = newProps.anchor;
+        else if (newProps.signature) this.anchor = undefined;
         this.title = newProps.title;
         this.description = newProps.description;
         this.lastPostCid = newProps.lastPostCid;
@@ -367,10 +377,16 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         // community.publicKey is the ANCHOR IPNS name (the user-facing identity). For a delegated
         // community the content is signed by the terminal (minter) key, so we must NOT derive
         // publicKey from signature.publicKey — that would expose the minter as the identity. The
-        // anchor is ipnsHops[0] when the chain has been resolved. See docs/protocol/delegated-ipns.md.
+        // record's signed anchor claim is the strongest source (#257): it recovers the identity even
+        // when the record was reached by addressing the minter directly, where ipnsHops[0] IS the
+        // minter. ipnsHops[0] is the fallback when the chain was resolved but the record carries no
+        // claim (non-delegated). See docs/protocol/delegated-ipns.md.
         const explicitPublicKey = "publicKey" in newProps ? (newProps.publicKey as string) : undefined;
+        const anchorFromClaim = this.anchor?.publicKey; // assigned above from newProps
         const anchorFromHops = this.ipnsHops?.[0];
-        if (anchorFromHops) {
+        if (anchorFromClaim) {
+            this.publicKey = anchorFromClaim;
+        } else if (anchorFromHops) {
             this.publicKey = anchorFromHops;
         } else if (newProps.signature?.publicKey) {
             this.publicKey = getPKCAddressFromPublicKeySync(newProps.signature.publicKey);
@@ -445,6 +461,9 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     _clearDataForKeyMigration(newPublicKey: string) {
         this.raw.communityIpfs = undefined;
         this.updateCid = undefined;
+        // A migration invalidates any anchor claim along with the record that carried it (#257); the
+        // new key's record is the only authority for whether the migrated-to community is delegated.
+        this.anchor = undefined;
         // Clear all display fields via initRemoteCommunityPropsNoMerge with empty props.
         // Address immutability in initRemoteCommunityPropsNoMerge ensures address won't change.
         this.initRemoteCommunityPropsNoMerge({} as CreateRemoteCommunityOptions);
@@ -601,7 +620,10 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             // not transient. See docs/protocol/delegated-ipns.md.
             err.code === "ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID" ||
             err.code === "ERR_IPNS_MAX_HOPS_EXCEEDED" ||
-            err.code === "ERR_RESOLVED_IPNS_TO_UNSUPPORTED_VALUE"
+            err.code === "ERR_RESOLVED_IPNS_TO_UNSUPPORTED_VALUE" ||
+            // A record claiming an anchor that does not delegate to it is forged, not transient: the
+            // claimed anchor resolved fine and simply does not endorse this minter (#261).
+            err.code === "ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_IS_NOT_ENDORSED"
         )
             return false;
 

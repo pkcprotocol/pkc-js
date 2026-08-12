@@ -47,6 +47,11 @@ const runtimeOnlyCommunityFields = ["address", "publicKey", "shortAddress", "nam
 
 Same pattern: `address = name || publicKey`, computed from the IPNS record's signature.
 
+Note the counter-example: `anchor: { publicKey }` looks runtime-ish but is a **signed wire field**
+(#257) — a delegated community's record declares its anchor so a reader who reached it through the
+minter can recover the identity. `ipnsHops` stays runtime-only.
+See [delegated-ipns.md](delegated-ipns.md).
+
 ## Key Functions
 
 ### Author Wire/Runtime Conversion
