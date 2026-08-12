@@ -620,7 +620,10 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             // not transient. See docs/protocol/delegated-ipns.md.
             err.code === "ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID" ||
             err.code === "ERR_IPNS_MAX_HOPS_EXCEEDED" ||
-            err.code === "ERR_RESOLVED_IPNS_TO_UNSUPPORTED_VALUE"
+            err.code === "ERR_RESOLVED_IPNS_TO_UNSUPPORTED_VALUE" ||
+            // A record claiming an anchor that does not delegate to it is forged, not transient: the
+            // claimed anchor resolved fine and simply does not endorse this minter (#261).
+            err.code === "ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_IS_NOT_ENDORSED"
         )
             return false;
 

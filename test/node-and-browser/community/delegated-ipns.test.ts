@@ -97,17 +97,64 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         });
 
-        it("loads a community addressed directly by the minter key as a normal single-hop community", async () => {
-            const { terminalName } = await createDelegatedCommunityIpns({});
+        it("proves the anchor claim of a record addressed by the minter directly, and re-anchors to it", async () => {
+            const { anchorName, terminalName } = await createDelegatedCommunityIpns({});
 
-            // The minter record is single-hop (Mn -> /ipfs/cid) and the content is signed by Mn,
-            // so loading it directly is a normal (non-delegated) load: terminal === anchor.
+            // Addressing the minter directly is a single-hop load (Mn -> /ipfs/cid), so no chain walk
+            // proves the record's anchor claim on the way in. The claim is therefore proven on its
+            // own (#261): the claimed anchor is resolved and its chain must terminate at the key that
+            // signed this record. It does here, so the reader re-anchors to the anchor and exposes the
+            // proven chain — the same identity and hops a reader who addressed the anchor would get.
             const community = await loadCommunityViaUpdate(pkc, terminalName);
             try {
                 expect(community.updatedAt).to.be.a("number");
-                expect(community.ipnsHops).to.deep.equal([terminalName]);
+                expect(community.address).to.equal(terminalName); // the address stays what was loaded
+                expect(community.publicKey).to.equal(anchorName); // identity is the claimed, proven anchor
+                expect(community.ipnsHops).to.deep.equal([anchorName, terminalName]);
                 const recordSignatureAddress = getPKCAddressFromPublicKeySync(community.raw.communityIpfs!.signature.publicKey);
                 expect(recordSignatureAddress).to.equal(terminalName);
+            } finally {
+                await community.stop();
+            }
+        });
+
+        // Issue #261. A single-hop load is the one path where no chain walk contradicts a record's
+        // anchor claim, so an unproven claim would let any minter serve its own content under a
+        // well-known community's identity: the reader would adopt the claimed publicKey, re-point its
+        // pubsub topic, report nameResolved true if the record also copies the victim's name, and
+        // cache the attacker's encryption key and pubsub topic under the victim's address for
+        // publishing. The claim must be proven against the claimed anchor's own chain, not trusted.
+        it("rejects a single-hop record claiming an anchor that does not delegate to it", async () => {
+            // The victim: a live delegated community, An -> Mn -> /ipfs/cid.
+            const victim = await createDelegatedCommunityIpns({});
+            // The attacker: an unrelated key Mx serving its own content, claiming the victim's anchor.
+            // /ipns/An points at Mn and has never heard of Mx, so the claim is unendorsed.
+            const attacker = await createDelegatedCommunityIpns({ anchor: { publicKey: victim.anchorName } });
+            expect(attacker.communityRecord.anchor?.publicKey).to.equal(victim.anchorName);
+            expect(attacker.terminalName).to.not.equal(victim.terminalName);
+
+            const community = await pkc.createCommunity({ address: attacker.terminalName });
+            const updates: string[] = [];
+            community.on("update", () => updates.push(community.updateCid!));
+            const errorPromise = new Promise<PKCError>((resolve) => community.once("error", resolve as (err: Error) => void));
+            try {
+                await community.update();
+                const err = await errorPromise;
+                if (isPKCFetchingUsingGateways(pkc)) {
+                    expect(err.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
+                    const innerErrors = Object.values((err.details as { gatewayToError: Record<string, PKCError> }).gatewayToError);
+                    expect(innerErrors.some((inner) => inner?.code === "ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_IS_NOT_ENDORSED")).to.be.true;
+                } else {
+                    expect(err.code).to.equal("ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_IS_NOT_ENDORSED");
+                }
+                // The record is refused outright: no content lands and the victim's identity is never
+                // adopted, so nothing downstream (pubsub topic, publish cache, nameResolved) can be
+                // keyed to the stolen anchor.
+                expect(community.updatedAt).to.be.undefined;
+                expect(community.raw.communityIpfs).to.be.undefined;
+                expect(community.publicKey).to.equal(attacker.terminalName);
+                expect(community.publicKey).to.not.equal(victim.anchorName);
+                expect(updates).to.deep.equal([]);
             } finally {
                 await community.stop();
             }

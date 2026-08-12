@@ -640,6 +640,11 @@ export async function verifyCommunity({
     // already binds the anchor to the minter cryptographically; a record reached through that binding
     // that claims a different anchor (or none at all) is either minted by a stale/misconfigured node
     // or attempting to serve one community's content under another community's identity.
+    // A single-hop chain walked nothing that could contradict the claim, so this rule cannot judge it;
+    // the claim is instead proven against the claimed anchor's own chain before verification, by
+    // _proveAnchorClaimIfUnwalked in the community clients manager (#261) — which also upgrades the
+    // hops passed here to the proven chain, so a claim that reaches this function unproven is one the
+    // caller could not prove offline (a signature-only check, e.g. a test), not one that was trusted.
     if (communityIpnsHops.length > 1 && community.anchor?.publicKey !== communityIpnsHops[0])
         return { valid: false, reason: messages.ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_DOES_NOT_MATCH_CHAIN_ANCHOR };
     const signatureValidity = await _verifyJsonSignature(community);

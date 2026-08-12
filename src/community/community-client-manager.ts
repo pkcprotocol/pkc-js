@@ -653,9 +653,24 @@ export class CommunityClientsManager extends PKCClientsManager {
                 parseJsonWithPKCErrorIfFails(rawCommunityJsonString)
             );
 
+            // Prove the record's anchor claim when this resolution walked no chain that could contradict
+            // it (#261), and adopt the proven chain as this community's hops.
+            const provenIpnsHops = await this._proveAnchorClaimIfUnwalked({
+                communityJson: communityIpfs,
+                ipnsHops,
+                resolveChainOfClaimedAnchor: async (claimedAnchor) =>
+                    (
+                        await this.resolveIpnsToCidP2P(claimedAnchor, {
+                            timeoutMs: this._pkc._timeouts["community-ipns"],
+                            abortSignal: this._community._getStopAbortSignal()
+                        })
+                    ).ipnsHops
+            });
+            this._community.ipnsHops = provenIpnsHops;
+
             const errInRecord = await this._findErrorInCommunityRecord({
                 communityJson: communityIpfs,
-                communityIpnsHops: ipnsHops,
+                communityIpnsHops: provenIpnsHops,
                 cidOfCommunityIpns: latestCommunityCid
             });
 
@@ -760,6 +775,15 @@ export class CommunityClientsManager extends PKCClientsManager {
                             gatewayUrl
                         });
                 }
+                // Prove the record's anchor claim when the tiering above walked no chain that could
+                // contradict it (#261). The walk goes through the SAME untrusted gateway that served
+                // the body: it cannot forge a hop's signature, so it cannot manufacture an endorsement.
+                ipnsHops = await this._proveAnchorClaimIfUnwalked({
+                    communityJson: communityIpfs,
+                    ipnsHops,
+                    resolveChainOfClaimedAnchor: async (claimedAnchor) =>
+                        (await this._resolveIpnsChainViaGateway(gatewayUrl, claimedAnchor, abortController.signal)).ipnsHops
+                });
                 // Keep the resolved hops attached to THIS gateway's result; the winner (and its
                 // matching hops) is chosen later in _findRecentCommunity. Mutating
                 // this._community.ipnsHops here would let a slower/losing gateway overwrite it.
@@ -1056,6 +1080,59 @@ export class CommunityClientsManager extends PKCClientsManager {
                 ipnsHops
             });
         }
+    }
+
+    // A record's anchor claim is only proven by the resolution that fetched it when a delegation hop
+    // was actually walked — the chain rule in verifyCommunity then binds the claim to the chain's
+    // anchor. A SINGLE-HOP load walks nothing: a reader addressing the minter directly (behind a TXT
+    // record pointing at the minter, or by raw key) receives the claim with nothing contradicting it,
+    // and the claim is not decoration — it becomes community.publicKey, the ipns-over-pubsub topic,
+    // the key of the publish cache and the subject of the nameResolved verdict. Trusting it there
+    // would let any minter serve its own content under a well-known community's identity (#261).
+    //
+    // So prove it: resolve the CLAIMED anchor and require its own chain to end at the key that signed
+    // this record. The binding proven is the delegation An -> Mn, not the CID, so an honest claim
+    // cannot fail because the minter published a newer record between the two resolutions. On success
+    // the proven chain replaces the single-hop one, which is also the chain every later poll produces
+    // (a claim re-anchors subsequent fetches through the anchor), so the instance never reports a
+    // transient half-chain. See docs/protocol/delegated-ipns.md.
+    private async _proveAnchorClaimIfUnwalked({
+        communityJson,
+        ipnsHops,
+        resolveChainOfClaimedAnchor
+    }: {
+        communityJson: CommunityIpfsType;
+        // The chain this resolution walked, [anchor, ..., terminal].
+        ipnsHops: string[];
+        // Walks the claimed anchor's chain over the SAME transport that served the record, and returns
+        // its hops. Throwing here is a transport/validation failure, not a verdict on the claim.
+        resolveChainOfClaimedAnchor: (claimedAnchor: string) => Promise<string[]>;
+    }): Promise<string[]> {
+        const log = Logger("pkc-js:community-client-manager:_proveAnchorClaimIfUnwalked");
+        // A walked chain already settles the claim: verifyCommunity accepts it only if it names the
+        // chain's anchor. Re-proving a claim that contradicts a walked chain would let a record swap
+        // the identity the reader asked for, so this path deliberately does nothing there.
+        if (ipnsHops.length > 1) return ipnsHops;
+        const claimedAnchor = communityJson.anchor?.publicKey;
+        if (!claimedAnchor) return ipnsHops; // not a delegated record
+        const loadedName = ipnsHops[0];
+        if (this._areEquivalentCommunityAddresses(claimedAnchor, loadedName)) return ipnsHops; // claims the name it was loaded from
+
+        const provenHops = await resolveChainOfClaimedAnchor(claimedAnchor);
+        const anchorDelegatesTo = provenHops[provenHops.length - 1];
+        if (!this._areEquivalentCommunityAddresses(anchorDelegatesTo, loadedName))
+            throw new PKCError("ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_IS_NOT_ENDORSED", {
+                claimedAnchor,
+                // The key that signed the record and whose IPNS record we loaded it from, i.e. the key
+                // the claimed anchor would have to delegate to for the claim to hold.
+                recordIpnsName: loadedName,
+                anchorDelegatesTo,
+                claimedAnchorHops: provenHops,
+                communityAddress: this._getCommunityAddressFromInstance(),
+                recordSignerAddress: getPKCAddressFromPublicKeySync(communityJson.signature.publicKey)
+            });
+        log.trace(`Anchor claim of ${loadedName} proven: ${claimedAnchor} delegates to it. Adopting the chain`, provenHops);
+        return provenHops;
     }
 
     private async _findErrorInCommunityRecord({

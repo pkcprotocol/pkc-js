@@ -191,6 +191,7 @@ export enum messages {
     ERR_COMMUNITY_SIGNATURE_IS_INVALID = "Community signature is invalid",
     ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD = "The CommunityIpfs record includes a reserved field",
     ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_DOES_NOT_MATCH_CHAIN_ANCHOR = "The CommunityIpfs record was resolved through a delegated IPNS chain but its signed anchor claim does not match the chain's anchor",
+    ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_IS_NOT_ENDORSED = "The CommunityIpfs record claims an anchor that does not delegate to it: resolving the claimed anchor does not lead to the key that signed this record, so the claim is forged",
     ERR_FAILED_TO_RESOLVE_COMMUNITY_DOMAIN = "Failed to resolve the community domain address to use for verification",
     ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN = "Failed to resolve the author domain address to use for verification",
     ERR_AUTHOR_DOMAIN_RESOLVES_TO_DIFFERENT_SIGNER = "The author domain resolved to a public key that does not match the publication signer",

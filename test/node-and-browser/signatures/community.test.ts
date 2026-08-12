@@ -459,7 +459,13 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
 
         it("a record reached by addressing the minter directly (single hop) keeps its claim valid", async () => {
             // This is the re-anchor case: the chain rule only binds when a delegation hop was actually
-            // walked; a single-hop load cannot contradict the claim, which the client adopts as identity.
+            // walked; a single-hop load cannot contradict the claim. Valid here does NOT mean trusted:
+            // verifyCommunity is offline, and the claim of a single-hop record is proven against the
+            // claimed anchor's own chain before it ever reaches this function (#261), by
+            // _proveAnchorClaimIfUnwalked in the community clients manager — which hands the proven
+            // (two-hop) chain down, so the single-hop shape below is only reachable offline.
+            // The end-to-end refusal of an unendorsed claim is covered in
+            // test/node-and-browser/community/delegated-ipns.test.ts.
             const record = await signedDelegatedRecord({ anchor: { publicKey: anchorName() } });
             expect(await verify(record, [minterName()])).to.deep.equal({ valid: true });
         });

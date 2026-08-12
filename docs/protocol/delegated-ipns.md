@@ -55,6 +55,16 @@ The owner revokes by coming online and re-pointing `An` to a new `Mn'`.
   A **chain-loaded** record (more than one hop walked) must claim the chain's anchor, or the record
   is invalid (`ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_DOES_NOT_MATCH_CHAIN_ANCHOR`). A non-delegated
   record carries no claim.
+- **A claim is never trusted, it is proven (#261).** A **single-hop** load (a reader addressing the
+  minter directly) walks no chain that could contradict the claim, so before the record is verified
+  the claimed anchor is resolved and its own chain must end at the key that signed the record —
+  otherwise the record is rejected with `ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_IS_NOT_ENDORSED` (a
+  non-retriable error: the instance emits `error`, adopts nothing, and caches nothing). Without this,
+  any minter could serve its own content under a well-known community's identity simply by naming its
+  anchor. What is proven is the `An → Mn` delegation, not a CID, so an honest claim cannot fail
+  because the minter published a newer record mid-check. The proof runs over whichever transport
+  served the record (kubo/helia or the same untrusted gateway), and on success its chain replaces the
+  single-hop one, so the instance reports `ipnsHops = [An, Mn]` from the very first update.
 - **Content is signed by the terminal (minter) key.** `CommunityIpfs.signature.publicKey`
   derives to `Mn`, **not** `An`. The `An → Mn` binding is established by the
   cryptographically-verified IPNS record chain, not by the content signature; the record's anchor
@@ -137,7 +147,9 @@ Mechanics behind the table:
   resolved key is a **non-anchor hop of the community's own loaded chain**, which is a misconfigured
   TXT, not a migration: identity is untouched and `nameResolved` becomes `false`.
 - **The claim self-corrects a wrong turn.** If following the TXT lands a record whose anchor claim
-  names the identity the reader already had (or any anchor), the instance re-anchors to the claim.
+  names the identity the reader already had (or any anchor), the instance re-anchors to the claim —
+  after the claim has been proven against the claimed anchor's own chain (#261), so a TXT record
+  pointing at a hostile minter cannot hand a reader that minter's content under the claimed identity.
   A re-anchor invalidates any `nameResolved` verdict computed against the previous identity; it is
   re-classified against the claimed one.
 - **After a re-anchor, fetches route through the anchor chain.** A reader never stays pinned to the
@@ -365,11 +377,16 @@ gateway's recursion was trusted). If a DHT walk were involved, the per-hop delta
 - If `Ms` leaks, an attacker can publish under `Mn` (including a sequence-exhaustion lock)
   until the owner rotates `An` to a new `Mn'`. `As` never touches the network after the
   initial publish.
-- **A record's anchor claim is proven, not trusted, when a chain was walked** — a chain-loaded record
-  claiming anything but the chain's anchor is invalid. On a **single-hop** load (a reader addressing
-  the minter directly, e.g. behind a misconfigured TXT) the claim is adopted before the chain has
-  proven it; the very next fetch routes through the claimed anchor's chain, so a forged claim buys an
-  attacker at most one transient record until the anchor chain fails to confirm the binding.
+- **A record's anchor claim is always proven, never trusted** — a chain-loaded record claiming
+  anything but the chain's anchor is invalid, and on a **single-hop** load (a reader addressing the
+  minter directly, e.g. behind a misconfigured TXT) the claimed anchor is resolved and required to
+  delegate to the record's signer before the claim is adopted (#261). A minter claiming an anchor
+  that has never delegated to it gets its record rejected outright
+  (`ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_IS_NOT_ENDORSED`), so it cannot serve content under another
+  community's identity, take over its pubsub topic, or seed the publish cache with its own
+  encryption key. Note this is why "one transient record" was never a sufficient answer: the
+  freshness gate accepts a later record only when its `updatedAt` is greater, so a forged record
+  dated far in the future would otherwise have pinned a reader on it indefinitely.
 - pkc-js **never accepts content whose signer is not the terminal of the validated chain**, on
   every resolution path — kubo RPC, helia, and gateways alike. Over a gateway the `An → Mn` binding
   is verified by independently fetching and signature-checking each IPNS record
