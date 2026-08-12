@@ -247,6 +247,25 @@ describe("Delegated IPNS loading over an untrusted gateway", async () => {
         }
     });
 
+    // Gateway counterpart of the single-hop forgery rejection (#261). A gateway load of a record
+    // signed by the name it was fetched from stays in Tier 1 (a plain GET, no chain walk), so the
+    // claim arrives with nothing contradicting it. The proof walks the CLAIMED anchor over this same
+    // untrusted gateway — it cannot forge a hop's signature, so it cannot manufacture an endorsement.
+    it("rejects a single-hop record claiming an unendorsing anchor over a gateway", async () => {
+        const victim = await createDelegatedCommunityIpns({});
+        const attacker = await createDelegatedCommunityIpns({ anchor: { publicKey: victim.anchorName } });
+
+        const err = await loadCommunityExpectingError(gatewayPKC, attacker.terminalName);
+        expect(err.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
+        const innerErrors = Object.values((err.details as { gatewayToError: Record<string, PKCError> }).gatewayToError);
+        const claimError = innerErrors.find((inner) => inner?.code === "ERR_COMMUNITY_RECORD_ANCHOR_CLAIM_IS_NOT_ENDORSED");
+        expect(claimError, JSON.stringify(innerErrors.map((inner) => inner?.code))).to.exist;
+        // The victim's anchor does delegate — just to its own minter, never to the attacker.
+        expect((claimError!.details as { claimedAnchor: string }).claimedAnchor).to.equal(victim.anchorName);
+        expect((claimError!.details as { anchorDelegatesTo: string }).anchorDelegatesTo).to.equal(victim.terminalName);
+        expect((claimError!.details as { recordIpnsName: string }).recordIpnsName).to.equal(attacker.terminalName);
+    });
+
     // The P2P paths reject a >1-hop chain (ERR_IPNS_MAX_HOPS_EXCEEDED). Now that we walk and validate
     // the chain ourselves over gateways (?format=ipns-record), the same hop cap is enforced here too —
     // it surfaces as the inner error of ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS.
