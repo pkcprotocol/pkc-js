@@ -19,7 +19,6 @@ import type {
     FilesStatOptions,
     FilesStatResult,
     FilesWriteOptions,
-    PinAddOptions,
     RoutingProvideOptions
 } from "kubo-rpc-client";
 import type {
@@ -727,15 +726,13 @@ export async function retryKuboBlockPutPinAndProvidePubsubTopic({
     pubsubTopic,
     inputNumOfRetries,
     blockPutOptions,
-    pinAddOptions,
     provideOptions
 }: {
-    ipfsClient: Pick<PKC["clients"]["kuboRpcClients"][string]["_client"], "block" | "pin" | "routing">;
+    ipfsClient: Pick<PKC["clients"]["kuboRpcClients"][string]["_client"], "block" | "routing">;
     log: Logger;
     pubsubTopic: string;
     inputNumOfRetries?: number;
     blockPutOptions?: BlockPutOptions;
-    pinAddOptions?: PinAddOptions;
     provideOptions?: RoutingProvideOptions;
 }): Promise<CID> {
     const numOfRetries = inputNumOfRetries ?? 3;
@@ -751,11 +748,16 @@ export async function retryKuboBlockPutPinAndProvidePubsubTopic({
 
         operation.attempt(async (currentAttempt) => {
             try {
+                // pin in the same call rather than with a following pin.add: a repo gc that lands
+                // between the two deletes the still-unpinned block, and pin.add on a block the node
+                // no longer has waits on bitswap forever instead of failing, which hangs
+                // community.start() until its caller times out.
                 const cid = (await kuboRpcClient.block.put(bytes, {
                     ...blockPutOptions,
                     format: "raw",
                     mhtype: "sha2-256",
-                    version: 1
+                    version: 1,
+                    pin: true
                 })) as CID;
 
                 if (!cid.equals(expectedCid)) {
@@ -763,8 +765,6 @@ export async function retryKuboBlockPutPinAndProvidePubsubTopic({
                         `block.put CID mismatch for pubsub topic ${pubsubTopic}: expected ${String(expectedCid)} got ${String(cid)}`
                     );
                 }
-
-                await kuboRpcClient.pin.add(cid, pinAddOptions);
 
                 try {
                     const provideEvents = kuboRpcClient.routing.provide(cid, provideOptions);
