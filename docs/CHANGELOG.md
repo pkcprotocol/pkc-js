@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.81](https://github.com/pkcprotocol/pkc-js/compare/v0.0.80...v0.0.81) (2026-08-13)
+
+### Bug Fixes
+
+* **kubo:** pin the pubsub topic block in the block.put call so a repo gc cannot delete it ([888da96](https://github.com/pkcprotocol/pkc-js/commit/888da9648304ab1f46008dd976a9beac628f4c0a))
+* **kubo:** remove the address rewriter proxy that now degrades provider records ([#263](https://github.com/pkcprotocol/pkc-js/issues/263)) ([08ca094](https://github.com/pkcprotocol/pkc-js/commit/08ca094dd7537039c0ac9b043c0539bda27dc7ee)), closes [#262](https://github.com/pkcprotocol/pkc-js/issues/262) [ipfs/kubo#11394](https://github.com/ipfs/kubo/issues/11394) [ipfs/kubo#11369](https://github.com/ipfs/kubo/issues/11369) [kubo#11369](https://github.com/pkcprotocol/kubo/issues/11369)
+
 ## [0.0.80](https://github.com/pkcprotocol/pkc-js/compare/v0.0.79...v0.0.80) (2026-08-12)
 
 ### Features
