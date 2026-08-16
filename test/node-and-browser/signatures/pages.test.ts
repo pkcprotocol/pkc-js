@@ -123,11 +123,15 @@ describeSkipIfRpc(`verify pages`, async () => {
 
         it(`comment.flairs (original)`, async () => {
             const invalidPage = clone(validPageIpfsFixture) as PageIpfs;
-            // Add flairs to a comment that had none — changing the comment object changes its CID hash,
-            // so the commentUpdate.cid no longer matches
+            // Add flairs to a comment that had none. flairs is an author-signable field, so the
+            // signable-field guard (issue #249) rejects it before the CID comparison ever runs;
+            // previously this surfaced as ERR_COMMENT_UPDATE_DIFFERENT_CID_THAN_COMMENT.
             invalidPage.comments[0].comment.flairs = [{ text: "Injected Flair" }];
             const verification = await verifyPageJsonAlongWithObject(invalidPage, pkc, community, undefined);
-            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_UPDATE_DIFFERENT_CID_THAN_COMMENT });
+            expect(verification).to.deep.equal({
+                valid: false,
+                reason: messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
+            });
         });
         it("comment.content (author has never modified comment.content before))", async () => {
             const invalidPage = clone(validPageIpfsFixture) as PageIpfs;

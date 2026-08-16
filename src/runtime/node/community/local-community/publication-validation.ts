@@ -30,6 +30,7 @@ import { getAuthorNameFromWire } from "../../../../publications/publication-auth
 import { getCommunityNameFromWire, getCommunityPublicKeyFromWire } from "../../../../publications/publication-community.js";
 import { CommentEditReservedFields } from "../../../../publications/comment-edit/schema.js";
 import { CommentPubsubMessageReservedFields } from "../../../../publications/comment/schema.js";
+import { crosspostChainDepthUpTo, effectiveMaxCrosspostDepth } from "../../../../publications/comment/crosspost-depth.js";
 import { CommentModerationReservedFields } from "../../../../publications/comment-moderation/schema.js";
 import { CommunityEditPublicationPubsubReservedFields } from "../../../../publications/community-edit/schema.js";
 import { CommunityIpfsSchema } from "../../../../community/schema.js";
@@ -418,6 +419,20 @@ async function checkCommentPublication(
         const parentsOfComment = community._dbHandler.queryParentsCids({ parentCid: commentPublication.parentCid });
         if (parentsOfComment[parentsOfComment.length - 1].cid !== commentPublication.postCid)
             return messages.ERR_REPLY_POST_CID_IS_NOT_PARENT_OF_REPLY;
+    }
+
+    // Crossposts. The community enforces tier 1 only, and tier 1 has already run as part of the
+    // publication's signature verification (verifyCommentPubsubMessage). Nothing is fetched from the
+    // referenced community here, so accepting a publication never depends on a third party's uptime.
+    // Applies to posts and replies alike, unlike quotedCids below which is replies-only.
+    if (commentPublication.crosspost) {
+        if (community.features?.noCrossposts) return messages.ERR_NOT_ALLOWED_TO_PUBLISH_CROSSPOSTS;
+        // features.maxCrosspostDepth tightens below the protocol cap, which the signature
+        // verification above has already enforced. Clamped rather than trusted, so a community can
+        // never accept a chain deeper than clients will load.
+        const maxDepth = effectiveMaxCrosspostDepth(community.features?.maxCrosspostDepth);
+        if (crosspostChainDepthUpTo(commentPublication, maxDepth + 1) > maxDepth)
+            return messages.ERR_CROSSPOST_CHAIN_EXCEEDS_COMMUNITY_MAX_DEPTH;
     }
 
     // Validate quotedCids

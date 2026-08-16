@@ -40,6 +40,7 @@ Comment extends Publication /* (IPFS file) */ {
   nsfw?: boolean
   flairs?: Flair[] // arbitrary colored strings added by the author or mods to describe the author or comment
   quotedCids?: string[] // CIDs of comments being quoted/referenced in this reply
+  crosspost?: {cid: string, comment: Comment} // this comment IS a repost of the embedded comment, which is stored verbatim so the crossposting community can moderate it independently
   // below are added by community owner, not author
   previousCid?: string // each comment/post is a linked list of other comments/posts with same comment.depth and comment.parentCid, undefined if first comment in list
   postCid?: string // helps faster loading post info for reply direct linking, undefined for posts, a post can't know its own CID
@@ -218,9 +219,10 @@ CommunityFeatures { // any boolean that changes the functionality of the communi
   requireAuthorFlairs?: boolean // force authors to choose an author flair before posting
   postFlairs?: boolean // authors can choose their own post flairs (otherwise only mods can)
   requirePostFlairs?: boolean // force authors to choose a post flair before posting
+  noCrossposts?: boolean // reject comments carrying a crosspost. Inbound only, it does not stop this community's comments being crossposted elsewhere
+  maxCrosspostDepth?: number // longest crosspost chain accepted, counted in embedded records (a plain crosspost is 1). Defaults to, and is clamped to, the protocol cap of 10
   // not implemented
   noPolls?: boolean
-  noCrossposts?: boolean
   markdownImageReplies?: boolean
   markdownVideoReplies?: boolean
 }

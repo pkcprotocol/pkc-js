@@ -77,6 +77,7 @@ import { TypedEmitter } from "tiny-typed-emitter";
 import { sanitizeRpcNotificationResult } from "./json-rpc-util.js";
 import type { ModQueuePageIpfs, PageIpfs } from "../../pages/types.js";
 import { buildPageRuntimeFields, buildPagesRuntimeFields } from "../../pages/util.js";
+import { extractCrosspostRuntimeFields } from "../../publications/comment/crosspost-runtime.js";
 import {
     parseRpcCommunityIdentifierParam,
     parseRpcAuthorNameParam,
@@ -1086,9 +1087,15 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const comment = await pkc.createComment(parsedCommentUpdateArgs);
         const sendUpdate = () => {
             if (!sentCommentIpfsUpdateEvent && comment.raw.comment) {
+                // The embedded crosspost author too: an RPC client resolves nothing itself, so a
+                // verdict this server holds is the only one it will ever see.
+                const crosspostRuntimeFields = comment.crosspost ? extractCrosspostRuntimeFields(comment.crosspost) : undefined;
                 sendEvent("comment", {
                     comment: comment.raw.comment,
-                    runtimeFields: { author: { nameResolved: comment.author.nameResolved } }
+                    runtimeFields: {
+                        author: { nameResolved: comment.author.nameResolved },
+                        ...(crosspostRuntimeFields ? { crosspost: crosspostRuntimeFields } : {})
+                    }
                 });
                 sentCommentIpfsUpdateEvent = true;
                 lastSentNameResolved = comment.author.nameResolved;
@@ -1103,6 +1110,10 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                 }
                 if (typeof comment.author.nameResolved === "boolean") {
                     runtimeFields.author = { nameResolved: comment.author.nameResolved };
+                }
+                if (comment.crosspost) {
+                    const crosspostRuntimeFields = extractCrosspostRuntimeFields(comment.crosspost);
+                    if (crosspostRuntimeFields) runtimeFields.crosspost = crosspostRuntimeFields;
                 }
                 if (Object.keys(runtimeFields).length > 0) {
                     updateEvent.runtimeFields = runtimeFields;

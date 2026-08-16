@@ -37,9 +37,11 @@ import type {
     CommentWithinRepliesPostsPageJson,
     CommentOptionsToSign,
     CreateCommentOptions,
+    CrosspostRuntime,
     RpcCommentResultType,
     RpcCommentUpdateResultType
 } from "./types.js";
+import { applyNameResolvedCacheToCrosspost, cloneCrosspostForRuntime, collectCrosspostAuthorsToResolve } from "./crosspost-runtime.js";
 import { RepliesPages } from "../../pages/pages.js";
 import { findCommentInPageInstanceRecursively, parseRawPages } from "../../pages/util.js";
 import { CommentIpfsSchema, CommentUpdateForChallengeVerificationSchema, CommentUpdateSchema } from "./schema.js";
@@ -88,6 +90,9 @@ export class Comment
     cid?: CommentIpfsWithCidPostCidDefined["cid"];
     parentCid?: CommentIpfsType["parentCid"];
     quotedCids?: CommentPubsubMessagePublication["quotedCids"];
+    // A copy of the wire record, not the wire record itself: author.nameResolved is written into it,
+    // and crosspost.cid hashes the embedded record whole. raw.comment.crosspost stays untouched.
+    crosspost?: CrosspostRuntime;
     content?: CommentPubsubMessagePublication["content"];
     // Props that get defined after challengeverification
     previousCid?: CommentIpfsType["previousCid"];
@@ -211,6 +216,7 @@ export class Comment
         this.nsfw = o.nsfw;
         this.flairs = o.flairs;
         this.quotedCids = o.quotedCids;
+        this.crosspost = o.crosspost ? cloneCrosspostForRuntime(o.crosspost) : undefined;
     }
 
     _initLocalProps(props: {
@@ -256,6 +262,12 @@ export class Comment
     }
 
     private _setAuthorNameResolvedFromCache() {
+        // The embedded author of a crosspost is a different identity signed by a different key, so it
+        // gets its own lookup. Applied at every chain level, since reading a cached verdict is free;
+        // what is bounded is which levels get a resolution *triggered* for them, in
+        // _resolveAuthorNamesInBackground. See docs/protocol/crossposts.md.
+        if (this.crosspost) applyNameResolvedCacheToCrosspost({ crosspost: this.crosspost, cache: this._pkc._memCaches.nameResolvedCache });
+
         const domain = getAuthorNameFromRuntime(this.author);
         if (!domain) return; // no domain → nameResolved stays undefined
         const cached = this._pkc._memCaches.nameResolvedCache.get(sha256(domain + this.signature.publicKey));
@@ -290,18 +302,28 @@ export class Comment
             }
         }
 
-        if (ownAuthor.length === 0 && replyAuthors.length === 0) return;
+        // The authors of the comments this one reposts, every level of the chain. Each is a different
+        // identity signed by a different key, and an unresolved name there is exactly as
+        // impersonatable as an unresolved name here, which is the whole reason this is collected.
+        // Bounded by MAX_CROSSPOST_DEPTH and batched with the rest: see collectCrosspostAuthorsToResolve.
+        const crosspostAuthors = this.crosspost ? collectCrosspostAuthorsToResolve({ crosspost: this.crosspost }) : [];
+
+        if (ownAuthor.length === 0 && replyAuthors.length === 0 && crosspostAuthors.length === 0) return;
 
         const previousNameResolved = this.author.nameResolved;
         const onResolved = () => {
+            const crosspostChanged = this.crosspost
+                ? applyNameResolvedCacheToCrosspost({ crosspost: this.crosspost, cache: this._pkc._memCaches.nameResolvedCache })
+                : false;
             this._setAuthorNameResolvedFromCache();
             if (this.replies?.pages) {
                 for (const page of Object.values(this.replies.pages)) {
                     if (page) this.replies._applyNameResolvedCacheToPage(page);
                 }
             }
-            // Only emit update if this comment's own author.nameResolved changed
-            if (this.author.nameResolved !== previousNameResolved) {
+            // Only emit update if something this comment renders changed: its own author, or the
+            // embedded author a client would show as "originally by".
+            if (this.author.nameResolved !== previousNameResolved || crosspostChanged) {
                 this.emit("update", this);
             }
         };
@@ -311,9 +333,14 @@ export class Comment
         if (ownAuthor.length > 0) {
             this._clientsManager.resolveAuthorNamesInBackground({ authors: ownAuthor, onResolved, abortSignal });
         }
-        // Resolve reply page authors through pkc-level manager (no state changes on this comment)
-        if (replyAuthors.length > 0) {
-            this._pkc._clientsManager.resolveAuthorNamesInBackground({ authors: replyAuthors, onResolved, abortSignal });
+        // Resolve reply page and embedded crosspost authors through pkc-level manager (no state
+        // changes on this comment: neither identity is this comment's author)
+        if (replyAuthors.length > 0 || crosspostAuthors.length > 0) {
+            this._pkc._clientsManager.resolveAuthorNamesInBackground({
+                authors: [...replyAuthors, ...crosspostAuthors],
+                onResolved,
+                abortSignal
+            });
         }
     }
 
@@ -331,6 +358,7 @@ export class Comment
         this.title = props.title;
         this.linkHtmlTagName = props.linkHtmlTagName;
         this.quotedCids = props.quotedCids;
+        this.crosspost = props.crosspost ? cloneCrosspostForRuntime(props.crosspost) : undefined;
         // Initializing Comment Ipfs props
         if ("depth" in props && typeof props.depth === "number") {
             this.depth = props.depth;

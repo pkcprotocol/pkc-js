@@ -64,6 +64,8 @@ import {
     CommentUpdateReservedFields,
     CommentUpdateSignedPropertyNames
 } from "../publications/comment/schema.js";
+import type { Crosspost } from "../publications/comment/schema.js";
+import { crosspostChainDepthUpTo, MAX_CROSSPOST_DEPTH } from "../publications/comment/crosspost-depth.js";
 import type { ModQueuePageIpfs, PageIpfs } from "../pages/types.js";
 import { CommunityIpfsReservedFields, CommunitySignedPropertyNames } from "../community/schema.js";
 import {
@@ -514,6 +516,79 @@ export async function verifyCommentModeration({
     return { valid: true };
 }
 
+// Tier 1 verification of an embedded crosspost: local only, no network. It proves who wrote the
+// embedded content and that they *claim* it was posted to the community named in the embedded
+// record. It proves nothing about the fields the hosting community added and the author never
+// signed (depth, thumbnailUrl*, previousCid, pseudonymityMode), nor about that community having
+// accepted the comment at all — establishing either requires loading the CommentUpdate for
+// crosspost.cid from that community, which clients do on demand. See docs/protocol/crossposts.md.
+//
+// Recursive: a crosspost of a crosspost verifies at every level, and the chain is capped at
+// MAX_CROSSPOST_DEPTH by the caller. The cap rejects an over-deep chain outright rather than
+// verifying only its first levels: truncating would leave an unverified subtree in what gets stored
+// and rendered, which is the hole issue #249 closed. See docs/protocol/crossposts.md.
+async function _verifyCrosspost({
+    crosspost,
+    resolveAuthorNames,
+    clientsManager,
+    abortSignal
+}: {
+    crosspost: Crosspost;
+    resolveAuthorNames: boolean;
+    clientsManager: BaseClientsManager;
+    abortSignal?: AbortSignal;
+}): Promise<ValidationResult> {
+    // 1. the cid must be the hash of exactly these bytes. Because the CID covers the whole record,
+    // this is what lets a CommentUpdate signed by the referenced community later attest to the
+    // unsigned extras too.
+    const calculatedCid = await calculateIpfsHash(deterministicStringify(crosspost.comment)!);
+    if (calculatedCid !== crosspost.cid) return { valid: false, reason: messages.ERR_CROSSPOST_CID_DOES_NOT_MATCH_EMBEDDED_COMMENT };
+
+    // 2. no reserved/runtime fields on the embedded record
+    if (_isThereReservedFieldInRecord(crosspost.comment, CommentIpfsReservedFields))
+        return { valid: false, reason: messages.ERR_CROSSPOST_COMMENT_INCLUDES_RESERVED_FIELD };
+    if (crosspost.comment.author && intersection(Object.keys(crosspost.comment.author), AuthorCommentIpfsReservedFields).length > 0)
+        return { valid: false, reason: messages.ERR_CROSSPOST_COMMENT_AUTHOR_INCLUDES_RESERVED_FIELD };
+
+    // 3. every signable field the embedded record carries must be signed. Must run before the pick
+    // in check 4, which would drop an unsigned field from what gets verified while it remains in
+    // what gets stored and rendered — concretely, a `crosspost` attached after signing would carry
+    // an arbitrary subtree past checks 1-2 and past the recursion entirely. Issue #249.
+    if (_isThereUnsignedSignableFieldInRecord(crosspost.comment))
+        return { valid: false, reason: messages.ERR_CROSSPOST_COMMENT_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
+
+    // 4. the embedded record's own author signature. Deliberately NOT verifyCommentIpfs: that
+    // compares the record's community against the instance's, and the embedded record belongs to a
+    // different community by construction. Recursion into a nested crosspost happens here: check 3
+    // guarantees a crosspost the record carries is signed, so the pick cannot hide it and every
+    // chain level descends through here.
+    const keysCasted = <(keyof CommentPubsubMessagePublication)[]>crosspost.comment.signature.signedPropertyNames;
+    const validRes = await verifyCommentPubsubMessage({
+        comment: pick(crosspost.comment, ["signature", ...keysCasted]) as CommentPubsubMessagePublication,
+        resolveAuthorNames,
+        clientsManager,
+        abortSignal
+    });
+    if (!validRes.valid) return { valid: false, reason: messages.ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID };
+
+    return { valid: true };
+}
+
+// signedPropertyNames lives inside `signature`, which is not part of the signed bytes, so the list
+// is chosen by whoever signs the record, and verifyCommentIpfs/_verifyCrosspost pick the record
+// down to it before delegating. Without this guard a signable field left out of the list is dropped
+// from what gets verified while remaining in what gets stored and rendered. Restricted to
+// CommentSignedPropertyNames rather than all fields: community-generated CommentIpfs fields (depth,
+// thumbnailUrl*, previousCid, pseudonymityMode) are legitimately unsigned, and unknown extra props
+// from future protocol versions have to keep surviving loads. Safe for old records, since _signJson
+// signs every field present at signing time. Issue #249.
+function _isThereUnsignedSignableFieldInRecord(record: CommentIpfsType | Crosspost["comment"]): boolean {
+    const fields = record as Partial<Record<(typeof CommentSignedPropertyNames)[number], unknown>>;
+    for (const name of CommentSignedPropertyNames)
+        if (fields[name] !== undefined && !record.signature.signedPropertyNames.includes(name)) return true;
+    return false;
+}
+
 export async function verifyCommentPubsubMessage({
     comment,
     resolveAuthorNames,
@@ -524,13 +599,31 @@ export async function verifyCommentPubsubMessage({
     resolveAuthorNames: boolean;
     clientsManager: BaseClientsManager;
     abortSignal?: AbortSignal;
-}) {
+}): Promise<ValidationResult> {
     if (!_allFieldsOfRecordInSignedPropertyNames(comment))
         return { valid: false, reason: messages.ERR_COMMENT_PUBSUB_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
     const validation = await _verifyPublicationSignatureAndAuthor({
         publicationJson: comment
     });
     if (!validation.valid) return validation;
+
+    // Verified here rather than in verifyCommentIpfs so that the single call site covers both the
+    // community's acceptance path (which validates a CommentPubsubMessage) and every client fetch
+    // path (verifyCommentIpfs delegates here).
+    if (comment.crosspost) {
+        // Before _verifyCrosspost, which hashes the whole remaining subtree at every level. One
+        // iterative walk here covers the entire chain, so an over-deep record is rejected without
+        // paying for a single hash of it.
+        if (crosspostChainDepthUpTo(comment) > MAX_CROSSPOST_DEPTH)
+            return { valid: false, reason: messages.ERR_CROSSPOST_CHAIN_EXCEEDS_MAX_DEPTH };
+        const crosspostValidation = await _verifyCrosspost({
+            crosspost: comment.crosspost,
+            resolveAuthorNames,
+            clientsManager,
+            abortSignal
+        });
+        if (!crosspostValidation.valid) return crosspostValidation;
+    }
 
     return validation;
 }
@@ -569,6 +662,11 @@ export async function verifyCommentIpfs(opts: {
     // Reject CommentIpfs records where author contains reserved fields (e.g. nameResolved)
     if (opts.comment.author && intersection(Object.keys(opts.comment.author), AuthorCommentIpfsReservedFields).length > 0)
         return { valid: false, reason: messages.ERR_COMMENT_IPFS_AUTHOR_INCLUDES_RESERVED_FIELD };
+
+    // Must run on the raw record, before the pick below drops unsigned fields from what gets
+    // verified. See _isThereUnsignedSignableFieldInRecord. Issue #249.
+    if (_isThereUnsignedSignableFieldInRecord(opts.comment))
+        return { valid: false, reason: messages.ERR_COMMENT_IPFS_RECORD_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
 
     const keysCasted = <(keyof CommentPubsubMessagePublication)[]>opts.comment.signature.signedPropertyNames;
 

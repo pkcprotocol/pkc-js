@@ -155,7 +155,8 @@ describe("createSchemaRowParser", () => {
             nsfw: null,
             pendingApproval: null,
             extraProps: null,
-            quotedCids: null
+            quotedCids: null,
+            crosspost: null
         };
 
         const parsed = parseCommentsTableRow(rawRow);
@@ -166,6 +167,7 @@ describe("createSchemaRowParser", () => {
         expect(parsed.pendingApproval).to.be.undefined;
         expect(parsed.extraProps).to.be.undefined;
         expect(parsed.quotedCids).to.be.undefined;
+        expect(parsed.crosspost).to.be.undefined;
     });
 
     it("parses quotedCids from JSON string to array", () => {
@@ -190,6 +192,84 @@ describe("createSchemaRowParser", () => {
         const parsed = parseCommentsTableRow(rawRow);
 
         expect(parsed.quotedCids).to.deep.equal(quotedCids);
+    });
+
+    // crosspost is classified as a JSON column by collectJsonKeys, which reads def.type off the
+    // schema. CrosspostSchema carries an explicit z.ZodType annotation to sever the recursive
+    // inference cycle, so this pins that the annotation still leaves a JSON-like schema underneath:
+    // if it ever backs onto something collectJsonKeys does not recognize, the column silently comes
+    // back as a raw string instead of an object.
+    it("parses crosspost from JSON string to an object", () => {
+        const signature = buildSignature();
+        const crosspost = {
+            cid: "QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f",
+            comment: {
+                content: "the original comment",
+                depth: 0,
+                timestamp: 1699999000,
+                protocolVersion: "1",
+                communityPublicKey: "otherCommunityPublicKey",
+                author: { address: "originalAuthorAddress" },
+                signature: buildSignature({ signedPropertyNames: ["content", "author", "protocolVersion", "timestamp"] })
+            }
+        };
+        const rawRow: Record<string, string | number | null> = {
+            cid: "QmZg4TCKqKoMTVHCpQbVmGBkcGaA4vHwaC7xaoZ3nfJm8k",
+            postCid: "QmZg4TCKqKoMTVHCpQbVmGBkcGaA4vHwaC7xaoZ3nfJm8k",
+            depth: 0,
+            authorSignerAddress: "signer",
+            communityAddress: "sub",
+            timestamp: 1700000500,
+            insertedAt: 1700000501,
+            protocolVersion: "1",
+            author: JSON.stringify({ address: "authorAddress" }),
+            signature: JSON.stringify(signature),
+            content: "a repost",
+            crosspost: JSON.stringify(crosspost)
+        };
+
+        const parsed = parseCommentsTableRow(rawRow);
+
+        expect(parsed.crosspost).to.deep.equal(crosspost);
+        expect(parsed.crosspost).to.not.be.a("string");
+    });
+
+    // The embedded record is stored verbatim because crosspost.cid hashes it whole. Parsing must not
+    // drop props it does not know about, or the row stops reproducing its own cid.
+    it("preserves unknown props inside crosspost.comment when parsing", () => {
+        const signature = buildSignature();
+        const crosspost = {
+            cid: "QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f",
+            comment: {
+                content: "the original comment",
+                depth: 0,
+                timestamp: 1699999000,
+                protocolVersion: "1",
+                communityPublicKey: "otherCommunityPublicKey",
+                author: { address: "originalAuthorAddress" },
+                signature: buildSignature({ signedPropertyNames: ["content", "author", "protocolVersion", "timestamp"] }),
+                someAuthorSignedExtraProp: { nested: ["value"] }
+            }
+        };
+        const rawRow: Record<string, string | number | null> = {
+            cid: "QmZg4TCKqKoMTVHCpQbVmGBkcGaA4vHwaC7xaoZ3nfJm8k",
+            postCid: "QmZg4TCKqKoMTVHCpQbVmGBkcGaA4vHwaC7xaoZ3nfJm8k",
+            depth: 0,
+            authorSignerAddress: "signer",
+            communityAddress: "sub",
+            timestamp: 1700000500,
+            insertedAt: 1700000501,
+            protocolVersion: "1",
+            author: JSON.stringify({ address: "authorAddress" }),
+            signature: JSON.stringify(signature),
+            content: "a repost",
+            crosspost: JSON.stringify(crosspost)
+        };
+
+        const parsed = parseCommentsTableRow(rawRow);
+
+        expect(parsed.crosspost).to.deep.equal(crosspost);
+        expect((parsed.crosspost!.comment as Record<string, unknown>).someAuthorSignedExtraProp).to.deep.equal({ nested: ["value"] });
     });
 
     it("parses flairs from JSON string to array in comments table", () => {

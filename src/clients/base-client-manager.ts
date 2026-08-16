@@ -103,6 +103,25 @@ const createUrlFromSubdomainResolution = (gateway: string, opts: OptionsToLoadFr
 
 const GATEWAYS_THAT_SUPPORT_SUBDOMAIN_RESOLUTION: Record<string, boolean> = {}; // gateway url -> whether it supports subdomain resolution
 
+// How many author names resolveAuthorNamesInBackground keeps in flight at once. Set high on purpose,
+// for two opposing pressures:
+//
+// Too low fragments a batching resolver. bso-resolver hands every concurrent resolve to one viem
+// client configured with batch.multicall, coalescing them into a single Multicall3.aggregate3
+// eth_call within a 200ms window, and it only gets that coalescing if the resolves are actually
+// concurrent. A limit of 5 would turn one round trip into ceil(n / 5) of them.
+//
+// Unbounded is wrong too. A crosspost chain is capped at MAX_CROSSPOST_DEPTH (#250), but the page
+// producers are not: a preloaded page is bounded by FIRST_PAGE_MAX_FILE_SIZE_BYTES (1mb of json,
+// so hundreds of comments) and CommunityClientsManager._resolvePageAuthorNamesInBackground sweeps
+// every preloaded posts page across every sort type in one call. On a cold cache that is a burst of
+// hundreds, which is fine for a batching resolver and not fine for a resolver configured with
+// batch: false, or for any user-supplied nameResolvers entry that issues one request per name.
+//
+// 100 sits above the realistic batch window, so coalescing survives, and caps the burst for the
+// resolvers that do not batch.
+const MAX_CONCURRENT_AUTHOR_NAME_RESOLUTIONS = 100;
+
 export class BaseClientsManager {
     // Class that has all function but without clients field for maximum interopability
 
@@ -1003,7 +1022,7 @@ export class BaseClientsManager {
 
         if (toResolve.length === 0) return;
 
-        const limit = pLimit(5);
+        const limit = pLimit(MAX_CONCURRENT_AUTHOR_NAME_RESOLUTIONS);
         const resolveOne = async (entry: (typeof toResolve)[0]) => {
             if (abortSignal?.aborted) return false;
             try {

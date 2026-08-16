@@ -326,6 +326,7 @@ export class DbHandler {
                 nsfw INTEGER NULLABLE, -- BOOLEAN (0/1)
                 pseudonymityMode TEXT NULLABLE,
                 quotedCids TEXT NULLABLE, -- JSON array
+                crosspost TEXT NULLABLE, -- JSON: {cid, comment} of the comment this one reposts, stored verbatim so the embedded record keeps reproducing its cid
                 extraProps TEXT NULLABLE, -- JSON
                 challengeCommentUpdate TEXT NULLABLE, -- JSON: challenge-supplied partial CommentUpdate seeded into queryCalculatedCommentUpdate with lowest priority
                 protocolVersion TEXT NOT NULL,
@@ -1046,8 +1047,8 @@ export class DbHandler {
         // Adding a new column to the comments table requires updating this list manually, which is error-prone.
         const stmt = this._db.prepare(`
             INSERT INTO ${TABLES.COMMENTS}
-            (cid, authorSignerAddress, author, link, linkWidth, linkHeight, thumbnailUrl, thumbnailUrlWidth, thumbnailUrlHeight, parentCid, postCid, previousCid, communityPublicKey, communityName, content, timestamp, signature, originalCommentSignatureEncoded, title, depth, linkHtmlTagName, flairs, spoiler, pendingApproval, number, postNumber, nsfw, pseudonymityMode, quotedCids, extraProps, challengeCommentUpdate, protocolVersion, insertedAt)
-            VALUES (@cid, @authorSignerAddress, @author, @link, @linkWidth, @linkHeight, @thumbnailUrl, @thumbnailUrlWidth, @thumbnailUrlHeight, @parentCid, @postCid, @previousCid, @communityPublicKey, @communityName, @content, @timestamp, @signature, @originalCommentSignatureEncoded, @title, @depth, @linkHtmlTagName, @flairs, @spoiler, @pendingApproval, @number, @postNumber, @nsfw, @pseudonymityMode, @quotedCids, @extraProps, @challengeCommentUpdate, @protocolVersion, @insertedAt)
+            (cid, authorSignerAddress, author, link, linkWidth, linkHeight, thumbnailUrl, thumbnailUrlWidth, thumbnailUrlHeight, parentCid, postCid, previousCid, communityPublicKey, communityName, content, timestamp, signature, originalCommentSignatureEncoded, title, depth, linkHtmlTagName, flairs, spoiler, pendingApproval, number, postNumber, nsfw, pseudonymityMode, quotedCids, crosspost, extraProps, challengeCommentUpdate, protocolVersion, insertedAt)
+            VALUES (@cid, @authorSignerAddress, @author, @link, @linkWidth, @linkHeight, @thumbnailUrl, @thumbnailUrlWidth, @thumbnailUrlHeight, @parentCid, @postCid, @previousCid, @communityPublicKey, @communityName, @content, @timestamp, @signature, @originalCommentSignatureEncoded, @title, @depth, @linkHtmlTagName, @flairs, @spoiler, @pendingApproval, @number, @postNumber, @nsfw, @pseudonymityMode, @quotedCids, @crosspost, @extraProps, @challengeCommentUpdate, @protocolVersion, @insertedAt)
         `);
 
         // Create default object with null values for all columns
