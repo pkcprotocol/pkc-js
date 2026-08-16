@@ -160,11 +160,14 @@ failed, so a client can say "could not reach that community" rather than showing
 badge, and can retry rather than treating the state as final. Absence of evidence is not evidence of
 removal, and the timeout in that snippet is a client-chosen bound, not a protocol verdict.
 
-**Karma counts live entries only**, never raw tier-1 entries. A crosspost is self-attested until tier
-2: anyone can embed a record nobody can check, so counting unverified entries makes score inflatable
-by crossposting. An entry whose update verifies is countable even if that community is permanently
-gone, since the signature attests those exact bytes regardless of who is still serving them; a client
-that wants the distinction should call it last-known rather than live.
+**Karma counts an entry when its `CommentUpdate` verifies and carries no `removed` or `deleted`.**
+Verification is the whole test, not liveness: the community's signature attests those exact bytes
+regardless of who is still serving them, so an entry whose update verifies counts even if that
+community is permanently gone. Last-known entries are therefore eligible, and a client that wants to
+distinguish them in the UI should still count them.
+
+Unknown entries never count. A crosspost is self-attested until tier 2, so anyone can embed a record
+nobody can check, and counting unverified entries makes score inflatable by crossposting.
 
 This applies to any crosspost anywhere, not only to feeds made of them.
 
