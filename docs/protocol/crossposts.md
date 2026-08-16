@@ -173,9 +173,13 @@ record that arrives on the wire still carrying it is rejected by check 2 (reserv
 cost: `MAX_CROSSPOST_DEPTH` (10) is enforced in `schema-util.ts` before a record ever reaches an
 instance, so one fetched comment is worth at most ten names. `resolveAuthorNamesInBackground` dedupes
 them, drops the ones `nameResolvedCache` already answers, and hands the rest to the resolvers
-concurrently with no throttle, so a batching resolver collapses the whole chain into one round trip.
-bso-resolver does exactly that: every concurrent resolve goes through one viem client with
-`batch.multicall`, coalescing into a single `Multicall3.aggregate3` `eth_call` within a 200ms window.
+concurrently, so a batching resolver collapses the whole chain into one round trip. bso-resolver does
+exactly that: every concurrent resolve goes through one viem client with `batch.multicall`, coalescing
+into a single `Multicall3.aggregate3` `eth_call` within a 200ms window. Concurrency is capped at
+`MAX_CONCURRENT_AUTHOR_NAME_RESOLUTIONS` (100), which is high enough to leave that coalescing intact
+and low enough to cap the burst a cold cache produces for a resolver that does not batch. The cap is
+there for the page producers, not for chains: a chain is at most ten names, but a preloaded page is
+bounded by size rather than comment count, and the community sweeps every preloaded posts page at once.
 Resolving only the outermost level would leave every deeper "originally by NAME" unrendered, which is
 the impersonation signal this section exists to provide.
 
