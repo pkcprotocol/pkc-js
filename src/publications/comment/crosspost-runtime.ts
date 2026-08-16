@@ -15,6 +15,7 @@
 // legitimate on the wire, and is already rejected by check 3 of _verifyCrosspost if it arrives there,
 // is reversible by deletion alone.
 import { getAuthorNameFromWire } from "../publication-author.js";
+import { MAX_CROSSPOST_DEPTH } from "./crosspost-depth.js";
 import { sha256 } from "js-sha256";
 import type { LRUCache } from "lru-cache";
 import type { Crosspost } from "./schema.js";
@@ -45,14 +46,19 @@ export function cloneCrosspostForRuntime(crosspost: Crosspost): CrosspostRuntime
     return child!;
 }
 
-// The authors this comment should trigger background name resolution for.
+// The authors this comment should trigger background name resolution for: every level of the chain.
 //
-// Only the first level by default. A chain is attacker-controlled in both depth and content
-// (#250, #249), so resolving every level multiplies the name resolutions one fetched comment costs
-// by up to MAX_CROSSPOST_DEPTH, and again by every comment in a page. Deeper levels still pick up a
-// cached verdict for free in
-// applyNameResolvedCacheToCrosspost, they just do not get a resolution triggered on their behalf.
-export const CROSSPOST_LEVELS_TO_RESOLVE_AUTHOR_NAMES_FOR = 1;
+// A chain is attacker-controlled in both depth and content (#249), but not in cost: #250 caps
+// verified chains at MAX_CROSSPOST_DEPTH in schema-util.ts, before anything here runs, so a fetched
+// comment is worth at most that many names. resolveAuthorNamesInBackground then hands them to the
+// resolver concurrently, and a batching resolver (bso-resolver coalesces concurrent resolves into
+// one Multicall3.aggregate3 eth_call) turns the whole chain into a single round trip. A verdict at
+// only the first level would leave every deeper "originally by <name>" unrendered, which is the
+// impersonation signal #251 exists to give clients.
+//
+// Kept as a named constant, and as an overridable param, so a caller resolving many chains at once
+// can still bound itself.
+export const CROSSPOST_LEVELS_TO_RESOLVE_AUTHOR_NAMES_FOR = MAX_CROSSPOST_DEPTH;
 
 export function collectCrosspostAuthorsToResolve({
     crosspost,

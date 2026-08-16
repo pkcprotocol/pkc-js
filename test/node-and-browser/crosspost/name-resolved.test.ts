@@ -306,11 +306,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         });
 
-        // Chains are attacker-controlled in both depth and content (#249, #250), so one fetched
-        // comment must not turn into an unbounded number of name resolutions. Only the first level
-        // gets a resolution triggered for it. Deeper levels still pick up a cached verdict for free,
-        // which is why the domain below is used nowhere else in this file.
-        describe("only the first chain level triggers a resolution", () => {
+        // Chain depth is capped at MAX_CROSSPOST_DEPTH (#250) before any of this runs, so resolving
+        // every level costs a bounded number of names per comment, and the resolver coalesces them
+        // into one batched call. Every level therefore gets a resolution triggered for it, not just
+        // the first. The domain below is used nowhere else in this file, so nothing but this chain
+        // can have warmed its cache entry.
+        describe("every chain level triggers a resolution", () => {
             let loaded: Comment;
 
             beforeAll(async () => {
@@ -333,7 +334,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 loaded = await loadUntilLoaded(crossposting.cid!);
                 await resolveWhenConditionIsTrue({
                     toUpdate: loaded,
-                    predicate: async () => typeof embeddedNameResolvedOf(loaded) === "boolean"
+                    // the deepest level, so this waits for the whole chain rather than just the first
+                    predicate: async () => typeof loaded.crosspost?.comment.crosspost?.comment.author?.nameResolved === "boolean"
                 });
             });
 
@@ -345,11 +347,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(embeddedNameResolvedOf(loaded)).to.be.true;
             });
 
-            it("the second level does not, even though its domain would resolve", () => {
-                expect(loaded.crosspost!.comment.crosspost!.comment.author?.nameResolved).to.be.undefined;
+            it("the second level gets one too, with nothing else in this file having warmed its cache", () => {
+                expect(loaded.crosspost!.comment.crosspost!.comment.author?.nameResolved).to.be.true;
             });
 
-            it("the whole chain is still exposed, it just has no verdict below the first level", () => {
+            it("the whole chain is still exposed", () => {
                 expect(loaded.crosspost!.comment.crosspost!.comment.author?.name).to.equal(RESOLVES_BUT_ONLY_IF_ASKED.name);
             });
         });

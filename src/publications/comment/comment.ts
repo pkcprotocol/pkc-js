@@ -302,10 +302,10 @@ export class Comment
             }
         }
 
-        // The author of the comment this one reposts. A different identity signed by a different key,
-        // and an unresolved name there is exactly as impersonatable as an unresolved name here, which
-        // is the whole reason this is collected. Bounded to the first chain level: see
-        // collectCrosspostAuthorsToResolve.
+        // The authors of the comments this one reposts, every level of the chain. Each is a different
+        // identity signed by a different key, and an unresolved name there is exactly as
+        // impersonatable as an unresolved name here, which is the whole reason this is collected.
+        // Bounded by MAX_CROSSPOST_DEPTH and batched with the rest: see collectCrosspostAuthorsToResolve.
         const crosspostAuthors = this.crosspost ? collectCrosspostAuthorsToResolve({ crosspost: this.crosspost }) : [];
 
         if (ownAuthor.length === 0 && replyAuthors.length === 0 && crosspostAuthors.length === 0) return;

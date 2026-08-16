@@ -107,6 +107,30 @@ const original = await pkc.createComment({
 await original.update();
 ```
 
+`update()` resolving does **not** mean the `CommentUpdate` arrived, and neither does the first
+`update` event. Seeding `raw.comment` from the embedded record already satisfies the emission
+condition at the end of `update()` (`if (this.raw.comment || this.raw.commentUpdate)`), so an
+`update` event fires immediately with nothing fetched. Tier 2 is complete only once
+`original.raw.commentUpdate` is defined, and its signature has been verified against the community
+named in the embedded record. Wait for that field, not for the call or the first event:
+
+```ts
+await new Promise<void>((resolve, reject) => {
+    if (original.raw.commentUpdate) return resolve();
+    original.on("update", () => {
+        if (original.raw.commentUpdate) resolve();
+    });
+    original.on("error", reject);
+});
+// tier 2 satisfied: raw.commentUpdate is that community attesting to these exact bytes
+await original.stop();
+```
+
+Until then the instance holds only the author-signed embedded record, which is tier 1. Everything
+under "Client rules that follow" still applies, and `original.updatedAt` is `undefined`. A community
+that never accepted the comment simply never yields a `CommentUpdate`, so this wait has no natural
+timeout: bound it yourself and treat the timeout as "unverified", not as "forged".
+
 ### Client rules that follow
 
 - Do not render `thumbnailUrl*` from an embedded crosspost at tier 1. It is attacker-chosen until
@@ -145,10 +169,19 @@ Passing the copy back to `createComment` is the normal way to re-crosspost somet
 and it round trips: the publish path strips `nameResolved` at every level before signing, and a
 record that arrives on the wire still carrying it is rejected by check 2 (reserved fields).
 
-**Only the first chain level triggers a resolution.** A chain is attacker-controlled in both depth
-and content, so walking all of it would turn one fetched comment into an unbounded number of name
-resolutions. Deeper levels, and crossposting comments inside a page, still pick up a verdict already
-in `nameResolvedCache`, they just do not get one triggered on their behalf.
+**Every chain level triggers a resolution.** A chain is attacker-controlled in content but not in
+cost: `MAX_CROSSPOST_DEPTH` (10) is enforced in `schema-util.ts` before a record ever reaches an
+instance, so one fetched comment is worth at most ten names. `resolveAuthorNamesInBackground` dedupes
+them, drops the ones `nameResolvedCache` already answers, and hands the rest to the resolvers
+concurrently with no throttle, so a batching resolver collapses the whole chain into one round trip.
+bso-resolver does exactly that: every concurrent resolve goes through one viem client with
+`batch.multicall`, coalescing into a single `Multicall3.aggregate3` `eth_call` within a 200ms window.
+Resolving only the outermost level would leave every deeper "originally by NAME" unrendered, which is
+the impersonation signal this section exists to provide.
+
+Crossposting comments **inside a page** are still cache-only: a page holds many comments and each can
+carry its own chain, so they pick up a verdict already in `nameResolvedCache` without getting one
+triggered on their behalf. Constructing a `Comment` for one of them does trigger its chain.
 
 RPC clients receive the verdict through the `runtimeFields` transport rather than resolving locally,
 since they usually have no `nameResolvers` configured and would wrongly conclude `false`.

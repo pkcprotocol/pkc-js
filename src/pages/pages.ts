@@ -71,10 +71,11 @@ export class BasePages {
     _applyNameResolvedCacheToPage(page: PageTypeJson | ModQueuePageTypeJson) {
         const cache = this._clientsManager._pkc._memCaches.nameResolvedCache;
         for (const comment of page.comments) {
-            // The embedded author of a crossposting comment in this page. Only a cached verdict is
-            // applied, which is free; no resolution is triggered on its behalf, since a page holds
-            // many comments and each could name a different domain. A Comment instance does trigger
-            // one for its own crosspost, see Comment._resolveAuthorNamesInBackground.
+            // The embedded authors of a crossposting comment in this page. Only a cached verdict is
+            // applied, which is free; no resolution is triggered on their behalf, since a page holds
+            // many comments and each could carry a whole chain of distinct domains. A Comment
+            // instance does trigger resolution for every level of its own crosspost chain, see
+            // Comment._resolveAuthorNamesInBackground.
             if (comment.crosspost) applyNameResolvedCacheToCrosspost({ crosspost: comment.crosspost, cache });
 
             const domain = getAuthorNameFromRuntime(comment.author);

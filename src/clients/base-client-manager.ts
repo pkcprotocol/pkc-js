@@ -1003,7 +1003,13 @@ export class BaseClientsManager {
 
         if (toResolve.length === 0) return;
 
-        const limit = pLimit(5);
+        // Deliberately unthrottled. A resolver that batches (bso-resolver hands every concurrent
+        // resolve to one viem client configured with batch.multicall, which coalesces them into a
+        // single Multicall3.aggregate3 eth_call within a 200ms window) only gets that coalescing if
+        // the resolves are actually concurrent — a pLimit here would fragment one round trip into
+        // ceil(n / limit) of them. The set is already deduped and cache-filtered above, and the
+        // largest producers are bounded: a crosspost chain by MAX_CROSSPOST_DEPTH (#250), a reply
+        // page by its comment count.
         const resolveOne = async (entry: (typeof toResolve)[0]) => {
             if (abortSignal?.aborted) return false;
             try {
@@ -1034,7 +1040,7 @@ export class BaseClientsManager {
             }
         };
 
-        Promise.allSettled(toResolve.map((entry) => limit(() => resolveOne(entry))))
+        Promise.allSettled(toResolve.map((entry) => resolveOne(entry)))
             .then((results) => {
                 const anyNewlySet = results.some((r) => r.status === "fulfilled" && r.value === true);
                 if (anyNewlySet) onResolved();
