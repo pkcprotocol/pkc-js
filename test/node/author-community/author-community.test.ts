@@ -15,8 +15,10 @@
 // Naming follows docs/protocol/delegated-ipns.md: An/As = anchor keypair (the author's identity, held
 // by the owner), Mn/Ms = minter keypair (held by the node).
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
+import fs from "fs";
 import path from "path";
 import net from "node:net";
+import { v4 as uuidv4 } from "uuid";
 import PKC from "../../../dist/node/index.js";
 import PKCWsServer from "../../../dist/node/rpc/src/index.js";
 import {
@@ -83,10 +85,11 @@ async function createHarness(): Promise<{ pkc: PKCType; teardown: () => Promise<
         return { pkc, teardown: async () => await pkc.destroy() };
     }
 
-    const serverPKC = await mockRpcServerPKC({
-        dataPath: path.join(process.cwd(), ".tmp", "pkc-rpc-author-community"),
-        nameResolvers
-    });
+    // A fresh dataPath per run. This suite creates communities on the server, so a fixed path would
+    // accumulate them across runs, and any run that dies before afterAll leaves a started community
+    // behind for the next server to resume at startup, which eventually times out the beforeAll hook.
+    const dataPath = path.join(process.cwd(), ".tmp", `pkc-rpc-author-community-${uuidv4()}`);
+    const serverPKC = await mockRpcServerPKC({ dataPath, nameResolvers });
     const rpcPort = await getAvailablePort();
     const rpcUrl = `ws://localhost:${rpcPort}`;
     const rpcServer: PKCWsServerType = await PKCWsServer.PKCWsServer({
@@ -107,6 +110,7 @@ async function createHarness(): Promise<{ pkc: PKCType; teardown: () => Promise<
         teardown: async () => {
             await pkc.destroy();
             await rpcServer.destroy();
+            fs.rmSync(dataPath, { recursive: true, force: true });
         }
     };
 }

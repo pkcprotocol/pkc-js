@@ -41,13 +41,16 @@ const answerablePublicChallenge = {
     type: "text/plain"
 };
 
+// The challenge is cloned rather than aliased: the constants above are shared across a concurrent
+// suite, so a record holding one by reference lets a test that mutates its own record corrupt every
+// other test's input.
 function buildProfileRecord(challenge: Record<string, unknown> = ownerOnlyPublicChallenge): CommunityIpfsType {
     const record = clone(newFormatFixture) as CommunityIpfsType;
     return <CommunityIpfsType>{
         ...record,
         anchor: { publicKey: OWNER_ADDRESS },
         roles: { [OWNER_ADDRESS]: { role: "owner" } },
-        challenges: [challenge]
+        challenges: [clone(challenge)]
     };
 }
 
@@ -94,6 +97,10 @@ describe.concurrent("author community: what the posting restriction looks like o
         record.challenges[0].exclude!.push({ publicationType: { post: true } });
         const parsed = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(record);
         expect(readPostingExemptions(parsed).nonOwnerPostsAreGated).to.be.false;
+        // A record must own its challenge. If it aliases the shared constant, this push leaks into
+        // every later test in the file and the one below silently compares two corrupted records.
+        expect(ownerOnlyPublicChallenge.exclude).to.have.lengthOf(2);
+        expect(answerablePublicChallenge.exclude).to.have.lengthOf(2);
     });
 
     // The limit of wire legibility, and the reason the reader above reports an exemption structure
@@ -105,6 +112,8 @@ describe.concurrent("author community: what the posting restriction looks like o
         const unpassable = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(buildProfileRecord(ownerOnlyPublicChallenge));
         const answerable = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(buildProfileRecord(answerablePublicChallenge));
 
+        // Asserted positively first, so this cannot pass by both sides reading as "not gated"
+        expect(readPostingExemptions(unpassable).nonOwnerPostsAreGated).to.be.true;
         expect(readPostingExemptions(answerable)).to.deep.equal(readPostingExemptions(unpassable));
         expect(answerable.challenges[0].exclude).to.deep.equal(unpassable.challenges[0].exclude);
         // description is the only field that differs, and it is operator-settable free text
