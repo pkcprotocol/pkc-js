@@ -1,7 +1,8 @@
-// A client has to be able to tell an author community apart from an ordinary community by reading its
-// record, because owner-only posting has no feature flag and no read-side check: it is challenge
-// configuration, and the only thing that makes it legible is that `exclude` is published while `name`,
-// `path` and `options` are stripped. See docs/protocol/author-communities.md and challenge-settings.md.
+// What a client can and cannot conclude about an author community by reading its record. Owner-only
+// posting has no feature flag and no read-side check: it is challenge configuration, and `exclude` is
+// published while `name`, `path` and `options` are stripped. That publishes the exemption structure but
+// not the policy, which is the distinction the last test in the first block pins down. See "What a
+// reader can actually tell" in docs/protocol/author-communities.md, and challenge-settings.md.
 //
 // This runs in the browser and touches no network: the point is what a reader can conclude from bytes.
 // The producing half, that a real community actually puts these rules on the wire, is asserted in
@@ -17,31 +18,45 @@ import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
 
 const OWNER_ADDRESS = signers[0].address;
 
+const ownerOnlyExclude = [
+    { role: ["owner"] },
+    { publicationType: { reply: true, vote: true, commentEdit: true, commentModeration: true, communityEdit: true } }
+];
+
 // The public half of the challenge settings, i.e. what survives into the signed record. No `name`, no
 // `options`: a reader never learns that the challenge behind this is `fail`, only that a non-owner
 // posting is not excluded from whatever it is.
 const ownerOnlyPublicChallenge = {
-    exclude: [
-        { role: ["owner"] },
-        { publicationType: { reply: true, vote: true, commentEdit: true, commentModeration: true, communityEdit: true } }
-    ],
+    exclude: ownerOnlyExclude,
     description: "A challenge that automatically fails with a custom error message.",
     type: "text/plain"
 };
 
-function buildProfileRecord(): CommunityIpfsType {
+// The same exemption structure in front of an answerable challenge. `name` and `options` are exactly
+// what would tell these apart, and both are stripped, so this is what the limit of wire legibility
+// looks like: a community anyone can post to after answering a question.
+const answerablePublicChallenge = {
+    exclude: ownerOnlyExclude,
+    description: "Ask a question, answer it correctly to publish.",
+    type: "text/plain"
+};
+
+function buildProfileRecord(challenge: Record<string, unknown> = ownerOnlyPublicChallenge): CommunityIpfsType {
     const record = clone(newFormatFixture) as CommunityIpfsType;
     return <CommunityIpfsType>{
         ...record,
         anchor: { publicKey: OWNER_ADDRESS },
         roles: { [OWNER_ADDRESS]: { role: "owner" } },
-        challenges: [ownerOnlyPublicChallenge]
+        challenges: [challenge]
     };
 }
 
-// What a client would implement: is this community one where only its owner posts, and who is that?
-function readOwnerOnlyPosting(record: CommunityIpfsType): { ownerOnly: boolean; owners: string[] } {
-    const ownerOnly = (record.challenges ?? []).some((challenge) => {
+// What a client can actually implement. Note what it is NOT called: the record does not say only the
+// owner may post, it says non-owner posts face a challenge nobody else faces. Whether that challenge
+// is passable is not on the wire, so this reports the exemption structure and leaves the policy to be
+// inferred. See "What a reader can actually tell" in docs/protocol/author-communities.md.
+function readPostingExemptions(record: CommunityIpfsType): { nonOwnerPostsAreGated: boolean; owners: string[] } {
+    const nonOwnerPostsAreGated = (record.challenges ?? []).some((challenge) => {
         const excludes = challenge.exclude ?? [];
         const ownerIsExcused = excludes.some((exclude) => exclude.role?.includes("owner"));
         const repliesAreExcused = excludes.some((exclude) => exclude.publicationType?.reply === true);
@@ -51,34 +66,51 @@ function readOwnerOnlyPosting(record: CommunityIpfsType): { ownerOnly: boolean; 
     const owners = Object.entries(record.roles ?? {})
         .filter(([, value]) => value.role === "owner")
         .map(([address]) => address);
-    return { ownerOnly, owners };
+    return { nonOwnerPostsAreGated, owners };
 }
 
-describe.concurrent("author community: the posting restriction is legible from the record alone", () => {
+describe.concurrent("author community: what the posting restriction looks like on the wire", () => {
     it("preserves exclude rules through the record parse", () => {
         const parsed = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(buildProfileRecord());
         expect(parsed.challenges[0].exclude).to.deep.equal(ownerOnlyPublicChallenge.exclude);
     });
 
-    it("lets a reader conclude that only the owner may post, and who the owner is", () => {
+    it("lets a reader see that non-owner posts are gated, and who the owner is", () => {
         const parsed = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(buildProfileRecord());
-        const { ownerOnly, owners } = readOwnerOnlyPosting(parsed);
-        expect(ownerOnly).to.be.true;
+        const { nonOwnerPostsAreGated, owners } = readPostingExemptions(parsed);
+        expect(nonOwnerPostsAreGated).to.be.true;
         expect(owners).to.deep.equal([OWNER_ADDRESS]);
     });
 
-    it("does not read an ordinary community as owner-only", () => {
+    it("does not read an ordinary community as gating posts", () => {
         const ordinary = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(clone(newFormatFixture) as CommunityIpfsType);
-        expect(readOwnerOnlyPosting(ordinary).ownerOnly).to.be.false;
+        expect(readPostingExemptions(ordinary).nonOwnerPostsAreGated).to.be.false;
     });
 
-    // A community that excuses posts as well is not owner-only, it is unrestricted. Without this the
-    // reader above would report any community carrying a role exclude as a profile.
-    it("does not read a community that also excuses posts as owner-only", () => {
+    // A community that excuses posts as well gates nothing. Without this the reader above would report
+    // any community carrying a role exclude as a profile.
+    it("does not read a community that also excuses posts as gating them", () => {
         const record = buildProfileRecord();
         record.challenges[0].exclude!.push({ publicationType: { post: true } });
         const parsed = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(record);
-        expect(readOwnerOnlyPosting(parsed).ownerOnly).to.be.false;
+        expect(readPostingExemptions(parsed).nonOwnerPostsAreGated).to.be.false;
+    });
+
+    // The limit of wire legibility, and the reason the reader above reports an exemption structure
+    // rather than a policy. A community anyone can post to after answering a question publishes the
+    // same exclude rules as one that forbids non-owner posts outright, because `name` and `options` are
+    // exactly what would tell them apart and both are stripped. Nothing on the wire distinguishes them,
+    // so "only the owner posts here" is an inference, never a fact the record attests.
+    it("cannot distinguish an unpassable gate from an answerable one", () => {
+        const unpassable = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(buildProfileRecord(ownerOnlyPublicChallenge));
+        const answerable = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(buildProfileRecord(answerablePublicChallenge));
+
+        expect(readPostingExemptions(answerable)).to.deep.equal(readPostingExemptions(unpassable));
+        expect(answerable.challenges[0].exclude).to.deep.equal(unpassable.challenges[0].exclude);
+        // description is the only field that differs, and it is operator-settable free text
+        expect(answerable.challenges[0].description).to.not.equal(unpassable.challenges[0].description);
+        expect(answerable.challenges[0]).to.not.have.property("name");
+        expect(answerable.challenges[0]).to.not.have.property("options");
     });
 
     it("carries the anchor claim, so a reader knows the address is the author's identity key", () => {
@@ -88,7 +120,7 @@ describe.concurrent("author community: the posting restriction is legible from t
 });
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
-    describe.concurrent(`author community: a loaded instance exposes the restriction - ${config.name}`, () => {
+    describe.concurrent(`author community: a loaded instance exposes the exemption rules - ${config.name}`, () => {
         let pkc: PKCType;
 
         beforeAll(async () => {

@@ -67,16 +67,34 @@ Set the `error` option. It is what the rejected publisher actually sees: a `fail
 through `challengeErrors`, not through the verification `reason`, and its default text is the generic
 `"You're not allowed to publish."`.
 
-**The restriction is legible on the wire.** `exclude` is copied verbatim from the private
-`settings.challenges` into the public signed `challenges` array, while `path`, `name` and `options`
-are stripped (see [challenge-settings.md](challenge-settings.md)). So a client reading the record can
-see `role: ["owner"]` against `publicationType` and render the profile accordingly, without publishing
-anything to find out. This is why no `features.onlyOwnerCanPost` flag exists: it would duplicate a fact
-the record already carries.
+### What a reader can actually tell
 
-Nothing enforces this read-side. A dishonest minter can accept a post from anyone, and the entry will
-verify like any other comment in the community it was published to. Owner-only posting is a property of
-an honest node's configuration, which is what the wire-visible `exclude` lets a reader check.
+`exclude` is copied verbatim from the private `settings.challenges` into the public signed `challenges`
+array, while `path`, `name` and `options` are stripped (see
+[challenge-settings.md](challenge-settings.md)). Be precise about what that does and does not give a
+client, because it is easy to overclaim:
+
+**Legible**: which publishers are exempt from which challenge, and the `roles` map the exemption is
+matched against. A reader can see that the owner and every non-post publication skip challenge 0, and
+that nobody else does.
+
+**Not legible**: whether challenge 0 can be passed at all. `name` and `options` are exactly what
+distinguish `fail` from, say, `question`, and both are stripped, so a community that gates non-owner
+posts behind an answerable challenge publishes the same exemption structure as one that forbids them
+outright. `description` differs by default but is operator-settable free text, so it is a hint, not a
+discriminator.
+
+So "only the owner posts here" is a **reasonable inference from the record, not a fact the record
+attests**. A client should render it as a strong hint, and find out for certain the same way it would
+for any community, by publishing and reading the verification.
+
+That is also the honest reason there is no `features.onlyOwnerCanPost`. Such a flag would be a clearer
+declaration, but it would be a claim by the same node that writes the challenge config, so it would not
+be any more verifiable. It would save the inference, not add a guarantee.
+
+Nothing enforces any of this read-side in the first place. A dishonest minter can accept a post from
+anyone, and the entry will verify like any other comment in the community it was published to.
+Owner-only posting is a property of an honest node's configuration.
 
 ### `roles` and `settings.challenges` are set in two different places
 
