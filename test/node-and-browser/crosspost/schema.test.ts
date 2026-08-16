@@ -187,7 +187,10 @@ describe("the embedded record is never normalized", () => {
     });
 });
 
-// Chains nest records. No depth cap: the 40kb publication limit is the only bound.
+// Chains nest records. The depth cap deliberately lives in the parse helpers rather than in the
+// schema: it has to reject a chain *before* the recursive parse, which at ~1000 levels overflows the
+// stack, and a refinement on the schema only runs once that parse has already returned. So the
+// schema itself imposes no limit, and depth.test.ts covers the helpers that do. Issue #250.
 describe("crosspost chains (crossposting a crosspost)", () => {
     it("a comment whose crosspost.comment itself has a crosspost parses", () => {
         const parsed = CommentIpfsSchema.loose().parse(crossposting(crossposting())) as Record<string, any>;
@@ -200,7 +203,7 @@ describe("crosspost chains (crossposting a crosspost)", () => {
         expect(parsed.crosspost.comment.crosspost.comment.crosspost.comment.content).to.equal("the original comment");
     });
 
-    it("no artificial nesting-depth limit is enforced by the schema", () => {
+    it("the schema itself enforces no nesting-depth limit, the parse helpers do", () => {
         let record: Record<string, any> = embedded();
         for (let i = 0; i < 25; i++) record = crossposting(record);
         expect(CommentIpfsSchema.loose().safeParse(record).success).to.be.true;

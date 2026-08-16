@@ -54,6 +54,11 @@ export const CommunityFeaturesSchema = z.looseObject({
     noReplyLinks: z.boolean().optional(), // Block all replies that have a link field set
     noPolls: z.boolean().optional(), // Not impllemented
     noCrossposts: z.boolean().optional(), // Reject comments carrying a crosspost. Inbound only: it does not stop this community's comments being crossposted elsewhere
+    // Longest crosspost chain this community accepts, counted as the number of embedded records (a plain crosspost is 1).
+    // Absent means the protocol cap MAX_CROSSPOST_DEPTH. A value above it is clamped down to it, never up: clients enforce
+    // the hard cap on every ingest path, so a community accepting deeper chains would publish comments nobody can load.
+    // Deliberately not bounded by the schema, so a value from a future protocol version doesn't fail the whole record.
+    maxCrosspostDepth: z.number().int().nonnegative().optional(),
     noNestedReplies: z.boolean().optional(), // No nested replies, like old school forums and 4chan. Maximum depth is 1
     safeForWork: z.boolean().optional(), // Informational flag indicating this community is safe for work
     authorFlairs: z.boolean().optional(), // Authors can choose their own author flairs (otherwise only mods can)

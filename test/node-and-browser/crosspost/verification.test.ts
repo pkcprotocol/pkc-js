@@ -14,7 +14,8 @@ import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import signers from "../../fixtures/signers.js";
 import { generateMockPost, publishRandomPost, getAvailablePKCConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
-import { verifyCommentIpfs, verifyCommentPubsubMessage } from "../../../dist/node/signer/signatures.js";
+import { signComment, verifyCommentIpfs, verifyCommentPubsubMessage } from "../../../dist/node/signer/signatures.js";
+import { MAX_CROSSPOST_DEPTH } from "../../../dist/node/publications/comment/crosspost-depth.js";
 import { messages } from "../../../dist/node/errors.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
@@ -366,60 +367,91 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         });
 
-        // There is deliberately no cap on how many crossposts can nest inside one another: the 40kb
-        // publication limit is the only bound. These pin what that bound actually buys, so a change
-        // that shrinks the per-level byte cost (and therefore lets chains nest further) or that makes
-        // verification stop descending shows up as a failure rather than as a silent shift.
+        // MAX_CROSSPOST_DEPTH, not the 40kb publication limit, is what bounds nesting. Size used to
+        // be the only bound, which held on the publish path but not on the client ingest paths that
+        // allow 1MB, where a deep chain overflowed zod's recursive parse at an engine-dependent
+        // depth. Issue #250 and docs/protocol/crossposts.md.
         //
         // "nesting" here is crosspost chaining (crosspost.comment.crosspost.comment...), which is a
         // different axis from comment.depth, the reply depth in the comment tree. Every record built
         // below is a post, comment.depth 0; only the crosspost chain gets longer.
-        describe("the size limit is the only bound on crosspost nesting", () => {
-            // Builds the most deeply nested chain that still fits under the publication size limit.
-            const buildDeepestChainWithinLimit = async () => {
-                let ref = crosspostRef as { cid: string; comment: CommentIpfsType };
-                let deepest = await signCrossposting(ref);
-                let nestingLevels = 1;
-                for (let i = 0; i < 200; i++) {
-                    const signed = await signCrossposting(ref);
-                    if (byteLength(signed) > 40000) break;
-                    deepest = signed;
-                    nestingLevels = i + 1;
-                    const asRecord = { ...signed, depth: 0 } as unknown as CommentIpfsType; // comment.depth: a post
-                    ref = { cid: await calculateIpfsHash(deterministicStringify(asRecord)!), comment: asRecord };
-                }
-                return { deepest, nestingLevels };
+        describe("the depth cap bounds crosspost nesting", () => {
+            const asEmbeddableRecord = async (signed: CommentPubsubMessagePublication) => {
+                const asRecord = { ...signed, depth: 0 } as unknown as CommentIpfsType; // comment.depth: a post
+                return { cid: await calculateIpfsHash(deterministicStringify(asRecord)!), comment: asRecord };
             };
 
-            it("the most deeply nested chain that fits under 40kb verifies at every level", async () => {
-                const { deepest, nestingLevels } = await buildDeepestChainWithinLimit();
-                // at.most, not lessThan: exactly 40000 bytes is a legal publication (the community
-                // rejects only sizes over 40kb), and the builder keeps a record that lands on it.
-                expect(byteLength(deepest)).to.be.at.most(40000);
-                // Measured at 62 nested crossposts when this was written. The band is wide on purpose:
-                // the exact number moves whenever a wire field is added. A jump outside it means the
-                // per-level byte cost changed materially and the nesting bound moved with it.
-                expect(nestingLevels).to.be.within(20, 150);
-                expect(await verify(deepest)).to.deep.equal({ valid: true });
+            // A signed crossposting comment whose chain is exactly `levels` embedded records deep.
+            const buildChain = async (levels: number, innermost = crosspostRef) => {
+                let signed = await signCrossposting(innermost);
+                for (let level = 1; level < levels; level++) signed = await signCrossposting(await asEmbeddableRecord(signed));
+                return signed;
+            };
+
+            // createComment refuses an over-deep chain on the publish path (see the test below), so
+            // the outermost level of an over-cap record is signed directly, the way somebody minting
+            // one for a client to ingest would. Everything below it is a genuinely built chain.
+            const buildOverDeepChain = async (innermost = crosspostRef) => {
+                const template = await signCrossposting(crosspostRef);
+                const toSign = {
+                    ...template,
+                    crosspost: await asEmbeddableRecord(await buildChain(MAX_CROSSPOST_DEPTH, innermost)),
+                    signer: await pkc.createSigner()
+                };
+                delete (toSign as Partial<typeof toSign>).signature;
+                const signature = await signComment({ comment: toSign as never, pkc });
+                const { signer: _signer, ...record } = toSign;
+                return { ...record, signature } as unknown as CommentPubsubMessagePublication;
+            };
+
+            it("a chain at exactly the cap verifies at every level", async () => {
+                const atCap = await buildChain(MAX_CROSSPOST_DEPTH);
+                expect(await verify(atCap)).to.deep.equal({ valid: true });
+                // The cap, not size, is now the binding constraint: a chain at the cap is still
+                // comfortably publishable. If this ever fails the two bounds have crossed over and
+                // the cap has stopped being the thing under test.
+                expect(byteLength(atCap)).to.be.lessThan(40000);
             });
 
-            it("a broken signature at the bottom of a maximally nested chain is still caught", async () => {
-                // The recursion has to reach the innermost crosspost. If it ever short-circuits part
-                // way down the chain, this is what notices.
+            it("one level past the cap is rejected", async () => {
+                expect(await verify(await buildOverDeepChain())).to.deep.equal({
+                    valid: false,
+                    reason: messages.ERR_CROSSPOST_CHAIN_EXCEEDS_MAX_DEPTH
+                });
+            });
+
+            it("an over-deep chain is rejected on depth even when it is also malformed", async () => {
+                // The depth check runs before _verifyCrosspost, which hashes the whole remaining
+                // subtree at every level. If the order ever flips, the tampering below is what the
+                // record gets rejected for and this fails, which is the signal that an over-deep
+                // record is being paid for before being refused.
+                const tampered = clone(crosspostRef);
+                tampered.comment.content = "tampered, and also too deep";
+                expect(await verify(await buildOverDeepChain(tampered))).to.deep.equal({
+                    valid: false,
+                    reason: messages.ERR_CROSSPOST_CHAIN_EXCEEDS_MAX_DEPTH
+                });
+            });
+
+            it("createComment refuses to build a chain past the cap, before anything is published", async () => {
+                // The publish-side half of the cap: an author gets a local error instead of
+                // discovering the limit after burning a challenge.
+                const atCapRef = await asEmbeddableRecord(await buildChain(MAX_CROSSPOST_DEPTH));
+                await expect(signCrossposting(atCapRef)).rejects.toMatchObject({
+                    code: "ERR_CROSSPOST_CHAIN_EXCEEDS_MAX_DEPTH"
+                });
+            });
+
+            it("a broken signature at the bottom of a chain at the cap is still caught", async () => {
+                // The recursion has to reach the innermost crosspost. Rejecting over-deep chains must
+                // not turn into verifying only the first levels of a chain that is within the cap:
+                // a truncated walk would leave an unverified subtree in what gets stored and
+                // rendered, which is the hole #249 closed. If it ever short-circuits, this notices.
                 const broken = clone(crosspostRef);
-                broken.comment.content = "tampered at the bottom of a very deep chain";
+                broken.comment.content = "tampered at the bottom of a chain at the cap";
                 broken.cid = await calculateIpfsHash(deterministicStringify(broken.comment)!);
 
-                let ref = broken as { cid: string; comment: CommentIpfsType };
-                let deepest = await signCrossposting(ref);
-                for (let i = 0; i < 200; i++) {
-                    const signed = await signCrossposting(ref);
-                    if (byteLength(signed) > 40000) break;
-                    deepest = signed;
-                    const asRecord = { ...signed, depth: 0 } as unknown as CommentIpfsType; // comment.depth: a post
-                    ref = { cid: await calculateIpfsHash(deterministicStringify(asRecord)!), comment: asRecord };
-                }
-                expect(await verify(deepest)).to.deep.equal({
+                expect(await verify(await buildChain(MAX_CROSSPOST_DEPTH, broken))).to.deep.equal({
                     valid: false,
                     reason: messages.ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID
                 });

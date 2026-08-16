@@ -219,9 +219,10 @@ CommunityFeatures { // any boolean that changes the functionality of the communi
   requireAuthorFlairs?: boolean // force authors to choose an author flair before posting
   postFlairs?: boolean // authors can choose their own post flairs (otherwise only mods can)
   requirePostFlairs?: boolean // force authors to choose a post flair before posting
+  noCrossposts?: boolean // reject comments carrying a crosspost. Inbound only, it does not stop this community's comments being crossposted elsewhere
+  maxCrosspostDepth?: number // longest crosspost chain accepted, counted in embedded records (a plain crosspost is 1). Defaults to, and is clamped to, the protocol cap of 10
   // not implemented
   noPolls?: boolean
-  noCrossposts?: boolean
   markdownImageReplies?: boolean
   markdownVideoReplies?: boolean
 }

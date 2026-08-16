@@ -1,6 +1,7 @@
 import { ModQueuePageIpfsSchema, PageIpfsSchema } from "../pages/schema.js";
 import type { PageIpfs } from "../pages/types.js";
 import { PKCError } from "../pkc-error.js";
+import type { messages } from "../errors.js";
 import {
     CommentChallengeRequestToEncryptSchema,
     CommentIpfsSchema,
@@ -11,6 +12,12 @@ import {
     CreateCommentOptionsWithRefinementSchema
 } from "../publications/comment/schema.js";
 import type { CommentChallengeRequestToEncryptType, CommentIpfsType, CommentUpdateType } from "../publications/comment/types.js";
+import {
+    crosspostChainDepthUpTo,
+    deepestCrosspostChainInCommentUpdateUpTo,
+    deepestCrosspostChainInPageUpTo,
+    MAX_CROSSPOST_DEPTH
+} from "../publications/comment/crosspost-depth.js";
 import {
     DecryptedChallengeAnswerSchema,
     DecryptedChallengeSchema,
@@ -72,6 +79,38 @@ import {
     CommunityEditPubsubMessagePublicationSchema
 } from "../publications/community-edit/schema.js";
 
+// A crosspost chain must be rejected *before* the record reaches a recursive zod parse, not after.
+// At roughly 1000 levels the parse overflows the stack and throws a RangeError, which safeParse does
+// not convert into a ZodError, so a check placed after it would never run and the RangeError would
+// escape as itself. The walk below adds no stack frame per level and stops at the cap. Issue #250.
+function _throwIfCrosspostChainExceedsMaxDepth(record: unknown, details: Record<string, unknown>): void {
+    if (crosspostChainDepthUpTo(record) > MAX_CROSSPOST_DEPTH)
+        throw new PKCError("ERR_CROSSPOST_CHAIN_EXCEEDS_MAX_DEPTH", { ...details, maxCrosspostDepth: MAX_CROSSPOST_DEPTH });
+}
+
+function _throwIfPageCrosspostChainsExceedMaxDepth(pageJson: unknown, details: Record<string, unknown>): void {
+    if (deepestCrosspostChainInPageUpTo(pageJson) > MAX_CROSSPOST_DEPTH)
+        throw new PKCError("ERR_CROSSPOST_CHAIN_EXCEEDS_MAX_DEPTH", { ...details, maxCrosspostDepth: MAX_CROSSPOST_DEPTH });
+}
+
+// safeParse turns a ZodError into a PKCError, but zod's parse is itself recursive, and a record
+// nested deeply enough makes it throw a RangeError instead — which escapes safeParse as itself.
+// The depth guards above close the crosspost route into that, but reply pages nest too, so the
+// helpers below report any non-Zod throw as the schema error they already document rather than
+// letting it propagate raw out of getComment, Comment.update and page parsing. Issue #250.
+function _safeParseWithoutLettingNonZodThrowsEscape<Schema extends ZodType>(
+    schema: Schema,
+    json: unknown,
+    code: keyof typeof messages,
+    details: Record<string, unknown>
+): ReturnType<Schema["safeParse"]> {
+    try {
+        return schema.safeParse(json) as ReturnType<Schema["safeParse"]>;
+    } catch (e) {
+        throw new PKCError(code, { ...details, error: e });
+    }
+}
+
 export function parseJsonWithPKCErrorIfFails(x: string): any {
     try {
         return JSON.parse(x);
@@ -94,25 +133,51 @@ export function parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(
 }
 
 export function parseCommentIpfsSchemaWithPKCErrorIfItFails(commentIpfsJson: z.infer<typeof CommentIpfsSchema>): CommentIpfsType {
-    const parseRes = CommentIpfsSchema.loose().safeParse(commentIpfsJson);
+    _throwIfCrosspostChainExceedsMaxDepth(commentIpfsJson, { commentIpfsJson });
+    const parseRes = _safeParseWithoutLettingNonZodThrowsEscape(
+        CommentIpfsSchema.loose(),
+        commentIpfsJson,
+        "ERR_INVALID_COMMENT_IPFS_SCHEMA",
+        {
+            commentIpfsJson
+        }
+    );
     if (!parseRes.success) throw new PKCError("ERR_INVALID_COMMENT_IPFS_SCHEMA", { zodError: parseRes.error, commentIpfsJson });
     else return <CommentIpfsType>commentIpfsJson;
 }
 
 export function parseCommentUpdateSchemaWithPKCErrorIfItFails(commentUpdateJson: z.infer<typeof CommentUpdateSchema>): CommentUpdateType {
-    const parseRes = CommentUpdateSchema.loose().safeParse(commentUpdateJson);
+    // A CommentUpdate carries reply pages, so a chain can arrive nested inside one rather than on
+    // the comment itself, under the same 1MB fetch cap.
+    if (deepestCrosspostChainInCommentUpdateUpTo(commentUpdateJson) > MAX_CROSSPOST_DEPTH)
+        throw new PKCError("ERR_CROSSPOST_CHAIN_EXCEEDS_MAX_DEPTH", { commentUpdateJson, maxCrosspostDepth: MAX_CROSSPOST_DEPTH });
+    const parseRes = _safeParseWithoutLettingNonZodThrowsEscape(
+        CommentUpdateSchema.loose(),
+        commentUpdateJson,
+        "ERR_INVALID_COMMENT_UPDATE_SCHEMA",
+        { commentUpdateJson }
+    );
     if (!parseRes.success) throw new PKCError("ERR_INVALID_COMMENT_UPDATE_SCHEMA", { zodError: parseRes.error, commentUpdateJson });
     else return commentUpdateJson;
 }
 
 export function parsePageIpfsSchemaWithPKCErrorIfItFails(pageIpfsJson: z.infer<typeof PageIpfsSchema>): PageIpfs {
-    const parseRes = PageIpfsSchema.safeParse(pageIpfsJson);
+    _throwIfPageCrosspostChainsExceedMaxDepth(pageIpfsJson, { pageIpfsJson });
+    const parseRes = _safeParseWithoutLettingNonZodThrowsEscape(PageIpfsSchema, pageIpfsJson, "ERR_INVALID_PAGE_IPFS_SCHEMA", {
+        pageIpfsJson
+    });
     if (!parseRes.success) throw new PKCError("ERR_INVALID_PAGE_IPFS_SCHEMA", { zodError: parseRes.error, pageIpfsJson });
     else return pageIpfsJson;
 }
 
 export function parseModQueuePageIpfsSchemaWithPKCErrorIfItFails(modQueuePageIpfsJson: z.infer<typeof ModQueuePageIpfsSchema>) {
-    const parseRes = ModQueuePageIpfsSchema.safeParse(modQueuePageIpfsJson);
+    _throwIfPageCrosspostChainsExceedMaxDepth(modQueuePageIpfsJson, { modQueuePageIpfsJson });
+    const parseRes = _safeParseWithoutLettingNonZodThrowsEscape(
+        ModQueuePageIpfsSchema,
+        modQueuePageIpfsJson,
+        "ERR_INVALID_MODQUEUE_PAGE_IPFS_SCHEMA",
+        { modQueuePageIpfsJson }
+    );
     if (!parseRes.success) throw new PKCError("ERR_INVALID_MODQUEUE_PAGE_IPFS_SCHEMA", { zodError: parseRes.error, modQueuePageIpfsJson });
     else return modQueuePageIpfsJson;
 }
@@ -174,6 +239,9 @@ export function parseRpcCommentUpdateEventWithPKCErrorIfItFails(
 export function parseRpcCommentEventWithPKCErrorIfItFails(
     updateResult: z.input<typeof RpcCommentEventResultSchema>
 ): z.infer<typeof RpcCommentEventResultSchema> {
+    // The RPC server has already refused an over-deep chain on the way in, so this is defense in
+    // depth rather than the primary gate — but the client is the one that would blow its stack.
+    _throwIfCrosspostChainExceedsMaxDepth((updateResult as { comment?: unknown } | undefined)?.comment, { updateResult });
     const parseRes = RpcCommentEventResultSchema.safeParse(updateResult);
     if (!parseRes.success)
         throw new PKCError("ERR_INVALID_RPC_COMMENT_SCHEMA", {
@@ -442,7 +510,13 @@ export function parseCreateRpcCommunityFunctionArgumentSchemaWithPKCErrorIfItFai
 }
 
 export function parseCommentPubsubMessagePublicationWithPKCErrorIfItFails(args: z.infer<typeof CommentPubsubMessagePublicationSchema>) {
-    const parseRes = CommentPubsubMessageWithFlexibleAuthorRefinementSchema.safeParse(args);
+    _throwIfCrosspostChainExceedsMaxDepth(args, { args, type: "CommentPubsubMessagePublication" });
+    const parseRes = _safeParseWithoutLettingNonZodThrowsEscape(
+        CommentPubsubMessageWithFlexibleAuthorRefinementSchema,
+        args,
+        "ERR_INVALID_CREATE_COMMENT_ARGS_SCHEMA",
+        { args, type: "CommentPubsubMessagePublication" }
+    );
     if (!parseRes.success)
         throw new PKCError("ERR_INVALID_CREATE_COMMENT_ARGS_SCHEMA", {
             zodError: parseRes.error,
@@ -453,6 +527,9 @@ export function parseCommentPubsubMessagePublicationWithPKCErrorIfItFails(args: 
 }
 
 export function parseCreateCommentOptionsSchemaWithPKCErrorIfItFails(args: z.infer<typeof CreateCommentOptionsSchema>) {
+    // On the publish side too, so an author building a chain too deep for any client to load finds
+    // out locally instead of after burning a challenge.
+    _throwIfCrosspostChainExceedsMaxDepth(args, { args, type: "CreateCommentOptions" });
     const parseRes = CreateCommentOptionsWithRefinementSchema.safeParse(args);
     if (!parseRes.success)
         throw new PKCError("ERR_INVALID_CREATE_COMMENT_ARGS_SCHEMA", {

@@ -178,43 +178,104 @@ referenced community at acceptance time, so publication acceptance never depends
 uptime.
 
 `features.noCrossposts` rejects the publication outright with
-`ERR_NOT_ALLOWED_TO_PUBLISH_CROSSPOSTS`. It is an **inbound** rule: it governs what this community
-accepts, not what other communities may do with this community's comments.
+`ERR_NOT_ALLOWED_TO_PUBLISH_CROSSPOSTS`, and `features.maxCrosspostDepth` caps how deep a chain it
+will take (see Chains below). Both are **inbound** rules: they govern what this community accepts,
+not what other communities may do with this community's comments.
 
 Crossposting a comment that belongs to the host community itself **is allowed**. It is not treated
 as a community mismatch.
 
 ## Chains
 
-Crossposting a crosspost nests records, and verification recurses through every level. There is
-currently **no depth cap**: the 40kb publication limit bounds what can be published, and each level
-of nesting eats the budget for the next, so long chains cannot enter through a community's
-challenge exchange.
+Crossposting a crosspost nests records, and verification recurses through every level. Depth is
+counted in embedded records: a comment carrying no crosspost is 0, a plain crosspost is 1, a
+crosspost of a crosspost is 2.
 
-### Open question: depth on the client ingest paths
+### The protocol cap
 
-Whether that stays the design is open, tracked in issue #250. The 40kb bound holds only for
-publication. Every client path that ingests a `CommentIpfs` (fetching a comment by cid, loading a
-page) allows 1MB, and a deep chain is cheap to mint. It does not even need signatures that verify:
-the zod parse runs before any signature check, so a chain of well-formed records with garbage
-signatures reaches the recursive parse regardless. And a chain that does verify at every level is
-no harder to build, since an attacker signing each level with their own key passes all four tier-1
-checks. Measured at that size:
+`MAX_CROSSPOST_DEPTH` in `src/publications/comment/crosspost-depth.ts` is **10**, and every client
+enforces it on every path that ingests a record. A deeper chain is rejected with
+`ERR_CROSSPOST_CHAIN_EXCEEDS_MAX_DEPTH`.
 
-- At roughly 1000 levels, comfortably under the 1MB cap, zod's recursive parse overflows the stack,
-  and the `RangeError` escapes raw from `pkc.getComment`, `Comment.update()` and page parsing
-  rather than as a `PKCError`. The overflow depth is engine and stack dependent, so it is not a
-  clean rejection boundary: the same record can parse on one client and throw on another.
-- `_verifyCrosspost` stringifies and hashes the entire remaining subtree at every level, so
-  verifying a chain costs O(levels × total bytes) rather than O(total bytes). Invisible at 40kb,
-  roughly 600x more work at 1MB, per distinct record.
+The cap exists because the 40kb publication limit only bounds the publish path. Every client path
+that ingests a `CommentIpfs` (fetching a comment by cid, loading a page) allows 1MB, and a deep
+chain is cheap to mint. It does not even need signatures that verify: the zod parse runs before any
+signature check, so a chain of well-formed records with garbage signatures reaches the recursive
+parse regardless. And a chain that does verify at every level is no harder to build, since an
+attacker signing each level with their own key passes all four tier-1 checks. Left uncapped, at
+roughly 1000 levels (comfortably under the 1MB cap) zod's recursive parse overflows the stack, at a
+depth that varies by engine, so the same record parses on one client and throws on another.
 
-The decision is between keeping no cap while making deep chains deterministic to reject and linear
-to verify, or capping depth explicitly and updating this section. Catching non-zod throws in the
-parse helpers, so a malformed record fails as `ERR_INVALID_COMMENT_IPFS_SCHEMA` instead of a
-`RangeError`, is needed under either outcome.
+Two properties make the rejection sound:
 
-For prior art, see the issue: mainstream feed apps (Reddit, Twitter/X, Bluesky, Mastodon) all
+- **It runs before the recursive parse, not after.** `crosspostChainDepthUpTo` walks the chain
+  iteratively on raw JSON and stops counting at the cap, so it adds no stack frame per level and a
+  100k-level chain costs no more than a capped one. A check placed after the parse would never be
+  reached, since `safeParse` converts a `ZodError` but lets a `RangeError` escape as itself.
+- **It rejects, it does not truncate.** Verifying only the first 10 levels of a deeper chain would
+  leave an unverified subtree in what gets stored and rendered, which is exactly the hole #249
+  closed. `verifyCommentPubsubMessage` checks depth before `_verifyCrosspost` runs, so an over-deep
+  record is refused without paying for a single hash of it.
+
+Enforced in `parseCommentIpfsSchemaWithPKCErrorIfItFails`, `parsePageIpfsSchemaWithPKCErrorIfItFails`
+(including the reply pages nested in each comment's `CommentUpdate`),
+`parseModQueuePageIpfsSchemaWithPKCErrorIfItFails`,
+`parseCommentPubsubMessagePublicationWithPKCErrorIfItFails`, and
+`parseCreateCommentOptionsSchemaWithPKCErrorIfItFails` so an author finds out locally rather than
+after burning a challenge.
+
+The parse helpers additionally convert any non-zod throw into their documented schema error, so a
+record that overflows the stack through some other nesting fails as `ERR_INVALID_COMMENT_IPFS_SCHEMA`
+rather than as a raw `RangeError`.
+
+Under the cap, the cost `_verifyCrosspost` pays for re-stringifying the remaining subtree at every
+level is bounded at 10x, so no further work is needed there. Issue #250.
+
+Three deliberate non-choices, recorded so they read as decisions rather than oversights:
+
+- **The cap bounds levels, not bytes.** There is no budget on the total size of an embedded chain.
+  Bytes are already bounded at 1MB by the fetch cap, so the worst case is 10 passes over 1MB, which
+  is a bounded cost rather than an attack. A second number would add nothing.
+- **It is a constant, not a `PKCUserOptions` field.** The whole point of the cap is that rejection is
+  deterministic across clients. A per-instance knob would reintroduce the "same record parses on one
+  client and throws on another" problem that the engine-dependent stack overflow had. Changing the
+  number is a protocol change.
+- **Acceptance is the only gate; the serve path trusts the database.** A community rebuilds records
+  from its own rows via `deriveCommentIpfsFromCommentTableRow`, which does not run a guarded parse,
+  so page generation never re-checks depth. It is safe by construction rather than by check, since
+  nothing above the cap can be accepted in the first place. That construction would break if the
+  protocol cap were ever *lowered*, or if records entered the database by some route other than
+  acceptance, and a check on page generation would cost a walk per comment per build on the
+  community's hot loop.
+
+### `features.maxCrosspostDepth`
+
+A community may tighten the cap for what it accepts:
+
+```ts
+await community.edit({ features: { maxCrosspostDepth: 1 } });
+```
+
+It is on `features` rather than `settings` deliberately: `features` is part of the published
+`CommunityIpfs`, so a publishing client can refuse locally instead of the author discovering the
+limit only when the challenge exchange rejects it. `settings` never reaches the wire.
+
+It can only tighten. `effectiveMaxCrosspostDepth` clamps the value to `MAX_CROSSPOST_DEPTH`, so a
+community that sets 50 still accepts at most 10. Allowing it upward would let a community accept
+comments no client will load. Absent means the protocol cap. Rejection at acceptance is
+`ERR_CROSSPOST_CHAIN_EXCEEDS_COMMUNITY_MAX_DEPTH`, distinct from the protocol-level error above
+because it is a community policy rather than a malformed record.
+
+`maxCrosspostDepth: 0` is equivalent to `noCrossposts`, so the two are redundant encodings of one
+policy and can be set to contradict each other. `noCrossposts` is checked first and therefore takes
+precedence: `{ noCrossposts: true, maxCrosspostDepth: 5 }` rejects every crosspost with
+`ERR_NOT_ALLOWED_TO_PUBLISH_CROSSPOSTS`. Both spellings are kept rather than forbidding `0`, since
+`0` falls out of the arithmetic for free and a client reading either field gets the right answer.
+
+The schema deliberately does not bound the value, so a larger number arriving from a future protocol
+version does not fail the whole community record.
+
+For prior art, see issue #250: mainstream feed apps (Reddit, Twitter/X, Bluesky, Mastodon) all
 store a reference rather than embedding, render exactly one embed level, and Reddit flattens a
 crosspost of a crosspost to the original, a behavior our wire format can express today by
 embedding the chain's innermost record verbatim.

@@ -65,6 +65,7 @@ import {
     CommentUpdateSignedPropertyNames
 } from "../publications/comment/schema.js";
 import type { Crosspost } from "../publications/comment/schema.js";
+import { crosspostChainDepthUpTo, MAX_CROSSPOST_DEPTH } from "../publications/comment/crosspost-depth.js";
 import type { ModQueuePageIpfs, PageIpfs } from "../pages/types.js";
 import { CommunityIpfsReservedFields, CommunitySignedPropertyNames } from "../community/schema.js";
 import {
@@ -522,9 +523,10 @@ export async function verifyCommentModeration({
 // accepted the comment at all — establishing either requires loading the CommentUpdate for
 // crosspost.cid from that community, which clients do on demand. See docs/protocol/crossposts.md.
 //
-// Recursive: a crosspost of a crosspost verifies at every level. There is deliberately no depth cap
-// — the 40kb publication limit bounds what can be published, and each level of nesting eats the
-// budget for the next.
+// Recursive: a crosspost of a crosspost verifies at every level, and the chain is capped at
+// MAX_CROSSPOST_DEPTH by the caller. The cap rejects an over-deep chain outright rather than
+// verifying only its first levels: truncating would leave an unverified subtree in what gets stored
+// and rendered, which is the hole issue #249 closed. See docs/protocol/crossposts.md.
 async function _verifyCrosspost({
     crosspost,
     resolveAuthorNames,
@@ -609,6 +611,11 @@ export async function verifyCommentPubsubMessage({
     // community's acceptance path (which validates a CommentPubsubMessage) and every client fetch
     // path (verifyCommentIpfs delegates here).
     if (comment.crosspost) {
+        // Before _verifyCrosspost, which hashes the whole remaining subtree at every level. One
+        // iterative walk here covers the entire chain, so an over-deep record is rejected without
+        // paying for a single hash of it.
+        if (crosspostChainDepthUpTo(comment) > MAX_CROSSPOST_DEPTH)
+            return { valid: false, reason: messages.ERR_CROSSPOST_CHAIN_EXCEEDS_MAX_DEPTH };
         const crosspostValidation = await _verifyCrosspost({
             crosspost: comment.crosspost,
             resolveAuthorNames,

@@ -189,10 +189,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it("nesting eats the content budget: a large embedded record leaves less room", async () => {
-                // There is no depth cap. The 40kb publication limit is the only bound, and because
-                // the embedded record is carried whole, each level of nesting consumes the budget
-                // available to the next. A ~20kb post is publishable on its own; crossposting it and
-                // adding another ~25kb of content is not.
+                // Depth is capped at MAX_CROSSPOST_DEPTH (#250), but size binds long before that:
+                // because the embedded record is carried whole, each level of nesting consumes the
+                // 40kb budget available to the next. A ~20kb post is publishable on its own;
+                // crossposting it and adding another ~25kb of content is not.
                 const large = await generateMockPost({ communityAddress, pkc, postProps: { content: "x".repeat(20000) } });
                 await publishWithExpectedResult({ publication: large, expectedChallengeSuccess: true });
 

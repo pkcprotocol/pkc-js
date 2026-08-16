@@ -21,7 +21,8 @@ import type { Crosspost } from "./schema.js";
 import type { CrosspostRuntime } from "./types.js";
 
 // Walks the chain into an array, outermost first. Iterative rather than recursive: chain depth is
-// attacker-controlled and unbounded (issue #250), so nothing here should add stack frames per level.
+// attacker-controlled, and while verified records are capped at MAX_CROSSPOST_DEPTH (issue #250),
+// nothing here should depend on that cap having already been enforced.
 function _chainOf<T extends { comment: { crosspost?: T } }>(crosspost: T): T[] {
     const chain: T[] = [];
     for (let level: T | undefined = crosspost; level; level = level.comment.crosspost) chain.push(level);
@@ -47,8 +48,9 @@ export function cloneCrosspostForRuntime(crosspost: Crosspost): CrosspostRuntime
 // The authors this comment should trigger background name resolution for.
 //
 // Only the first level by default. A chain is attacker-controlled in both depth and content
-// (#250, #249), so resolving every level turns one fetched comment into an unbounded number of name
-// resolutions per client. Deeper levels still pick up a cached verdict for free in
+// (#250, #249), so resolving every level multiplies the name resolutions one fetched comment costs
+// by up to MAX_CROSSPOST_DEPTH, and again by every comment in a page. Deeper levels still pick up a
+// cached verdict for free in
 // applyNameResolvedCacheToCrosspost, they just do not get a resolution triggered on their behalf.
 export const CROSSPOST_LEVELS_TO_RESOLVE_AUTHOR_NAMES_FOR = 1;
 
