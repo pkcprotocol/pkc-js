@@ -115,6 +115,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
         pubsubTopic?: CommunityIpfsType["pubsubTopic"];
     } = undefined; // will be used for publishing
     _publishingToLocalCommunity?: LocalCommunity;
+    // In-flight stale-cache community refresh fired by _fetchCommunityForPublishing. Deliberately
+    // not awaited by the publish path, so stop() drains it (issue #270).
+    _backgroundCommunityRefresh?: Promise<unknown>;
 
     _challengeExchanges: Record<
         string, // challengeRequestId stringified
@@ -764,9 +767,15 @@ class Publication extends TypedEmitter<PublicationEvents> {
             // cache.has will return false if the item is stale
             if (!this._pkc._memCaches.communityForPublishing.has(this.communityAddress)) {
                 log("The cache of community is stale, we will use the cached and update in the background");
-                this._pkc
+                // Held on the publication so stop() can drain it. Without that the refresh outlives
+                // the PKC and goes on creating community instances after teardown (issue #270).
+                const refresh = this._pkc
                     .getCommunity({ publicKey: this.communityPublicKey, name: this.communityName })
-                    .catch((e) => log.error("Failed to update cache of community", this.communityAddress, e));
+                    .catch((e) => log.error("Failed to update cache of community", this.communityAddress, e))
+                    .finally(() => {
+                        if (this._backgroundCommunityRefresh === refresh) this._backgroundCommunityRefresh = undefined;
+                    });
+                this._backgroundCommunityRefresh = refresh;
             }
             return cachedCommunity;
         } else return this._clientsManager.fetchCommunityForPublishingWithCacheGuard();
@@ -774,6 +783,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
     async stop() {
         await this._postSucessOrFailurePublishing();
+        // Stopping the publication does not cancel a refresh that is already in flight, so wait it
+        // out. On the pkc.destroy() path the destroy abort has already fired, so this unwinds fast.
+        if (this._backgroundCommunityRefresh) await this._backgroundCommunityRefresh;
         this._updatePublishingStateWithEmission("stopped");
     }
 
@@ -792,8 +804,19 @@ class Publication extends TypedEmitter<PublicationEvents> {
         });
     }
 
+    // A refresh fired at the start of publish can outlive the exchange it was fired from:
+    // getCommunity() on a remote community waits for an IPNS update, while a local challenge
+    // exchange finishes in milliseconds. Stay registered until it settles, otherwise the publish
+    // ends, we unregister, and pkc.destroy() has nothing left to drain the refresh through.
+    private _unregisterFromPkcOncePublishWorkSettles() {
+        const refresh = this._backgroundCommunityRefresh;
+        if (refresh) void refresh.finally(() => this._pkc._publishingPublications.delete(this));
+        else this._pkc._publishingPublications.delete(this);
+    }
+
     private async _postSucessOrFailurePublishing() {
         const log = Logger("pkc-js:publication:_postSucessOrFailurePublishing");
+        this._unregisterFromPkcOncePublishWorkSettles();
         this._setStateWithEmission("stopped");
         if (this._rpcPublishSubscriptionId) {
             try {
@@ -1233,6 +1256,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
     async publish() {
         const log = Logger("pkc-js:publication:publish");
         this._validatePublicationFields();
+        // Track before the first await so pkc.destroy() can stop us no matter how far the exchange
+        // has progressed. Untracked in _postSucessOrFailurePublishing, the single exit funnel.
+        this._pkc._publishingPublications.add(this);
         this._setStateWithEmission("publishing");
 
         // Fetch community for BOTH RPC and non-RPC paths (needed for signing)
