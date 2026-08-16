@@ -7,31 +7,109 @@
 // ordinary comments carrying `comment.crosspost` from #32. If any of those seams stop composing, these
 // tests fail even though nothing named "author community" exists in src/.
 //
+// These run under RPC too. The owner's role is matched against a domain in one case, and name
+// resolution happens wherever the community lives, so under RPC this file stands up its own RPC server
+// with the mock resolver on the SERVER pkc. Pointing at the shared test server instead would leave the
+// server unable to resolve a domain minted in this process, which would look like a role mismatch.
+//
 // Naming follows docs/protocol/delegated-ipns.md: An/As = anchor keypair (the author's identity, held
 // by the owner), Mn/Ms = minter keypair (held by the node).
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
+import path from "path";
+import net from "node:net";
+import PKC from "../../../dist/node/index.js";
+import PKCWsServer from "../../../dist/node/rpc/src/index.js";
 import {
     createMockNameResolver,
     createSubWithNoChallenge,
     generateMockComment,
     generateMockPost,
+    isRpcFlagOn,
     mockPKC,
+    mockRpcServerForTests,
+    mockRpcServerPKC,
     publishRandomPost,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
-import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
-import { createAnchorIpnsRecord } from "../../../dist/node/signer/index.js";
-import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import { createAnchorIpnsRecord, createSigner } from "../../../dist/node/signer/index.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/comment/types.js";
 import type { CommunityChallengeSetting } from "../../../dist/node/community/types.js";
 import type { SignerType } from "../../../dist/node/signer/types.js";
 import type { DecryptedChallengeVerificationMessageType } from "../../../dist/node/pubsub-messages/types.js";
 
+type PKCWsServerType = Awaited<ReturnType<typeof PKCWsServer.PKCWsServer>>;
+type ProfileCommunity = LocalCommunity | RpcLocalCommunity;
+
 const OWNER_DOMAIN = "author-community-owner.bso";
+// A second domain rather than re-pointing the first: checkAuthorIdentity resolves with a 30 minute
+// cache, so a domain that has already resolved once in this process keeps its old address and the
+// publication would be rejected for a signer mismatch instead of by the challenge under test.
+const OTHER_OWNER_DOMAIN = "author-community-other-owner.bso";
 const OWNER_ONLY_ERROR = "Only the owner can post to this profile.";
+const RPC_AUTH_KEY = "test-author-community";
+
+const getAvailablePort = async (startPort = 39880): Promise<number> => {
+    for (let port = startPort; port < startPort + 100; port++) {
+        try {
+            return await new Promise<number>((resolve, reject) => {
+                const server = net.createServer();
+                server.unref();
+                server.on("error", reject);
+                server.listen(port, () => {
+                    server.close(() => resolve(port));
+                });
+            });
+        } catch {
+            continue;
+        }
+    }
+    throw new Error(`No available port found in range ${startPort}-${startPort + 99}`);
+};
+
+// The resolver reads this map at resolve time, so entries can be added after the pkc is built. Under
+// RPC the server pkc is in this same process, so it shares the map by reference.
+const resolverRecords = new Map<string, string>();
+
+// A pkc whose community-hosting side can resolve OWNER_DOMAIN, under either config.
+async function createHarness(): Promise<{ pkc: PKCType; teardown: () => Promise<void> }> {
+    const nameResolvers = [createMockNameResolver({ records: resolverRecords, includeDefaultRecords: true })];
+    if (!isRpcFlagOn()) {
+        const pkc = await mockPKC({ nameResolvers });
+        return { pkc, teardown: async () => await pkc.destroy() };
+    }
+
+    const serverPKC = await mockRpcServerPKC({
+        dataPath: path.join(process.cwd(), ".tmp", "pkc-rpc-author-community"),
+        nameResolvers
+    });
+    const rpcPort = await getAvailablePort();
+    const rpcUrl = `ws://localhost:${rpcPort}`;
+    const rpcServer: PKCWsServerType = await PKCWsServer.PKCWsServer({
+        port: rpcPort,
+        authKey: RPC_AUTH_KEY,
+        pkcOptions: {
+            kuboRpcClientsOptions: ["http://localhost:15001/api/v0"],
+            httpRoutersOptions: [],
+            dataPath: serverPKC.dataPath
+        }
+    });
+    (rpcServer as unknown as Record<string, Function>)._initPKC(serverPKC);
+    mockRpcServerForTests(rpcServer);
+
+    const pkc = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+    return {
+        pkc,
+        teardown: async () => {
+            await pkc.destroy();
+            await rpcServer.destroy();
+        }
+    };
+}
 
 // The two excludes that express "the owner posts, anyone may reply". An exclude array matches if ANY
 // item matches, and an item matches only if ALL of its conditions hold, so the `fail` challenge runs
@@ -58,23 +136,29 @@ async function publishAndCaptureVerification(publication: Comment): Promise<Decr
     return verification;
 }
 
-// Skipped under RPC: the community runs on the RPC server, which has its own PKC and therefore not the
-// mock name resolver constructed here, so checkAuthorIdentity on the server cannot resolve the owner's
-// domain and the domain-keyed role case would fail for an unrelated reason. The RPC dimension of
-// delegation setup is covered by test/node/community/delegation-setup.test.ts.
-describeSkipIfRpc.sequential("author community: a community configured as a profile", () => {
-    let pkc: PKC;
-    let anchorSigner: SignerType; // As stays in the test; the node never receives it
-    let community: LocalCommunity;
+// A delegated community refuses to start until its anchor record is published (#234). The first record
+// is signed at sequence 0, since there is no prior sequence to discover.
+async function startProfile(community: ProfileCommunity, anchorSigner: SignerType) {
+    await community.publishAnchorRecord(
+        await createAnchorIpnsRecord({ anchorSigner, minterIpnsName: community.signer.address, sequence: 0 })
+    );
+    await community.start();
+    await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+}
+
+describe.sequential("author community: a community configured as a profile", () => {
+    let pkc: PKCType;
+    let teardown: () => Promise<void>;
+    let anchorSigner: SignerType; // As is generated wherever the owner is, never on the node
+    let community: ProfileCommunity;
     let minterAddress: string;
-    const resolverRecords = new Map<string, string>();
 
     beforeAll(async () => {
-        pkc = await mockPKC({ nameResolvers: [createMockNameResolver({ records: resolverRecords })] });
-        anchorSigner = await pkc.createSigner();
+        ({ pkc, teardown } = await createHarness());
+        anchorSigner = await createSigner();
         resolverRecords.set(OWNER_DOMAIN, anchorSigner.address);
 
-        community = <LocalCommunity>await createSubWithNoChallenge({ anchor: { publicKey: anchorSigner.address } }, pkc);
+        community = await createSubWithNoChallenge({ anchor: { publicKey: anchorSigner.address } }, pkc);
         minterAddress = community.signer.address;
 
         // Both roles keys, because exclude.role matches community.roles[author.address] and
@@ -83,20 +167,22 @@ describeSkipIfRpc.sequential("author community: a community configured as a prof
             roles: { [anchorSigner.address]: { role: "owner" }, [OWNER_DOMAIN]: { role: "owner" } },
             settings: { ...community.settings, challenges: [ownerOnlyPostingChallenge()] }
         });
-
-        // A delegated community refuses to start until its anchor record is published (#234). The first
-        // record is signed at sequence 0, since there is no prior sequence to discover.
-        await community.publishAnchorRecord(await createAnchorIpnsRecord({ anchorSigner, minterIpnsName: minterAddress, sequence: 0 }));
-        await community.start();
-        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        await startProfile(community, anchorSigner);
     });
 
     afterAll(async () => {
         await community.delete();
-        await pkc.destroy();
+        await teardown();
     });
 
     describe("identity is the author's key", () => {
+        // Guards the harness rather than the feature. Under RPC the community has to live on the server
+        // this file stood up, or the suite would quietly be re-running the non-RPC path and the domain
+        // case would prove nothing about resolution happening where the community is.
+        it("exercises the configuration under test", () => {
+            expect(Boolean(pkc._pkcRpcClient)).to.equal(isRpcFlagOn());
+        });
+
         it("is addressed by the anchor, not by the minter that signs its record", () => {
             expect(community.address).to.equal(anchorSigner.address);
             expect(community.publicKey).to.equal(anchorSigner.address);
@@ -173,11 +259,11 @@ describeSkipIfRpc.sequential("author community: a community configured as a prof
     });
 
     describe("the feed is the owner's crossposts", () => {
-        let originCommunity: LocalCommunity;
+        let originCommunity: ProfileCommunity;
         let crosspostingPost: Comment;
 
         beforeAll(async () => {
-            originCommunity = <LocalCommunity>await createSubWithNoChallenge({}, pkc);
+            originCommunity = await createSubWithNoChallenge({}, pkc);
             await originCommunity.start();
             await resolveWhenConditionIsTrue({
                 toUpdate: originCommunity,
@@ -224,53 +310,51 @@ describeSkipIfRpc.sequential("author community: a community configured as a prof
             expect(pageComment!.crosspost?.cid).to.equal(crosspostingPost.raw.comment!.crosspost!.cid);
         });
     });
-});
 
-// The failure mode the protocol doc warns about: the excludes are configured, the roles map exists, but
-// it is keyed on a form the owner does not publish under. Everything looks correct until the first post.
-describeSkipIfRpc.sequential("author community: a roles map keyed on the wrong form locks the owner out", () => {
-    let pkc: PKC;
-    let anchorSigner: SignerType;
-    let community: LocalCommunity;
-    const resolverRecords = new Map<string, string>();
+    // The failure mode the protocol doc warns about: the excludes are configured and the roles map
+    // exists, but it is keyed on a form the owner does not publish under. Everything looks correct until
+    // the first post. This block is also what proves the challenge is genuinely wired up, since it is
+    // the one rejection that has to happen for the acceptance tests above to mean anything.
+    describe("a roles map keyed on the wrong form locks the owner out", () => {
+        let peerIdOnlyCommunity: ProfileCommunity;
+        let otherAnchor: SignerType;
 
-    beforeAll(async () => {
-        pkc = await mockPKC({ nameResolvers: [createMockNameResolver({ records: resolverRecords })] });
-        anchorSigner = await pkc.createSigner();
-        resolverRecords.set(OWNER_DOMAIN, anchorSigner.address);
+        beforeAll(async () => {
+            otherAnchor = await createSigner();
+            resolverRecords.set(OTHER_OWNER_DOMAIN, otherAnchor.address);
 
-        community = <LocalCommunity>await createSubWithNoChallenge({ anchor: { publicKey: anchorSigner.address } }, pkc);
-        // Only the peer-id key. exclude.role does a bare map lookup with no name resolution, unlike
-        // isPublicationAuthorPartOfRoles, so publishing under a domain misses this entirely.
-        await community.edit({
-            roles: { [anchorSigner.address]: { role: "owner" } },
-            settings: { ...community.settings, challenges: [ownerOnlyPostingChallenge()] }
+            peerIdOnlyCommunity = await createSubWithNoChallenge({ anchor: { publicKey: otherAnchor.address } }, pkc);
+            // Only the peer-id key. exclude.role does a bare map lookup with no name resolution, unlike
+            // isPublicationAuthorPartOfRoles, so publishing under a domain misses this entirely.
+            await peerIdOnlyCommunity.edit({
+                roles: { [otherAnchor.address]: { role: "owner" } },
+                settings: { ...peerIdOnlyCommunity.settings, challenges: [ownerOnlyPostingChallenge()] }
+            });
+            await startProfile(peerIdOnlyCommunity, otherAnchor);
         });
-        await community.publishAnchorRecord(
-            await createAnchorIpnsRecord({ anchorSigner, minterIpnsName: community.signer.address, sequence: 0 })
-        );
-        await community.start();
-        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
-    });
 
-    afterAll(async () => {
-        await community.delete();
-        await pkc.destroy();
-    });
-
-    it("rejects the owner's own post when they publish under a domain the roles map does not carry", async () => {
-        const post = await generateMockPost({
-            communityAddress: community.address,
-            pkc,
-            postProps: { signer: anchorSigner, author: { name: OWNER_DOMAIN } }
+        afterAll(async () => {
+            await peerIdOnlyCommunity.delete();
         });
-        const verification = await publishAndCaptureVerification(post);
-        expect(verification.challengeSuccess).to.be.false;
-        expect(verification.challengeErrors?.["0"]).to.equal(OWNER_ONLY_ERROR);
-    });
 
-    it("accepts the same owner publishing without a name, which matches the peer-id key", async () => {
-        const post = await generateMockPost({ communityAddress: community.address, pkc, postProps: { signer: anchorSigner } });
-        await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+        it("rejects the owner's own post when they publish under a domain the roles map does not carry", async () => {
+            const post = await generateMockPost({
+                communityAddress: peerIdOnlyCommunity.address,
+                pkc,
+                postProps: { signer: otherAnchor, author: { name: OTHER_OWNER_DOMAIN } }
+            });
+            const verification = await publishAndCaptureVerification(post);
+            expect(verification.challengeSuccess).to.be.false;
+            expect(verification.challengeErrors?.["0"]).to.equal(OWNER_ONLY_ERROR);
+        });
+
+        it("accepts the same owner publishing without a name, which matches the peer-id key", async () => {
+            const post = await generateMockPost({
+                communityAddress: peerIdOnlyCommunity.address,
+                pkc,
+                postProps: { signer: otherAnchor }
+            });
+            await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+        });
     });
 });
