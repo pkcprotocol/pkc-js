@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.82](https://github.com/pkcprotocol/pkc-js/compare/v0.0.81...v0.0.82) (2026-08-17)
+
+### Features
+
+* **crosspost:** embed the reposted comment in comment.crosspost ([#32](https://github.com/pkcprotocol/pkc-js/issues/32)) ([#248](https://github.com/pkcprotocol/pkc-js/issues/248)) ([8d7cd4c](https://github.com/pkcprotocol/pkc-js/commit/8d7cd4c9a1fc3fbc29bc374d09113e4631e7580f)), closes [#249](https://github.com/pkcprotocol/pkc-js/issues/249) [#249](https://github.com/pkcprotocol/pkc-js/issues/249) [#251](https://github.com/pkcprotocol/pkc-js/issues/251) [#254](https://github.com/pkcprotocol/pkc-js/issues/254) [#249](https://github.com/pkcprotocol/pkc-js/issues/249) [#249](https://github.com/pkcprotocol/pkc-js/issues/249) [#250](https://github.com/pkcprotocol/pkc-js/issues/250) [#255](https://github.com/pkcprotocol/pkc-js/issues/255) [#249](https://github.com/pkcprotocol/pkc-js/issues/249) [#250](https://github.com/pkcprotocol/pkc-js/issues/250) [#249](https://github.com/pkcprotocol/pkc-js/issues/249) [#251](https://github.com/pkcprotocol/pkc-js/issues/251) [#250](https://github.com/pkcprotocol/pkc-js/issues/250) [#251](https://github.com/pkcprotocol/pkc-js/issues/251) [#251](https://github.com/pkcprotocol/pkc-js/issues/251) [#250](https://github.com/pkcprotocol/pkc-js/issues/250)
+
+### Bug Fixes
+
+* **pkc:** stop in-flight publications in destroy() and drain their background community refresh ([#271](https://github.com/pkcprotocol/pkc-js/issues/271)) ([ddd8bfe](https://github.com/pkcprotocol/pkc-js/commit/ddd8bfedc93d67446b67f665b06dfc9a991861af)), closes [#270](https://github.com/pkcprotocol/pkc-js/issues/270)
+
 ## [0.0.81](https://github.com/pkcprotocol/pkc-js/compare/v0.0.80...v0.0.81) (2026-08-13)
 
 ### Bug Fixes
