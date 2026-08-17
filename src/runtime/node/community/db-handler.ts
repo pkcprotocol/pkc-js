@@ -90,11 +90,13 @@ export class DbHandler {
     private _dbConfig!: { filename: string } & Database.Options;
     private _keyv!: KeyvBetterSqlite3;
     private _createdTables: boolean;
+    private _columnNamesByTable: Record<string, string[]>;
 
     constructor(community: DbHandler["_community"]) {
         this._community = community;
         this._transactionDepth = 0;
         this._createdTables = false;
+        this._columnNamesByTable = {};
         hideClassPrivateProps(this);
     }
 
@@ -168,6 +170,7 @@ export class DbHandler {
         await this.initDbConfigIfNeeded();
         const dbFilePath = this._dbConfig.filename;
         if (!this._db || !this._db.open) {
+            this._columnNamesByTable = {}; // a reopened file may have been migrated by another process
             this._db = new Database(dbFilePath, { ...this._dbConfig, ...dbConfigOptions });
             if (!this._db.readonly) {
                 this._db.pragma("journal_mode = WAL");
@@ -497,6 +500,7 @@ export class DbHandler {
             this._db.exec(`DROP TABLE IF EXISTS ${TABLES.COMMENT_UPDATES}`);
         }
 
+        this._columnNamesByTable = {}; // the loop below rewrites every table's schema
         const createTableFunctions = [
             this._createCommentsTable.bind(this),
             this._createCommentUpdatesTable.bind(this),
@@ -581,6 +585,7 @@ export class DbHandler {
         const newDbVersion = this.getDbVersion();
         assert.equal(newDbVersion, env.DB_VERSION);
         this._createdTables = true;
+        this._columnNamesByTable = {}; // every table now carries the latest schema
         if (needToMigrate)
             log(`Created/migrated the tables to the latest (${newDbVersion}) version and saved to path`, this._dbConfig.filename);
         if (backupDbPath) await fs.promises.rm(backupDbPath);
@@ -723,6 +728,19 @@ export class DbHandler {
     private _getColumnNames(tableName: string): string[] {
         const results = this._db.pragma(`table_info(${tableName})`) as { name: string }[];
         return results.map((col) => col.name);
+    }
+
+    // Query column lists are derived from the zod schemas, which describe the *code's* view of a
+    // record. A DB that has not been migrated yet is one or more columns behind that view, and
+    // createCommunity() reads the DB (resolveDbPostsCidRefs) before start() gets the chance to
+    // migrate it — selecting a column the table does not have throws and the community can never be
+    // loaded, let alone migrated (issue #273). Intersecting with the table's real columns keeps such
+    // a DB readable; the fields left out are optional on the wire and the migration in start()
+    // backfills the schema immediately after.
+    private _existingColumns(tableName: string, columns: string[]): string[] {
+        if (!this._columnNamesByTable[tableName]) this._columnNamesByTable[tableName] = this._getColumnNames(tableName);
+        const existing = this._columnNamesByTable[tableName];
+        return columns.filter((column) => existing.includes(column));
     }
 
     private async _copyTable(srcTable: string, dstTable: string, currentDbVersion: number) {
@@ -1451,8 +1469,8 @@ export class DbHandler {
     resolveRepliesCidRefsForEntries(entries: PageIpfs["comments"]): PageIpfs["comments"] {
         // For entries whose replies are in CID-ref format, resolve them by fetching descendants.
         // Collects all root CIDs from all entries, runs a single recursive query, then distributes results.
-        const commentUpdateCols = keys(CommentUpdateSchema.shape);
-        const commentIpfsCols = [...keys(CommentIpfsSchema.shape), "extraProps"];
+        const commentUpdateCols = this._existingColumns(TABLES.COMMENT_UPDATES, keys(CommentUpdateSchema.shape));
+        const commentIpfsCols = this._existingColumns(TABLES.COMMENTS, [...keys(CommentIpfsSchema.shape), "extraProps"]);
 
         // Gather all CIDs from CID-ref replies across all entries
         const allCids: string[] = [];
@@ -1611,8 +1629,12 @@ export class DbHandler {
     ): PageIpfs["comments"] {
         if (cids.length === 0) return [];
         const placeholders = cids.map(() => "?").join(",");
-        const commentUpdateSelects = opts.commentUpdateCols.map((col) => `cu.${col} AS commentUpdate_${col}`);
-        const commentIpfsSelects = opts.commentIpfsCols.map((col) => `c.${col} AS commentIpfs_${col}`);
+        const commentUpdateSelects = this._existingColumns(TABLES.COMMENT_UPDATES, opts.commentUpdateCols).map(
+            (col) => `cu.${col} AS commentUpdate_${col}`
+        );
+        const commentIpfsSelects = this._existingColumns(TABLES.COMMENTS, opts.commentIpfsCols).map(
+            (col) => `c.${col} AS commentIpfs_${col}`
+        );
 
         const queryStr = `
             SELECT ${commentIpfsSelects.join(", ")}, ${commentUpdateSelects.join(", ")}
