@@ -139,6 +139,7 @@ import type { Libp2pJsClient } from "../helia/libp2pjsClient.js";
 import type { AuthorNameRpcParam, CidRpcParam, RpcFetchCidResult } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { cleanWireAuthor, normalizeCreatePublicationAuthor } from "../publications/publication-author.js";
+import type Publication from "../publications/publication.js";
 import { stripNameResolvedFromCrosspost } from "../publications/comment/crosspost-runtime.js";
 import { IndexedTrackedInstanceRegistry, TrackedInstanceRegistry } from "./tracked-instance-registry.js";
 import {
@@ -196,6 +197,9 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     _updatingComments: IndexedTrackedInstanceRegistry<Comment> = new TrackedInstanceRegistry() as IndexedTrackedInstanceRegistry<Comment>; // storing comment instancse that are getting updated rn
     _startedCommunities: IndexedTrackedInstanceRegistry<LocalCommunity | RpcLocalCommunity> =
         new TrackedInstanceRegistry() as IndexedTrackedInstanceRegistry<LocalCommunity | RpcLocalCommunity>; // storing community instances that are started rn
+    // Publications that are mid-publish. A plain Set rather than a TrackedInstanceRegistry because
+    // a publication has no stable key to look it up by, and destroy() only ever iterates them.
+    _publishingPublications = new Set<Publication>();
     private _communityFsWatchAbort?: AbortController;
     private _destroyAbortController?: AbortController;
 
@@ -1219,6 +1223,16 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             }
         }
         if (exportDonePromises.length) await Promise.all(exportDonePromises);
+
+        // Stop publications before comments and communities: a publication left mid-exchange keeps
+        // the challenge running and fires background community refreshes, which would re-create the
+        // very instances we are about to stop (issue #270).
+        await Promise.all(
+            [...this._publishingPublications].map((publication) =>
+                publication.stop().catch((e) => log.error("Error stopping publication during destroy", e))
+            )
+        );
+        this._publishingPublications.clear();
 
         for (const comment of listUpdatingComments(this)) await comment.stop();
 

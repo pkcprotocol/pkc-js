@@ -115,6 +115,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
         pubsubTopic?: CommunityIpfsType["pubsubTopic"];
     } = undefined; // will be used for publishing
     _publishingToLocalCommunity?: LocalCommunity;
+    // In-flight stale-cache community refresh fired by _fetchCommunityForPublishing. Deliberately
+    // not awaited by the publish path, so stop() drains it (issue #270).
+    _backgroundCommunityRefresh?: Promise<unknown>;
 
     _challengeExchanges: Record<
         string, // challengeRequestId stringified
@@ -764,17 +767,32 @@ class Publication extends TypedEmitter<PublicationEvents> {
             // cache.has will return false if the item is stale
             if (!this._pkc._memCaches.communityForPublishing.has(this.communityAddress)) {
                 log("The cache of community is stale, we will use the cached and update in the background");
-                this._pkc
+                // Held on the publication so stop() can drain it. Without that the refresh outlives
+                // the PKC and goes on creating community instances after teardown (issue #270).
+                const refresh = this._pkc
                     .getCommunity({ publicKey: this.communityPublicKey, name: this.communityName })
-                    .catch((e) => log.error("Failed to update cache of community", this.communityAddress, e));
+                    .catch((e) => log.error("Failed to update cache of community", this.communityAddress, e))
+                    .finally(() => {
+                        if (this._backgroundCommunityRefresh === refresh) this._backgroundCommunityRefresh = undefined;
+                    });
+                this._backgroundCommunityRefresh = refresh;
             }
             return cachedCommunity;
         } else return this._clientsManager.fetchCommunityForPublishingWithCacheGuard();
     }
 
     async stop() {
-        await this._postSucessOrFailurePublishing();
-        this._updatePublishingStateWithEmission("stopped");
+        try {
+            await this._postSucessOrFailurePublishing();
+        } finally {
+            // Stopping the publication does not cancel a refresh that is already in flight, so wait
+            // it out. On the pkc.destroy() path the destroy abort has already fired, so this unwinds
+            // fast. In a finally because pkc.destroy() catches a rejecting stop() and then clears
+            // _publishingPublications, so a cleanup failure would otherwise leave the refresh
+            // running past teardown, which is the exact thing this is here to prevent.
+            if (this._backgroundCommunityRefresh) await this._backgroundCommunityRefresh;
+            this._updatePublishingStateWithEmission("stopped");
+        }
     }
 
     _isAllAttemptsExhausted(maxNumOfChallengeExchanges: number): boolean {
@@ -792,8 +810,42 @@ class Publication extends TypedEmitter<PublicationEvents> {
         });
     }
 
+    // stop() and pkc.destroy() are not cancellation: they unsubscribe and mark us stopped, but a
+    // pubsub subscribe that was already in flight still resolves afterwards and the publish loop
+    // carries on to publish a challenge request behind a torn-down PKC. Worse, that subscribe
+    // re-established a subscription after teardown already ran its unsubscribe, so returning
+    // without undoing it leaves it dangling on the provider. Returns true when the caller should
+    // abandon this provider (issue #270).
+    private async _abandonProviderIfStoppedWhileSubscribing(providerUrl: string): Promise<boolean> {
+        if (!this._pkc.destroyed && (this.state as Publication["state"]) !== "stopped") return false;
+        const log = Logger("pkc-js:publication:publish:_abandonProviderIfStoppedWhileSubscribing");
+        log("Publication was stopped while subscribing to pubsub, will not publish a challenge request", providerUrl);
+        try {
+            await this._clientsManager.pubsubUnsubscribeOnProvider(
+                this._communityChallengePubsubExchangeTopic(),
+                providerUrl,
+                this._handleChallengeExchange
+            );
+        } catch (e) {
+            log.error("Failed to undo the pubsub subscription that resolved after being stopped", providerUrl, e);
+        }
+        this._updatePubsubState("stopped", providerUrl);
+        return true;
+    }
+
+    // A refresh fired at the start of publish can outlive the exchange it was fired from:
+    // getCommunity() on a remote community waits for an IPNS update, while a local challenge
+    // exchange finishes in milliseconds. Stay registered until it settles, otherwise the publish
+    // ends, we unregister, and pkc.destroy() has nothing left to drain the refresh through.
+    private _unregisterFromPkcOncePublishWorkSettles() {
+        const refresh = this._backgroundCommunityRefresh;
+        if (refresh) void refresh.finally(() => this._pkc._publishingPublications.delete(this));
+        else this._pkc._publishingPublications.delete(this);
+    }
+
     private async _postSucessOrFailurePublishing() {
         const log = Logger("pkc-js:publication:_postSucessOrFailurePublishing");
+        this._unregisterFromPkcOncePublishWorkSettles();
         this._setStateWithEmission("stopped");
         if (this._rpcPublishSubscriptionId) {
             try {
@@ -1106,6 +1158,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                             this._handleChallengeExchange,
                             providerUrl
                         );
+                        if (await this._abandonProviderIfStoppedWhileSubscribing(providerUrl)) return;
                         this._updatePubsubState("publishing-challenge-request", providerUrl);
                         await this._clientsManager.pubsubPublishOnProvider(
                             this._communityChallengePubsubExchangeTopic(),
@@ -1231,8 +1284,29 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     async publish() {
-        const log = Logger("pkc-js:publication:publish");
         this._validatePublicationFields();
+        // Track before the first await so pkc.destroy() can stop us no matter how far the exchange
+        // has progressed. Untracked in _postSucessOrFailurePublishing once the exchange ends, or in
+        // the catch below if publish never got that far.
+        this._pkc._publishingPublications.add(this);
+        try {
+            return await this._publishAfterRegistering();
+        } catch (e) {
+            // Not every throw reaches the funnel: pre-flight failures (_initCommunity, signing, the
+            // signature hook, the RPC publish call) reject before a challenge exchange exists, and
+            // _initCommunity does its own stopped/failed emission and rethrows. Without this we stay
+            // strongly referenced in _publishingPublications for the lifetime of the PKC, and
+            // destroy() later stops a publication that never started. Unregistering directly rather
+            // than through the funnel keeps the error path free of a redundant state emission and of
+            // a pubsub unsubscribe for a topic that was never subscribed. Deleting twice is a no-op,
+            // so the throw sites that do funnel are unaffected.
+            this._unregisterFromPkcOncePublishWorkSettles();
+            throw e;
+        }
+    }
+
+    private async _publishAfterRegistering() {
+        const log = Logger("pkc-js:publication:publish");
         this._setStateWithEmission("publishing");
 
         // Fetch community for BOTH RPC and non-RPC paths (needed for signing)
@@ -1299,6 +1373,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     this._handleChallengeExchange,
                     providerUrl
                 );
+                if (await this._abandonProviderIfStoppedWhileSubscribing(providerUrl)) return;
                 this._updatePubsubState("publishing-challenge-request", providerUrl);
                 await this._clientsManager.pubsubPublishOnProvider(
                     this._communityChallengePubsubExchangeTopic(),
