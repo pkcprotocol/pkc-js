@@ -782,11 +782,17 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     async stop() {
-        await this._postSucessOrFailurePublishing();
-        // Stopping the publication does not cancel a refresh that is already in flight, so wait it
-        // out. On the pkc.destroy() path the destroy abort has already fired, so this unwinds fast.
-        if (this._backgroundCommunityRefresh) await this._backgroundCommunityRefresh;
-        this._updatePublishingStateWithEmission("stopped");
+        try {
+            await this._postSucessOrFailurePublishing();
+        } finally {
+            // Stopping the publication does not cancel a refresh that is already in flight, so wait
+            // it out. On the pkc.destroy() path the destroy abort has already fired, so this unwinds
+            // fast. In a finally because pkc.destroy() catches a rejecting stop() and then clears
+            // _publishingPublications, so a cleanup failure would otherwise leave the refresh
+            // running past teardown, which is the exact thing this is here to prevent.
+            if (this._backgroundCommunityRefresh) await this._backgroundCommunityRefresh;
+            this._updatePublishingStateWithEmission("stopped");
+        }
     }
 
     _isAllAttemptsExhausted(maxNumOfChallengeExchanges: number): boolean {
@@ -1254,11 +1260,29 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     async publish() {
-        const log = Logger("pkc-js:publication:publish");
         this._validatePublicationFields();
         // Track before the first await so pkc.destroy() can stop us no matter how far the exchange
-        // has progressed. Untracked in _postSucessOrFailurePublishing, the single exit funnel.
+        // has progressed. Untracked in _postSucessOrFailurePublishing once the exchange ends, or in
+        // the catch below if publish never got that far.
         this._pkc._publishingPublications.add(this);
+        try {
+            return await this._publishAfterRegistering();
+        } catch (e) {
+            // Not every throw reaches the funnel: pre-flight failures (_initCommunity, signing, the
+            // signature hook, the RPC publish call) reject before a challenge exchange exists, and
+            // _initCommunity does its own stopped/failed emission and rethrows. Without this we stay
+            // strongly referenced in _publishingPublications for the lifetime of the PKC, and
+            // destroy() later stops a publication that never started. Unregistering directly rather
+            // than through the funnel keeps the error path free of a redundant state emission and of
+            // a pubsub unsubscribe for a topic that was never subscribed. Deleting twice is a no-op,
+            // so the throw sites that do funnel are unaffected.
+            this._unregisterFromPkcOncePublishWorkSettles();
+            throw e;
+        }
+    }
+
+    private async _publishAfterRegistering() {
+        const log = Logger("pkc-js:publication:publish");
         this._setStateWithEmission("publishing");
 
         // Fetch community for BOTH RPC and non-RPC paths (needed for signing)
