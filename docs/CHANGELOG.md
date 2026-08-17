@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.83](https://github.com/pkcprotocol/pkc-js/compare/v0.0.82...v0.0.83) (2026-08-17)
+
+### Bug Fixes
+
+* **community:** load communities whose DB predates the latest schema ([#273](https://github.com/pkcprotocol/pkc-js/issues/273)) ([#274](https://github.com/pkcprotocol/pkc-js/issues/274)) ([7c03d75](https://github.com/pkcprotocol/pkc-js/commit/7c03d7583dc9d3225127cc18d41971088d108c0f))
+
 ## [0.0.82](https://github.com/pkcprotocol/pkc-js/compare/v0.0.81...v0.0.82) (2026-08-17)
 
 ### Features
