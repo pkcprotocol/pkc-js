@@ -810,6 +810,29 @@ class Publication extends TypedEmitter<PublicationEvents> {
         });
     }
 
+    // stop() and pkc.destroy() are not cancellation: they unsubscribe and mark us stopped, but a
+    // pubsub subscribe that was already in flight still resolves afterwards and the publish loop
+    // carries on to publish a challenge request behind a torn-down PKC. Worse, that subscribe
+    // re-established a subscription after teardown already ran its unsubscribe, so returning
+    // without undoing it leaves it dangling on the provider. Returns true when the caller should
+    // abandon this provider (issue #270).
+    private async _abandonProviderIfStoppedWhileSubscribing(providerUrl: string): Promise<boolean> {
+        if (!this._pkc.destroyed && (this.state as Publication["state"]) !== "stopped") return false;
+        const log = Logger("pkc-js:publication:publish:_abandonProviderIfStoppedWhileSubscribing");
+        log("Publication was stopped while subscribing to pubsub, will not publish a challenge request", providerUrl);
+        try {
+            await this._clientsManager.pubsubUnsubscribeOnProvider(
+                this._communityChallengePubsubExchangeTopic(),
+                providerUrl,
+                this._handleChallengeExchange
+            );
+        } catch (e) {
+            log.error("Failed to undo the pubsub subscription that resolved after being stopped", providerUrl, e);
+        }
+        this._updatePubsubState("stopped", providerUrl);
+        return true;
+    }
+
     // A refresh fired at the start of publish can outlive the exchange it was fired from:
     // getCommunity() on a remote community waits for an IPNS update, while a local challenge
     // exchange finishes in milliseconds. Stay registered until it settles, otherwise the publish
@@ -1135,6 +1158,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                             this._handleChallengeExchange,
                             providerUrl
                         );
+                        if (await this._abandonProviderIfStoppedWhileSubscribing(providerUrl)) return;
                         this._updatePubsubState("publishing-challenge-request", providerUrl);
                         await this._clientsManager.pubsubPublishOnProvider(
                             this._communityChallengePubsubExchangeTopic(),
@@ -1349,6 +1373,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     this._handleChallengeExchange,
                     providerUrl
                 );
+                if (await this._abandonProviderIfStoppedWhileSubscribing(providerUrl)) return;
                 this._updatePubsubState("publishing-challenge-request", providerUrl);
                 await this._clientsManager.pubsubPublishOnProvider(
                     this._communityChallengePubsubExchangeTopic(),

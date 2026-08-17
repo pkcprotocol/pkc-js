@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { mockPKC, generateMockPost, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
+import { mockPKC, mockRemotePKC, generateMockPost, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
+import signers from "../../fixtures/signers.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
@@ -77,6 +78,53 @@ describe("publication registry (pkc._publishingPublications) lifecycle", () => {
             expect(post.publishingState).to.equal("stopped");
         } finally {
             unsubscribeSpy.mockRestore();
+        }
+    });
+});
+
+// Publishing over pubsub, so it needs a remote community rather than the started LocalCommunity
+// above, which short-circuits to _publishWithLocalCommunity and never touches a pubsub provider.
+describe("publication publish loop honours being stopped mid-subscribe", () => {
+    // Under RPC the client never touches pubsub providers itself, so there is no
+    // subscribe-then-publish window to race.
+    itSkipIfRpc("does not publish a challenge request when destroy() lands while subscribing", async () => {
+        const pkc = await mockRemotePKC();
+        try {
+            const post = await generateMockPost({ communityAddress: signers[0].address, pkc });
+            post.on("error", () => {});
+
+            const clientsManager = post._clientsManager;
+            const realSubscribe = clientsManager.pubsubSubscribeOnProvider.bind(clientsManager);
+            const unsubscribeOnProviderSpy = vi.spyOn(clientsManager, "pubsubUnsubscribeOnProvider");
+            const publishSpy = vi.spyOn(clientsManager, "pubsubPublishOnProvider");
+
+            // stop() and destroy() are not cancellation: they unsubscribe and mark us stopped, but a
+            // subscribe that is already in flight still resolves afterwards and the publish loop
+            // carries on. Destroying inside the subscribe reproduces that window deterministically.
+            let unsubscribeCallsWhenDestroyFinished = 0;
+            vi.spyOn(clientsManager, "pubsubSubscribeOnProvider").mockImplementation(async (topic, handler, providerUrl) => {
+                await realSubscribe(topic, handler, providerUrl);
+                await pkc.destroy();
+                unsubscribeCallsWhenDestroyFinished = unsubscribeOnProviderSpy.mock.calls.length;
+            });
+
+            const publishOutcome = await post.publish().then(
+                (): Error | undefined => undefined,
+                (e): Error | undefined => e as Error
+            );
+
+            expect(publishSpy).not.toHaveBeenCalled();
+            // Bailing out is a clean exit, not a failure: the caller destroyed the PKC. Today the
+            // loop instead publishes into the torn-down PKC, fails, and moves on to the next
+            // provider, where _generateChallengeRequestToPublish throws ERR_PKC_IS_DESTROYED.
+            expect(publishOutcome).to.be.undefined;
+            // The subscribe that resolved after destroy() re-established a subscription the teardown
+            // had already torn down, so bailing out has to undo it or it is left dangling on the
+            // provider for the rest of the daemon's life.
+            expect(unsubscribeOnProviderSpy.mock.calls.length).to.be.greaterThan(unsubscribeCallsWhenDestroyFinished);
+            expect(unsubscribeOnProviderSpy.mock.calls.at(-1)?.[0]).to.equal(post._communityChallengePubsubExchangeTopic());
+        } finally {
+            if (!pkc.destroyed) await pkc.destroy();
         }
     });
 });
