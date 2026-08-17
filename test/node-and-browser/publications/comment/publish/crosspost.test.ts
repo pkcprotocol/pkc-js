@@ -129,17 +129,71 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         });
 
+        // publish() runs the same tier 1 verification the community runs at acceptance, so every check
+        // in _verifyCrosspost refuses the publication locally before a challenge is ever requested.
+        // Each case below is the client-side twin of a case in "the community enforces tier 1 at
+        // acceptance": same tampering, but with local signature validation left switched on. Every
+        // one asserts the reason, not just that something threw, since a bare toThrow() would also
+        // pass on a network failure or a broken fixture and would not prove which check refused.
+        //
+        // The one invalid crosspost that does not surface at publish() is an over-deep chain: the cap
+        // is enforced when createComment parses the options, before a Comment exists to publish. That
+        // path is covered in test/node-and-browser/crosspost/depth.test.ts.
         describe("the client refuses to publish an invalid crosspost", () => {
-            it("a cid that does not match the embedded bytes fails local validation", async () => {
-                const wrong = { ...crosspost, cid: "QmYjtig7VJQ6XsnUjqqJvj7QaMcCAwtrgNdahSiFofrE7o" };
-                const post = await generateMockPost({ communityAddress, pkc, postProps: { crosspost: wrong } });
-                // Asserting the reason, not just that something threw: a bare toThrow() would also
-                // pass on a network failure or a broken fixture, so it would not prove check 1 of
-                // tier 1 is what refused the publication.
+            // Publishes nothing and asserts on the local rejection: an invalid crosspost must never
+            // reach the community's pubsub topic in the first place.
+            const expectPublishRefusedWith = async (badCrosspost: typeof crosspost, reason: string) => {
+                const post = await generateMockPost({ communityAddress, pkc, postProps: { crosspost: badCrosspost } });
                 await expect(post.publish()).rejects.toMatchObject({
                     code: "ERR_SIGNATURE_IS_INVALID",
-                    details: { signatureValidity: { reason: messages.ERR_CROSSPOST_CID_DOES_NOT_MATCH_EMBEDDED_COMMENT } }
+                    details: { signatureValidity: { reason } }
                 });
+            };
+
+            it("a cid that does not match the embedded bytes fails local validation", async () => {
+                const wrong = { ...crosspost, cid: "QmYjtig7VJQ6XsnUjqqJvj7QaMcCAwtrgNdahSiFofrE7o" };
+                await expectPublishRefusedWith(wrong, messages.ERR_CROSSPOST_CID_DOES_NOT_MATCH_EMBEDDED_COMMENT);
+            });
+
+            it("an embedded record with a broken author signature fails local validation", async () => {
+                // The cid is recomputed over the tampered bytes so check 1 passes and check 4 is what
+                // rejects: without that this would be indistinguishable from the cid mismatch above.
+                const tampered = clone(crosspost);
+                tampered.comment.content = "tampered, but consistently hashed";
+                tampered.cid = await calculateIpfsHash(deterministicStringify(tampered.comment)!);
+                await expectPublishRefusedWith(tampered, messages.ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID);
+            });
+
+            it("an embedded record carrying a reserved field fails local validation", async () => {
+                const tampered = clone(crosspost);
+                (tampered.comment as { cid?: string }).cid = crosspost.cid; // runtime-only on a CommentIpfs
+                tampered.cid = await calculateIpfsHash(deterministicStringify(tampered.comment)!);
+                await expectPublishRefusedWith(tampered, messages.ERR_CROSSPOST_COMMENT_INCLUDES_RESERVED_FIELD);
+            });
+
+            it("an embedded author carrying a reserved field fails local validation", async () => {
+                // author.shortAddress is derived at runtime and never on the wire. Checked separately
+                // from the record's own reserved fields, so a record that is clean at the top level
+                // can still be refused for what it carries under author.
+                const tampered = clone(crosspost);
+                (tampered.comment.author as { shortAddress?: string }).shortAddress = "somederivedshortaddress";
+                tampered.cid = await calculateIpfsHash(deterministicStringify(tampered.comment)!);
+                await expectPublishRefusedWith(tampered, messages.ERR_CROSSPOST_COMMENT_AUTHOR_INCLUDES_RESERVED_FIELD);
+            });
+
+            it("an embedded record with a signable field outside signedPropertyNames fails local validation", async () => {
+                // spoiler is signable and absent from the original, so it is absent from the record's
+                // signedPropertyNames too. Adding it after signing is the issue #249 hole: the pick
+                // down to signedPropertyNames in check 4 would drop it from what gets verified while
+                // it stays in what gets stored and rendered, so check 3 has to catch it first.
+                const tampered = clone(crosspost);
+                expect(tampered.comment.signature.signedPropertyNames).to.not.include("spoiler");
+                tampered.comment.spoiler = true;
+                tampered.cid = await calculateIpfsHash(deterministicStringify(tampered.comment)!);
+                await expectPublishRefusedWith(
+                    tampered,
+                    messages.ERR_CROSSPOST_COMMENT_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
+                );
             });
         });
 
