@@ -1,9 +1,10 @@
-import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import { getAvailablePKCConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
 import { CommunityIpfsReservedFields } from "../../../dist/node/community/schema.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
+import { findUpdatingCommunity } from "../../../dist/node/pkc/tracked-instance-registry-util.js";
 
 // pkc.getCommunity() on a community whose IPNS record never resolves blocks for the whole
 // _timeouts["community-ipns"] (5 minutes by default). These tests pin that an abortSignal unwinds it
@@ -27,23 +28,25 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it("rejects with ERR_GET_COMMUNITY_ABORTED when the signal fires mid-fetch", async () => {
             const abortController = new AbortController();
-            const startedAt = Date.now();
             const getCommunityPromise = pkc.getCommunity({
                 address: unresolvableCommunityAddress,
                 abortSignal: abortController.signal
             });
-            const timer = setTimeout(() => abortController.abort(), 1000);
+            // Abort only once the fetch is genuinely in flight, so this exercises the cancellation
+            // path rather than the pre-aborted one covered below.
+            await vi.waitFor(() => expect(pkc._updatingCommunities.size()).to.equal(1), { timeout: 30000, interval: 20 });
 
+            const abortedAt = Date.now();
+            abortController.abort();
             const error = await getCommunityPromise.then(
                 (): PKCError | undefined => undefined,
                 (e): PKCError | undefined => e as PKCError
             );
-            clearTimeout(timer);
 
             expect(error).to.be.an("Error");
             expect(error?.code).to.equal("ERR_GET_COMMUNITY_ABORTED");
-            // The point of the signal: we come back on abort, not on the timeout.
-            expect(Date.now() - startedAt).to.be.lessThan(30000);
+            // The point of the signal: we come back on abort, not on the community-ipns timeout.
+            expect(Date.now() - abortedAt).to.be.lessThan(30000);
         });
 
         it("rejects immediately when the signal is already aborted", async () => {
@@ -64,9 +67,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 address: unresolvableCommunityAddress,
                 abortSignal: abortController.signal
             });
-            const timer = setTimeout(() => abortController.abort(), 1000);
+            await vi.waitFor(() => expect(pkc._updatingCommunities.size()).to.equal(1), { timeout: 30000, interval: 20 });
+            abortController.abort();
             await getCommunityPromise.catch(() => {});
-            clearTimeout(timer);
 
             // getCommunity() owns the instance it created, so abort has to leave the registry as
             // empty as a successful one-shot fetch would.
@@ -88,12 +91,20 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     address: unresolvableCommunityAddress,
                     abortSignal: abortController.signal
                 });
-                const timer = setTimeout(() => abortController.abort(), 1000);
+                // getCommunity() does not create a second registry entry here, both instances mirror
+                // the one tracked instance, so wait for its listener count to include ours.
+                await vi.waitFor(
+                    () =>
+                        expect(
+                            findUpdatingCommunity(pkc, { publicKey: unresolvableCommunityAddress })?._numOfListenersForUpdatingInstance
+                        ).to.equal(2),
+                    { timeout: 30000, interval: 20 }
+                );
+                abortController.abort();
                 const error = await getCommunityPromise.then(
                     (): PKCError | undefined => undefined,
                     (e): PKCError | undefined => e as PKCError
                 );
-                clearTimeout(timer);
 
                 expect(error?.code).to.equal("ERR_GET_COMMUNITY_ABORTED");
                 expect(community.state).to.equal("updating");
