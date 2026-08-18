@@ -20,6 +20,7 @@ export enum messages {
     ERR_FETCH_OVER_IPNS_OVER_PUBSUB_RETURNED_UNDEFINED = "libp2p Fetch over IPNS-Over-Pubsub returned undefined when requested from a peer",
     ERR_FAILED_TO_DIAL_ANY_PEERS_PROVIDING_CID = "Failed to dial and connect to any peers providing a CID",
     ERR_GET_COMMUNITY_TIMED_OUT = "pkc.getCommunity({address}) timed out",
+    ERR_GET_COMMUNITY_ABORTED = "Aborted while waiting for the community record to load",
     ERR_TIMEOUT_WAITING_FOR_PUBSUB_TOPIC_PEERS = "Timeout waiting for propagation of pubsub topic peers",
     ERR_PUBSUB_TOPIC_PEER_WAIT_ABORTED = "Aborted while waiting for a peer to subscribe to a pubsub topic",
     ERR_IPNS_DIRECT_FETCH_ABORTED = "Aborted while fetching an IPNS record directly from subscribers/providers",

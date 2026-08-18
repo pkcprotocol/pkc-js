@@ -346,7 +346,13 @@ export class PublicationClientsManager extends PKCClientsManager {
         if (!updatingCommunityInstance.community.raw.communityIpfs) {
             const timeoutMs = this._pkc._timeouts["community-ipns"];
             try {
-                await waitForUpdateInCommunityInstanceWithErrorAndTimeout(updatingCommunityInstance.community, timeoutMs);
+                // The publication's stop/destroy signal, so stop() cancels this fetch rather than
+                // leaving the caller blocked for the whole community-ipns timeout (issue #275).
+                await waitForUpdateInCommunityInstanceWithErrorAndTimeout(
+                    updatingCommunityInstance.community,
+                    timeoutMs,
+                    this._publication._getCommunityFetchAbortSignal()
+                );
                 communityIpfs = updatingCommunityInstance.community.raw.communityIpfs!;
             } catch (e) {
                 await this.cleanUpUpdatingCommunityInstance();

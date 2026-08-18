@@ -464,15 +464,23 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         hideClassPrivateProps(this);
     }
 
-    async getCommunity(getCommunityArgs: GetCommunityArgs) {
+    // `options.abortSignal` unwinds the IPNS wait below immediately instead of blocking for
+    // `_timeouts["community-ipns"]`, and rejects with ERR_GET_COMMUNITY_ABORTED. It is a second
+    // parameter rather than a key on `getCommunityArgs` because that object is forwarded verbatim to
+    // createCommunity(), whose schemas are `.strict()`, and because it is the RPC-facing shape (#275).
+    async getCommunity(getCommunityArgs: GetCommunityArgs, options?: { abortSignal?: AbortSignal }) {
         if (!getCommunityArgs.address && !getCommunityArgs.name && !getCommunityArgs.publicKey) {
             throw new Error("At least one of address, name, or publicKey must be provided");
         }
+        // Same code as an abort mid-fetch, so callers have one thing to check regardless of when the
+        // signal fired, and we skip creating an instance we would only stop again.
+        if (options?.abortSignal?.aborted)
+            throw new PKCError("ERR_GET_COMMUNITY_ABORTED", { getCommunityArgs, abortReason: options.abortSignal.reason });
         const community = await this.createCommunity(getCommunityArgs);
 
         if (typeof community.createdAt === "number") return <RpcLocalCommunity | LocalCommunity>community; // It's a local community, and already has been loaded, no need to wait
         const timeoutMs = this._timeouts["community-ipns"];
-        await waitForUpdateInCommunityInstanceWithErrorAndTimeout(community, timeoutMs);
+        await waitForUpdateInCommunityInstanceWithErrorAndTimeout(community, timeoutMs, options?.abortSignal);
 
         return community;
     }
