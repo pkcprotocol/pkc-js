@@ -19,7 +19,8 @@ import type {
     AuthorPubsubType,
     PKCMemCaches,
     CreatePublicationOptions,
-    GetCommunityArgs
+    GetCommunityArgs,
+    GetCommentArgs
 } from "../types.js";
 import { Comment } from "../publications/comment/comment.js";
 import {
@@ -485,9 +486,18 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         return community;
     }
 
-    async getComment(cid: CidRpcParam): Promise<Comment> {
+    // `abortSignal` unwinds the CommentIpfs wait below immediately instead of blocking for
+    // `_timeouts["comment-ipfs"]`, and rejects with ERR_GET_COMMENT_ABORTED (issue #278). It has to
+    // be split off before the rest reaches createComment(), which would otherwise carry the signal
+    // onto the instance — the same reason `abortSignal` is a reserved comment field.
+    async getComment(getCommentArgs: GetCommentArgs): Promise<Comment> {
         const log = Logger("pkc-js:pkc:getComment");
-        const parsedGetCommentArgs = parseRpcCidParam(cid);
+        const { abortSignal, ...cidArgs } = getCommentArgs;
+        const parsedGetCommentArgs = parseRpcCidParam(cidArgs);
+        // Same code as an abort mid-fetch, so callers have one thing to check regardless of when the
+        // signal fired, and we skip creating an instance we would only stop again.
+        if (abortSignal?.aborted)
+            throw new PKCError("ERR_GET_COMMENT_ABORTED", { getCommentArgs: parsedGetCommentArgs, abortReason: abortSignal.reason });
         // getComment is interested in loading CommentIpfs only
         const comment = await this.createComment(parsedGetCommentArgs);
 
@@ -496,9 +506,32 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         const errorListener = (err: Error) => (lastUpdateError = err);
         comment.on("error", errorListener);
 
+        // Rejects the race below on abort. Reported as ERR_GET_COMMENT_ABORTED rather than as the
+        // timeout, so callers can tell a slow network from a cancellation.
+        let abortError: PKCError | undefined;
+        let abortReject: ((err: PKCError) => void) | undefined;
+        const abortListener = () => {
+            abortError = new PKCError("ERR_GET_COMMENT_ABORTED", {
+                getCommentArgs: parsedGetCommentArgs,
+                abortReason: abortSignal?.reason,
+                lastUpdateError
+            });
+            abortReject?.(abortError);
+        };
+        const abortPromise = new Promise<never>((_, reject) => {
+            abortReject = reject;
+        });
+        // pTimeout attaches its own handler, but only once we hand it the race below. Give it one up
+        // front so an abort landing before that never surfaces as an unhandled rejection.
+        void abortPromise.catch(() => {});
+        // The signal outlives this call (a caller's long-lived stop signal), so the listener is
+        // removed in the `finally` on every outcome. `{ once: true }` alone only detaches it when
+        // abort fires, which leaks one listener per call (issues #145, #146).
+        abortSignal?.addEventListener("abort", abortListener);
+
         const commentTimeout = this._timeouts["comment-ipfs"];
         try {
-            await pTimeout(comment._attemptInfintelyToLoadCommentIpfs(), {
+            await pTimeout(Promise.race([comment._attemptInfintelyToLoadCommentIpfs(), abortPromise]), {
                 milliseconds: commentTimeout,
                 message:
                     lastUpdateError ||
@@ -507,9 +540,13 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             if (!comment.signature) throw Error("Failed to load CommentIpfs");
             return comment;
         } catch (e) {
+            // Abort wins over whatever else the comment happened to emit: the caller cancelled on
+            // purpose, so reporting a stale retriable error instead would be misleading.
+            if (abortError) throw abortError;
             if (lastUpdateError) throw lastUpdateError;
             throw e;
         } finally {
+            abortSignal?.removeEventListener("abort", abortListener);
             comment.removeListener("error", errorListener);
             await comment.stop();
         }

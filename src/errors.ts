@@ -22,6 +22,7 @@ export enum messages {
     ERR_GET_COMMUNITY_TIMED_OUT = "pkc.getCommunity({address}) timed out",
     ERR_GET_COMMUNITY_ABORTED = "Aborted while waiting for the community record to load",
     ERR_COMMUNITY_STOPPED_WHILE_LOADING = "The community instance was stopped while its record was being loaded",
+    ERR_GET_COMMENT_ABORTED = "Aborted while waiting for the comment record to load",
     ERR_TIMEOUT_WAITING_FOR_PUBSUB_TOPIC_PEERS = "Timeout waiting for propagation of pubsub topic peers",
     ERR_PUBSUB_TOPIC_PEER_WAIT_ABORTED = "Aborted while waiting for a peer to subscribe to a pubsub topic",
     ERR_IPNS_DIRECT_FETCH_ABORTED = "Aborted while fetching an IPNS record directly from subscribers/providers",

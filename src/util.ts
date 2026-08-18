@@ -608,6 +608,31 @@ export async function resolveWhenPredicateIsTrue(options: {
     });
 }
 
+// Loses a race the moment `abortSignal` fires. For waits that have no timeout and no cancellation of
+// their own, so an aborting caller (or pkc.destroy()) has something for the wait to lose to.
+//
+// Returns a `cleanup` the caller MUST run on every outcome — the signal outlives the wait (a
+// publication's stop signal, pkc's destroy signal), so relying on `{ once: true }` would leak one
+// listener per call (issues #145, #146).
+export function rejectWhenAbortSignalFires(opts: { abortSignal?: AbortSignal; error: () => PKCError }): {
+    promise: Promise<never>;
+    cleanup: () => void;
+} {
+    const { abortSignal, error } = opts;
+    let rejectPromise: ((err: PKCError) => void) | undefined;
+    const promise = new Promise<never>((_, reject) => {
+        rejectPromise = reject;
+    });
+    // A caller that throws before racing this would otherwise turn a pre-aborted signal into an
+    // unhandled rejection. Racing attaches its own handler, so nothing is swallowed.
+    void promise.catch(() => {});
+    const onAbort = () => rejectPromise?.(error());
+    abortSignal?.addEventListener("abort", onAbort);
+    const cleanup = () => abortSignal?.removeEventListener("abort", onAbort);
+    if (abortSignal?.aborted) onAbort();
+    return { promise, cleanup };
+}
+
 // Loses a race when the caller cancels or when `community` is stopped out from under us. Both are
 // ways a community load stops being wanted while it is parked on a wait that has no timeout of its
 // own, e.g. the RPC-local branch of PKCWithRpcClient.createCommunity() (issue #277). pkc.destroy()

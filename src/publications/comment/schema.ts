@@ -309,7 +309,11 @@ const additionalCommentReservedFields = [
     "publishingState",
     "updatingState",
     "rowid",
-    "nameResolved"
+    "nameResolved",
+    // Runtime-only, accepted by pkc.getComment({cid, abortSignal}) and stripped before the rest
+    // reaches createComment. Reserved so a record arriving on the wire carrying that key is rejected
+    // rather than carried onto the instance (issue #278).
+    "abortSignal"
 ] as const;
 
 type AdditionalCommentReservedField = (typeof additionalCommentReservedFields)[number];
