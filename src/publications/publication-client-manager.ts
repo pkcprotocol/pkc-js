@@ -348,11 +348,11 @@ export class PublicationClientsManager extends PKCClientsManager {
             try {
                 // The publication's stop/destroy signal, so stop() cancels this fetch rather than
                 // leaving the caller blocked for the whole community-ipns timeout (issue #275).
-                await waitForUpdateInCommunityInstanceWithErrorAndTimeout(
-                    updatingCommunityInstance.community,
+                await waitForUpdateInCommunityInstanceWithErrorAndTimeout({
+                    community: updatingCommunityInstance.community,
                     timeoutMs,
-                    this._publication._getCommunityFetchAbortSignal()
-                );
+                    abortSignal: this._publication._getCommunityFetchAbortSignal()
+                });
                 communityIpfs = updatingCommunityInstance.community.raw.communityIpfs!;
             } catch (e) {
                 await this.cleanUpUpdatingCommunityInstance();

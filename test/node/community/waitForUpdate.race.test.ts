@@ -31,7 +31,7 @@ describe("waitForUpdateInCommunityInstanceWithErrorAndTimeout - race condition",
         // With the fix it should throw ERR_INVALID_JSON almost immediately.
         const start = Date.now();
         await expect(
-            waitForUpdateInCommunityInstanceWithErrorAndTimeout(mockCommunity as unknown as RemoteCommunity, 5000)
+            waitForUpdateInCommunityInstanceWithErrorAndTimeout({ community: mockCommunity as unknown as RemoteCommunity, timeoutMs: 5000 })
         ).rejects.toThrow("The loaded file is not the expected json");
         const elapsed = Date.now() - start;
         // Should resolve in well under 1s, not wait for the 5s timeout
@@ -65,7 +65,10 @@ describe("waitForUpdateInCommunityInstanceWithErrorAndTimeout - race condition",
         };
 
         // Should NOT throw — the retriable error is ignored, waits for the update event
-        await waitForUpdateInCommunityInstanceWithErrorAndTimeout(mockCommunity as unknown as RemoteCommunity, 5000);
+        await waitForUpdateInCommunityInstanceWithErrorAndTimeout({
+            community: mockCommunity as unknown as RemoteCommunity,
+            timeoutMs: 5000
+        });
     });
 
     it("throws last retriable error on timeout when no non-retriable error occurs", async () => {
@@ -91,8 +94,8 @@ describe("waitForUpdateInCommunityInstanceWithErrorAndTimeout - race condition",
         };
 
         // Should throw the retriable error (not ERR_GET_COMMUNITY_TIMED_OUT)
-        await expect(waitForUpdateInCommunityInstanceWithErrorAndTimeout(mockCommunity as unknown as RemoteCommunity, 200)).rejects.toThrow(
-            "Failed to resolve IPNS through IPFS P2P"
-        );
+        await expect(
+            waitForUpdateInCommunityInstanceWithErrorAndTimeout({ community: mockCommunity as unknown as RemoteCommunity, timeoutMs: 200 })
+        ).rejects.toThrow("Failed to resolve IPNS through IPFS P2P");
     });
 });

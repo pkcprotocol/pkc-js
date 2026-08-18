@@ -793,10 +793,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 // Held on the publication so stop() can drain it. Without that the refresh outlives
                 // the PKC and goes on creating community instances after teardown (issue #270).
                 const refresh = this._pkc
-                    .getCommunity(
-                        { publicKey: this.communityPublicKey, name: this.communityName },
-                        { abortSignal: this._getCommunityFetchAbortSignal() }
-                    )
+                    .getCommunity({
+                        publicKey: this.communityPublicKey,
+                        name: this.communityName,
+                        abortSignal: this._getCommunityFetchAbortSignal()
+                    })
                     .catch((e) => {
                         // Cancelling the refresh is what stop() asked for, so it is not an error.
                         if (e?.code === "ERR_GET_COMMUNITY_ABORTED")

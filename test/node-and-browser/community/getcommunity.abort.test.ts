@@ -1,5 +1,6 @@
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import { getAvailablePKCConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
+import { CommunityIpfsReservedFields } from "../../../dist/node/community/schema.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
@@ -27,10 +28,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it("rejects with ERR_GET_COMMUNITY_ABORTED when the signal fires mid-fetch", async () => {
             const abortController = new AbortController();
             const startedAt = Date.now();
-            const getCommunityPromise = pkc.getCommunity(
-                { address: unresolvableCommunityAddress },
-                { abortSignal: abortController.signal }
-            );
+            const getCommunityPromise = pkc.getCommunity({
+                address: unresolvableCommunityAddress,
+                abortSignal: abortController.signal
+            });
             const timer = setTimeout(() => abortController.abort(), 1000);
 
             const error = await getCommunityPromise.then(
@@ -47,7 +48,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it("rejects immediately when the signal is already aborted", async () => {
             const startedAt = Date.now();
-            const error = await pkc.getCommunity({ address: unresolvableCommunityAddress }, { abortSignal: AbortSignal.abort() }).then(
+            const error = await pkc.getCommunity({ address: unresolvableCommunityAddress, abortSignal: AbortSignal.abort() }).then(
                 (): PKCError | undefined => undefined,
                 (e): PKCError | undefined => e as PKCError
             );
@@ -59,10 +60,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it("stops the community instance it created when aborted", async () => {
             const abortController = new AbortController();
-            const getCommunityPromise = pkc.getCommunity(
-                { address: unresolvableCommunityAddress },
-                { abortSignal: abortController.signal }
-            );
+            const getCommunityPromise = pkc.getCommunity({
+                address: unresolvableCommunityAddress,
+                abortSignal: abortController.signal
+            });
             const timer = setTimeout(() => abortController.abort(), 1000);
             await getCommunityPromise.catch(() => {});
             clearTimeout(timer);
@@ -83,10 +84,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             try {
                 const abortController = new AbortController();
-                const getCommunityPromise = pkc.getCommunity(
-                    { address: unresolvableCommunityAddress },
-                    { abortSignal: abortController.signal }
-                );
+                const getCommunityPromise = pkc.getCommunity({
+                    address: unresolvableCommunityAddress,
+                    abortSignal: abortController.signal
+                });
                 const timer = setTimeout(() => abortController.abort(), 1000);
                 const error = await getCommunityPromise.then(
                     (): PKCError | undefined => undefined,
@@ -101,5 +102,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 await community.stop();
             }
         });
+    });
+});
+
+// abortSignal lives on getCommunity()'s argument object, which is the same shape a caller can hand
+// createCommunity(), so a record arriving on the wire with that key has to be rejected rather than
+// carried onto the instance.
+describe("abortSignal is a reserved community field", () => {
+    it("is included in CommunityIpfsReservedFields", () => {
+        expect(CommunityIpfsReservedFields).to.include("abortSignal");
     });
 });

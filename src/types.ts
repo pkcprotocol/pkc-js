@@ -27,7 +27,14 @@ export type NameResolver = z.infer<typeof NameResolverSchema>;
 export type InputPKCOptions = z.input<typeof PKCUserOptionsSchema>;
 export type ParsedPKCOptions = z.output<typeof PKCParsedOptionsSchema>;
 
-export type GetCommunityArgs = { address?: string; name?: CommunityIpfsType["name"]; publicKey?: string };
+export type GetCommunityArgs = {
+    address?: string;
+    name?: CommunityIpfsType["name"];
+    publicKey?: string;
+    // Cancels the IPNS wait instead of blocking for _timeouts["community-ipns"]. Stripped before the
+    // rest is forwarded to createCommunity(), whose schemas are .strict() (issue #275).
+    abortSignal?: AbortSignal;
+};
 
 export type AuthorPubsubType = z.infer<typeof AuthorPubsubSchema>;
 

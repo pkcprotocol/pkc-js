@@ -665,7 +665,7 @@ console.log(multisubCommunityAddresses)
 | Name | Type | Description |
 | ---- | ---- | ----------- |
 | address | `string` | The `Address` of the community |
-| options.abortSignal | `AbortSignal` | Optional. Cancels the fetch instead of waiting out the `community-ipns` timeout. Rejects with `ERR_GET_COMMUNITY_ABORTED`. |
+| abortSignal | `AbortSignal` | Optional. Cancels the fetch instead of waiting out the `community-ipns` timeout. Rejects with `ERR_GET_COMMUNITY_ABORTED`. |
 
 #### Returns
 
@@ -684,7 +684,7 @@ console.log(community)
 const abortController = new AbortController()
 setTimeout(() => abortController.abort(), 10000)
 const communityOrAborted = await pkc
-  .getCommunity({address: communityAddress}, {abortSignal: abortController.signal})
+  .getCommunity({address: communityAddress, abortSignal: abortController.signal})
   .catch((e) => (e.code === 'ERR_GET_COMMUNITY_ABORTED' ? undefined : Promise.reject(e)))
 
 let currentPostCid = community.lastPostCid

@@ -613,11 +613,12 @@ export async function resolveWhenPredicateIsTrue(options: {
 // stopping the community itself: the instance may be shared (see `findUpdatingCommunity` and
 // `_numOfListenersForUpdatingInstance`), and only the `!wasUpdating` branch there knows whether we
 // own it. See issue #275.
-export async function waitForUpdateInCommunityInstanceWithErrorAndTimeout(
-    community: RemoteCommunity,
-    timeoutMs: number,
-    abortSignal?: AbortSignal
-) {
+export async function waitForUpdateInCommunityInstanceWithErrorAndTimeout(opts: {
+    community: RemoteCommunity;
+    timeoutMs: number;
+    abortSignal?: AbortSignal;
+}) {
+    const { community, timeoutMs, abortSignal } = opts;
     const wasUpdating = community.state === "updating";
     const updatingStates: RemoteCommunity["updatingState"][] = [];
     const updatingStateChangeListener = (state: RemoteCommunity["updatingState"]) => updatingStates.push(state);

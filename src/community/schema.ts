@@ -453,7 +453,9 @@ export const CommunityIpfsReservedFields = difference(
         "publishingState",
         "updatingState",
         "started",
-        "exports"
+        "exports",
+        // getCommunity() argument, never part of a record (issue #275)
+        "abortSignal"
     ],
     keys(CommunityIpfsSchema.shape)
 );

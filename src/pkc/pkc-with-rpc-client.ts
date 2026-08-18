@@ -73,11 +73,11 @@ export class PKCWithRpcClient extends PKC {
         return this.createComment({ ...parsedArgs, raw: { ...(parsedArgs as CommentJson)?.raw, comment: commentIpfs } });
     }
 
-    override async getCommunity(getCommunityArgs: GetCommunityArgs, options?: { abortSignal?: AbortSignal }) {
+    override async getCommunity(getCommunityArgs: GetCommunityArgs) {
         if (!getCommunityArgs.address && !getCommunityArgs.name && !getCommunityArgs.publicKey) {
             throw new Error("At least one of address, name, or publicKey must be provided");
         }
-        return super.getCommunity(getCommunityArgs, options);
+        return super.getCommunity(getCommunityArgs);
     }
 
     override async createCommunity(
