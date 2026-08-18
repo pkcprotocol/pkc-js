@@ -140,7 +140,7 @@ export async function editPropsOnStartedCommunity(
     community.emit("update", community);
     if (community.address !== oldAddress) {
         trackStartedCommunity(community._pkc, community);
-        syncCommunityRegistryEntry(processStartedCommunities, community);
+        syncCommunityRegistryEntry(processStartedCommunities, community, community._pkc.dataPath);
     }
     return community;
 }
@@ -186,7 +186,11 @@ export async function edit(community: LocalCommunity, newCommunityOptions: Commu
 
     const startedCommunity = <LocalCommunity | undefined>(
         (findStartedCommunity(community._pkc, { publicKey: community.publicKey, name: community.name }) ||
-            findCommunityInRegistry(processStartedCommunities, { publicKey: community.publicKey, name: community.name }))
+            findCommunityInRegistry(
+                processStartedCommunities,
+                { publicKey: community.publicKey, name: community.name },
+                community._pkc.dataPath
+            ))
     );
     if (startedCommunity && community.state !== "started") {
         // sceneario 1

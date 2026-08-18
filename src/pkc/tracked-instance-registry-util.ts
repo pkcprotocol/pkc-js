@@ -16,7 +16,6 @@ type CommunityLookup = {
 };
 
 type CommunityWithAliases = {
-    address?: string;
     name?: string;
     publicKey?: string;
     signer?: { address?: string } | undefined;
@@ -67,15 +66,39 @@ function persistAliases<T extends object>(target: T, aliases: string[]): string[
     return [...aliasHistory];
 }
 
-export function getCommunityRegistryAliases(community: CommunityWithAliases): string[] {
-    const aliases = dedupeAliases([community.address, community.name, community.publicKey, community.signer?.address]);
+// Aliases are scoped to the dataPath they belong to when one is given. processStartedCommunities is
+// a module-level registry shared by every PKC instance in the process, and the registry matches on
+// ANY alias, so without a scope two LocalCommunity instances backed by different dataPaths but
+// sharing an address resolve to each other: one then adopts the other's posts/updateCid through a
+// signer it does not hold, and every publish after that fails signature validation (issue #238).
+// The scope is a prefix rather than an extra alias on purpose — a bare dataPath alias would instead
+// make every community *within* one dataPath collide.
+// A registry that is already scoped by construction (the per-PKC pkc._updatingCommunities and
+// pkc._startedCommunities) passes no dataPath and is left unprefixed.
+const REGISTRY_SCOPE_SEPARATOR = "\u0000";
+
+function scopeAliasesToDataPath(aliases: string[], dataPath: string | undefined): string[] {
+    if (dataPath === undefined) return aliases;
+    return aliases.map((alias) => `${dataPath}${REGISTRY_SCOPE_SEPARATOR}${alias}`);
+}
+
+export function getCommunityRegistryAliases(community: CommunityWithAliases, dataPath?: string): string[] {
+    // community.address is deliberately absent: setAddress keeps it equal to `name || publicKey`, so
+    // it is never an identity name/publicKey does not already carry. signer.address is NOT
+    // redundant — communityIdentityPublicKey() is `anchor?.publicKey ?? signer.address`, so on a
+    // delegated community publicKey is the anchor while signer.address is the minter that signs its
+    // records, and both have to resolve to the instance.
+    const aliases = dedupeAliases([community.name, community.publicKey, community.signer?.address]);
     if (aliases.length === 0) throw new PKCError("ERR_COMMUNITY_REGISTRY_LOOKUP_HAS_NO_ALIASES", { community });
 
-    return dedupeAliases(
-        aliases.flatMap((alias) => {
-            if (isEthAliasDomain(alias)) return getEquivalentCommunityAliases(alias);
-            return [alias];
-        })
+    return scopeAliasesToDataPath(
+        dedupeAliases(
+            aliases.flatMap((alias) => {
+                if (isEthAliasDomain(alias)) return getEquivalentCommunityAliases(alias);
+                return [alias];
+            })
+        ),
+        dataPath
     );
 }
 
@@ -83,8 +106,12 @@ export function getCommentRegistryAliases(comment: CommentLookup): string[] {
     return dedupeAliases([comment.cid]);
 }
 
-export function syncCommunityRegistryEntry<T extends CommunityWithAliases>(registry: TrackedInstanceRegistry<T>, community: T): T {
-    return registry.track({ value: community, aliases: persistAliases(community, getCommunityRegistryAliases(community)) });
+export function syncCommunityRegistryEntry<T extends CommunityWithAliases>(
+    registry: TrackedInstanceRegistry<T>,
+    community: T,
+    dataPath?: string
+): T {
+    return registry.track({ value: community, aliases: persistAliases(community, getCommunityRegistryAliases(community, dataPath)) });
 }
 
 export function syncCommentRegistryEntry<T extends CommentLookup>(registry: TrackedInstanceRegistry<T>, comment: T): T {
@@ -93,9 +120,10 @@ export function syncCommentRegistryEntry<T extends CommentLookup>(registry: Trac
 
 export function findCommunityInRegistry<T extends CommunityWithAliases>(
     registry: TrackedInstanceRegistry<T>,
-    lookup: CommunityLookup
+    lookup: CommunityLookup,
+    dataPath?: string
 ): T | undefined {
-    return registry.findByAliases(getCommunityRegistryAliases(lookup));
+    return registry.findByAliases(getCommunityRegistryAliases(lookup, dataPath));
 }
 
 export function findCommentInRegistry<T extends CommentLookup>(registry: TrackedInstanceRegistry<T>, lookup: CommentLookup): T | undefined {

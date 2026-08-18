@@ -149,7 +149,11 @@ export async function updateInstancePropsWithStartedCommunityOrDb(community: Loc
     const log = Logger("pkc-js:local-community:_updateInstancePropsWithStartedCommunityOrDb");
     const startedCommunity = <LocalCommunity | undefined>(
         (findStartedCommunity(community._pkc, { publicKey: community.publicKey, name: community.name }) ||
-            findCommunityInRegistry(processStartedCommunities, { publicKey: community.publicKey, name: community.name }))
+            findCommunityInRegistry(
+                processStartedCommunities,
+                { publicKey: community.publicKey, name: community.name },
+                community._pkc.dataPath
+            ))
     );
     if (startedCommunity) {
         log("Loading local community", community.address, "from started community instance");
@@ -364,7 +368,7 @@ export async function initInternalCommunityAfterFirstUpdateNoMerge(
     if (Array.isArray(newProps._cidsToUnPin)) newProps._cidsToUnPin.forEach((cid) => community._cidsToUnPin.add(cid));
     if (Array.isArray(newProps._mfsPathsToRemove)) newProps._mfsPathsToRemove.forEach((path) => community._mfsPathsToRemove.add(path));
     community._updateIpnsPubsubPropsIfNeeded(newProps);
-    if (processStartedCommunities.has(community)) syncCommunityRegistryEntry(processStartedCommunities, community);
+    if (processStartedCommunities.has(community)) syncCommunityRegistryEntry(processStartedCommunities, community, community._pkc.dataPath);
     if (community.updateCid) community.raw.localCommunity = community.toJSONInternalRpcAfterFirstUpdate();
 }
 
@@ -385,7 +389,7 @@ export async function initInternalCommunityBeforeFirstUpdateNoMerge(
     // LocalCommunity's override always derives these from signer.address, so the explicit
     // minter-based assignment that used to follow this call is no longer needed here.
     community._updateIpnsPubsubPropsIfNeeded(newProps);
-    if (processStartedCommunities.has(community)) syncCommunityRegistryEntry(processStartedCommunities, community);
+    if (processStartedCommunities.has(community)) syncCommunityRegistryEntry(processStartedCommunities, community, community._pkc.dataPath);
     community.raw.localCommunity = community.toJSONInternalRpcBeforeFirstUpdate();
 }
 
