@@ -608,6 +608,44 @@ export async function resolveWhenPredicateIsTrue(options: {
     });
 }
 
+// Loses a race when the caller cancels or when `community` is stopped out from under us. Both are
+// ways a community load stops being wanted while it is parked on a wait that has no timeout of its
+// own, e.g. the RPC-local branch of PKCWithRpcClient.createCommunity() (issue #277). pkc.destroy()
+// takes both routes: it fires the destroy signal first, then stops every tracked updating community.
+//
+// Returns a `cleanup` the caller MUST run on every outcome — the signal outlives the load (a
+// publication's stop signal, pkc's destroy signal), so relying on `{ once: true }` would leak one
+// listener per call (issues #145, #146).
+export function rejectWhenCommunityStopsOrAborts(opts: { community: RemoteCommunity; abortSignal?: AbortSignal }): {
+    promise: Promise<never>;
+    cleanup: () => void;
+} {
+    const { community, abortSignal } = opts;
+    let rejectPromise: ((err: PKCError) => void) | undefined;
+    const promise = new Promise<never>((_, reject) => {
+        rejectPromise = reject;
+    });
+    // A caller that throws before racing this would otherwise turn a pre-aborted signal into an
+    // unhandled rejection. Racing attaches its own handler, so nothing is swallowed.
+    void promise.catch(() => {});
+    const onAbort = () =>
+        rejectPromise?.(
+            new PKCError("ERR_GET_COMMUNITY_ABORTED", { communityAddress: community.address, abortReason: abortSignal?.reason })
+        );
+    const onStateChange = (newState: RemoteCommunity["state"]) => {
+        if (newState === "stopped")
+            rejectPromise?.(new PKCError("ERR_COMMUNITY_STOPPED_WHILE_LOADING", { communityAddress: community.address }));
+    };
+    community.on("statechange", onStateChange);
+    abortSignal?.addEventListener("abort", onAbort);
+    const cleanup = () => {
+        community.removeListener("statechange", onStateChange);
+        abortSignal?.removeEventListener("abort", onAbort);
+    };
+    if (abortSignal?.aborted) onAbort();
+    return { promise, cleanup };
+}
+
 // `abortSignal` is a fourth way the race below can lose, alongside update / non-retriable error /
 // timeout. Deliberately routed through the same `finally` as every other outcome rather than
 // stopping the community itself: the instance may be shared (see `findUpdatingCommunity` and

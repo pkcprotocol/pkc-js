@@ -352,14 +352,21 @@ export class RpcRemoteCommunity extends RemoteCommunity {
 
         if (this._updatingRpcCommunityInstanceWithListeners) {
             await this._cleanupMirroringUpdatingCommunity();
-        } else if (this._updateRpcSubscriptionId) {
-            try {
-                await this._pkc._pkcRpcClient!.unsubscribe(this._updateRpcSubscriptionId);
-            } catch (e) {
-                log.error("Failed to unsubscribe from communityUpdate", e);
+        } else {
+            if (this._updateRpcSubscriptionId) {
+                try {
+                    await this._pkc._pkcRpcClient!.unsubscribe(this._updateRpcSubscriptionId);
+                } catch (e) {
+                    log.error("Failed to unsubscribe from communityUpdate", e);
+                }
+                this._updateRpcSubscriptionId = undefined;
+                log.trace(`Stopped the update of remote community (${this.address}) via RPC`);
             }
-            this._updateRpcSubscriptionId = undefined;
-            log.trace(`Stopped the update of remote community (${this.address}) via RPC`);
+            // Untracked even without a subscription id. _createAndSubscribeToNewUpdatingCommunity
+            // tracks the instance BEFORE _initRpcUpdateSubscription assigns that id, so a subscribe
+            // that fails or is cancelled used to leave a stopped instance sitting in
+            // _updatingCommunities for findUpdatingCommunity to hand out (issue #277). untrack() is
+            // identity-keyed and a no-op for an instance that was never tracked.
             untrackUpdatingCommunity(this._pkc, this);
         }
         this._setRpcClientStateWithEmission("stopped");

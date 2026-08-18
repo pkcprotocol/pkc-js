@@ -31,7 +31,8 @@ import {
     isStringDomain,
     removeUndefinedValuesRecursively,
     timestamp,
-    resolveWhenPredicateIsTrue
+    resolveWhenPredicateIsTrue,
+    throwIfAbortSignalAborted
 } from "../util.js";
 import Vote from "../publications/vote/vote.js";
 import { createSigner, verifyCommentPubsubMessage } from "../signer/index.js";
@@ -475,7 +476,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         // Same code as an abort mid-fetch, so callers have one thing to check regardless of when the
         // signal fired, and we skip creating an instance we would only stop again.
         if (abortSignal?.aborted) throw new PKCError("ERR_GET_COMMUNITY_ABORTED", { communityIdentifier, abortReason: abortSignal.reason });
-        const community = await this.createCommunity(communityIdentifier);
+        const community = await this.createCommunity(communityIdentifier, { abortSignal });
 
         if (typeof community.createdAt === "number") return <RpcLocalCommunity | LocalCommunity>community; // It's a local community, and already has been loaded, no need to wait
         const timeoutMs = this._timeouts["community-ipns"];
@@ -823,10 +824,16 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         else return this._createRemoteCommunityInstance(jsonfied);
     }
 
+    // `opts.abortSignal` is a second parameter rather than a key on `options`, because `options` is
+    // zod-parsed by `.strict()` schemas that would reject the extra key. It only has teeth on the
+    // RPC path, whose local-community branch parks on waits with no timeout (issue #277); here it
+    // just refuses to start work the caller has already given up on.
     async createCommunity(
-        options: z.infer<typeof CreateCommunityFunctionArgumentsSchema> | CommunityJson = {}
+        options: z.infer<typeof CreateCommunityFunctionArgumentsSchema> | CommunityJson = {},
+        opts?: { abortSignal?: AbortSignal }
     ): Promise<RemoteCommunity | RpcRemoteCommunity | RpcLocalCommunity | LocalCommunity> {
         const log = Logger("pkc-js:pkc:createCommunity");
+        throwIfAbortSignalAborted(opts?.abortSignal);
         if ("clients" in options) return this._createCommunityInstanceFromJsonifiedCommunity(<CommunityJson>options);
         const parsedOptions = <z.infer<typeof CreateCommunityFunctionArgumentsSchema>>options;
         log.trace("Received options: ", parsedOptions);
@@ -1203,8 +1210,22 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     _getDestroyAbortSignal(): AbortSignal {
-        if (!this._destroyAbortController) this._destroyAbortController = new AbortController();
+        if (!this._destroyAbortController) {
+            this._destroyAbortController = new AbortController();
+            // destroy() aborts with `?.`, so nothing happens there if no caller had asked for the
+            // signal yet. Without this, the first caller to ask afterwards is handed a live signal
+            // for a pkc that is already torn down, and waits on it forever (issue #277).
+            if (this.destroyed) this._destroyAbortController.abort(new PKCError("ERR_PKC_IS_DESTROYED"));
+        }
         return this._destroyAbortController.signal;
+    }
+
+    // Folds teardown into a caller's signal, so work nobody explicitly cancelled still stops when the
+    // pkc is destroyed. Returns the destroy signal untouched when there is nothing to combine, which
+    // keeps AbortSignal.any() (and the listener it registers on both sources) off the common path.
+    _combineWithDestroyAbortSignal(abortSignal?: AbortSignal): AbortSignal {
+        const destroySignal = this._getDestroyAbortSignal();
+        return abortSignal ? AbortSignal.any([abortSignal, destroySignal]) : destroySignal;
     }
 
     async destroy() {

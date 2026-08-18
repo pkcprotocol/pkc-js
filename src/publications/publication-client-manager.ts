@@ -169,10 +169,15 @@ export class PublicationClientsManager extends PKCClientsManager {
             findStartedCommunity(this._pkc, { publicKey: this._publication.communityPublicKey, name: this._publication.communityName });
         const community =
             directCommunityInstance ||
-            (await this._pkc.createCommunity({
-                name: this._publication.communityName,
-                publicKey: this._publication.communityPublicKey
-            }));
+            // Under RPC, createCommunity() parks on unbounded waits for a community the server hosts,
+            // so stop() has to reach this call too, not just the IPNS wait below (issue #277).
+            (await this._pkc.createCommunity(
+                {
+                    name: this._publication.communityName,
+                    publicKey: this._publication.communityPublicKey
+                },
+                { abortSignal: this._publication._getCommunityFetchAbortSignal() }
+            ));
 
         this._communityForUpdating = {
             community: community,
