@@ -118,6 +118,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
     // In-flight stale-cache community refresh fired by _fetchCommunityForPublishing. Deliberately
     // not awaited by the publish path, so stop() drains it (issue #270).
     _backgroundCommunityRefresh?: Promise<unknown>;
+    // Aborted by stop(), so a community fetch that is already in flight unwinds immediately instead
+    // of blocking the caller for the whole community-ipns timeout (issue #275). Combined once with
+    // pkc's destroy signal; recreated per publish() so a stopped publication can be published again.
+    private _communityFetchAbortController?: AbortController;
+    private _communityFetchAbortSignal?: AbortSignal;
 
     _challengeExchanges: Record<
         string, // challengeRequestId stringified
@@ -739,6 +744,24 @@ class Publication extends TypedEmitter<PublicationEvents> {
         return getPKCAddressFromPublicKeySync(encryptionPublicKey);
     }
 
+    // Fires when this publication is stopped or its pkc is destroyed. Built once and cached rather
+    // than composed per call: AbortSignal.any() registers on both sources every time it is called.
+    _getCommunityFetchAbortSignal(): AbortSignal {
+        if (!this._communityFetchAbortSignal) {
+            this._communityFetchAbortController = new AbortController();
+            this._communityFetchAbortSignal = AbortSignal.any([
+                this._communityFetchAbortController.signal,
+                this._pkc._getDestroyAbortSignal()
+            ]);
+        }
+        return this._communityFetchAbortSignal;
+    }
+
+    private _resetCommunityFetchAbortSignal() {
+        this._communityFetchAbortController = undefined;
+        this._communityFetchAbortSignal = undefined;
+    }
+
     _getCommunityCache(): NonNullable<Publication["_community"]> | undefined {
         const cached = this._pkc._memCaches.communityForPublishing.get(this.communityAddress, { allowStale: true });
         if (cached) return cached;
@@ -770,8 +793,17 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 // Held on the publication so stop() can drain it. Without that the refresh outlives
                 // the PKC and goes on creating community instances after teardown (issue #270).
                 const refresh = this._pkc
-                    .getCommunity({ publicKey: this.communityPublicKey, name: this.communityName })
-                    .catch((e) => log.error("Failed to update cache of community", this.communityAddress, e))
+                    .getCommunity({
+                        publicKey: this.communityPublicKey,
+                        name: this.communityName,
+                        abortSignal: this._getCommunityFetchAbortSignal()
+                    })
+                    .catch((e) => {
+                        // Cancelling the refresh is what stop() asked for, so it is not an error.
+                        if (e?.code === "ERR_GET_COMMUNITY_ABORTED")
+                            log("Stopped the background refresh of the community cache", this.communityAddress);
+                        else log.error("Failed to update cache of community", this.communityAddress, e);
+                    })
                     .finally(() => {
                         if (this._backgroundCommunityRefresh === refresh) this._backgroundCommunityRefresh = undefined;
                     });
@@ -782,6 +814,12 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     async stop() {
+        // Abort first, so the drain below unwinds an in-flight fetch instead of waiting it out. Only
+        // stop() does this, never the success funnel: a refresh fired to warm a stale cache should
+        // still finish after a publish succeeds.
+        this._communityFetchAbortController?.abort(
+            new PKCError("ERR_GET_COMMUNITY_ABORTED", { publicationType: this.getType(), communityAddress: this.communityAddress })
+        );
         try {
             await this._postSucessOrFailurePublishing();
         } finally {
@@ -1285,6 +1323,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
     async publish() {
         this._validatePublicationFields();
+        // A previous stop() left the signal aborted, which would cancel this attempt's community
+        // fetch before it started.
+        if (this._getCommunityFetchAbortSignal().aborted) this._resetCommunityFetchAbortSignal();
         // Track before the first await so pkc.destroy() can stop us no matter how far the exchange
         // has progressed. Untracked in _postSucessOrFailurePublishing once the exchange ends, or in
         // the catch below if publish never got that far.

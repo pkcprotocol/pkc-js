@@ -608,7 +608,80 @@ export async function resolveWhenPredicateIsTrue(options: {
     });
 }
 
-export async function waitForUpdateInCommunityInstanceWithErrorAndTimeout(community: RemoteCommunity, timeoutMs: number) {
+// Loses a race the moment `abortSignal` fires. For waits that have no timeout and no cancellation of
+// their own, so an aborting caller (or pkc.destroy()) has something for the wait to lose to.
+//
+// Returns a `cleanup` the caller MUST run on every outcome — the signal outlives the wait (a
+// publication's stop signal, pkc's destroy signal), so relying on `{ once: true }` would leak one
+// listener per call (issues #145, #146).
+export function rejectWhenAbortSignalFires(opts: { abortSignal?: AbortSignal; error: () => PKCError }): {
+    promise: Promise<never>;
+    cleanup: () => void;
+} {
+    const { abortSignal, error } = opts;
+    let rejectPromise: ((err: PKCError) => void) | undefined;
+    const promise = new Promise<never>((_, reject) => {
+        rejectPromise = reject;
+    });
+    // A caller that throws before racing this would otherwise turn a pre-aborted signal into an
+    // unhandled rejection. Racing attaches its own handler, so nothing is swallowed.
+    void promise.catch(() => {});
+    const onAbort = () => rejectPromise?.(error());
+    abortSignal?.addEventListener("abort", onAbort);
+    const cleanup = () => abortSignal?.removeEventListener("abort", onAbort);
+    if (abortSignal?.aborted) onAbort();
+    return { promise, cleanup };
+}
+
+// Loses a race when the caller cancels or when `community` is stopped out from under us. Both are
+// ways a community load stops being wanted while it is parked on a wait that has no timeout of its
+// own, e.g. the RPC-local branch of PKCWithRpcClient.createCommunity() (issue #277). pkc.destroy()
+// takes both routes: it fires the destroy signal first, then stops every tracked updating community.
+//
+// Returns a `cleanup` the caller MUST run on every outcome — the signal outlives the load (a
+// publication's stop signal, pkc's destroy signal), so relying on `{ once: true }` would leak one
+// listener per call (issues #145, #146).
+export function rejectWhenCommunityStopsOrAborts(opts: { community: RemoteCommunity; abortSignal?: AbortSignal }): {
+    promise: Promise<never>;
+    cleanup: () => void;
+} {
+    const { community, abortSignal } = opts;
+    let rejectPromise: ((err: PKCError) => void) | undefined;
+    const promise = new Promise<never>((_, reject) => {
+        rejectPromise = reject;
+    });
+    // A caller that throws before racing this would otherwise turn a pre-aborted signal into an
+    // unhandled rejection. Racing attaches its own handler, so nothing is swallowed.
+    void promise.catch(() => {});
+    const onAbort = () =>
+        rejectPromise?.(
+            new PKCError("ERR_GET_COMMUNITY_ABORTED", { communityAddress: community.address, abortReason: abortSignal?.reason })
+        );
+    const onStateChange = (newState: RemoteCommunity["state"]) => {
+        if (newState === "stopped")
+            rejectPromise?.(new PKCError("ERR_COMMUNITY_STOPPED_WHILE_LOADING", { communityAddress: community.address }));
+    };
+    community.on("statechange", onStateChange);
+    abortSignal?.addEventListener("abort", onAbort);
+    const cleanup = () => {
+        community.removeListener("statechange", onStateChange);
+        abortSignal?.removeEventListener("abort", onAbort);
+    };
+    if (abortSignal?.aborted) onAbort();
+    return { promise, cleanup };
+}
+
+// `abortSignal` is a fourth way the race below can lose, alongside update / non-retriable error /
+// timeout. Deliberately routed through the same `finally` as every other outcome rather than
+// stopping the community itself: the instance may be shared (see `findUpdatingCommunity` and
+// `_numOfListenersForUpdatingInstance`), and only the `!wasUpdating` branch there knows whether we
+// own it. See issue #275.
+export async function waitForUpdateInCommunityInstanceWithErrorAndTimeout(opts: {
+    community: RemoteCommunity;
+    timeoutMs: number;
+    abortSignal?: AbortSignal;
+}) {
+    const { community, timeoutMs, abortSignal } = opts;
     const wasUpdating = community.state === "updating";
     const updatingStates: RemoteCommunity["updatingState"][] = [];
     const updatingStateChangeListener = (state: RemoteCommunity["updatingState"]) => updatingStates.push(state);
@@ -643,10 +716,39 @@ export async function waitForUpdateInCommunityInstanceWithErrorAndTimeout(commun
         }
     };
     community.on("error", errorListener);
+    // Rejects the race on abort. Reported as ERR_GET_COMMUNITY_ABORTED rather than reusing
+    // ERR_GET_COMMUNITY_TIMED_OUT so callers can tell a slow network from a cancellation.
+    let abortError: PKCError | undefined;
+    let abortReject: ((err: PKCError) => void) | undefined;
+    const abortListener = () => {
+        abortError = new PKCError("ERR_GET_COMMUNITY_ABORTED", {
+            communityAddress: community.address,
+            abortReason: abortSignal?.reason,
+            updatingStates,
+            errors
+        });
+        abortReject?.(abortError);
+    };
+    const abortPromise = new Promise<never>((_, reject) => {
+        abortReject = reject;
+    });
+    // The paths that throw `abortError` directly never hand `abortPromise` to the race, so give it a
+    // handler up front or a pre-aborted signal turns into an unhandled rejection. The race attaches
+    // its own handler, so this does not swallow anything.
+    void abortPromise.catch(() => {});
+    // The signal outlives this call (a publication's stop signal, pkc's destroy signal), so the
+    // listener is removed in the `finally` below on every outcome. `{ once: true }` alone only
+    // detaches it when abort fires, which leaks one listener per call (issues #145, #146).
+    if (abortSignal) {
+        if (abortSignal.aborted) abortListener();
+        else abortSignal.addEventListener("abort", abortListener);
+    }
     try {
+        if (abortError) throw abortError;
         if (community.state !== "started") await community.update();
+        if (abortError) throw abortError; // abort may have landed while update() was in flight
         if (criticalError) throw criticalError; // Non-retriable error may have fired synchronously during update (e.g. RPC emitAllPendingMessages replay)
-        await pTimeout(Promise.race([updatePromise, nonRetriableErrorPromise]), {
+        await pTimeout(Promise.race([updatePromise, nonRetriableErrorPromise, abortPromise]), {
             milliseconds: timeoutMs,
             message:
                 criticalError ||
@@ -661,6 +763,9 @@ export async function waitForUpdateInCommunityInstanceWithErrorAndTimeout(commun
         });
         if (criticalError) throw criticalError;
     } catch (e) {
+        // Abort wins over whatever else the community happened to emit: the caller cancelled on
+        // purpose, so reporting a stale retriable error instead would be misleading.
+        if (abortError) throw abortError;
         if (criticalError) throw criticalError;
         if (errors.length > 0) throw errors.at(-1);
         const updatingCommunity = findUpdatingCommunity(community._pkc, { publicKey: community.publicKey, name: community.name });
@@ -668,6 +773,7 @@ export async function waitForUpdateInCommunityInstanceWithErrorAndTimeout(commun
             throw updatingCommunity._clientsManager._ipnsLoadingOperation.mainError();
         throw e;
     } finally {
+        abortSignal?.removeEventListener("abort", abortListener);
         if (updateListener) community.removeListener("update", updateListener);
         community.removeListener("error", errorListener);
         community.removeListener("updatingstatechange", updatingStateChangeListener);

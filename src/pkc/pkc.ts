@@ -19,7 +19,8 @@ import type {
     AuthorPubsubType,
     PKCMemCaches,
     CreatePublicationOptions,
-    GetCommunityArgs
+    GetCommunityArgs,
+    GetCommentArgs
 } from "../types.js";
 import { Comment } from "../publications/comment/comment.js";
 import {
@@ -31,7 +32,8 @@ import {
     isStringDomain,
     removeUndefinedValuesRecursively,
     timestamp,
-    resolveWhenPredicateIsTrue
+    resolveWhenPredicateIsTrue,
+    throwIfAbortSignalAborted
 } from "../util.js";
 import Vote from "../publications/vote/vote.js";
 import { createSigner, verifyCommentPubsubMessage } from "../signer/index.js";
@@ -464,22 +466,38 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         hideClassPrivateProps(this);
     }
 
+    // `abortSignal` unwinds the IPNS wait below immediately instead of blocking for
+    // `_timeouts["community-ipns"]`, and rejects with ERR_GET_COMMUNITY_ABORTED (issue #275). It has
+    // to be split off before the rest reaches createCommunity(), whose schemas are `.strict()`.
     async getCommunity(getCommunityArgs: GetCommunityArgs) {
-        if (!getCommunityArgs.address && !getCommunityArgs.name && !getCommunityArgs.publicKey) {
+        const { abortSignal, ...communityIdentifier } = getCommunityArgs;
+        if (!communityIdentifier.address && !communityIdentifier.name && !communityIdentifier.publicKey) {
             throw new Error("At least one of address, name, or publicKey must be provided");
         }
-        const community = await this.createCommunity(getCommunityArgs);
+        // Same code as an abort mid-fetch, so callers have one thing to check regardless of when the
+        // signal fired, and we skip creating an instance we would only stop again.
+        if (abortSignal?.aborted) throw new PKCError("ERR_GET_COMMUNITY_ABORTED", { communityIdentifier, abortReason: abortSignal.reason });
+        const community = await this.createCommunity(communityIdentifier, { abortSignal });
 
         if (typeof community.createdAt === "number") return <RpcLocalCommunity | LocalCommunity>community; // It's a local community, and already has been loaded, no need to wait
         const timeoutMs = this._timeouts["community-ipns"];
-        await waitForUpdateInCommunityInstanceWithErrorAndTimeout(community, timeoutMs);
+        await waitForUpdateInCommunityInstanceWithErrorAndTimeout({ community, timeoutMs, abortSignal });
 
         return community;
     }
 
-    async getComment(cid: CidRpcParam): Promise<Comment> {
+    // `abortSignal` unwinds the CommentIpfs wait below immediately instead of blocking for
+    // `_timeouts["comment-ipfs"]`, and rejects with ERR_GET_COMMENT_ABORTED (issue #278). It has to
+    // be split off before the rest reaches createComment(), which would otherwise carry the signal
+    // onto the instance — the same reason `abortSignal` is a reserved comment field.
+    async getComment(getCommentArgs: GetCommentArgs): Promise<Comment> {
         const log = Logger("pkc-js:pkc:getComment");
-        const parsedGetCommentArgs = parseRpcCidParam(cid);
+        const { abortSignal, ...cidArgs } = getCommentArgs;
+        const parsedGetCommentArgs = parseRpcCidParam(cidArgs);
+        // Same code as an abort mid-fetch, so callers have one thing to check regardless of when the
+        // signal fired, and we skip creating an instance we would only stop again.
+        if (abortSignal?.aborted)
+            throw new PKCError("ERR_GET_COMMENT_ABORTED", { getCommentArgs: parsedGetCommentArgs, abortReason: abortSignal.reason });
         // getComment is interested in loading CommentIpfs only
         const comment = await this.createComment(parsedGetCommentArgs);
 
@@ -488,9 +506,32 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         const errorListener = (err: Error) => (lastUpdateError = err);
         comment.on("error", errorListener);
 
+        // Rejects the race below on abort. Reported as ERR_GET_COMMENT_ABORTED rather than as the
+        // timeout, so callers can tell a slow network from a cancellation.
+        let abortError: PKCError | undefined;
+        let abortReject: ((err: PKCError) => void) | undefined;
+        const abortListener = () => {
+            abortError = new PKCError("ERR_GET_COMMENT_ABORTED", {
+                getCommentArgs: parsedGetCommentArgs,
+                abortReason: abortSignal?.reason,
+                lastUpdateError
+            });
+            abortReject?.(abortError);
+        };
+        const abortPromise = new Promise<never>((_, reject) => {
+            abortReject = reject;
+        });
+        // pTimeout attaches its own handler, but only once we hand it the race below. Give it one up
+        // front so an abort landing before that never surfaces as an unhandled rejection.
+        void abortPromise.catch(() => {});
+        // The signal outlives this call (a caller's long-lived stop signal), so the listener is
+        // removed in the `finally` on every outcome. `{ once: true }` alone only detaches it when
+        // abort fires, which leaks one listener per call (issues #145, #146).
+        abortSignal?.addEventListener("abort", abortListener);
+
         const commentTimeout = this._timeouts["comment-ipfs"];
         try {
-            await pTimeout(comment._attemptInfintelyToLoadCommentIpfs(), {
+            await pTimeout(Promise.race([comment._attemptInfintelyToLoadCommentIpfs(), abortPromise]), {
                 milliseconds: commentTimeout,
                 message:
                     lastUpdateError ||
@@ -499,9 +540,13 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             if (!comment.signature) throw Error("Failed to load CommentIpfs");
             return comment;
         } catch (e) {
+            // Abort wins over whatever else the comment happened to emit: the caller cancelled on
+            // purpose, so reporting a stale retriable error instead would be misleading.
+            if (abortError) throw abortError;
             if (lastUpdateError) throw lastUpdateError;
             throw e;
         } finally {
+            abortSignal?.removeEventListener("abort", abortListener);
             comment.removeListener("error", errorListener);
             await comment.stop();
         }
@@ -816,10 +861,16 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         else return this._createRemoteCommunityInstance(jsonfied);
     }
 
+    // `opts.abortSignal` is a second parameter rather than a key on `options`, because `options` is
+    // zod-parsed by `.strict()` schemas that would reject the extra key. It only has teeth on the
+    // RPC path, whose local-community branch parks on waits with no timeout (issue #277); here it
+    // just refuses to start work the caller has already given up on.
     async createCommunity(
-        options: z.infer<typeof CreateCommunityFunctionArgumentsSchema> | CommunityJson = {}
+        options: z.infer<typeof CreateCommunityFunctionArgumentsSchema> | CommunityJson = {},
+        opts?: { abortSignal?: AbortSignal }
     ): Promise<RemoteCommunity | RpcRemoteCommunity | RpcLocalCommunity | LocalCommunity> {
         const log = Logger("pkc-js:pkc:createCommunity");
+        throwIfAbortSignalAborted(opts?.abortSignal);
         if ("clients" in options) return this._createCommunityInstanceFromJsonifiedCommunity(<CommunityJson>options);
         const parsedOptions = <z.infer<typeof CreateCommunityFunctionArgumentsSchema>>options;
         log.trace("Received options: ", parsedOptions);
@@ -1196,8 +1247,22 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     _getDestroyAbortSignal(): AbortSignal {
-        if (!this._destroyAbortController) this._destroyAbortController = new AbortController();
+        if (!this._destroyAbortController) {
+            this._destroyAbortController = new AbortController();
+            // destroy() aborts with `?.`, so nothing happens there if no caller had asked for the
+            // signal yet. Without this, the first caller to ask afterwards is handed a live signal
+            // for a pkc that is already torn down, and waits on it forever (issue #277).
+            if (this.destroyed) this._destroyAbortController.abort(new PKCError("ERR_PKC_IS_DESTROYED"));
+        }
         return this._destroyAbortController.signal;
+    }
+
+    // Folds teardown into a caller's signal, so work nobody explicitly cancelled still stops when the
+    // pkc is destroyed. Returns the destroy signal untouched when there is nothing to combine, which
+    // keeps AbortSignal.any() (and the listener it registers on both sources) off the common path.
+    _combineWithDestroyAbortSignal(abortSignal?: AbortSignal): AbortSignal {
+        const destroySignal = this._getDestroyAbortSignal();
+        return abortSignal ? AbortSignal.any([abortSignal, destroySignal]) : destroySignal;
     }
 
     async destroy() {

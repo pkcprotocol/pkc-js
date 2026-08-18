@@ -1,6 +1,6 @@
 import Logger from "../logger.js";
 import { PKC } from "./pkc.js";
-import type { InputPKCOptions, GetCommunityArgs } from "../types.js";
+import type { InputPKCOptions, GetCommunityArgs, GetCommentArgs } from "../types.js";
 import { parseCreateRpcCommunityFunctionArgumentSchemaWithPKCErrorIfItFails } from "../schema/schema-util.js";
 import { CreateRpcCommunityFunctionArgumentSchema } from "../community/schema.js";
 import { RpcLocalCommunity } from "../community/rpc-local-community.js";
@@ -8,10 +8,12 @@ import { RpcRemoteCommunity } from "../community/rpc-remote-community.js";
 import type { RpcLocalCommunityJson, RpcLocalCommunityUpdateResultType, RpcRemoteCommunityJson } from "../community/types.js";
 import { z } from "zod";
 import { PKCError } from "../pkc-error.js";
+import { rejectWhenAbortSignalFires, rejectWhenCommunityStopsOrAborts, throwIfAbortSignalAborted } from "../util.js";
 import type { AuthorNameRpcParam, CidRpcParam } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam, parseRpcFetchCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { listStartedCommunities } from "./tracked-instance-registry-util.js";
 import { CommentJson } from "../publications/comment/types.js";
+import type PKCRpcClient from "../clients/rpc-client/pkc-rpc-client.js";
 
 // This is a helper class for separating RPC-client logic from main PKC
 // Not meant to be used with end users
@@ -67,9 +69,22 @@ export class PKCWithRpcClient extends PKC {
         await this._pkcRpcClient.destroy();
     }
 
-    override async getComment(commentCid: CidRpcParam) {
-        const parsedArgs = parseRpcCidParam(commentCid);
-        const commentIpfs = await this._pkcRpcClient.getComment(parsedArgs);
+    // The RPC call below has no cancellation of its own, so an aborting caller (and pkc.destroy(),
+    // which cannot reach into this function) would be left waiting on it. Racing the combined signal
+    // gives them a way out, matching the direct path in PKC.getComment (issue #278).
+    override async getComment(getCommentArgs: GetCommentArgs) {
+        const { abortSignal, ...cidArgs } = getCommentArgs;
+        const parsedArgs = parseRpcCidParam(cidArgs);
+        const cancellation = rejectWhenAbortSignalFires({
+            abortSignal: this._combineWithDestroyAbortSignal(abortSignal),
+            error: () => new PKCError("ERR_GET_COMMENT_ABORTED", { getCommentArgs: parsedArgs, abortReason: abortSignal?.reason })
+        });
+        let commentIpfs: Awaited<ReturnType<PKCRpcClient["getComment"]>>;
+        try {
+            commentIpfs = await Promise.race([this._pkcRpcClient.getComment(parsedArgs), cancellation.promise]);
+        } finally {
+            cancellation.cleanup();
+        }
         return this.createComment({ ...parsedArgs, raw: { ...(parsedArgs as CommentJson)?.raw, comment: commentIpfs } });
     }
 
@@ -81,9 +96,11 @@ export class PKCWithRpcClient extends PKC {
     }
 
     override async createCommunity(
-        options: z.infer<typeof CreateRpcCommunityFunctionArgumentSchema> | RpcRemoteCommunityJson | RpcLocalCommunityJson = {}
+        options: z.infer<typeof CreateRpcCommunityFunctionArgumentSchema> | RpcRemoteCommunityJson | RpcLocalCommunityJson = {},
+        opts?: { abortSignal?: AbortSignal }
     ): Promise<RpcLocalCommunity | RpcRemoteCommunity> {
         const log = Logger("pkc-js:pkc-with-rpc-client:createCommunity");
+        throwIfAbortSignalAborted(opts?.abortSignal);
 
         // No need to parse if it's a jsonified instance
         const parsedRpcOptions =
@@ -127,9 +144,28 @@ export class PKCWithRpcClient extends PKC {
                 const updatePromise = new Promise((resolve) => community.once("update", resolve));
                 let error: PKCError | Error | undefined;
                 const errorPromise = new Promise((resolve) => community.once("error", (err) => resolve((error = err))));
-                await community._createAndSubscribeToNewUpdatingCommunity(community);
-                await community.update();
-                await Promise.race([updatePromise, errorPromise]);
+                // Every wait below is unbounded: the subscribe call may never be answered, and the
+                // server may never push an update for a community it hosts. Without something to
+                // lose to, an aborting caller (and pkc.destroy(), which cannot reach into this
+                // function) is left with a promise that never settles — issue #277. The instance is
+                // tracked in _updatingCommunities before the first wait, so a third-party stop()
+                // reaches it too, and that is the second way out.
+                const cancellation = rejectWhenCommunityStopsOrAborts({
+                    community,
+                    abortSignal: this._combineWithDestroyAbortSignal(opts?.abortSignal)
+                });
+                try {
+                    await Promise.race([community._createAndSubscribeToNewUpdatingCommunity(community), cancellation.promise]);
+                    await Promise.race([community.update(), cancellation.promise]);
+                    await Promise.race([updatePromise, errorPromise, cancellation.promise]);
+                } catch (e) {
+                    // stop() is a no-op on an instance that is already stopped, which is exactly the
+                    // case when we lost to a stop rather than to an abort.
+                    await community.stop().catch((stopErr) => log.error("Failed to stop a cancelled community instance", stopErr));
+                    throw e;
+                } finally {
+                    cancellation.cleanup();
+                }
                 await community.stop();
                 if (error) throw error;
                 await community._attachExportsSubscription();

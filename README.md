@@ -665,6 +665,7 @@ console.log(multisubCommunityAddresses)
 | Name | Type | Description |
 | ---- | ---- | ----------- |
 | address | `string` | The `Address` of the community |
+| abortSignal | `AbortSignal` | Optional. Cancels the fetch instead of waiting out the `community-ipns` timeout. Rejects with `ERR_GET_COMMUNITY_ABORTED`. |
 
 #### Returns
 
@@ -678,6 +679,13 @@ console.log(multisubCommunityAddresses)
 const communityAddress = '12D3KooW...'
 const community = await pkc.getCommunity({address: communityAddress})
 console.log(community)
+
+// Give up on a community that will not load, without waiting for the timeout
+const abortController = new AbortController()
+setTimeout(() => abortController.abort(), 10000)
+const communityOrAborted = await pkc
+  .getCommunity({address: communityAddress, abortSignal: abortController.signal})
+  .catch((e) => (e.code === 'ERR_GET_COMMUNITY_ABORTED' ? undefined : Promise.reject(e)))
 
 let currentPostCid = community.lastPostCid
 const scrollAllCommunityPosts = async () => {
@@ -704,6 +712,7 @@ Prints:
 | Name | Type | Description |
 | ---- | ---- | ----------- |
 | cid | `string` | The IPFS CID of the comment |
+| abortSignal | `AbortSignal` | Optional. Cancels the fetch instead of waiting out the `comment-ipfs` timeout. Rejects with `ERR_GET_COMMENT_ABORTED`. |
 
 #### Returns
 
@@ -723,6 +732,13 @@ if (comment.parentCid) { // comment with no parent cid is a post
 }
 pkc.getCommunity({address: comment.communityAddress}).then(community => console.log('community:', community))
 pkc.getComment({cid: comment.previousCid}).then(previousComment => console.log('previous comment:', previousComment))
+
+// Give up on a comment that will not load, without waiting for the timeout
+const abortController = new AbortController()
+setTimeout(() => abortController.abort(), 10000)
+const commentOrAborted = await pkc
+  .getComment({cid: commentCid, abortSignal: abortController.signal})
+  .catch((e) => (e.code === 'ERR_GET_COMMENT_ABORTED' ? undefined : Promise.reject(e)))
 /*
 Prints:
 { ...TODO }

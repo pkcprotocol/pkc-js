@@ -19,6 +19,7 @@ import { LRUCache } from "lru-cache";
 import type { CommunityIpfsType } from "./community/types.js";
 import type { PageIpfs } from "./pages/types.js";
 import type { CommentIpfsType } from "./publications/comment/types.js";
+import type { CidRpcParam } from "./clients/rpc-client/types.js";
 
 export type ProtocolVersion = z.infer<typeof ProtocolVersionSchema>;
 export type ChainTicker = z.infer<typeof ChainTickerSchema>;
@@ -27,7 +28,21 @@ export type NameResolver = z.infer<typeof NameResolverSchema>;
 export type InputPKCOptions = z.input<typeof PKCUserOptionsSchema>;
 export type ParsedPKCOptions = z.output<typeof PKCParsedOptionsSchema>;
 
-export type GetCommunityArgs = { address?: string; name?: CommunityIpfsType["name"]; publicKey?: string };
+export type GetCommunityArgs = {
+    address?: string;
+    name?: CommunityIpfsType["name"];
+    publicKey?: string;
+    // Cancels the IPNS wait instead of blocking for _timeouts["community-ipns"]. Stripped before the
+    // rest is forwarded to createCommunity(), whose schemas are .strict() (issue #275).
+    abortSignal?: AbortSignal;
+};
+
+// `abortSignal` cancels the CommentIpfs wait instead of blocking for _timeouts["comment-ipfs"].
+// Stripped before the rest reaches createComment(), whose schemas would otherwise carry it onto the
+// instance (issue #278). The rest of the shape is CidRpcParam, which is `.loose()`.
+export type GetCommentArgs = CidRpcParam & {
+    abortSignal?: AbortSignal;
+};
 
 export type AuthorPubsubType = z.infer<typeof AuthorPubsubSchema>;
 

@@ -169,10 +169,15 @@ export class PublicationClientsManager extends PKCClientsManager {
             findStartedCommunity(this._pkc, { publicKey: this._publication.communityPublicKey, name: this._publication.communityName });
         const community =
             directCommunityInstance ||
-            (await this._pkc.createCommunity({
-                name: this._publication.communityName,
-                publicKey: this._publication.communityPublicKey
-            }));
+            // Under RPC, createCommunity() parks on unbounded waits for a community the server hosts,
+            // so stop() has to reach this call too, not just the IPNS wait below (issue #277).
+            (await this._pkc.createCommunity(
+                {
+                    name: this._publication.communityName,
+                    publicKey: this._publication.communityPublicKey
+                },
+                { abortSignal: this._publication._getCommunityFetchAbortSignal() }
+            ));
 
         this._communityForUpdating = {
             community: community,
@@ -346,7 +351,13 @@ export class PublicationClientsManager extends PKCClientsManager {
         if (!updatingCommunityInstance.community.raw.communityIpfs) {
             const timeoutMs = this._pkc._timeouts["community-ipns"];
             try {
-                await waitForUpdateInCommunityInstanceWithErrorAndTimeout(updatingCommunityInstance.community, timeoutMs);
+                // The publication's stop/destroy signal, so stop() cancels this fetch rather than
+                // leaving the caller blocked for the whole community-ipns timeout (issue #275).
+                await waitForUpdateInCommunityInstanceWithErrorAndTimeout({
+                    community: updatingCommunityInstance.community,
+                    timeoutMs,
+                    abortSignal: this._publication._getCommunityFetchAbortSignal()
+                });
                 communityIpfs = updatingCommunityInstance.community.raw.communityIpfs!;
             } catch (e) {
                 await this.cleanUpUpdatingCommunityInstance();
