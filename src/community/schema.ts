@@ -203,7 +203,17 @@ export const ChallengeFileSchema = z.looseObject({
     getChallenge: z.function({
         input: [GetChallengeArgsSchema],
         output: z.promise(ResultOfGetChallengeSchema)
-    })
+    }),
+    // Optional semantic validation of the owner's challengeSettings, for the checks only the challenge can
+    // make (does `matches` parse as JSON, does every regexp compile). Core already enforces the mechanical
+    // things optionInputs describes, so a challenge with nothing semantic to check omits this.
+    // Sync and no network: it runs on every community start, so an async validator hitting a third party
+    // would turn that third party's outage into a startup problem. Rejection is a throw of anything at all,
+    // so a package needs no pkc-js import; core wraps it in a PKCError with code
+    // ERR_CHALLENGE_SETTINGS_VALIDATION_FAILED. See docs/protocol/challenge-authoring.md.
+    validateChallengeSettings: z
+        .function({ input: [z.object({ challengeSettings: CommunityChallengeSettingSchema })], output: z.void() })
+        .optional()
 });
 
 export const CommunityChallengeSchema = z.looseObject({

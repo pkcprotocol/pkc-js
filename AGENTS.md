@@ -28,6 +28,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 | `comment.crosspost`, embedded records, `features.noCrossposts` | `docs/protocol/crossposts.md` |
 | Challenge/response, `src/pubsub-messages/`, encryption | `docs/protocol/challenge-flow.md` |
 | `settings.challenges`, challenge options, sensitive config | `docs/protocol/challenge-settings.md` |
+| Writing a challenge package, `optionInputs`, `validateChallengeSettings` | `docs/protocol/challenge-authoring.md` |
 | Data storage, IPFS CIDs, IPNS, mutability questions | `docs/protocol/data-permanence.md` |
 | DB migration, `extraProps`, CID reconstruction, `deriveCommentIpfsFromCommentTableRow` | `docs/protocol/db-community-address-migration.md` |
 

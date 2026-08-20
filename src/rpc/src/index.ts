@@ -967,7 +967,9 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             ...(pkc.settings?.challenges || {}) // user-defined override
         };
         const challenges = mapValues(allChallengeFactories, (challengeFactory) =>
-            omit(challengeFactory({ challengeSettings: {} }), ["getChallenge"])
+            // both dropped keys are functions: they cannot be serialized, and both only ever run
+            // community-side on the node that owns the community
+            omit(challengeFactory({ challengeSettings: {} }), ["getChallenge", "validateChallengeSettings"])
         );
 
         return <PKCWsServerSettingsSerialized>{ pkcOptions, challenges };

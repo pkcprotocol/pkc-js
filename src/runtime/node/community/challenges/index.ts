@@ -87,7 +87,7 @@ type ChallengeVerificationFailure = {
 } & Pick<ChallengeResultAggregate, "aggregatedReason">;
 
 // Use structural typing for the pkc param to avoid circular import issues
-type PKCWithSettingsChallenges = {
+export type PKCWithSettingsChallenges = {
     settings?: { challenges?: Record<string, ChallengeFileFactoryInput> };
 };
 
@@ -843,16 +843,17 @@ const derivePublicOptions = (communityChallengeSettings: CommunityChallengeSetti
     return isEmpty(published) ? undefined : published;
 };
 
-// get the data to be published publicly to community.challenges
-const getCommunityChallengeFromCommunityChallengeSettings = async ({
+// Load the ChallengeFile a settings entry points at, by path or by registered name. The factory is
+// expected to stay cheap and non-throwing: it runs on every community start and DB migration, not only on
+// edit, so a factory that threw on bad options would take startup down rather than fail the offending
+// edit. Rejecting bad options is validateChallengeSettings' job. See docs/protocol/challenge-authoring.md.
+const loadChallengeFileFromCommunityChallengeSettings = async ({
     communityChallengeSettings,
     pkc
 }: {
     communityChallengeSettings: CommunityChallengeSetting;
     pkc?: PKCWithSettingsChallenges;
-}): Promise<{ communityChallenge: CommunityChallenge }> => {
-    communityChallengeSettings = CommunityChallengeSettingSchema.parse(communityChallengeSettings);
-
+}): Promise<ChallengeFile> => {
     // if the challenge is an external file, fetch it and override the communityChallengeSettings values
     let challengeFile: ChallengeFile | undefined = undefined;
     if (communityChallengeSettings.path) {
@@ -879,6 +880,19 @@ const getCommunityChallengeFromCommunityChallengeSettings = async ({
         challengeFile = ChallengeFileSchema.parse(ChallengeFileFactory({ challengeSettings: communityChallengeSettings }));
     }
     if (!challengeFile) throw Error("Failed to load challenge file");
+    return challengeFile;
+};
+
+// get the data to be published publicly to community.challenges
+const getCommunityChallengeFromCommunityChallengeSettings = async ({
+    communityChallengeSettings,
+    pkc
+}: {
+    communityChallengeSettings: CommunityChallengeSetting;
+    pkc?: PKCWithSettingsChallenges;
+}): Promise<{ communityChallenge: CommunityChallenge }> => {
+    communityChallengeSettings = CommunityChallengeSettingSchema.parse(communityChallengeSettings);
+    const challengeFile = await loadChallengeFileFromCommunityChallengeSettings({ communityChallengeSettings, pkc });
     const { challenge, type } = challengeFile;
     return {
         communityChallenge: {
@@ -898,5 +912,6 @@ export {
     getPendingChallengesOrChallengeVerification,
     getChallengeVerificationFromChallengeAnswers,
     getChallengeVerification,
-    getCommunityChallengeFromCommunityChallengeSettings
+    getCommunityChallengeFromCommunityChallengeSettings,
+    loadChallengeFileFromCommunityChallengeSettings
 };

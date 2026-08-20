@@ -413,5 +413,14 @@ export enum messages {
     ERR_CHALLENGE_RESULT_OVERRIDES_COMMENT_SIGNED_FIELD = "A challenge result attempted to set comment.<field> that is in CommentSignedPropertyNames (would invalidate the author's signature on CommentIpfs)",
     ERR_CHALLENGE_RESULT_OVERRIDES_RESERVED_COMMENT_UPDATE_FIELD = "A challenge result attempted to set commentUpdate.<field> that is in CommentUpdateChallengeReservedFieldNames (community-computed field)",
     ERR_CHALLENGE_RESULT_OVERRIDES_NON_COMMUNITY_AUTHOR_KEY = "A challenge result attempted to set commentUpdate.author.<field> with a key other than 'community' — challenges may only extend commentUpdate.author.community",
-    ERR_CHALLENGE_RESULT_OVERRIDES_RESERVED_COMMUNITY_AUTHOR_FIELD = "A challenge result attempted to set commentUpdate.author.community.<field> that is in CommunityAuthorChallengeReservedFieldNames (community-computed or mod-settable field)"
+    ERR_CHALLENGE_RESULT_OVERRIDES_RESERVED_COMMUNITY_AUTHOR_FIELD = "A challenge result attempted to set commentUpdate.author.community.<field> that is in CommunityAuthorChallengeReservedFieldNames (community-computed or mod-settable field)",
+
+    // Validation of settings.challenges[i] against the challenge file. Emitted by the same codes on every
+    // path (edit, creation, start), because a consumer filtering on the code cares about what is wrong,
+    // not about which path noticed. See docs/protocol/challenge-authoring.md.
+    ERR_CHALLENGE_OPTION_NOT_DECLARED_IN_OPTION_INPUTS = "settings.challenges[i].options has a key that no optionInputs entry of the challenge declares, so it is never read",
+    ERR_CHALLENGE_REQUIRED_OPTION_MISSING = "settings.challenges[i].options is missing an option whose optionInputs entry is required",
+    ERR_CHALLENGE_PUBLIC_OPTION_NOT_DECLARED_IN_OPTION_INPUTS = "settings.challenges[i].publicOptions names an option that no optionInputs entry of the challenge declares",
+    ERR_CHALLENGE_SETTINGS_VALIDATION_FAILED = "The challenge's validateChallengeSettings hook rejected settings.challenges[i]",
+    ERR_CHALLENGE_SETTINGS_VALIDATION_FAILED_FOR_CHALLENGES = "One or more challenges in settings.challenges failed validation"
 }

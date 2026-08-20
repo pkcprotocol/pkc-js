@@ -14,6 +14,9 @@ import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { ChallengeVerificationMessageType } from "../../../dist/node/pubsub-messages/types.js";
 import type { PKCWsServerSettingsSerialized } from "../../../dist/node/rpc/src/types.js";
+import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
+import { updateDbInternalState } from "../../../dist/node/runtime/node/community/local-community/db-state.js";
 import type {
     ChallengeFileInput,
     ChallengeInput,
@@ -296,6 +299,99 @@ describe("pkc.settings.challenges over RPC", () => {
         expect(challenges["runtime-added"].description).to.equal("A custom challenge asking about the sky color.");
 
         await clientPKC.destroy();
+    });
+
+    // The owner-facing configuration UI is the consumer these checks exist to serve, and it usually talks to
+    // the community over RPC, so the payload has to survive serialization rather than only being correct
+    // in-process. See docs/protocol/challenge-authoring.md.
+    describe(`challenge settings validation over RPC`, () => {
+        const connectClient = async () => {
+            const clientPKC = await PKC({ pkcRpcClientsOptions: [RPC_URL], dataPath: undefined, httpRoutersOptions: [] });
+            clientPKC.on("error", () => {}); // Prevent uncaught errors from WebSocket reconnection
+            return clientPKC;
+        };
+
+        it(`the aggregated edit failure arrives intact on an RpcLocalCommunity`, async () => {
+            // drop the "question" override an earlier test installed, so the built-in optionInputs apply
+            serverPKC.settings.challenges = { "sky-color": customSkyChallenge };
+            const clientPKC = await connectClient();
+            const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+
+            let thrown: unknown;
+            try {
+                await community.edit({
+                    settings: {
+                        challenges: [
+                            { name: "question", options: { question: "q?", answer: "a" } }, // valid
+                            { name: "question", options: { question: "q?" } }, // missing required answer
+                            { name: "publication-match", options: { matches: "[{" } } // hook: unparseable JSON
+                        ]
+                    }
+                });
+            } catch (e) {
+                thrown = e;
+            }
+            expect(thrown, "edit() over RPC should have thrown").to.exist;
+            expect((thrown as PKCError).code).to.equal("ERR_CHALLENGE_SETTINGS_VALIDATION_FAILED_FOR_CHALLENGES");
+
+            const failures = (thrown as PKCError).details.failures;
+            expect(failures, `no failures in ${JSON.stringify((thrown as PKCError).details)}`).to.be.an("array");
+            expect(failures).to.have.length(2);
+            expect(failures.map((f: any) => f.challengeIndex)).to.deep.equal([1, 2]);
+            expect(failures.map((f: any) => f.challengeName)).to.deep.equal(["question", "publication-match"]);
+            expect(failures.map((f: any) => f.error.code)).to.deep.equal([
+                "ERR_CHALLENGE_REQUIRED_OPTION_MISSING",
+                "ERR_CHALLENGE_SETTINGS_VALIDATION_FAILED"
+            ]);
+            // the per-failure details survive too, so a UI can point at the offending field
+            expect(failures[0].error.details.missingOption).to.equal("answer");
+            expect(failures[1].error.details.validationError).to.include("matches is not valid JSON");
+
+            await community.delete();
+            await clientPKC.destroy();
+        });
+
+        it(`start-time validation errors reach an RPC subscriber and the community still starts`, async () => {
+            serverPKC.settings.challenges = { "sky-color": customSkyChallenge };
+            // plant an already-broken persisted config server-side, the way a release predating these
+            // checks could have left one behind
+            const serverCommunity = (await serverPKC.createCommunity({})) as LocalCommunity;
+            const broken: CommunityChallengeSetting[] = [
+                { name: "question", options: { question: "q?" } },
+                { name: "publication-match", options: { matches: "[{" } }
+            ];
+            serverCommunity.settings = { ...serverCommunity.settings, challenges: broken };
+            // _usingDefaultChallenge must go false too: start() regenerates the default challenge over
+            // whatever is persisted while it is true, which would quietly undo the planted config
+            serverCommunity._usingDefaultChallenge = false;
+            await updateDbInternalState(serverCommunity, { settings: serverCommunity.settings, _usingDefaultChallenge: false });
+            serverCommunity._dbHandler.destoryConnection();
+
+            const clientPKC = await connectClient();
+            const community = (await clientPKC.createCommunity({ address: serverCommunity.address })) as RpcLocalCommunity;
+            const errors: PKCError[] = [];
+            community.on("error", (e) => errors.push(e as PKCError));
+
+            await community.start();
+            await resolveWhenConditionIsTrue({
+                toUpdate: community,
+                predicate: async () => errors.filter((e) => e.code?.startsWith("ERR_CHALLENGE_")).length >= 2
+            });
+
+            expect(community.state).to.equal("started");
+            const validationErrors = errors.filter((e) => e.code?.startsWith("ERR_CHALLENGE_"));
+            expect(validationErrors.map((e) => e.code)).to.include.members([
+                "ERR_CHALLENGE_REQUIRED_OPTION_MISSING",
+                "ERR_CHALLENGE_SETTINGS_VALIDATION_FAILED"
+            ]);
+            for (const e of validationErrors) {
+                expect(e.details.communityAddress).to.equal(serverCommunity.address);
+                expect(e.details.challengeName).to.equal(e.details.challengeIndex === 0 ? "question" : "publication-match");
+            }
+
+            await community.delete();
+            await clientPKC.destroy();
+        });
     });
 
     it(`RPC client can create a community with custom challenge and publish to it`, async () => {

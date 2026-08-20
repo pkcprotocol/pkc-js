@@ -14,6 +14,7 @@ Concise protocol reference for AI agents and contributors. Each doc covers one d
 | [crossposts.md](crossposts.md) | `comment.crosspost`, the embedded record, tier-1 vs tier-2 verification, `features.noCrossposts` |
 | [challenge-flow.md](challenge-flow.md) | 4-message encrypted challenge exchange |
 | [challenge-settings.md](challenge-settings.md) | Private (`settings.challenges`) vs public (`challenges`) boundary, sensitive options |
+| [challenge-authoring.md](challenge-authoring.md) | For challenge package authors: core `optionInputs` validation, the `validateChallengeSettings` hook, publication obligations |
 | [data-permanence.md](data-permanence.md) | What is permanent (IPFS CIDs) vs ephemeral (regenerated) |
 | [db-community-address-migration.md](db-community-address-migration.md) | DB v37 migration: subplebbitAddress → communityPublicKey/communityName, CID preservation |
 | [data-path-migration.md](data-path-migration.md) | Directory layout migration for downstream apps: `.plebbit/` → `.pkc/`, `subplebbits/` → `communities/` |
