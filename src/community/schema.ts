@@ -171,6 +171,10 @@ export const CommunityChallengeSettingSchema = z
         path: z.string().optional(), // (only if name is undefined) the path to the challenge js file, used to get the props ChallengeFile {optionInputs, type, getChallenge}
         name: z.string().optional(), // (only if path is undefined) the challengeName from PKC.challenges to identify it
         options: z.record(z.string(), z.string()).optional(), //{ [optionPropertyName: string]: string } the options to be used to the getChallenge function, all values must be strings for UI ease of use
+        // The option names this owner chose to publish in community.challenges[i].publicOptions. Private is
+        // the default, so an owner who sets nothing publishes nothing. Only options that are actually set in
+        // `options` are emitted. See docs/protocol/challenge-settings.md.
+        publicOptions: z.string().array().optional(),
         exclude: ChallengeExcludeSchema.array().nonempty().optional(), // singular because it only has to match 1 exclude, the client must know the exclude setting to configure what challengeCommentCids to send
         description: z.string().optional(), // describe in the frontend what kind of challenge the user will receive when publishing
         pendingApproval: z.boolean().optional()
@@ -185,20 +189,22 @@ export const GetChallengeArgsSchema = z.object({
     community: z.custom<LocalCommunity>()
 });
 
-export const ChallengeFileSchema = z
-    .object({
-        // the result of the function exported by the challenge file
-        optionInputs: ChallengeOptionInputSchema.array().optional(), // the options inputs fields to display to the user
-        type: ChallengeFromGetChallengeSchema.shape.type,
-        challenge: ChallengeFromGetChallengeSchema.shape.challenge.optional(), // some challenges can be static and asked before the user publishes, like a password for example
-        caseInsensitive: z.boolean().optional(), // challenge answer capitalization is ignored, informational only option added by the challenge file
-        description: z.string().optional(), // describe what the challenge does to display in the UI
-        getChallenge: z.function({
-            input: [GetChallengeArgsSchema],
-            output: z.promise(ResultOfGetChallengeSchema)
-        })
+// Loose, not strict: an unknown key here would be a parse error, and a parse error takes community
+// startup down. A challenge package that ships a newer optional key (see #283's validateChallengeSettings)
+// must still load on an older node, so unknown keys are ignored instead of fatal. The tradeoff is that a
+// misspelled *optional* export (e.g. `descriptio`) is now silently ignored rather than reported.
+export const ChallengeFileSchema = z.looseObject({
+    // the result of the function exported by the challenge file
+    optionInputs: ChallengeOptionInputSchema.array().optional(), // the options inputs fields to display to the user
+    type: ChallengeFromGetChallengeSchema.shape.type,
+    challenge: ChallengeFromGetChallengeSchema.shape.challenge.optional(), // some challenges can be static and asked before the user publishes, like a password for example
+    caseInsensitive: z.boolean().optional(), // challenge answer capitalization is ignored, informational only option added by the challenge file
+    description: z.string().optional(), // describe what the challenge does to display in the UI
+    getChallenge: z.function({
+        input: [GetChallengeArgsSchema],
+        output: z.promise(ResultOfGetChallengeSchema)
     })
-    .strict();
+});
 
 export const CommunityChallengeSchema = z.looseObject({
     exclude: ChallengeExcludeSchema.array().nonempty().optional(),
@@ -206,7 +212,10 @@ export const CommunityChallengeSchema = z.looseObject({
     challenge: ChallengeFileSchema.shape.challenge,
     type: ChallengeFileSchema.shape.type,
     caseInsensitive: ChallengeFileSchema.shape.caseInsensitive,
-    pendingApproval: z.boolean().optional()
+    pendingApproval: z.boolean().optional(),
+    // The subset of settings.challenges[i].options the owner opted into publishing, by naming them in
+    // settings.challenges[i].publicOptions. Omitted entirely when the owner published nothing.
+    publicOptions: z.record(z.string(), z.string()).optional()
 });
 export const ChallengeFileFactoryArgsSchema = z.object({
     challengeSettings: CommunityChallengeSettingSchema
