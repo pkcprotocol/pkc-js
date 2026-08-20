@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.84](https://github.com/pkcprotocol/pkc-js/compare/v0.0.83...v0.0.84) (2026-08-20)
+
+### Features
+
+* **pkc:** cancel in-flight community fetches via abortSignal, publication.stop() and destroy() ([#276](https://github.com/pkcprotocol/pkc-js/issues/276)) ([6aa14f3](https://github.com/pkcprotocol/pkc-js/commit/6aa14f31d52ddb89e1b007d2415ed9d5497d409c)), closes [#275](https://github.com/pkcprotocol/pkc-js/issues/275) [#196](https://github.com/pkcprotocol/pkc-js/issues/196) [#277](https://github.com/pkcprotocol/pkc-js/issues/277) [#145](https://github.com/pkcprotocol/pkc-js/issues/145) [#146](https://github.com/pkcprotocol/pkc-js/issues/146) [#278](https://github.com/pkcprotocol/pkc-js/issues/278)
+
 ## [0.0.83](https://github.com/pkcprotocol/pkc-js/compare/v0.0.82...v0.0.83) (2026-08-17)
 
 ### Bug Fixes
