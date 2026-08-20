@@ -27,7 +27,7 @@ import type {
     CommunityChallengeSetting
 } from "../../../../community/types.js";
 import { LocalCommunity } from "../local-community.js";
-import { omit } from "remeda";
+import { isEmpty, omit } from "remeda";
 import { ChallengeFileFactorySchema, ChallengeFileSchema, CommunityChallengeSettingSchema } from "../../../../community/schema.js";
 import { PKCError } from "../../../../pkc-error.js";
 import { pathToFileURL } from "node:url";
@@ -831,6 +831,18 @@ const getChallengeVerification = async ({
     return challengeVerification;
 };
 
+// Options are private by default. The owner opts an option into the published community record by naming
+// it in settings.challenges[i].publicOptions. Only options the owner actually set are emitted, and the
+// field is omitted entirely when nothing is published, so a record from an owner who opted into nothing is
+// byte-identical to one produced before publicOptions existed. See docs/protocol/challenge-settings.md.
+const derivePublicOptions = (communityChallengeSettings: CommunityChallengeSetting): CommunityChallenge["publicOptions"] => {
+    const { publicOptions, options } = communityChallengeSettings;
+    if (!publicOptions?.length || !options) return undefined;
+    const published: NonNullable<CommunityChallenge["publicOptions"]> = {};
+    for (const optionName of publicOptions) if (typeof options[optionName] === "string") published[optionName] = options[optionName];
+    return isEmpty(published) ? undefined : published;
+};
+
 // get the data to be published publicly to community.challenges
 const getCommunityChallengeFromCommunityChallengeSettings = async ({
     communityChallengeSettings,
@@ -875,7 +887,8 @@ const getCommunityChallengeFromCommunityChallengeSettings = async ({
             challenge,
             type,
             caseInsensitive: challengeFile.caseInsensitive,
-            pendingApproval: communityChallengeSettings.pendingApproval
+            pendingApproval: communityChallengeSettings.pendingApproval,
+            publicOptions: derivePublicOptions(communityChallengeSettings)
         }
     };
 };

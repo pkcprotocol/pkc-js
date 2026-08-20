@@ -3,7 +3,7 @@ import TinyCache from "tinycache";
 import QuickLRU from "quick-lru";
 import { testScore, testFirstCommentTimestamp, testRole, testPublicationType } from "./utils.js";
 import { testRateLimit } from "./rate-limiter.js";
-import type { Challenge, ChallengeResult, CommunityChallenge, Exclude, CommunitySettings } from "../../../../../community/types.js";
+import type { Challenge, ChallengeResult, CommunityChallenge, Exclude } from "../../../../../community/types.js";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../../../../pubsub-messages/types.js";
 import { Comment } from "../../../../../publications/comment/comment.js";
 import { LocalCommunity } from "../../local-community.js";
@@ -100,7 +100,10 @@ const shouldExcludePublication = (
 };
 
 const shouldExcludeChallengeSuccess = (
-    communityChallenge: NonNullable<CommunitySettings["challenges"]>[0],
+    // Only `exclude` is read here, and every caller passes the public CommunityChallenge, not the private
+    // setting. Typing it as the setting only ever worked because both are loose objects with compatible
+    // shapes; publicOptions (a string[] on the setting, a Record on the public challenge) breaks that.
+    communityChallenge: Pick<CommunityChallenge, "exclude">,
     communityChallengeIndex: number,
     challengeResults: (Challenge | ChallengeResult)[]
 ) => {
