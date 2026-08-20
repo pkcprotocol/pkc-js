@@ -16,6 +16,15 @@ jobs:
         with:
           node-version: 22
 
+      # Node 22 bundles npm 10.9.x, whose arborist crashes with
+      # "Cannot read properties of null (reading 'edgesOut')" on the `npm i ./pkc-js`
+      # local-folder install below. It reproduces on master, not just on a given PR, and
+      # it is graph-dependent: plebbit-protocol-test leaves 6 of its 20 deps on floating
+      # ranges, so a newly published transitive version is enough to tip npm 10 into the
+      # bug. npm 11 resolves the same tree without crashing. This is the only workflow
+      # that installs a local folder, so the pin lives here rather than repo-wide.
+      - run: npm i -g npm@11.13.0
+
       # move pkc-js (working dir) to temp folder
       - run: cp -r . ../pkc-js-tmp && rm -fr `ls -A1`
       # clone plebbit-protocol-test repo to working dir
