@@ -74,13 +74,21 @@ const getChallenge = async ({
     };
 };
 
+// `answer` is a secret rather than merely private: publishing it lets anyone read the record and answer the
+// challenge, so the challenge stops filtering anything. That is never a legitimate owner choice, so it is a
+// veto rather than a warning. See docs/protocol/challenge-authoring.md.
+const validateChallengeSettings = ({ challengeSettings }: { challengeSettings: CommunityChallengeSetting }): void => {
+    if (challengeSettings.publicOptions?.includes("answer"))
+        throw new Error("answer cannot be listed in publicOptions: publishing the answer means anyone can pass the challenge");
+};
+
 function ChallengeFileFactory({ challengeSettings }: { challengeSettings: CommunityChallengeSetting }): ChallengeFileInput {
     // some challenges can prepublish the challenge so that it can be preanswered
     // in the challengeRequestMessage
     const question = challengeSettings?.options?.question;
     const challenge = question;
 
-    return { getChallenge, optionInputs, type, challenge, description };
+    return { getChallenge, optionInputs, type, challenge, description, validateChallengeSettings };
 }
 
 export default ChallengeFileFactory;

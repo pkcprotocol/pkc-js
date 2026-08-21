@@ -6,6 +6,7 @@ import env from "../../../../version.js";
 import { pubsubTopicToDhtKey, removeMfsFilesSafely, sleepUntilTimeoutOrAbort } from "../../../../util.js";
 import { moveCommunityDbToDeletedDirectory } from "../../util.js";
 import { getCommunityChallengeFromCommunityChallengeSettings } from "../challenges/index.js";
+import { collectChallengeSettingsValidationFailures } from "../challenges/validate-challenge-settings.js";
 import {
     findCommunityInRegistry,
     findStartedCommunity,
@@ -108,6 +109,29 @@ export async function initBeforeStarting(community: LocalCommunity) {
     await community._dbHandler.initDbIfNeeded();
 }
 
+// Report every invalid persisted challenge as its own `error` event, one per challenge, and keep going.
+// Loading a challenge file can itself throw (a `path` that no longer exists, a `name` this node does not
+// have registered); that is a startup problem in its own right and is reported the same way rather than
+// swallowed, since the caller only asked us to look at the config.
+async function emitChallengeSettingsValidationErrors(community: LocalCommunity, log: Logger) {
+    let failures: Awaited<ReturnType<typeof collectChallengeSettingsValidationFailures>>;
+    try {
+        failures = await collectChallengeSettingsValidationFailures({
+            challengeSettings: community.settings?.challenges ?? [],
+            pkc: community._pkc
+        });
+    } catch (e) {
+        log.error("Failed to validate settings.challenges on start", community.address, e);
+        community.emit("error", e as PKCError);
+        return;
+    }
+    for (const { error, challengeIndex, challengeName } of failures) {
+        error.details = { ...error.details, challengeIndex, challengeName, communityAddress: community.address };
+        log.error("Invalid challenge settings on start", community.address, error);
+        community.emit("error", error);
+    }
+}
+
 export async function start(community: LocalCommunity) {
     const log = Logger("pkc-js:local-community:start");
     if (community.state === "updating")
@@ -174,6 +198,12 @@ export async function start(community: LocalCommunity) {
                         .communityChallenge
             )
         ); // make sure community.challenges is using latest props from settings.challenges
+
+        // Start only reports; it never throws. A config that was persisted before these checks existed, or
+        // one that a stricter challenge version now rejects, must not take startup down. It is re-emitted
+        // on every start until the owner fixes it, because a suppressed error is how a misconfiguration
+        // gets forgotten.
+        await emitChallengeSettingsValidationErrors(community, log);
     } catch (e) {
         await community.stop(); // Make sure to reset the community state
         //@ts-expect-error

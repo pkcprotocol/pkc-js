@@ -46,6 +46,8 @@ export const PKCWsServerSettingsSerializedSchema = z.object({
     pkcOptions: PKCParsedOptionsSchema.loose(),
     challenges: z.record(
         z.string(),
-        ChallengeFileSchema.omit({ getChallenge: true }) // to avoid throwing because of recursive dependency
+        // getChallenge is omitted to avoid throwing because of a recursive dependency; validateChallengeSettings
+        // is omitted because it is a function that cannot cross the wire and only ever runs community-side.
+        ChallengeFileSchema.omit({ getChallenge: true, validateChallengeSettings: true })
     )
 });

@@ -7,6 +7,7 @@ import type {
 } from "../../../../../community/types.js";
 import { derivePublicationFromChallengeRequest } from "../../../../../util.js";
 import { getCommunityAddressFromRecord } from "../../../../../publications/publication-community.js";
+import { validateAddressListOptions } from "./address-list-validation.js";
 
 const optionInputs = <NonNullable<ChallengeFileInput["optionInputs"]>>[
     {
@@ -146,7 +147,7 @@ const getChallenge = async ({ challengeSettings, challengeRequestMessage }: GetC
 };
 
 function ChallengeFileFactory({ challengeSettings }: { challengeSettings: CommunityChallengeSetting }): ChallengeFileInput {
-    return { getChallenge, optionInputs, type, description };
+    return { getChallenge, optionInputs, type, description, validateChallengeSettings: validateAddressListOptions };
 }
 
 export default ChallengeFileFactory;

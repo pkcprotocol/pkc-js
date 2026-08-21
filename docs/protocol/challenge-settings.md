@@ -65,7 +65,7 @@ The one exception is opt-in and owner-driven: the owner names individual options
 - The field is omitted entirely, not emitted as `{}`, when nothing qualifies. A record from an owner who opted into nothing is byte-identical to one produced before `publicOptions` existed.
 - Values stay `string`, matching the `options` contract. A structured ruleset ships as a JSON string, exactly as `publication-match` already does with its `matches` option.
 
-Publication is the owner's decision, not the challenge developer's. A challenge package that must forbid or require publication of one of its options enforces that in its own validator rather than by owning the switch.
+Publication is the owner's decision, not the challenge developer's. A challenge package that must forbid or require publication of one of its options enforces that in its `validateChallengeSettings` hook rather than by owning the switch. See [challenge-authoring.md](challenge-authoring.md).
 
 ## Sensitive Options by Built-in Challenge
 
@@ -73,13 +73,15 @@ Two different things get called "sensitive", and `publicOptions` forces them apa
 
 ### Secrets: publishing breaks the challenge
 
+The challenge's own `validateChallengeSettings` hook must forbid publication of these.
+
 | Challenge | Option | Why publishing breaks it |
 |-----------|--------|--------------------------|
 | `question` | `answer` | Anyone reading the record could answer the challenge, so it stops filtering anything |
 
 ### Private by default: publishing is a legitimate owner choice
 
-Not published unless the owner names the option, but naming it is a policy decision rather than a leak.
+Not published unless the owner names the option, but naming it is a policy decision rather than a leak, so the challenge's hook stays silent about them.
 
 | Challenge | Option | What publishing it means |
 |-----------|--------|--------------------------|
@@ -103,5 +105,6 @@ All built-in challenges also accept an `error` option (custom error message), no
 |------|---------|
 | `src/community/schema.ts` | Both `CommunityChallengeSettingSchema` and `CommunityChallengeSchema` |
 | `src/runtime/node/community/challenges/index.ts` | `getCommunityChallengeFromCommunityChallengeSettings()` transformation and `derivePublicOptions()` |
+| `src/runtime/node/community/challenges/validate-challenge-settings.ts` | Validation of a settings entry against the challenge file, see [challenge-authoring.md](challenge-authoring.md) |
 | `src/runtime/node/community/challenges/pkc-js-challenges/` | Built-in challenge implementations with their `optionInputs` |
 | `src/runtime/node/community/local-community.ts` | Where `this.challenges` is populated from `this.settings.challenges` |

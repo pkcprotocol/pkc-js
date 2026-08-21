@@ -12,6 +12,7 @@ import {
     trackStartedCommunity
 } from "../../../../pkc/tracked-instance-registry-util.js";
 import { getCommunityChallengeFromCommunityChallengeSettings } from "../challenges/index.js";
+import { throwIfChallengeSettingsAreInvalid } from "../challenges/validate-challenge-settings.js";
 import type {
     CommunityEditOptions,
     CommunityIpfsType,
@@ -65,6 +66,13 @@ export async function parseChallengesToEdit(
     community: LocalCommunity,
     newChallengeSettings: NonNullable<NonNullable<CommunityEditOptions["settings"]>["challenges"]>
 ): Promise<NonNullable<Pick<InternalCommunityRecordAfterFirstUpdateType, "challenges" | "_usingDefaultChallenge">>> {
+    // A dedicated pass first, before anything below is derived or persisted, so an invalid edit is rejected
+    // whole. Failures are aggregated across every challenge rather than thrown one at a time.
+    await throwIfChallengeSettingsAreInvalid({
+        challengeSettings: newChallengeSettings,
+        pkc: community._pkc,
+        communityAddress: community.address
+    });
     return {
         challenges: await Promise.all(
             newChallengeSettings.map(

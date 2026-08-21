@@ -11,6 +11,7 @@ import { SignerWithPublicKeyAddress } from "../../../../signer/index.js";
 import { getIpfsKeyFromPrivateKey, getPublicKeyFromPrivateKey } from "../../../../signer/util.js";
 import { findCommunityInRegistry, findStartedCommunity } from "../../../../pkc/tracked-instance-registry-util.js";
 import { getCommunityChallengeFromCommunityChallengeSettings } from "../challenges/index.js";
+import { throwIfChallengeSettingsAreInvalid } from "../challenges/validate-challenge-settings.js";
 import type {
     CommunityIpfsType,
     CreateNewLocalCommunityParsedOptions,
@@ -272,6 +273,14 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
     if (typeof community.settings?.purgeDisapprovedCommentsOlderThan !== "number") {
         community.settings = { ...community.settings, purgeDisapprovedCommentsOlderThan: 1.21e6 }; // two weeks
     }
+
+    // Creation can throw: nothing has been persisted yet, so refusing to create the community is safe and
+    // leaves the owner with no broken config on disk.
+    await throwIfChallengeSettingsAreInvalid({
+        challengeSettings: community.settings.challenges!,
+        pkc: community._pkc,
+        communityAddress: community.address
+    });
 
     community.challenges = await Promise.all(
         community.settings.challenges!.map(

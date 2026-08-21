@@ -158,9 +158,39 @@ const getChallenge = async ({ challengeSettings, challengeRequestMessage }: GetC
         };
 };
 
+// getChallenge parses `matches` per publication and turns a bad value into a per-author failure, which
+// means a typo in the owner's config surfaces as every author being rejected rather than as a failed edit.
+// Checking it here moves that to configuration time. No opinion on publication: advertising the patterns so
+// a UI can validate before the author burns an attempt is a legitimate owner choice.
+const validateChallengeSettings = ({ challengeSettings }: { challengeSettings: CommunityChallengeSetting }): void => {
+    const matchesStr = challengeSettings.options?.matches;
+    if (!matchesStr) return;
+
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(matchesStr);
+    } catch (e) {
+        throw new Error(`matches is not valid JSON: ${(e as Error).message}`);
+    }
+    if (!Array.isArray(parsed)) throw new Error("matches must be a JSON array of {propertyName, regexp} objects");
+
+    for (const [index, match] of parsed.entries()) {
+        if (typeof match !== "object" || match === null || Array.isArray(match))
+            throw new Error(`matches[${index}] must be an object with propertyName and regexp`);
+        const { propertyName, regexp } = <Partial<Match>>match;
+        if (typeof propertyName !== "string" || !propertyName) throw new Error(`matches[${index}].propertyName must be a non-empty string`);
+        if (typeof regexp !== "string" || !regexp) throw new Error(`matches[${index}].regexp must be a non-empty string`);
+        try {
+            new RegExp(regexp);
+        } catch (e) {
+            throw new Error(`matches[${index}].regexp ('${regexp}') is not a valid regular expression: ${(e as Error).message}`);
+        }
+    }
+};
+
 function ChallengeFileFactory({ challengeSettings }: { challengeSettings: CommunityChallengeSetting }): ChallengeFileInput {
     const description = challengeSettings?.options?.description || defaultDescription;
-    return { getChallenge, optionInputs, type, description };
+    return { getChallenge, optionInputs, type, description, validateChallengeSettings };
 }
 
 export default ChallengeFileFactory;
