@@ -482,6 +482,112 @@ describe("RPC community update subscription survives concurrent sibling churn (#
         }
     });
 
+    // Regression for issue #197 (CI run 32105711724): a subscription whose community has COMPLETED a
+    // key migration is orphaned by the next settings change. The server's _onSettingsChange handler
+    // runs stop() + update() on every community subscription; before the fix, update() on a migrated
+    // KEY-ADDRESSED community threw "should be defined at this stage" out of
+    // fetchLatestCommunityOrSubscribeToEvent — the fresh updating instance was tracked under the
+    // pre-migration address while the follow-up lookup used the post-migration {publicKey, name},
+    // which share no alias. The settings loop's #129 guard caught the throw and moved on, leaving the
+    // subscription bound to the old (soon destroyed) pkc: the client's websocket stayed connected but
+    // permanently silent, which is the 160s CI timeout.
+    //
+    // The victim MUST be addressed by raw IPNS key: a domain-addressed community rebuilds its
+    // updating instance as {name, publicKey}, whose aliases happen to satisfy the old lookup, which
+    // is why the setSettings-burst test above (domain victim, pre-record window) always passed.
+    itIfRpc(`a key-addressed subscription survives a settings change after its key migration has completed`, async () => {
+        const target = await createMigrationTargetWithInvalidRecord();
+        const domain = `settings-after-migration-${Date.now()}.bso`;
+        resolverRecords.set(domain, target.newKey);
+        // The old key's record carries the domain as its name, like real pre-migration records of a
+        // domain community do; resolving that name is what triggers the migration server-side
+        const { communityAddress: oldKey } = await createMockedCommunityIpns({ name: domain });
+
+        const clientA = await createClient();
+        try {
+            const communityA = await clientA.createCommunity({ address: oldKey });
+            const migrationErrorPromise = new Promise<PKCError>((resolve) => {
+                communityA.on("error", (err) => {
+                    if ((err as PKCError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") resolve(err as PKCError);
+                });
+            });
+            await communityA.update();
+            await withTimeout(migrationErrorPromise, 60_000, "client A key-migration error");
+
+            // Let the migration COMPLETE: publish the new key's record and wait for it end to end,
+            // so the server-side subscription instance is fully post-migration when settings change
+            await target.publishRecord();
+            await withTimeout(
+                resolveWhenConditionIsTrue({
+                    toUpdate: communityA,
+                    predicate: async () => typeof communityA.updatedAt === "number" && communityA.publicKey === target.newKey
+                }),
+                60_000,
+                "client A post-migration record before the settings change"
+            );
+            expect(communityA.address).to.equal(oldKey); // address is immutable
+
+            // Events observed AFTER the settings change below. The server-side re-subscribe follows
+            // fresh-subscribe semantics: reload the old key's record, re-announce the migration,
+            // then deliver the new key's record again — so the strong signal that the subscription
+            // is alive is a re-announced migration error followed by a record update
+            const postSwap: { migrationError?: PKCError; recordUpdateAfterError: boolean } = { recordUpdateAfterError: false };
+            communityA.on("error", (err) => {
+                if ((err as PKCError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY")
+                    postSwap.migrationError = err as PKCError;
+            });
+            communityA.on("update", () => {
+                if (postSwap.migrationError && typeof communityA.updatedAt === "number") postSwap.recordUpdateAfterError = true;
+            });
+
+            const rpcClientA = clientA.clients.pkcRpcClients[rpcUrl];
+            await withTimeout(
+                resolveWhenConditionIsTrue({
+                    toUpdate: rpcClientA,
+                    predicate: async () => Boolean(rpcClientA.settings?.pkcOptions),
+                    eventName: "settingschange"
+                }),
+                30_000,
+                "client A initial RPC settings"
+            );
+            const currentOptions = rpcClientA.settings!.pkcOptions;
+            await withTimeout(
+                rpcClientA.setSettings({
+                    pkcOptions: {
+                        resolveAuthorNames: currentOptions.resolveAuthorNames,
+                        validatePages: currentOptions.validatePages,
+                        publishInterval: currentOptions.publishInterval,
+                        updateInterval: currentOptions.updateInterval,
+                        noData: currentOptions.noData,
+                        httpRoutersOptions: currentOptions.httpRoutersOptions,
+                        userAgent: `settings-after-migration-${Date.now()}`
+                    }
+                }),
+                60_000,
+                "setSettings after completed migration"
+            );
+
+            // Before the fix nothing ever arrives again on this subscription
+            await pollUntil(
+                () => Boolean(postSwap.migrationError),
+                60_000,
+                "re-announced key-migration error after the settings change (#197: subscription orphaned by settings swap)"
+            );
+            await pollUntil(
+                () => postSwap.recordUpdateAfterError,
+                60_000,
+                "post-migration record after the settings change (#197: subscription orphaned by settings swap)"
+            );
+            expect(communityA.publicKey).to.equal(target.newKey);
+            expect(communityA.address).to.equal(oldKey);
+
+            await communityA.stop();
+        } finally {
+            await target.destroy();
+            if (!clientA.destroyed) await clientA.destroy();
+        }
+    });
+
     // Regression for issue #129 (setSettings handler-loop abort): the server applies a settings
     // change by iterating every subscription's _onSettingsChange handler. Before the fix, one
     // throwing handler aborted the loop: the remaining subscriptions were never migrated to the

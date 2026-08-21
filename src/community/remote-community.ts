@@ -109,6 +109,11 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     protected _ipnsPubsubTopic?: string;
     protected _ipnsPubsubTopicRoutingCid?: string;
     protected _stopAbortController?: AbortController;
+    // Set when construction-time warm start (issue #197) found the tracked instance holding a record
+    // keyed to a different publicKey than the caller requested: a key migration the caller has not
+    // observed. The announcement is deferred to update() because callers attach their "error"
+    // listener only after createCommunity() returns, so emitting here would be unobservable.
+    protected _pendingWarmStartKeyMigration?: { previousPublicKey: string; newPublicKey: string };
 
     // Add a private property to store the actual updatingState value
     protected _updatingState!: CommunityUpdatingState;
@@ -640,11 +645,36 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     }
 
     _setCommunityIpfsPropsFromUpdatingCommunitiesIfPossible() {
-        const log = Logger("pkc-js:comment:_setCommunityIpfsPropsFromUpdatingCommunitiesIfPossible");
+        const log = Logger("pkc-js:remote-community:_setCommunityIpfsPropsFromUpdatingCommunitiesIfPossible");
         const updatingCommunity = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
         if (updatingCommunity?.raw?.communityIpfs && (this.updatedAt || 0) < updatingCommunity.raw.communityIpfs.updatedAt) {
+            // The caller asked for a specific publicKey and the tracked instance holds a record keyed
+            // to a different one (its anchor for delegated communities — never signature.publicKey,
+            // whose minter key legitimately differs): the community key-migrated before this caller
+            // joined. Don't adopt the record silently — that would hand the caller a record for a key
+            // they never requested with no migration signal (issue #197, the publickey-fallback and
+            // update.community CI failures). Record the fact and let update() announce it the same
+            // way the first loader's background resolution does, then mirror-replay the record.
+            if (this.publicKey && updatingCommunity.publicKey && this.publicKey !== updatingCommunity.publicKey) {
+                this._pendingWarmStartKeyMigration = { previousPublicKey: this.publicKey, newPublicKey: updatingCommunity.publicKey };
+                log.trace(
+                    `New Remote Community instance`,
+                    this.address,
+                    `skipped warm start from pkc._updatingCommunities[${this.address}]: tracked instance is keyed to`,
+                    updatingCommunity.publicKey,
+                    `while the caller requested`,
+                    this.publicKey,
+                    `- deferring key-migration announcement to update()`
+                );
+                return;
+            }
+            const nameResolvedBeforeAdoption = this.nameResolved;
             this.initCommunityIpfsPropsNoMerge(updatingCommunity.raw.communityIpfs);
             this.updateCid = updatingCommunity.updateCid;
+            // Same guard as the mirror's update handler: adopt the tracked instance's nameResolved
+            // only when its name describes us (#119). Without this a warm-started instance reports
+            // nameResolved undefined while a cold-started sibling of the same community reports true.
+            this._adoptMirroredNameResolved(updatingCommunity, nameResolvedBeforeAdoption);
             log.trace(
                 `New Remote Community instance`,
                 this.address,
@@ -669,11 +699,8 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         } else this.nameResolved = nameResolvedBeforeMirror;
     }
 
-    private async _initCommunityInstanceWithListeners() {
-        const trackedUpdatingCommunity = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
-        if (!trackedUpdatingCommunity) throw Error("should be defined at this stage");
+    private async _initCommunityInstanceWithListeners(communityInstance: RemoteCommunity) {
         const log = Logger("pkc-js:remote-community:update");
-        const communityInstance = trackedUpdatingCommunity;
         return <NonNullable<this["_updatingCommunityInstanceWithListeners"]>>{
             community: communityInstance,
             update: () => {
@@ -711,26 +738,39 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     private async fetchLatestCommunityOrSubscribeToEvent() {
         const log = Logger("pkc-js:remote-community:update:updateOnce");
 
-        if (!findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name })) {
-            // Pass publicKey alongside name/address so the updating community can use publicKey fallback
+        // The instance flows from a single find-or-create: after a key migration this instance's
+        // {publicKey, name} are the post-migration values while the fresh updating instance is
+        // tracked under the pre-migration address, so a second alias lookup here used to come up
+        // empty and throw "should be defined at this stage" even though the instance was tracked —
+        // which is how the RPC server's setSettings handler orphaned migrated subscriptions (#197).
+        let communityInstance = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
+        if (!communityInstance) {
+            // Pass publicKey alongside name/address so the updating community can use publicKey fallback.
+            // createOpts is deliberately keyed by the (immutable, possibly pre-migration) address: the
+            // re-created updating instance re-resolves and re-announces a migration exactly like a
+            // fresh subscribe would.
             const createOpts =
                 this.publicKey && isStringDomain(this.address)
                     ? { name: this.address, publicKey: this.publicKey }
                     : { address: this.address };
             const updatingCommunity = await this._pkc.createCommunity(createOpts);
-            trackUpdatingCommunity(this._pkc, updatingCommunity);
+            communityInstance = trackUpdatingCommunity(this._pkc, updatingCommunity);
             log("Creating a new entry for this._pkc._updatingCommunities", this.address);
         }
-
-        const communityInstance = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
-        if (!communityInstance) throw Error("should be defined at this stage");
         if (communityInstance === this) {
             // Already tracking this instance; start the loop directly without mirroring to itself
             this._clientsManager.startUpdatingLoop().catch((err) => log.error("Failed to start update loop of community", err));
             return;
         }
 
-        this._updatingCommunityInstanceWithListeners = await this._initCommunityInstanceWithListeners();
+        // The awaits above are a window for a concurrent stop() to untrack the instance. Attaching
+        // mirrors to an untracked instance would strand this community on a dying entry, so assert
+        // the update loop's real precondition — membership of this exact instance — by identity,
+        // which a key rotation cannot spuriously trip the way the old alias lookups could.
+        if (!this._pkc._updatingCommunities.has(communityInstance))
+            throw Error(`Updating community instance (${communityInstance.address}) was untracked before listeners could be attached`);
+
+        this._updatingCommunityInstanceWithListeners = await this._initCommunityInstanceWithListeners(<RemoteCommunity>communityInstance);
         this._updatingCommunityInstanceWithListeners.community.on("update", this._updatingCommunityInstanceWithListeners.update);
 
         this._updatingCommunityInstanceWithListeners.community.on(
@@ -754,6 +794,42 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
                 .startUpdatingLoop()
                 .catch((err) => log.error("Failed to start update loop of community", err));
         }
+
+        // Replay the updating instance's current record through the mirror's own update handler.
+        // Listener attach alone has a gap: an instance that already holds a newer record than ours
+        // (e.g. it settled a key migration before we joined, #197) emits nothing until its NEXT
+        // record lands, which for a quiet community could be arbitrarily far away. The updatedAt
+        // guard makes this a no-op when we warm-started from the same record at construction.
+        if (
+            communityInstance.raw.communityIpfs &&
+            (this.updatedAt ?? 0) < communityInstance.raw.communityIpfs.updatedAt &&
+            this._updatingCommunityInstanceWithListeners
+        )
+            this._updatingCommunityInstanceWithListeners.update(<RemoteCommunity>communityInstance);
+    }
+
+    // A construction-time warm start that found the tracked instance migrated to a different key
+    // (issue #197) deferred its announcement to here, the first point where the caller's listeners
+    // are attached. Replays the exact observable sequence the first loader's background resolution
+    // produces (community-client-manager's _resolveNameInBackground): cleared update, then the
+    // migration error. The migrated record itself follows via the attach-time replay in
+    // fetchLatestCommunityOrSubscribeToEvent.
+    private _announcePendingWarmStartKeyMigrationIfAny() {
+        if (!this._pendingWarmStartKeyMigration) return;
+        const { previousPublicKey, newPublicKey } = this._pendingWarmStartKeyMigration;
+        this._pendingWarmStartKeyMigration = undefined;
+        const error = new PKCError("ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY", {
+            communityName: this.name,
+            previousPublicKey,
+            newPublicKey
+        });
+        this._clearDataForKeyMigration(newPublicKey);
+        // The migration was established by resolving this very name (on the tracked instance's own
+        // loop), so the name is known to resolve — same as the first loader's flow. A nameless
+        // (key-addressed) joiner has no name to describe, so nameResolved stays undefined for it.
+        if (this.name) this.nameResolved = true;
+        this.emit("update", this);
+        this.emit("error", error);
     }
 
     async update() {
@@ -763,8 +839,13 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
         this._setState("updating");
 
+        this._announcePendingWarmStartKeyMigrationIfAny();
+        // Only the construction-time warm start emits here: the attach-time replay inside
+        // fetchLatest already emitted for any record it applied, and on the cold path the record
+        // lands asynchronously after this returns.
+        const hadRecordBeforeFetch = Boolean(this.raw.communityIpfs);
         await this.fetchLatestCommunityOrSubscribeToEvent();
-        if (this.raw.communityIpfs) this.emit("update", this);
+        if (this.raw.communityIpfs && hadRecordBeforeFetch) this.emit("update", this);
     }
 
     private async _cleanUpUpdatingCommunityInstanceWithListeners() {
