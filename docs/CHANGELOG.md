@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.85](https://github.com/pkcprotocol/pkc-js/compare/v0.0.84...v0.0.85) (2026-08-21)
+
+### Features
+
+* **challenges:** add validateChallengeSettings and core optionInputs validation ([#283](https://github.com/pkcprotocol/pkc-js/issues/283)) ([#288](https://github.com/pkcprotocol/pkc-js/issues/288)) ([d902872](https://github.com/pkcprotocol/pkc-js/commit/d9028724e21cc29c98bb4c360ccbd894f3422476))
+* **challenges:** publish opt-in public challenge options in the community record ([#282](https://github.com/pkcprotocol/pkc-js/issues/282)) ([#287](https://github.com/pkcprotocol/pkc-js/issues/287)) ([01e1b2f](https://github.com/pkcprotocol/pkc-js/commit/01e1b2fcfae128efa62438e5d3a5370f13d2f6fd))
+
 ## [0.0.84](https://github.com/pkcprotocol/pkc-js/compare/v0.0.83...v0.0.84) (2026-08-20)
 
 ### Features
