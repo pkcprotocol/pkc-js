@@ -7,6 +7,19 @@
 * **challenges:** add validateChallengeSettings and core optionInputs validation ([#283](https://github.com/pkcprotocol/pkc-js/issues/283)) ([#288](https://github.com/pkcprotocol/pkc-js/issues/288)) ([d902872](https://github.com/pkcprotocol/pkc-js/commit/d9028724e21cc29c98bb4c360ccbd894f3422476))
 * **challenges:** publish opt-in public challenge options in the community record ([#282](https://github.com/pkcprotocol/pkc-js/issues/282)) ([#287](https://github.com/pkcprotocol/pkc-js/issues/287)) ([01e1b2f](https://github.com/pkcprotocol/pkc-js/commit/01e1b2fcfae128efa62438e5d3a5370f13d2f6fd))
 
+### Upgrade note
+
+`settings.challenges[]` is now validated against each challenge file's `optionInputs`, on the edit, community-creation and start paths.
+
+**If you own a community whose challenge config was already broken, this release is when you find out.** Two things change:
+
+* An `edit()` carrying an undeclared option key, a missing `required` option, or an undeclared `publicOptions` entry now **throws** instead of saving. Failures are aggregated across every challenge into one `PKCError` with code `ERR_CHALLENGE_SETTINGS_VALIDATION_FAILED_FOR_CHALLENGES`, whose `details.failures` is `{challengeIndex, challengeName, error}[]`.
+* A community that already has such config persisted emits one `error` event per invalid challenge **on every start**, carrying `{challengeIndex, challengeName, communityAddress}`. The community still starts: a persisted bad config never takes startup down.
+
+This is intended, but it will look like a new bug to whoever sees it first. Config such as `anwser` instead of `answer` was silently ignored before, which meant every author was rejected with no signal to the owner. Now it is reported.
+
+Challenge package authors: the new optional `validateChallengeSettings` hook is documented in [`docs/protocol/challenge-authoring.md`](protocol/challenge-authoring.md). It is sync and must not make network calls, since it runs on every community start.
+
 ## [0.0.84](https://github.com/pkcprotocol/pkc-js/compare/v0.0.83...v0.0.84) (2026-08-20)
 
 ### Features
