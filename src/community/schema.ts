@@ -474,7 +474,11 @@ export const CommunityIpfsReservedFields = difference(
         "started",
         "exports",
         // getCommunity() argument, never part of a record (issue #275)
-        "abortSignal"
+        "abortSignal",
+        // runtime marker for a deferred warm-start key-migration announcement (issue #197) — a wire
+        // record carrying this key would otherwise reach the instance via the unknown-props
+        // (extraProps) assignment and plant a signed, attacker-controlled migration announcement
+        "_pendingWarmStartKeyMigration"
     ],
     keys(CommunityIpfsSchema.shape)
 );

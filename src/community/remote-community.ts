@@ -113,7 +113,10 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     // keyed to a different publicKey than the caller requested: a key migration the caller has not
     // observed. The announcement is deferred to update() because callers attach their "error"
     // listener only after createCommunity() returns, so emitting here would be unobservable.
-    protected _pendingWarmStartKeyMigration?: { previousPublicKey: string; newPublicKey: string };
+    // The explicit `= undefined` matters: it makes the field an own property at construction so
+    // hideClassPrivateProps() can mark it non-enumerable — without it (target ES2021) the first
+    // assignment would create an enumerable prop that leaks into JSON.stringify(community).
+    protected _pendingWarmStartKeyMigration?: { previousPublicKey: string; newPublicKey: string } = undefined;
 
     // Add a private property to store the actual updatingState value
     protected _updatingState!: CommunityUpdatingState;
@@ -735,7 +738,9 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         };
     }
 
-    private async fetchLatestCommunityOrSubscribeToEvent() {
+    // Resolves to true when the attach-time replay below emitted an "update" for the record it
+    // applied, so update() can avoid emitting a duplicate for the same record.
+    private async fetchLatestCommunityOrSubscribeToEvent(): Promise<boolean> {
         const log = Logger("pkc-js:remote-community:update:updateOnce");
 
         // The instance flows from a single find-or-create: after a key migration this instance's
@@ -760,7 +765,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         if (communityInstance === this) {
             // Already tracking this instance; start the loop directly without mirroring to itself
             this._clientsManager.startUpdatingLoop().catch((err) => log.error("Failed to start update loop of community", err));
-            return;
+            return false;
         }
 
         // The awaits above are a window for a concurrent stop() to untrack the instance. Attaching
@@ -804,8 +809,11 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             communityInstance.raw.communityIpfs &&
             (this.updatedAt ?? 0) < communityInstance.raw.communityIpfs.updatedAt &&
             this._updatingCommunityInstanceWithListeners
-        )
+        ) {
             this._updatingCommunityInstanceWithListeners.update(<RemoteCommunity>communityInstance);
+            return true; // the replay emitted "update"; update() must not emit again for the same record
+        }
+        return false;
     }
 
     // A construction-time warm start that found the tracked instance migrated to a different key
@@ -840,12 +848,13 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         this._setState("updating");
 
         this._announcePendingWarmStartKeyMigrationIfAny();
-        // Only the construction-time warm start emits here: the attach-time replay inside
-        // fetchLatest already emitted for any record it applied, and on the cold path the record
-        // lands asynchronously after this returns.
+        // Only the construction-time warm start emits here. The attach-time replay reports whether
+        // it already emitted for a record it applied (e.g. the tracked instance advanced past the
+        // record we warm-started with), and on the cold path the record lands asynchronously after
+        // this returns.
         const hadRecordBeforeFetch = Boolean(this.raw.communityIpfs);
-        await this.fetchLatestCommunityOrSubscribeToEvent();
-        if (this.raw.communityIpfs && hadRecordBeforeFetch) this.emit("update", this);
+        const replayEmittedUpdate = await this.fetchLatestCommunityOrSubscribeToEvent();
+        if (this.raw.communityIpfs && hadRecordBeforeFetch && !replayEmittedUpdate) this.emit("update", this);
     }
 
     private async _cleanUpUpdatingCommunityInstanceWithListeners() {

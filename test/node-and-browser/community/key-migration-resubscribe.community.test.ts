@@ -106,9 +106,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 const firstWrongKey = (await testPKC.createSigner()).address;
                 const first = await testPKC.createCommunity({ name: communityName, publicKey: firstWrongKey });
                 await first.update();
+                // No record exists under firstWrongKey (a fresh signer), so updatedAt can only come
+                // from the migrated key's record; the publicKey check makes that explicit.
                 await resolveWhenConditionIsTrue({
                     toUpdate: first,
-                    predicate: async () => typeof first.updatedAt === "number"
+                    predicate: async () => first.publicKey === migratedKey && typeof first.updatedAt === "number"
                 });
                 expect(first.publicKey).to.equal(migratedKey);
                 expect(first.nameResolved).to.equal(true);
