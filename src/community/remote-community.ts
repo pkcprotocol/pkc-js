@@ -702,7 +702,11 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         } else this.nameResolved = nameResolvedBeforeMirror;
     }
 
-    private async _initCommunityInstanceWithListeners(communityInstance: RemoteCommunity) {
+    // Deliberately synchronous: the caller checks registry membership immediately before attaching
+    // the listeners this builds, and any await between the check and the attach opens a microtask
+    // window where a concurrent stop() can untrack the instance, silently tearing down the mirror
+    // that attaches to it (see the membership check in fetchLatestCommunityOrSubscribeToEvent).
+    private _initCommunityInstanceWithListeners(communityInstance: RemoteCommunity) {
         const log = Logger("pkc-js:remote-community:update");
         return <NonNullable<this["_updatingCommunityInstanceWithListeners"]>>{
             community: communityInstance,
@@ -775,7 +779,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         if (!this._pkc._updatingCommunities.has(communityInstance))
             throw Error(`Updating community instance (${communityInstance.address}) was untracked before listeners could be attached`);
 
-        this._updatingCommunityInstanceWithListeners = await this._initCommunityInstanceWithListeners(<RemoteCommunity>communityInstance);
+        this._updatingCommunityInstanceWithListeners = this._initCommunityInstanceWithListeners(<RemoteCommunity>communityInstance);
         this._updatingCommunityInstanceWithListeners.community.on("update", this._updatingCommunityInstanceWithListeners.update);
 
         this._updatingCommunityInstanceWithListeners.community.on(
