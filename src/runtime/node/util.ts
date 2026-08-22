@@ -4,7 +4,6 @@ import {
     openSync,
     readSync,
     closeSync,
-    rm as rmSync,
     watch as fsWatch,
     promises as fsPromises,
     createReadStream
@@ -477,19 +476,14 @@ export async function moveCommunityDbToDeletedDirectory(communityAddress: string
         // Delete the original file
         if (os.type() === "Windows_NT") {
             await deleteOldCommunityInWindows(oldPath, pkc);
-        } else
-            rmSync(oldPath, (err) => {
-                if (err) throw err;
-            });
+        } else await fsPromises.rm(oldPath, { force: true });
     } catch (error: any) {
         error.details = { ...error.details, oldPath, newPath };
         throw error;
     }
 }
 
-export async function createKuboRpcClient(
-    kuboRpcClientOptions: KuboRpcClient["_clientOptions"]
-): Promise<KuboRpcClient["_client"]> {
+export async function createKuboRpcClient(kuboRpcClientOptions: KuboRpcClient["_clientOptions"]): Promise<KuboRpcClient["_client"]> {
     const log = Logger("pkc-js:pkc:createKuboRpcClient");
     log.trace("Creating a new kubo client on node with options", kuboRpcClientOptions);
     const { create: CreateKuboRpcClient } = await import("kubo-rpc-client");
