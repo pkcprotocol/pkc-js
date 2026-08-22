@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.86](https://github.com/pkcprotocol/pkc-js/compare/v0.0.85...v0.0.86) (2026-08-22)
+
+### Bug Fixes
+
+* **community:** announce key migration to late joiners and survive update() after a migration ([#289](https://github.com/pkcprotocol/pkc-js/issues/289)) ([af8a7b7](https://github.com/pkcprotocol/pkc-js/commit/af8a7b71ec53e380e18e7da259cf052e03304ee9)), closes [#129](https://github.com/pkcprotocol/pkc-js/issues/129) [#119](https://github.com/pkcprotocol/pkc-js/issues/119) [#197](https://github.com/pkcprotocol/pkc-js/issues/197)
+
 ## [0.0.85](https://github.com/pkcprotocol/pkc-js/compare/v0.0.84...v0.0.85) (2026-08-21)
 
 ### Features
