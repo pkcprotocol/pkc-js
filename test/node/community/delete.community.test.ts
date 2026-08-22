@@ -56,6 +56,19 @@ describe(`community.delete`, async () => {
         expect(communityFiles).to.not.include(stateLockFilename);
     });
 
+    // Under RPC the fs operations happen inside the RPC server process against its own dataPath,
+    // so this client process cannot observe the server's communities directory.
+    itSkipIfRpc(`community.delete() removes the source db from the communities dir before resolving`, async () => {
+        const freshCommunity = (await pkc.createCommunity()) as LocalCommunity;
+        const sourceDbPath = path.join(pkc.dataPath!, "communities", freshCommunity.address);
+        expect(fs.existsSync(sourceDbPath)).to.be.true;
+        await freshCommunity.delete();
+        // delete() must not resolve while the removal of the source db is still in flight: a
+        // fire-and-forget removal races with callers that clean up the dataPath right after
+        // delete() resolves, which surfaces as an uncaught ENOENT that fails the whole process.
+        expect(fs.existsSync(sourceDbPath)).to.be.false;
+    });
+
     it(`Deleting an updating community will stop the community`, async () => {
         const updatingCommunity = await pkc.createCommunity();
         await updatingCommunity.update();
