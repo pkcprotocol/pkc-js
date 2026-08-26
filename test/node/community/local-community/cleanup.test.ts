@@ -148,6 +148,64 @@ describe("cleanup: purgeDisapprovedCommentsOlderThan", () => {
     });
 });
 
+describe("cleanup: repinCommentsIPFSIfNeeded", () => {
+    // Regression: the same transient Kubo RPC connection blip that repinCommentUpdateIfNeeded
+    // already tolerates used to throw straight out of community.start() one call earlier, from the
+    // un-retried pin.ls probe (seen on CI as `TypeError: fetch failed` at kubo-rpc-client pin/ls).
+    it("retries pin.ls on a transient Kubo connection error and still succeeds", async () => {
+        const connectionErr = new TypeError("fetch failed"); // mimics undici ETIMEDOUT/ECONNRESET wrapper
+        const pinLsSpy = vi
+            .fn()
+            .mockImplementationOnce(() => {
+                throw connectionErr;
+            })
+            .mockImplementationOnce(async function* () {
+                yield { cid: "QmLatestComment", type: "recursive" };
+            });
+        const queryAllCommentsOrderedByIdAsc = vi.fn();
+        const community = {
+            address: "community.bso",
+            _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { pin: { ls: pinLsSpy } } }) },
+            _dbHandler: { queryLatestCommentCid: () => ({ cid: "QmLatestComment" }), queryAllCommentsOrderedByIdAsc }
+        } as unknown as LocalCommunity;
+
+        vi.useFakeTimers();
+        try {
+            const promise = repinCommentsIPFSIfNeeded(community);
+            await vi.advanceTimersByTimeAsync(5000); // let the retry backoff fire
+            await promise;
+        } finally {
+            vi.useRealTimers();
+        }
+
+        // pin.ls was retried (2 calls), the pin was found on the 2nd attempt, so nothing was repinned.
+        expect(pinLsSpy).toHaveBeenCalledTimes(2);
+        expect(queryAllCommentsOrderedByIdAsc).not.toHaveBeenCalled();
+    });
+
+    it("does NOT retry an 'is not pinned' pin.ls (it is the legitimate repin signal)", async () => {
+        const notPinnedErr = new Error("path 'QmLatestComment' is not pinned");
+        const pinLsSpy = vi.fn().mockImplementation(() => {
+            throw notPinnedErr;
+        });
+        const forceUpdateOnAllComments = vi.fn();
+        const community = {
+            address: "community.bso",
+            _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { pin: { ls: pinLsSpy } } }) },
+            _dbHandler: {
+                queryLatestCommentCid: () => ({ cid: "QmLatestComment" }),
+                queryAllCommentsOrderedByIdAsc: (): never[] => [],
+                forceUpdateOnAllComments
+            }
+        } as unknown as LocalCommunity;
+
+        await repinCommentsIPFSIfNeeded(community);
+
+        expect(pinLsSpy).toHaveBeenCalledTimes(1); // not retried
+        expect(forceUpdateOnAllComments).toHaveBeenCalledTimes(1); // went down the repin path instead
+    });
+});
+
 describe("cleanup: repinCommentUpdateIfNeeded", () => {
     // Regression: a transient Kubo RPC connection blip (daemon briefly restarting) used to
     // throw straight out of community.start(). The files.stat call must now retry on connection
