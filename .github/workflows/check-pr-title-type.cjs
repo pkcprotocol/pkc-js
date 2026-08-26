@@ -8,6 +8,12 @@
 //
 // Reads the visible types straight out of config/.release-it.json so this check and the
 // changelog can never disagree about what counts as releasable.
+//
+// Runs in two modes:
+//   CI:    PR_TITLE=<title> node check-pr-title-type.cjs <file with one commit subject per line>
+//   local: node check-pr-title-type.cjs --title "<title>" [--base master]
+//          (or `npm run check:pr-title -- --title "<title>"`), which reads the commit subjects
+//          from `git log <base>..HEAD` so the check can be run before opening or pushing a PR.
 
 const fs = require("fs");
 const path = require("path");
@@ -27,17 +33,26 @@ const parseSubject = (subject) => {
     return { type: match[1].toLowerCase(), breaking: Boolean(match[3]) };
 };
 
-const title = process.env.PR_TITLE;
+const { execFileSync } = require("child_process");
+
+const argv = process.argv.slice(2);
+const argValue = (flag) => {
+    const index = argv.indexOf(flag);
+    return index === -1 ? undefined : argv[index + 1];
+};
+
+const title = argValue("--title") ?? process.env.PR_TITLE;
 if (!title) {
-    console.error("PR_TITLE is not set");
+    console.error("PR title is not set: pass --title \"<title>\" or set PR_TITLE");
     process.exit(1);
 }
 
-const commitsFile = process.argv[2];
-if (!commitsFile) {
-    console.error("usage: check-pr-title-type.cjs <file with one commit subject per line>");
-    process.exit(1);
-}
+const commitsFile = argv.find((arg) => !arg.startsWith("--") && arg !== argValue("--title") && arg !== argValue("--base"));
+const readCommitSubjects = () => {
+    if (commitsFile) return fs.readFileSync(commitsFile, "utf8");
+    const base = argValue("--base") ?? "master";
+    return execFileSync("git", ["log", "--format=%s", `${base}..HEAD`], { cwd: repoRoot, encoding: "utf8" });
+};
 
 const parsedTitle = parseSubject(title);
 if (!parsedTitle) {
@@ -56,8 +71,7 @@ if (visibleTypes.has(parsedTitle.type)) {
     process.exit(0);
 }
 
-const hiddenCommits = fs
-    .readFileSync(commitsFile, "utf8")
+const hiddenCommits = readCommitSubjects()
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
