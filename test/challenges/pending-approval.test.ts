@@ -7,6 +7,7 @@ import type { GetChallengeAnswers } from "../../dist/node/runtime/node/community
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
 import { PKC } from "./fixtures/fixtures.ts";
+import signers from "../fixtures/signers.js";
 
 // Wrapper function for type assertion boilerplate
 const testGetChallengeVerification = (challengeRequestMessage: unknown, community: unknown, getChallengeAnswers: GetChallengeAnswers) => {
@@ -21,7 +22,7 @@ interface MockChallengeSettings {
     name: string;
     options?: { question: string; answer: string };
     pendingApproval?: boolean;
-    exclude?: Array<{ challenges?: number[]; address?: string[]; rateLimit?: number; rateLimitChallengeSuccess?: boolean }>;
+    exclude?: Array<{ challenges?: number[]; signerAddress?: string[]; rateLimit?: number; rateLimitChallengeSuccess?: boolean }>;
 }
 
 interface MockCommunityWithChallenges {
@@ -206,11 +207,13 @@ describe("pending approval", () => {
                 name: "question",
                 options: { question: "Password?", answer: "password" },
                 pendingApproval: true,
-                exclude: [{ address: ["author-comment"] }]
+                exclude: [{ signerAddress: [signers[2].address] }]
             }
         ];
         const community = await createCommunityWithChallenges(pkc, challengeSettings);
-        const challengeRequestMessage = { comment: { author: { address: "author-comment" } } };
+        const challengeRequestMessage = {
+            comment: { author: { address: signers[2].address }, signature: { publicKey: signers[2].publicKey } }
+        };
 
         const verification = await testGetChallengeVerification(challengeRequestMessage, community, wrongAnswers);
 

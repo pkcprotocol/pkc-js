@@ -1,7 +1,7 @@
 //@ts-expect-error
 import TinyCache from "tinycache";
 import QuickLRU from "quick-lru";
-import { testScore, testFirstCommentTimestamp, testRole, testPublicationType } from "./utils.js";
+import { testScore, testFirstCommentTimestamp, testPublicationType } from "./utils.js";
 import { testRateLimit } from "./rate-limiter.js";
 import type { Challenge, ChallengeResult, CommunityChallenge, Exclude } from "../../../../../community/types.js";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../../../../pubsub-messages/types.js";
@@ -9,13 +9,28 @@ import { Comment } from "../../../../../publications/comment/comment.js";
 import { LocalCommunity } from "../../local-community.js";
 import { PKC } from "../../../../../pkc/pkc.js";
 import { derivePublicationFromChallengeRequest } from "../../../../../util.js";
+import { createAuthorIdentityMatcher } from "../../local-community/author-identity.js";
+import type { AuthorIdentityMatcher } from "../../local-community/author-identity.js";
 import { getPKCAddressFromPublicKeySync } from "../../../../../signer/util.js";
 
-const shouldExcludePublication = (
+// Does the author hold one of excludeRole in community.roles? Role keys may be key-derived addresses or domains;
+// both are bound to the signer through the identity matcher rather than compared against author.address.
+const testRole = async (
+    excludeRole: NonNullable<Exclude["role"]>,
+    getIdentityMatcher: () => AuthorIdentityMatcher,
+    communityRoles: LocalCommunity["roles"]
+): Promise<boolean> => {
+    if (!communityRoles) return false; // can't verify roles, so assume the author doesn't have the excluded role
+    const roleKeys = Object.keys(communityRoles).filter((roleKey) => excludeRole.includes(communityRoles[roleKey].role));
+    if (roleKeys.length === 0) return false;
+    return getIdentityMatcher().matchesAnyIdentity(roleKeys);
+};
+
+const shouldExcludePublication = async (
     communityChallenge: CommunityChallenge,
     request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
     community: LocalCommunity
-) => {
+): Promise<boolean> => {
     if (!communityChallenge) {
         throw Error(`shouldExcludePublication invalid communityChallenge argument '${communityChallenge}'`);
     }
@@ -36,6 +51,10 @@ const shouldExcludePublication = (
 
     // lazy-loaded author publication counts (only when postCount/replyCount exclude is set)
     let authorPublicationCounts: { postCount: number; replyCount: number } | undefined;
+    // Author identity is taken from the signature, never from the publisher-controlled author.address (issue #267).
+    // Built lazily: only excludes that name an author identity need it.
+    let identityMatcher: AuthorIdentityMatcher | undefined;
+    const getIdentityMatcher = () => (identityMatcher ??= createAuthorIdentityMatcher({ community, publication }));
 
     // if match any of the exclude array, should exclude
     for (const exclude of communityChallenge.exclude) {
@@ -46,7 +65,8 @@ const shouldExcludePublication = (
             typeof exclude.postCount !== "number" &&
             typeof exclude.replyCount !== "number" &&
             typeof exclude.firstCommentTimestamp !== "number" &&
-            !exclude.address?.length &&
+            !exclude.signerAddress?.length &&
+            !exclude.name?.length &&
             exclude.publicationType === undefined &&
             exclude.rateLimit === undefined &&
             !exclude.role?.length
@@ -72,16 +92,18 @@ const shouldExcludePublication = (
         if (!testRateLimit(exclude, request)) {
             shouldExclude = false;
         }
-        if (exclude.address && !exclude.address.includes(author.address)) {
+        if (exclude.signerAddress && !exclude.signerAddress.includes(getIdentityMatcher().signerAddress)) {
             shouldExclude = false;
         }
-        if (Array.isArray(exclude.role) && !testRole(exclude.role, publication.author.address, community?.roles)) {
+        if (exclude.name && !(await getIdentityMatcher().matchesAnyIdentity(exclude.name))) {
+            shouldExclude = false;
+        }
+        if (Array.isArray(exclude.role) && !(await testRole(exclude.role, getIdentityMatcher, community?.roles))) {
             shouldExclude = false;
         }
         if (typeof exclude.postCount === "number" || typeof exclude.replyCount === "number") {
             if (!authorPublicationCounts && community?._dbHandler) {
-                const signerAddress = getPKCAddressFromPublicKeySync(publication.signature.publicKey);
-                authorPublicationCounts = community._dbHandler.queryAuthorPublicationCounts(signerAddress);
+                authorPublicationCounts = community._dbHandler.queryAuthorPublicationCounts(getIdentityMatcher().signerAddress);
             }
             if (!testScore(exclude.postCount, authorPublicationCounts?.postCount)) {
                 shouldExclude = false;
@@ -164,7 +186,7 @@ const shouldExcludeChallengeSuccess = (
 
 // cache for fetching comment cids, never expire
 // key is comment cid
-type CommentCacheType = Pick<Comment, "communityAddress"> & { author: { address: Comment["author"]["address"] } };
+type CommentCacheType = Pick<Comment, "communityAddress"> & { author: { publicKey: Comment["author"]["publicKey"] } };
 const commentCache = new QuickLRU<string, CommentCacheType>({
     maxSize: 10000
 });
@@ -191,20 +213,26 @@ const shouldExcludeChallengeCommentCids = async (
     }
     const publication = derivePublicationFromChallengeRequest(challengeRequestMessage);
     const commentCids = challengeRequestMessage.challengeCommentCids;
-    const author = publication?.author;
     if (commentCids && !Array.isArray(commentCids)) {
         throw Error(`shouldExcludeChallengeCommentCids invalid commentCids argument '${commentCids}'`);
     }
-    if (!author?.address || typeof author?.address !== "string") {
-        throw Error(
-            `shouldExcludeChallengeCommentCids invalid challengeRequestMessage.publication.author.address argument '${author?.address}'`
-        );
-    }
+    // The friendly community's comment must be signed by the same key as this publication; author.address is a
+    // publisher-controlled name and can't be used to link the two (issue #267). Derived lazily: only needed once
+    // an exclude.community rule is actually evaluated.
+    let signerAddress: string | undefined;
+    const getSignerAddress = (): string => {
+        if (signerAddress) return signerAddress;
+        if (typeof publication?.signature?.publicKey !== "string")
+            throw Error(
+                `shouldExcludeChallengeCommentCids invalid challengeRequestMessage.publication.signature.publicKey argument '${publication?.signature?.publicKey}'`
+            );
+        return (signerAddress = getPKCAddressFromPublicKeySync(publication.signature.publicKey));
+    };
 
     const _getComment = async (
         commentCid: string,
         addressesSet: Set<string>
-    ): Promise<Pick<Comment, "communityAddress"> & { author: Pick<Comment["author"], "address" | "community"> }> => {
+    ): Promise<Pick<Comment, "communityAddress"> & { author: Pick<Comment["author"], "publicKey" | "community"> }> => {
         // comment is cached
         let cachedComment = commentCache.get(commentCid);
 
@@ -213,7 +241,7 @@ const shouldExcludeChallengeCommentCids = async (
         if (!cachedComment) {
             comment = await pkc.getComment({ cid: commentCid });
             // only cache useful values
-            cachedComment = { communityAddress: comment.communityAddress, author: { address: comment.author.address } };
+            cachedComment = { communityAddress: comment.communityAddress, author: { publicKey: comment.author.publicKey } };
             commentCache.set(commentCid, cachedComment);
         }
 
@@ -222,9 +250,9 @@ const shouldExcludeChallengeCommentCids = async (
             throw Error(`comment doesn't have matching community address`);
         }
 
-        // author address doesn't match author
-        if (cachedComment?.author?.address !== author.address) {
-            throw Error(`comment author address doesn't match publication author address`);
+        // the comment must be signed by this publication's signer
+        if (cachedComment?.author?.publicKey !== getSignerAddress()) {
+            throw Error(`comment author signer doesn't match publication signer`);
         }
 
         // comment hasn't been updated yet

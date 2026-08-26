@@ -450,15 +450,30 @@ export class DbHandler {
     }
 
     _migrateOldSettings(oldSettings: InternalCommunityRecordBeforeFirstUpdateType["settings"]) {
-        const fieldsToRemove = ["post", "reply", "vote"] as const;
+        const fieldsToRemove = ["post", "reply", "vote", "address"] as const;
         const newSettings = clone(oldSettings);
         if (Array.isArray(newSettings.challenges)) {
             // Filter out challenges that reference removed built-in names
             newSettings.challenges = newSettings.challenges.filter((cs) => !cs.name || cs.path || cs.name in pkcJsChallenges);
             for (const oldChallengeSetting of newSettings.challenges)
                 if (oldChallengeSetting.exclude)
-                    for (const oldExcludeSetting of oldChallengeSetting.exclude)
+                    for (const oldExcludeSetting of oldChallengeSetting.exclude) {
+                        // < v42: the conflated `exclude.address` is split by kind into `signerAddress` (key-derived,
+                        // verified against the signature) and `name` (domain, resolved to the signer). Issue #267.
+                        if (Array.isArray(oldExcludeSetting.address)) {
+                            const oldAddresses = oldExcludeSetting.address.filter(
+                                (address): address is string => typeof address === "string"
+                            );
+                            const domains = oldAddresses.filter((address) => isStringDomain(address));
+                            const signerAddresses = oldAddresses.filter((address) => !isStringDomain(address));
+                            if (domains.length > 0) oldExcludeSetting.name = [...new Set([...(oldExcludeSetting.name ?? []), ...domains])];
+                            if (signerAddresses.length > 0)
+                                oldExcludeSetting.signerAddress = [
+                                    ...new Set([...(oldExcludeSetting.signerAddress ?? []), ...signerAddresses])
+                                ];
+                        }
                         for (const fieldToMove of fieldsToRemove) delete oldExcludeSetting[fieldToMove];
+                    }
         }
         return newSettings;
     }

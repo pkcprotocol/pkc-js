@@ -8,6 +8,7 @@ import type {
 import { derivePublicationFromChallengeRequest } from "../../../../../util.js";
 import { getCommunityAddressFromRecord } from "../../../../../publications/publication-community.js";
 import { validateAddressListOptions } from "./address-list-validation.js";
+import { createAuthorIdentityMatcher } from "../../local-community/author-identity.js";
 
 const optionInputs = <NonNullable<ChallengeFileInput["optionInputs"]>>[
     {
@@ -52,18 +53,16 @@ class UrlsAddressesSet {
         setInterval(() => this.refetchAndUpdateAllUrlsSets(), 1000 * 60 * 5).unref?.();
     }
 
-    async has(address?: string, communityAddress?: string, urlsString?: string): Promise<boolean> {
-        if (!address || !communityAddress || !urlsString) return false;
+    // Every address listed by the fetched urls for this community; the identity matcher decides whether
+    // any of them (key-derived address or domain) refers to the publication's signer.
+    async getAddresses(communityAddress?: string, urlsString?: string): Promise<Set<string>> {
+        const addresses = new Set<string>();
+        if (!communityAddress || !urlsString) return addresses;
         // update urls on first run, wait for 10s max
         await this.setUrls(communityAddress, urlsString);
         const community = this.communities[communityAddress];
-        const urlsSets = community.urls.map((url) => community.urlsSets[url]).filter(Boolean);
-        for (const urlSet of urlsSets) {
-            if (urlSet.has(address)) {
-                return true;
-            }
-        }
-        return false;
+        for (const url of community.urls) for (const address of community.urlsSets[url] || []) addresses.add(address);
+        return addresses;
     }
 
     private async setUrls(communityAddress: string, urlsString: string): Promise<void> {
@@ -117,7 +116,11 @@ class UrlsAddressesSet {
 }
 const urlsAddressesSet = new UrlsAddressesSet();
 
-const getChallenge = async ({ challengeSettings, challengeRequestMessage }: GetChallengeArgsInput): Promise<ChallengeResultInput> => {
+const getChallenge = async ({
+    challengeSettings,
+    challengeRequestMessage,
+    community
+}: GetChallengeArgsInput): Promise<ChallengeResultInput> => {
     // add a custom error message to display to the author
     const error = challengeSettings?.options?.error;
     const addresses = challengeSettings?.options?.addresses
@@ -127,14 +130,18 @@ const getChallenge = async ({ challengeSettings, challengeRequestMessage }: GetC
     const addressesSet = new Set(addresses);
 
     const publication = derivePublicationFromChallengeRequest(challengeRequestMessage);
-    if (
-        !addressesSet.has(publication?.author?.address) &&
-        !(await urlsAddressesSet.has(
-            publication?.author?.address,
-            getCommunityAddressFromRecord(publication as unknown as Record<string, unknown>),
-            challengeSettings?.options?.urls
-        ))
-    ) {
+    // Match on the signer, not on the publisher-controlled author.address: a listed domain only counts when the
+    // publication is signed by the key that domain resolves to (issue #267)
+    const identityMatcher = createAuthorIdentityMatcher({ community, publication });
+    const listed =
+        (await identityMatcher.matchesAnyIdentity(addressesSet)) ||
+        (await identityMatcher.matchesAnyIdentity(
+            await urlsAddressesSet.getAddresses(
+                getCommunityAddressFromRecord(publication as unknown as Record<string, unknown>),
+                challengeSettings?.options?.urls
+            )
+        ));
+    if (!listed) {
         return {
             success: false,
             error: error || `You're not whitelisted.`

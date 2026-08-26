@@ -10,7 +10,6 @@ import {
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
-import { messages } from "../../../dist/node/errors.js";
 import { timestamp } from "../../../dist/node/util.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
@@ -66,14 +65,13 @@ describeSkipIfRpc("CommentModeration acceptance bypasses the name-resolution cac
             toUpdate: community,
             predicate: async () => typeof community.updatedAt === "number"
         });
-        // Seed a role that is NOT the publisher's so that community.roles is
-        // defined (otherwise _isPublicationAuthorPartOfRoles short-circuits at
-        // `if (!this.roles) return false` and never reaches the resolver path).
-        // signers[5] is unrelated to modSigner (signers[6]) and to modDomain.
-        await community.edit({ roles: { [signers[5].address]: { role: "moderator" } } });
+        // Seed the mod's domain as the role key. Since issue #267 a domain role key is only ever
+        // resolved when the publication's wire author.name is that key, so the resolver path we
+        // want to count is reached only by the domain owner acting on its role.
+        await community.edit({ roles: { [modDomain]: { role: "moderator" } } });
         await resolveWhenConditionIsTrue({
             toUpdate: community,
-            predicate: async () => community.roles?.[signers[5].address]?.role === "moderator"
+            predicate: async () => community.roles?.[modDomain]?.role === "moderator"
         });
     });
 
@@ -99,29 +97,23 @@ describeSkipIfRpc("CommentModeration acceptance bypasses the name-resolution cac
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
 
-        // Now publish a CommentModeration. The mod is NOT in roles, so it will be
-        // rejected with ERR_COMMENT_MODERATION_ATTEMPTED_WITHOUT_BEING_MODERATOR
-        // — but `_isPublicationAuthorPartOfRoles` will still hit the resolver
-        // path with `cache: { maxAge: 0 }` because neither roles[signerAddress]
-        // nor roles[authorName] match.
+        // Now publish a CommentModeration as the mod. `isPublicationAuthorPartOfRoles` must
+        // re-resolve modDomain with `cache: { maxAge: 0 }` to bind the domain role key to the
+        // signer, even though the persistent cache already holds a fresh entry.
         const banMod = await pkc.createCommentModeration({
             communityAddress: community.address,
             commentCid: post.cid,
             commentModeration: { author: { banExpiresAt: timestamp() + 300 }, reason: "cache-bypass test" },
             // author.address must be a domain so getAuthorNameFromWire returns it
-            // and _isPublicationAuthorPartOfRoles enters the resolver path.
+            // and the role matcher enters the resolver path.
             author: { address: modDomain },
             signer: modSigner
         });
-        await publishWithExpectedResult({
-            publication: banMod,
-            expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_COMMENT_MODERATION_ATTEMPTED_WITHOUT_BEING_MODERATOR
-        });
+        await publishWithExpectedResult({ publication: banMod, expectedChallengeSuccess: true });
 
         const callsForDomainAfterMod = calls.filter((n) => n === modDomain).length;
         // The moderation flow goes through _checkPublicationValidity (uses 30m cache)
-        // and then _isPublicationAuthorPartOfRoles (uses maxAge=0). At minimum the
+        // and then isPublicationAuthorPartOfRoles (uses maxAge=0). At minimum the
         // maxAge=0 call adds one more invocation regardless of cache state.
         expect(callsForDomainAfterMod).to.be.greaterThan(callsForDomainAfterWarm);
     });

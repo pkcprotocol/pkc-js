@@ -1,9 +1,28 @@
 import { EventEmitter } from "events";
 import { pkcJsChallenges } from "../../../dist/node/runtime/node/community/challenges/index.js";
+import signers from "../../fixtures/signers.js";
+
+// Issue #267: author identity on the community side is bound to the signature. Each mock author domain resolves
+// to a fixture signer; requests carry that signer's public key and the mock clients manager resolves the domain.
+const authorSigners: Record<string, (typeof signers)[number]> = {
+    "high-karma.bso": signers[0],
+    "low-karma.bso": signers[1]
+};
+const mockResolverRecords: Record<string, string> = Object.fromEntries(
+    Object.entries(authorSigners).map(([domain, signer]) => [domain, signer.address])
+);
+const mockClientsManager = {
+    resolveAuthorNameIfNeeded: async ({ authorName }: { authorName: string }) => ({
+        resolvedAuthorName: mockResolverRecords[authorName] ?? null
+    })
+};
+// signature.publicKey for a mock request, derived from the author's domain (falls back to a shared default signer)
+const mockSignatureForAuthor = (author: { address: string }) => ({ publicKey: (authorSigners[author.address] ?? signers[8]).publicKey });
 
 // Define types for mock objects
 interface MockAuthor {
     address: string;
+    publicKey?: string; // runtime field: the signer-derived address
     wallets?: { eth: { address: string; signature: string } };
     community?: {
         postScore?: number;
@@ -26,12 +45,14 @@ interface MockCommunity {
         challenges: MockCommunityChallengeSettings[];
     };
     _pkc?: MockPKC;
+    _clientsManager?: typeof mockClientsManager;
 }
 
 interface MockPKC {
     getComment: (cid: string | { cid: string }) => Comment;
     createComment: (cid: string | { cid: string }) => Comment;
     settings?: { challenges?: Record<string, any> };
+    _timeouts: { "resolve-author-name": number };
 }
 
 interface MockChallengeResult {
@@ -65,12 +86,14 @@ class Comment extends EventEmitter {
         this.communityAddress = communityAddress;
         this.updatedAt = undefined;
 
-        // define author
+        // define author (author.publicKey is the runtime signer-derived address, what the friendly-community exclude compares)
         this.author = { address: "Qm..." };
         if (karma === "high") {
             this.author.address = highKarmaAuthor.address;
+            this.author.publicKey = authorSigners[highKarmaAuthor.address].address;
         } else if (karma === "low") {
             this.author.address = lowKarmaAuthor.address;
+            this.author.publicKey = authorSigners[lowKarmaAuthor.address].address;
         }
 
         // use this value to mock giving 'high' or 'low' karma to the author
@@ -113,7 +136,8 @@ const createPKC = (): MockPKC => {
     return {
         getComment: (cid) => new Comment(getCidFromArg(cid)),
         createComment: (cid) => new Comment(getCidFromArg(cid)),
-        settings: {}
+        settings: {},
+        _timeouts: { "resolve-author-name": 1000 }
     };
 };
 
@@ -191,8 +215,8 @@ const excludeAccountAgeChallengeCommunity: MockCommunity = {
         ]
     }
 };
-const excludeAddressChallengeCommunity: MockCommunity = {
-    title: "exclude address challenge community",
+const excludeNameChallengeCommunity: MockCommunity = {
+    title: "exclude name challenge community",
     settings: {
         challenges: [
             {
@@ -201,8 +225,8 @@ const excludeAddressChallengeCommunity: MockCommunity = {
                 options: {
                     error: `You're not whitelisted.`
                 },
-                // challenge should never be triggered if the author address is excluded
-                exclude: [{ address: ["high-karma.bso"] }]
+                // challenge should never be triggered if the author's domain is excluded (and resolves to the signer)
+                exclude: [{ name: ["high-karma.bso"] }]
             }
         ]
     }
@@ -452,7 +476,7 @@ const communities: MockCommunity[] = [
     // captchaAndMathChallengeCommunity,
     excludeHighKarmaChallengeCommunity,
     excludeAccountAgeChallengeCommunity,
-    excludeAddressChallengeCommunity,
+    excludeNameChallengeCommunity,
     whitelistChallengeCommunity,
     blacklistChallengeCommunity,
     // erc20PaymentChallengeCommunity,
@@ -504,7 +528,7 @@ results[excludeAccountAgeChallengeCommunity.title] = {
         challengeErrors: { 0: "You're not allowed to publish." }
     }
 };
-results[excludeAddressChallengeCommunity.title] = {
+results[excludeNameChallengeCommunity.title] = {
     "high-karma.bso": { challengeSuccess: true },
     "low-karma.bso": {
         challengeSuccess: false,
@@ -607,4 +631,22 @@ for (const community of communities) {
     community._pkc = createPKC();
 }
 
-export { PKC, communities, authors, communityAuthors, challengeCommentCids, challengeAnswers, results };
+// every mock community can resolve the mock author domains
+for (const community of communities) {
+    community._clientsManager = mockClientsManager;
+    community._pkc = community._pkc ?? createPKC();
+}
+
+export {
+    PKC,
+    communities,
+    authors,
+    authorSigners,
+    mockResolverRecords,
+    mockClientsManager,
+    mockSignatureForAuthor,
+    communityAuthors,
+    challengeCommentCids,
+    challengeAnswers,
+    results
+};
