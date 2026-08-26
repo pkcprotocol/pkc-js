@@ -1526,9 +1526,11 @@ export async function mockPKCWithHeliaConfig(opts?: MockPKCOptions) {
         const heliaLibp2pJsClient = heliaPKC.clients.libp2pJsClients[Object.keys(heliaPKC.clients.libp2pJsClients)[0]];
         heliaLibp2pJsClient.heliaWithKuboRpcClientFunctions.pubsub = mockedPubsubClient.pubsub; // that should work for publishing/subscribing
         const originalStop = heliaLibp2pJsClient._helia.stop.bind(heliaLibp2pJsClient._helia);
+        // helia 7's stop() resolves to the node itself (fluent API), so pass that through
         heliaLibp2pJsClient._helia.stop = async () => {
-            await originalStop();
+            const stopped = await originalStop();
             await mockedPubsubClient.destroy();
+            return stopped;
         };
     }
 

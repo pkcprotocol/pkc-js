@@ -1,6 +1,6 @@
 import type { createHelia } from "helia";
 import type { KuboRpcClient } from "../types.js";
-import type { PubsubRoutingComponents } from "@helia/ipns/routing";
+import type { PubsubRoutingComponents } from "@helia/ipns";
 import type { GossipSub } from "@libp2p/gossipsub";
 import type { Fetch } from "@libp2p/fetch";
 

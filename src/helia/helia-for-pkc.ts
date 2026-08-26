@@ -1,4 +1,6 @@
-import { createHelia, libp2pDefaults } from "helia";
+import { createHeliaLight } from "helia";
+import { libp2pDefaults, withLibp2p } from "@helia/libp2p";
+import { withBitswap } from "@helia/bitswap";
 import { ipns } from "@helia/ipns";
 import { unmarshalIPNSRecord, multihashToIPNSRoutingKey } from "ipns";
 import { ipnsValidator } from "ipns/validator";
@@ -7,14 +9,13 @@ import { identify } from "@libp2p/identify";
 import extraLibp2pTransports from "../runtime/node/libp2p-extra-transports.js";
 import { CID } from "multiformats/cid";
 import { peerIdFromString } from "@libp2p/peer-id";
-import { bitswap } from "@helia/block-brokers";
 import { createBlockstoreForLibp2pJsClient } from "../runtime/node/blockstore.js";
 import { LruBlockstore } from "./lru-blockstore.js";
 import { delegatedRoutingV1HttpApiClientContentRouting } from "@helia/delegated-routing-v1-http-api-client";
 import { NotFoundError, type AbortOptions } from "@libp2p/interface";
 import { unixfs } from "@helia/unixfs";
 import { fetch as libp2pFetch } from "@libp2p/fetch";
-import { pubsub as createIpnsPubusubRouter } from "@helia/ipns/routing";
+import { pubSubIPNSRouting as createIpnsPubusubRouter } from "@helia/ipns";
 import Logger from "../logger.js";
 import type { AddResult, NameResolveOptions as KuboNameResolveOptions } from "kubo-rpc-client";
 import type { IpfsHttpClientPubsubMessage, ParsedPKCOptions } from "../types.js";
@@ -196,21 +197,27 @@ export async function createLibp2pJsClientOrUseExistingOne(
             // instance ever removes one, so an unbounded store grows for the life of the process.
             // See pkc-js#240 for the measurement behind the cap.
             blockstore: lruBlockstore,
-            blockBrokers: [bitswap()],
-            start: false,
             ...pkcOptions.heliaOptions
-        } as Libp2pJsClient["_mergedHeliaOptions"];
+        } as NonNullable<Libp2pJsClient["_mergedHeliaOptions"]>;
 
-        const helia = <HeliaWithLibp2pPubsub>await createHelia(mergedHeliaInit);
-
-        // Helia's default content routers are [Libp2pRouter, HTTPGatewayRouter]. We use our own
-        // gateway-fan-out logic in base-client-manager, so the HTTP gateway router here is
-        // redundant and adds latency. Filter by class name (not index) so a future helia release
-        // that re-orders the array can't silently leave the gateway in or drop libp2p routing.
-        //@ts-expect-error — helia.routing.routers is internal
-        helia.routing.routers = (helia.routing.routers as Array<{ constructor: { name: string } }>).filter(
-            (r) => r.constructor.name !== "HTTPGatewayRouter"
+        // helia 7's createHelia() composes withHTTP() in: a public trustless-gateway block broker
+        // plus public delegated HTTP routers and recursive gateways. We use our own gateway
+        // fan-out logic in base-client-manager and only the routers the user configured, so
+        // compose the node without any HTTP components: bitswap is the only block broker and
+        // libp2p the only content router. withLibp2p applies libp2pDefaults with shallow per-key
+        // replace semantics (same as helia 6's createHelia): every key we set above wins outright
+        // (in particular our narrow `services` map fully replaces the default one), while keys we
+        // leave out (connectionEncrypters, streamMuxers, ...) come from helia's defaults.
+        const { libp2p: mergedLibp2pInit, bitswap: bitswapInit, http: _httpInit, ...heliaLightInit } = mergedHeliaInit;
+        const helia = <HeliaWithLibp2pPubsub>(
+            (<unknown>withBitswap(withLibp2p(createHeliaLight(heliaLightInit), mergedLibp2pInit ?? {}), bitswapInit))
         );
+
+        // helia 7 creates libp2p lazily inside start() — the `helia.libp2p` getter throws
+        // NotStartedError until then — so start the node before wiring anything that reads it.
+        // Nothing can race the wiring below: no topic is subscribed and no dial is made until
+        // this factory returns the client.
+        await helia.start();
 
         log("Initialized libp2pjs helia with key", pkcOptions.key, "peer id", helia.libp2p.peerId.toString());
 
@@ -225,28 +232,6 @@ export async function createLibp2pJsClientOrUseExistingOne(
         });
 
         const heliaFs = unixfs(helia);
-
-        // @helia/unixfs 7.x (and its ipfs-unixfs-exporter) still run multiformats 13 while our
-        // top-level multiformats is 14. The exporter strict-checks CID class identity
-        // (`CID.asCID(path) === path || path instanceof CID`), so a CID instance from a different
-        // multiformats copy is rejected at runtime with "Path must be string or CID". We therefore
-        // never hand heliaFs.cat a CID *object* — only the *string* form. The exporter's string
-        // branch (walkPath) parses and walks the whole `<root-cid>/sub/path` with its own
-        // multiformats copy in a single pass, so no foreign-copy CID ever crosses the identity
-        // check.
-        //
-        // Crucially we must NOT also pass a sub-path via the `path` option (see cat() below):
-        // @helia/unixfs's cat() would then resolve() the sub-path to an intermediate CID *object*
-        // and re-enter the exporter with it, tripping the same identity check — which broke every
-        // CommentUpdate fetch from a community's postUpdates (`<root>/<bucket>/update`). Passing the
-        // full path as one string keeps it on the exporter's string branch. CID.parse of the root
-        // segment stays as input validation only. Remove this whole shim once helia ships on
-        // multiformats 14.
-        type HeliaCatCid = Parameters<(typeof heliaFs)["cat"]>[0];
-        const asHeliaCatCid = (ipfsPathOrCid: string): HeliaCatCid => {
-            CID.parse(ipfsPathOrCid.split("/")[0]); // validate the root CID; throws on malformed input
-            return ipfsPathOrCid as unknown as HeliaCatCid;
-        };
 
         // Issue #189: without a session, every block fetched over bitswap fires its own
         // network.findAndConnect — a findProviders query against ALL configured HTTP routers per
@@ -338,13 +323,15 @@ export async function createLibp2pJsClientOrUseExistingOne(
             routers: [ipnsPubsubRouter]
         });
 
-        // @helia/ipns constructs routers as [LocalStoreRouting, HeliaRouting, ...userRouters].
-        // We drop LocalStoreRouting because pkc-js never publishes IPNS via @helia/ipns (kubo
+        // @helia/ipns constructs routers as [LocalStoreIPNSRouting, HeliaIPNSRouting, ...userRouters].
+        // We drop LocalStoreIPNSRouting because pkc-js never publishes IPNS via @helia/ipns (kubo
         // does that), so the local cache is always empty and just adds a wasted lookup. Keep
-        // HeliaRouting (HTTP delegated routing via helia.routing.routers) and our PubSubRouting.
+        // HeliaIPNSRouting (HTTP delegated routing via helia.routing) and our PubSubRouting.
         // Filter by class name so a future @helia/ipns release that re-orders the array can't
-        // silently drop our pubsub router.
-        ipnsNameResolver.routers = ipnsNameResolver.routers.filter((r) => r?.constructor?.name !== "LocalStoreRouting");
+        // silently drop our pubsub router. ("LocalStoreRouting" was the pre-@helia/ipns-10 name.)
+        ipnsNameResolver.routers = ipnsNameResolver.routers.filter(
+            (r) => r?.constructor?.name !== "LocalStoreIPNSRouting" && r?.constructor?.name !== "LocalStoreRouting"
+        );
 
         // Side-channel awaitable warmup: gossipsub's pubsub.subscribe(topic) is sync and returns
         // void, so we can't make it awaitable without breaking @helia/ipns and other internal
@@ -611,7 +598,10 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     try {
                         for (let attempt = 0; ; attempt++) {
                             const session = helia.blockstore.createSession(rootCid, {
-                                providers: getBitswapSessionSeedPeers(bitswapSessionSeedScopeIpnsPubsubTopic)
+                                // helia 7 sessions take providers as libp2p-key CIDs (or multiaddrs), not PeerIds
+                                providers: getBitswapSessionSeedPeers(bitswapSessionSeedScopeIpnsPubsubTopic).map((peerId) =>
+                                    peerId.toCID()
+                                )
                             });
                             // Issue #218: the session broker waits on a single elected HAVE peer per
                             // block with no stall timeout, so one slow seeder holding the only HAVE
@@ -635,12 +625,14 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                 });
                             let yieldedAnyBytes = false;
                             try {
-                                // ipfsPath is either a bare cid or a `<root-cid>/sub/path`. Hand the whole
-                                // thing to cat as one string and never split out a `path` option — see
-                                // asHeliaCatCid above for why the `path` option would re-trip the
-                                // exporter's CID identity check.
-                                const catIterable = unixfs({ blockstore: session }).cat(asHeliaCatCid(ipfsPath), {
+                                // ipfsPath is either a bare cid or a `<root-cid>/sub/path`; cat takes the
+                                // root CID plus the sub-path via the `path` option. (The multiformats
+                                // 13/14 split that used to force string-only cat input is gone: helia 7
+                                // and our tree share a single multiformats copy.)
+                                const ipfsSubPath = ipfsPath.includes("/") ? ipfsPath.slice(ipfsPath.indexOf("/") + 1) : undefined;
+                                const catIterable = unixfs({ blockstore: session }).cat(rootCid, {
                                     ...unixfsCatOptions,
+                                    path: ipfsSubPath,
                                     signal: controller.signal
                                 });
                                 for await (const chunk of catIterable) {
@@ -832,7 +824,6 @@ export async function createLibp2pJsClientOrUseExistingOne(
 
         const client = new Libp2pJsClient(fullInstanceWithOptions);
 
-        await helia.start();
         log("Helia/libp2p-js started with key", pkcOptions.key, "and peer id", helia.libp2p.peerId.toString());
 
         libp2pJsClients[pkcOptions.key] = client;

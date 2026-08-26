@@ -2,7 +2,7 @@ import { z } from "zod";
 import { parseIpfsRawOptionToIpfsOptions } from "./util.js";
 import { UserAgentSchema } from "./schema/schema.js";
 import version from "./version.js";
-import type { libp2pDefaults } from "helia";
+import type { libp2pDefaults } from "@helia/libp2p";
 import { createHelia } from "helia";
 import type { KuboRpcClientCreateOption } from "./util.js";
 import type { ChallengeFileFactoryInput } from "./community/types.js";

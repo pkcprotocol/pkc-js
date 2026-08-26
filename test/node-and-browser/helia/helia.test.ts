@@ -369,11 +369,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
 
                 const constructorNames = routers.map((r) => r?.constructor?.name);
                 // pubsub router should be present
-                expect(constructorNames, `routers: ${constructorNames.join(", ")}`).to.include("PubSubRouting");
+                expect(constructorNames, `routers: ${constructorNames.join(", ")}`).to.include("PubSubIPNSRouting");
                 // localStoreRouting should NOT be present (we slice it off intentionally so reads don't
                 // hit a cache we never populate)
                 expect(constructorNames, `localStoreRouting must be sliced off, got: ${constructorNames.join(", ")}`).to.not.include(
-                    "LocalStoreRouting"
+                    "LocalStoreIPNSRouting"
                 );
             } finally {
                 await pkc.destroy();
@@ -412,10 +412,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
 
             // Find the pubsub router by class name (matches the shape pinned in the
             // "IPNS router shape" suite above).
-            const pubsubRouter = heliaClient._heliaIpnsRouter.routers.find((r) => r?.constructor?.name === "PubSubRouting") as
-                | (import("@helia/ipns/routing").PubsubRoutingComponents extends never ? never : unknown)
+            const pubsubRouter = heliaClient._heliaIpnsRouter.routers.find((r) => r?.constructor?.name === "PubSubIPNSRouting") as
+                | (import("@helia/ipns").PubsubRoutingComponents extends never ? never : unknown)
                 | undefined;
-            expect(pubsubRouter, "expected to find a PubSubRouting in _heliaIpnsRouter.routers").to.exist;
+            expect(pubsubRouter, "expected to find a PubSubIPNSRouting in _heliaIpnsRouter.routers").to.exist;
 
             const routerWithLifecycle = pubsubRouter as {
                 get: (routingKey: Uint8Array, options?: { signal?: AbortSignal }) => Promise<unknown>;

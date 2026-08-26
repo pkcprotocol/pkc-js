@@ -15,15 +15,25 @@ import type { PKC } from "../../../dist/node/pkc/pkc.js";
 // call router.get directly — backing the claim that no active cache/TTL is bypassed (pkc resolves IPNS
 // with nocache:true, which disables the resolver's only cache-read/TTL path anyway).
 //
-// Note: upstream main reworked resolve() into an async generator that yields each hop's IPNSRecord
-// (ipfs/helia#1041), which would let helia-for-pkc.ts drop this manual walk — but it's unreleased
-// (npm latest 9.2.1 still collapses the chain). Re-check these assertions after the @helia/ipns upgrade.
+// Note: @helia/ipns 10 reworked resolve() into an async generator that yields each hop's
+// IPNSResolveResult (ipfs/helia#1041): resolve() takes a libp2p-key CID and the terminal hop is the
+// last yield. That API could let helia-for-pkc.ts drop its manual walk one day, but the walk stays
+// for now (warmup ordering per hop); these tests drain the generator and compare terminal values.
 //
 // Helia/libp2p-specific (the kubo path resolves via kubo, not these routers) and client-side, so it
 // runs once under non-RPC: over an RPC client the resolver lives server-side and is unreachable.
 describeSkipIfRpc("Helia IPNS single-hop resolution equivalence", () => {
     let heliaPKC: PKC;
     let ipnsName: string;
+
+    // @helia/ipns 10 resolve() yields one IPNSResolveResult per hop; the terminal hop is the last
+    // yield and its value is "/ipfs/<cid>". Drain the generator and parse the terminal CID.
+    const lastResolvedCid = async (resolveGenerator: AsyncIterable<{ value: string }>): Promise<CID> => {
+        let lastValue: string | undefined;
+        for await (const result of resolveGenerator) lastValue = result.value;
+        if (lastValue === undefined) throw new Error("resolve() yielded no results");
+        return CID.parse(lastValue.split("/")[2]);
+    };
 
     beforeAll(async () => {
         // Publish a non-delegated (single-hop) IPNS record: name -> /ipfs/<cid>. createNewIpns publishes
@@ -61,8 +71,8 @@ describeSkipIfRpc("Helia IPNS single-hop resolution equivalence", () => {
 
         // Immediately after the wrapper resolve returns, the record must be readable offline: the
         // fast path must persist it itself instead of depending on the gossipsub push racing in.
-        const offlineResult = await client._heliaIpnsRouter.resolve(peerIdFromString(freshName), { offline: true });
-        expect(offlineResult.cid.toV1().toString()).to.equal(wrapperCid);
+        const offlineCid = await lastResolvedCid(client._heliaIpnsRouter.resolve(peerIdFromString(freshName).toCID(), { offline: true }));
+        expect(offlineCid.toV1().toString()).to.equal(wrapperCid);
     });
 
     it("wrapper single-hop resolve matches resolver.resolve() and the record is cached at the pubsub layer", async () => {
@@ -79,15 +89,15 @@ describeSkipIfRpc("Helia IPNS single-hop resolution equivalence", () => {
 
         // 2) Resolve the same name through @helia/ipns resolve() (full recursion; a single hop here, so it
         //    yields the same terminal CID). The topic is already warmed by step 1.
-        const resolveResult = await client._heliaIpnsRouter.resolve(ipnsNameAsPeerId, { nocache: true });
-        expect(resolveResult.cid.toV1().toString()).to.equal(wrapperCid);
+        const resolvedCid = await lastResolvedCid(client._heliaIpnsRouter.resolve(ipnsNameAsPeerId.toCID(), { nocache: true }));
+        expect(resolvedCid.toV1().toString()).to.equal(wrapperCid);
 
         // 3) An offline resolve never touches the network — it only succeeds if the record is already in
         //    the datastore. The wrapper (step 1) went straight to router.get, NOT through the resolver's
         //    #findIpnsRecord, yet the pubsub router's handleRecord wrote the fetched record to the (shared)
         //    datastore. So this succeeding proves record caching still happens when we bypass resolve().
-        const offlineResult = await client._heliaIpnsRouter.resolve(ipnsNameAsPeerId, { offline: true });
-        expect(offlineResult.cid.toV1().toString()).to.equal(wrapperCid);
+        const offlineCid = await lastResolvedCid(client._heliaIpnsRouter.resolve(ipnsNameAsPeerId.toCID(), { offline: true }));
+        expect(offlineCid.toV1().toString()).to.equal(wrapperCid);
     });
 
     // @helia/ipns declares ipns:resolve:start/success/error in its ResolveProgressEvents type (the
@@ -105,12 +115,14 @@ describeSkipIfRpc("Helia IPNS single-hop resolution equivalence", () => {
         for await (const _value of client.heliaWithKuboRpcClientFunctions.name.resolve(ipnsName, { nocache: true }));
 
         const seenEventTypes: string[] = [];
-        const result = await client._heliaIpnsRouter.resolve(ipnsNameAsPeerId, {
-            nocache: true,
-            onProgress: (evt) => seenEventTypes.push(evt.type)
-        });
+        const resolvedCid = await lastResolvedCid(
+            client._heliaIpnsRouter.resolve(ipnsNameAsPeerId.toCID(), {
+                nocache: true,
+                onProgress: (evt) => seenEventTypes.push(evt.type)
+            })
+        );
         // Sanity: the resolve actually ran (and thus would have surfaced any resolve:* event if emitted).
-        expect(result.cid).to.exist;
+        expect(resolvedCid).to.exist;
         // Surface the real event stream for the record (expected: only ipns:pubsub:* / ipns:routing:*).
         console.log("Progress event types emitted during @helia/ipns resolve():", seenEventTypes);
 
@@ -141,13 +153,15 @@ describeSkipIfRpc("Helia IPNS single-hop resolution equivalence", () => {
             for await (const _value of client.heliaWithKuboRpcClientFunctions.name.resolve(hop, { nocache: true }));
 
         const seenEventTypes: string[] = [];
-        const result = await client._heliaIpnsRouter.resolve(peerIdFromString(chain.anchorName), {
-            nocache: true,
-            onProgress: (evt) => seenEventTypes.push(evt.type)
-        });
+        const resolvedCid = await lastResolvedCid(
+            client._heliaIpnsRouter.resolve(peerIdFromString(chain.anchorName).toCID(), {
+                nocache: true,
+                onProgress: (evt) => seenEventTypes.push(evt.type)
+            })
+        );
 
         // resolve() genuinely recursed both hops to the terminal CID (anchor -> minter -> /ipfs/cid).
-        expect(result.cid.toV1().toString()).to.equal(CID.parse(chain.cid).toV1().toString());
+        expect(resolvedCid.toV1().toString()).to.equal(CID.parse(chain.cid).toV1().toString());
         console.log("Progress event types during multi-hop resolve():", seenEventTypes);
 
         // Even across a real 2-hop recursion, no resolve:* event fires — confirming hops can't be captured.
