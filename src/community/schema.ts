@@ -297,12 +297,17 @@ export const RpcRemoteCommunityUpdateEventResultSchema = z.object({
 });
 // At least one of address, name, or publicKey must be provided to identify the community
 
+// Cheap, in-memory community fields a caller can request without a full update/DB load.
+// Extensible: append new field names here as they become cheaply available on the daemon.
+export const CommunityIncludeFieldsSchema = z.array(z.enum(["started"]));
+
 export const CreateRemoteCommunityOptionsSchema = CommunityIpfsSchema.partial()
     .extend({
         address: CommunityAddressSchema.optional(), // instance-only, computed as name || publicKey if not provided
         publicKey: z.string().min(1).optional(), // B58 IPNS name (e.g. 12D3KooW...)
         posts: CommunityIpfsSchema.shape.posts.or(PostsPagesIpfsSchema.pick({ pageCids: true })),
-        updateCid: CidStringSchema.optional()
+        updateCid: CidStringSchema.optional(),
+        include: CommunityIncludeFieldsSchema.optional() // request only these cheap fields (fast started-only fetch)
     })
     .strict()
     .refine((opts) => opts.address || opts.name || opts.publicKey, "At least one of address, name, or publicKey must be provided");

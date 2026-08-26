@@ -100,6 +100,7 @@ import type {
     RpcSubscriptionIdResult,
     RpcSuccessResult,
     RpcFetchCidResult,
+    RpcCommunityStartedResult,
     RpcResolveAuthorNameResult,
     RpcCommentPageResult,
     RpcCommunityPageResult,
@@ -638,7 +639,17 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         return { page, runtimeFields };
     }
 
-    async createCommunity(params: any): Promise<RpcInternalCommunityRecordBeforeFirstUpdateType> {
+    async createCommunity(params: any): Promise<RpcInternalCommunityRecordBeforeFirstUpdateType | RpcCommunityStartedResult> {
+        // Fast path: a caller that only wants cheap in-memory fields (currently just `started`)
+        // passes `include`. We read the started flag from the in-memory registry — no DB load,
+        // no community instantiation, no subscription. See pkc-js issue #175 (alternative to #141).
+        const includeFields = params[0]?.include;
+        if (Array.isArray(includeFields) && includeFields.length > 0 && includeFields.every((f: unknown) => f === "started")) {
+            const parsedIdentifier = parseRpcCommunityIdentifierParam(params[0]);
+            const pkcInstance = await this._getPKCInstance();
+            const started = Boolean(findStartedCommunity(pkcInstance, parsedIdentifier));
+            return { address: parsedIdentifier.name ?? parsedIdentifier.publicKey!, started };
+        }
         const createCommunityOptions = parseCreateNewLocalCommunityUserOptionsSchemaWithPKCErrorIfItFails(params[0]);
         const pkc = await this._getPKCInstance();
         const community = <LocalCommunity>await pkc.createCommunity(createCommunityOptions);
@@ -1202,6 +1213,17 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             });
 
         const pkc = await this._getPKCInstance();
+
+        // Fast path: a subscriber that only wants the cheap in-memory `started` flag passes `include`.
+        // Emit an immediate started-only "update" and skip creating/binding a real community — no DB
+        // load, no update wait. See pkc-js issue #175 (alternative to #141).
+        if (Array.isArray(parsedArgs.include) && parsedArgs.include.length > 0 && parsedArgs.include.every((f) => f === "started")) {
+            const started = Boolean(findStartedCommunity(pkc, parsedArgs));
+            sendEvent("update", { address: parsedArgs.name ?? parsedArgs.publicKey!, started });
+            this.subscriptionCleanups[connectionId][subscriptionId] = async () => {}; // nothing created — no-op cleanup
+            return;
+        }
+
         const startedCommunity = findStartedCommunity(pkc, parsedArgs);
         const isStartedCommunity = Boolean(startedCommunity);
         const community = startedCommunity || <LocalCommunity | RemoteCommunity>await pkc.createCommunity(parsedArgs);

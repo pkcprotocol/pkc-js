@@ -11,6 +11,7 @@ import {
     CreateNewLocalCommunityParsedOptionsSchema,
     CreateNewLocalCommunityUserOptionsSchema,
     CreateRemoteCommunityOptionsSchema,
+    CommunityIncludeFieldsSchema,
     GetChallengeArgsSchema,
     CommunityChallengeSchema,
     CommunityChallengeSettingSchema,
@@ -87,6 +88,7 @@ export interface CommunitySignature extends JsonSignature {
 }
 
 export type CreateRemoteCommunityOptions = z.infer<typeof CreateRemoteCommunityOptionsSchema>;
+export type CommunityIncludeFields = z.infer<typeof CommunityIncludeFieldsSchema>;
 
 // The anchor of a delegated community. See docs/protocol/delegated-ipns.md.
 export type CommunityAnchor = z.infer<typeof CommunityAnchorSchema>;
