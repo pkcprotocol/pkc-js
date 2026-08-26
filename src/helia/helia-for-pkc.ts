@@ -8,6 +8,7 @@ import { gossipsub } from "@libp2p/gossipsub";
 import { identify } from "@libp2p/identify";
 import extraLibp2pTransports from "../runtime/node/libp2p-extra-transports.js";
 import { CID } from "multiformats/cid";
+import { sha512 } from "multiformats/hashes/sha2";
 import { peerIdFromString } from "@libp2p/peer-id";
 import { createBlockstoreForLibp2pJsClient } from "../runtime/node/blockstore.js";
 import { LruBlockstore } from "./lru-blockstore.js";
@@ -123,11 +124,17 @@ export async function createLibp2pJsClientOrUseExistingOne(
         return client;
     }
 
+    // Both are set from inside the factory so that the catch handler after it can tear down
+    // whatever got started when the wiring throws part-way through: until the client lands in
+    // libp2pJsClients nothing else holds a reference to the node, and a started-but-orphaned
+    // libp2p keeps gossipsub heartbeats, bitswap and open sockets alive past pkc.destroy().
+    let startedHelia: HeliaWithLibp2pPubsub | undefined;
+    let closeBlockstore = async () => {};
+
     creatingLibp2pJsClients[pkcOptions.key] = (async () => {
         // A caller supplying their own heliaOptions.blockstore owns block storage entirely, so skip
         // ours rather than opening a directory or IndexedDB database nothing will read.
         let lruBlockstore: LruBlockstore | undefined;
-        let closeBlockstore = async () => {};
         if (!pkcOptions.heliaOptions?.blockstore) {
             const {
                 blockstore: childBlockstore,
@@ -203,14 +210,35 @@ export async function createLibp2pJsClientOrUseExistingOne(
         // helia 7's createHelia() composes withHTTP() in: a public trustless-gateway block broker
         // plus public delegated HTTP routers and recursive gateways. We use our own gateway
         // fan-out logic in base-client-manager and only the routers the user configured, so
-        // compose the node without any HTTP components: bitswap is the only block broker and
-        // libp2p the only content router. withLibp2p applies libp2pDefaults with shallow per-key
-        // replace semantics (same as helia 6's createHelia): every key we set above wins outright
-        // (in particular our narrow `services` map fully replaces the default one), while keys we
-        // leave out (connectionEncrypters, streamMuxers, ...) come from helia's defaults.
-        const { libp2p: mergedLibp2pInit, bitswap: bitswapInit, http: _httpInit, ...heliaLightInit } = mergedHeliaInit;
+        // compose the node without any HTTP components (heliaOptions.http is excluded from the
+        // schema for that reason): bitswap is the only block broker and libp2p the only content
+        // router. withLibp2p applies libp2pDefaults with shallow per-key replace semantics (same
+        // as helia 6's createHelia): every key we set above wins outright (in particular our
+        // narrow `services` map fully replaces the default one), while keys we leave out
+        // (connectionEncrypters, streamMuxers, ...) come from helia's defaults.
+        //
+        // A caller-supplied heliaOptions.blockBrokers REPLACES bitswap, as it did under helia 6
+        // (`init.blockBrokers ?? [bitswap()]`): withBitswap() is additive, so applying it on top of
+        // the caller's list would hand a gateway-only/opt-out config bitswap sessions and dials anyway.
+        //
+        // createHeliaLight registers only sha2-256/identity and dag-pb/raw, where createHelia adds
+        // sha2-512 and the dag-cbor/dag-json/json codecs. pkc records are unixfs (dag-pb/raw) so
+        // the codecs are not needed, but nothing stops a community from publishing a sha2-512 CID
+        // (e.g. `ipfs add --hash sha2-512`) and helia looks the hasher up before the first block
+        // fetch, so keep sha2-512 to match what fetched under helia 6.
+        const { libp2p: mergedLibp2pInit, bitswap: bitswapInit, blockBrokers: callerBlockBrokers, ...heliaLightInit } = mergedHeliaInit;
+        const heliaWithLibp2p = withLibp2p(
+            createHeliaLight({
+                ...heliaLightInit,
+                blockBrokers: callerBlockBrokers,
+                hashers: [sha512, ...(heliaLightInit.hashers ?? [])]
+            }),
+            mergedLibp2pInit ?? {}
+        );
+        // The composition is typed as helia's default service map (dht, relay, upnp, ...) while our
+        // `services` above replaces it; HeliaWithLibp2pPubsub is the narrow map we actually run.
         const helia = <HeliaWithLibp2pPubsub>(
-            (<unknown>withBitswap(withLibp2p(createHeliaLight(heliaLightInit), mergedLibp2pInit ?? {}), bitswapInit))
+            (<unknown>(callerBlockBrokers === undefined ? withBitswap(heliaWithLibp2p, bitswapInit) : heliaWithLibp2p))
         );
 
         // helia 7 creates libp2p lazily inside start() — the `helia.libp2p` getter throws
@@ -218,6 +246,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
         // Nothing can race the wiring below: no topic is subscribed and no dial is made until
         // this factory returns the client.
         await helia.start();
+        startedHelia = helia;
 
         log("Initialized libp2pjs helia with key", pkcOptions.key, "peer id", helia.libp2p.peerId.toString());
 
@@ -315,23 +344,41 @@ export async function createLibp2pJsClientOrUseExistingOne(
             });
 
         const ipnsPubsubRouter = createIpnsPubusubRouter(helia);
-        // The router's localStore is where gossipsub-delivered records get cached (handleRecord).
-        // It's declared private but is a plain class field at runtime; the direct-fetch path below
-        // writes to it to keep the cached-record invariant (issue #210).
-        const ipnsPubsubLocalStore = (ipnsPubsubRouter as unknown as { localStore: IpnsPubsubLocalStore }).localStore;
         const ipnsNameResolver = ipns(helia, {
             routers: [ipnsPubsubRouter]
         });
 
-        // @helia/ipns constructs routers as [LocalStoreIPNSRouting, HeliaIPNSRouting, ...userRouters].
-        // We drop LocalStoreIPNSRouting because pkc-js never publishes IPNS via @helia/ipns (kubo
-        // does that), so the local cache is always empty and just adds a wasted lookup. Keep
-        // HeliaIPNSRouting (HTTP delegated routing via helia.routing) and our PubSubRouting.
-        // Filter by class name so a future @helia/ipns release that re-orders the array can't
-        // silently drop our pubsub router. ("LocalStoreRouting" was the pre-@helia/ipns-10 name.)
-        ipnsNameResolver.routers = ipnsNameResolver.routers.filter(
-            (r) => r?.constructor?.name !== "LocalStoreIPNSRouting" && r?.constructor?.name !== "LocalStoreRouting"
-        );
+        // @helia/ipns constructs routers as [LocalStoreIPNSRouting, HeliaIPNSRouting, ...userRouters]
+        // and hands that SAME array to its resolver/publisher/republisher, so it must be mutated in
+        // place: reassigning `.routers` only changes what pkc's own loops below iterate, while
+        // ipnsNameResolver.resolve() keeps querying (and writing the local cache through) the
+        // original list. We drop LocalStoreIPNSRouting because pkc-js never publishes IPNS via
+        // @helia/ipns (kubo does that), so the local cache is always empty and just adds a wasted
+        // lookup. Keep HeliaIPNSRouting (HTTP delegated routing via helia.routing) and our pubsub
+        // router. Filter by class name so a future @helia/ipns release that re-orders the array
+        // can't silently drop the wrong router. ("LocalStoreRouting" was the pre-@helia/ipns-10 name.)
+        for (let i = ipnsNameResolver.routers.length - 1; i >= 0; i--) {
+            const routerName = ipnsNameResolver.routers[i]?.constructor?.name;
+            if (routerName === "LocalStoreIPNSRouting" || routerName === "LocalStoreRouting") ipnsNameResolver.routers.splice(i, 1);
+        }
+
+        // The IPNS facade marks itself started (and runs its republisher) from helia's 'start'
+        // event, which helia 7 dispatches exactly once at the end of start(), i.e. before the
+        // facade existed (its constructor walks helia's components, whose `libp2p` getter throws
+        // until start(), so it cannot be built earlier). helia 6's `libp2p.status === 'started'`
+        // fallback is gone, so start it by hand or it stays "not started" forever, silently.
+        // start() is on the class but not on the exported IPNS interface.
+        (ipnsNameResolver as { start?: () => void }).start?.();
+        // The router is Startable but neither helia.start() (blockstore/datastore/routing/brokers
+        // only) nor the IPNS facade (republisher only) starts user-supplied routers. Its start()
+        // registers the libp2p/fetch topology that fills `fetchPeers`; without it the
+        // subscription-change fast path (fetch the record from a server that joins the topic after
+        // our get() already ran, ipfs/helia#906) never fires. stop() is mirrored in stop() below.
+        await (ipnsPubsubRouter as { start?: () => void | Promise<void> }).start?.();
+        // The router's localStore is where gossipsub-delivered records get cached (handleRecord).
+        // It's declared private but is a plain class field at runtime; the direct-fetch path below
+        // writes to it to keep the cached-record invariant (issue #210).
+        const ipnsPubsubLocalStore = (ipnsPubsubRouter as unknown as { localStore: IpnsPubsubLocalStore }).localStore;
 
         // Side-channel awaitable warmup: gossipsub's pubsub.subscribe(topic) is sync and returns
         // void, so we can't make it awaitable without breaking @helia/ipns and other internal
@@ -385,7 +432,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                         // the topic's current gossipsub subscribers AND providers freshly discovered from
                         // the HTTP routers — first signature-valid record wins. This skips the
                         // waitForTopicSubscriber floor (up to 10s) that the legacy path below blocks on,
-                        // because @helia/ipns's PubSubRouting.get() only fetches from getSubscribers() and
+                        // because @helia/ipns's PubSubIPNSRouting.get() only fetches from getSubscribers() and
                         // throws when that list is empty. See directFetchIpnsRecordFromProviders.
                         type DirectFetchOutcome =
                             | { attempted: false }
@@ -500,22 +547,17 @@ export async function createLibp2pJsClientOrUseExistingOne(
                         // See docs/protocol/delegated-ipns.md.
                         //
                         // Why call routers directly instead of ipnsNameResolver.resolve():
-                        // - @helia/ipns 9.2.x has no public single-hop / non-recursive resolve API.
-                        //   resolve() always recurses until it reaches an /ipfs/ value, and its single-hop
-                        //   primitive (#findIpnsRecord) is private — so the router layer is the only public
-                        //   way to fetch exactly one record.
-                        // - resolve()'s ResolveProgressEvents type declares ipns:resolve:success (carrying
-                        //   the per-hop IPNSRecord), but those events are never emitted in 9.2.x — only
-                        //   routing-level events fire, none carrying a record value or next-hop name. So an
-                        //   onProgress listener cannot reconstruct the hop chain either. Empirically pinned
-                        //   in test/node/community/helia-ipns-resolve-equivalence.unit.test.ts.
-                        // Upstream main has since reworked resolve() into an async generator that yields each
-                        // hop's IPNSRecord (ipfs/helia#1041) — that would replace this manual walk and even let
-                        // us warm each pubsub topic between yields — but it's unreleased; npm latest 9.2.1 still
-                        // collapses the chain to the terminal CID. So the per-hop walk stays for now.
-                        // TODO: after the @helia/ipns upgrade, re-check this — once the generator resolve() is
-                        // released, replace this router.get + ipnsValidator loop with
-                        // `for await (const { record } of ipnsNameResolver.resolve(...))`.
+                        // @helia/ipns 10 reworked resolve() into an async generator that yields one
+                        // IPNSResolveResult per hop (ipfs/helia#1041), so a single-hop read is now
+                        // technically reachable by taking the first yield. The per-hop walk stays anyway:
+                        // - the direct-fetch fast path above (libp2p/fetch from subscribers + freshly
+                        //   discovered providers, with the issue #210 cache write) has no equivalent
+                        //   inside resolve();
+                        // - per-hop pubsub warmup has to happen BEFORE that hop's record is requested, and
+                        //   resolve() requests the next hop's record internally as soon as it yields;
+                        // - per-router error aggregation below is what the tests and callers report on.
+                        // Equivalence of the resolved value with resolve() is pinned in
+                        // test/node/community/helia-ipns-resolve-equivalence.unit.test.ts.
                         // This does NOT bypass an active cache/TTL: all cache-read + TTL logic lives in the
                         // resolver's #findIpnsRecord and is gated on `nocache !== true`, but pkc always
                         // resolves IPNS with nocache:true (see resolveIpnsToCidP2P in base-client-manager),
@@ -572,7 +614,13 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 // see MAX_BITSWAP_SESSION_SEED_PEERS above for the why. UnixFSComponents only
                 // needs a blockstore, and blocks fetched through the session land in the same
                 // underlying blockstore helia uses, so nothing else changes.
-                const rootCid = CID.parse(ipfsPath.split("/")[0]);
+                // ipfsPath is either a bare cid or a `<root-cid>/sub/path`; derive both parts here, once,
+                // so root and sub-path can never disagree. unixfs cat takes the root CID plus the sub-path
+                // via the `path` option. (The multiformats 13/14 split that used to force string-only cat
+                // input is gone: helia 7 and our tree share a single multiformats copy.)
+                const [rootCidString, ...ipfsSubPathSegments] = ipfsPath.split("/");
+                const rootCid = CID.parse(rootCidString);
+                const ipfsSubPath = ipfsSubPathSegments.length > 0 ? ipfsSubPathSegments.join("/") : undefined;
                 const timeoutMs = parseKuboStyleTimeoutMs(options?.timeout); // throws on unparseable timeout at call time
                 // Our own option, not kubo-rpc-client's — strip it so it never reaches unixfs cat.
                 const { bitswapSessionSeedScopeIpnsPubsubTopic, ...unixfsCatOptions } = options ?? {};
@@ -625,11 +673,6 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                 });
                             let yieldedAnyBytes = false;
                             try {
-                                // ipfsPath is either a bare cid or a `<root-cid>/sub/path`; cat takes the
-                                // root CID plus the sub-path via the `path` option. (The multiformats
-                                // 13/14 split that used to force string-only cat input is gone: helia 7
-                                // and our tree share a single multiformats copy.)
-                                const ipfsSubPath = ipfsPath.includes("/") ? ipfsPath.slice(ipfsPath.indexOf("/") + 1) : undefined;
                                 const catIterable = unixfs({ blockstore: session }).cat(rootCid, {
                                     ...unixfsCatOptions,
                                     path: ipfsSubPath,
@@ -748,8 +791,8 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     delete libp2pJsClients[pkcOptions.key];
 
                     // Tear down the IPNS pubsub router's internal subscription state.
-                    // PubSubRouting (from @helia/ipns/routing) implements Startable and tracks its
-                    // own subscriptions list — without stop() those subscriptions leak past helia.
+                    // PubSubIPNSRouting (@helia/ipns) implements Startable and tracks its own
+                    // subscriptions list and fetch topology — without stop() those leak past helia.
                     for (const router of ipnsNameResolver.routers) {
                         const lifecycle = router as { stop?: () => void | Promise<void> };
                         if (typeof lifecycle.stop === "function") {
@@ -829,7 +872,30 @@ export async function createLibp2pJsClientOrUseExistingOne(
         libp2pJsClients[pkcOptions.key] = client;
 
         return client;
-    })();
+    })().catch(async (creationError) => {
+        // The client never reached libp2pJsClients, so stop() can't be called on it: release
+        // whatever this factory started before rethrowing (mirrors the final-release path in stop()).
+        if (startedHelia) {
+            for (const connection of startedHelia.libp2p.getConnections()) {
+                try {
+                    connection.abort(new Error("pkc-js libp2p instance failed to initialize"));
+                } catch (e) {
+                    log.error("Error aborting libp2p connection during failed initialization", e);
+                }
+            }
+            try {
+                await startedHelia.stop();
+            } catch (e) {
+                log.error("Error stopping helia after failed initialization", e);
+            }
+        }
+        try {
+            await closeBlockstore();
+        } catch (e) {
+            log.error("Error closing blockstore after failed initialization", e);
+        }
+        throw creationError;
+    });
 
     const createdClientPromise = creatingLibp2pJsClients[pkcOptions.key];
     if (!createdClientPromise) throw new Error("Missing creation promise after initialization");

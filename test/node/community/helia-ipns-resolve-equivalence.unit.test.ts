@@ -3,6 +3,7 @@ import { createDelegatedCommunityIpns, createNewIpns, mockPKCWithHeliaConfig } f
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { peerIdFromString } from "@libp2p/peer-id";
 import { CID } from "multiformats/cid";
+import last from "it-last";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 
 // The helia/libp2p IPNS resolver (helia-for-pkc.ts) resolves a SINGLE hop per call by iterating
@@ -29,10 +30,10 @@ describeSkipIfRpc("Helia IPNS single-hop resolution equivalence", () => {
     // @helia/ipns 10 resolve() yields one IPNSResolveResult per hop; the terminal hop is the last
     // yield and its value is "/ipfs/<cid>". Drain the generator and parse the terminal CID.
     const lastResolvedCid = async (resolveGenerator: AsyncIterable<{ value: string }>): Promise<CID> => {
-        let lastValue: string | undefined;
-        for await (const result of resolveGenerator) lastValue = result.value;
-        if (lastValue === undefined) throw new Error("resolve() yielded no results");
-        return CID.parse(lastValue.split("/")[2]);
+        const terminal = await last(resolveGenerator);
+        expect(terminal, "resolve() yielded no results").to.not.be.undefined;
+        expect(terminal!.value, "terminal IPNS value should be an /ipfs/ path").to.match(/^\/ipfs\/[^/]+$/);
+        return CID.parse(terminal!.value.slice("/ipfs/".length));
     };
 
     beforeAll(async () => {
