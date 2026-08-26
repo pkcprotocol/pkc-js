@@ -1,25 +1,5 @@
 # Changelog
 
-## [0.1.0](https://github.com/pkcprotocol/pkc-js/compare/v0.0.86...v0.1.0) (2026-08-22)
-
-### ⚠ BREAKING CHANGES
-
-* **deps:** in gossipsub 17.0.0: maxTopicBytesPerPeer bounds the
-memory a single remote peer may occupy in the topics map (default 1 MiB,
-roughly 1000 topics per peer); subscriptions past a peer's budget are
-ignored. A pkc node subscribes to one IPNS-over-pubsub topic per
-community it follows plus its challenge topics, so the default is well
-clear of the topologies we run. Tuning the constructor options is
-tracked separately.
-
-### chore
-
-* **deps:** upgrade @libp2p/gossipsub to 17.0.0 and dedupe the libp2p tree ([#279](https://github.com/pkcprotocol/pkc-js/issues/279)) ([38d3a1f](https://github.com/pkcprotocol/pkc-js/commit/38d3a1f394cbdcbb009908860f3705cc9750154e))
-
-### Bug Fixes
-
-* **community:** await the source db removal in delete() instead of a fire-and-forget rm ([#291](https://github.com/pkcprotocol/pkc-js/issues/291)) ([812a5fa](https://github.com/pkcprotocol/pkc-js/commit/812a5fa93c53ff78d67ff4eee393598041a0f060))
-
 ## [0.0.86](https://github.com/pkcprotocol/pkc-js/compare/v0.0.85...v0.0.86) (2026-08-22)
 
 ### Bug Fixes
