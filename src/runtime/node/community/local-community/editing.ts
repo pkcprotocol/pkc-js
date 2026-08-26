@@ -5,12 +5,7 @@ import { sha256 } from "js-sha256";
 import { areEquivalentCommunityAddresses, doesDomainAddressHaveCapitalLetter, isStringDomain } from "../../../../util.js";
 import { PKCError } from "../../../../pkc-error.js";
 import { parseCommunityEditOptionsSchemaWithPKCErrorIfItFails } from "../../../../schema/schema-util.js";
-import {
-    findCommunityInRegistry,
-    findStartedCommunity,
-    syncCommunityRegistryEntry,
-    trackStartedCommunity
-} from "../../../../pkc/tracked-instance-registry-util.js";
+import { findStartedCommunity, trackStartedCommunity } from "../../../../pkc/tracked-instance-registry-util.js";
 import { getCommunityChallengeFromCommunityChallengeSettings } from "../challenges/index.js";
 import type {
     CommunityEditOptions,
@@ -20,7 +15,7 @@ import type {
 } from "../../../../community/types.js";
 import type { LocalCommunity } from "../local-community.js";
 import { isDefaultChallengeStructure } from "./defaults.js";
-import { processStartedCommunities } from "./registry.js";
+import { findProcessStartedCommunity, processStartedCommunities, syncProcessStartedCommunity } from "./registry.js";
 import { updateDbInternalState, updateInstancePropsWithStartedCommunityOrDb } from "./db-state.js";
 
 export async function movePostUpdatesFolderToNewAddress(community: LocalCommunity, oldAddress: string, newAddress: string) {
@@ -140,7 +135,7 @@ export async function editPropsOnStartedCommunity(
     community.emit("update", community);
     if (community.address !== oldAddress) {
         trackStartedCommunity(community._pkc, community);
-        syncCommunityRegistryEntry(processStartedCommunities, community, community._pkc.dataPath);
+        syncProcessStartedCommunity(community);
     }
     return community;
 }
@@ -186,11 +181,7 @@ export async function edit(community: LocalCommunity, newCommunityOptions: Commu
 
     const startedCommunity = <LocalCommunity | undefined>(
         (findStartedCommunity(community._pkc, { publicKey: community.publicKey, name: community.name }) ||
-            findCommunityInRegistry(
-                processStartedCommunities,
-                { publicKey: community.publicKey, name: community.name },
-                community._pkc.dataPath
-            ))
+            findProcessStartedCommunity(community))
     );
     if (startedCommunity && community.state !== "started") {
         // sceneario 1

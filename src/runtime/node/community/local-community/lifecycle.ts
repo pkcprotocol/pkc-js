@@ -7,17 +7,15 @@ import { pubsubTopicToDhtKey, removeMfsFilesSafely, sleepUntilTimeoutOrAbort } f
 import { moveCommunityDbToDeletedDirectory } from "../../util.js";
 import { getCommunityChallengeFromCommunityChallengeSettings } from "../challenges/index.js";
 import {
-    findCommunityInRegistry,
     findStartedCommunity,
     findUpdatingCommunity,
-    syncCommunityRegistryEntry,
     trackStartedCommunity,
     trackUpdatingCommunity,
     untrackStartedCommunity,
     untrackUpdatingCommunity
 } from "../../../../pkc/tracked-instance-registry-util.js";
 import { LocalCommunity } from "../local-community.js";
-import { processStartedCommunities } from "./registry.js";
+import { findProcessStartedCommunity, processStartedCommunities, syncProcessStartedCommunity } from "./registry.js";
 import { communityChallengePubsubTopic } from "./comment-updates.js";
 import { providePubsubTopicRoutingCidsIfNeeded } from "./pubsub.js";
 import { reprovideOnAddressChangeIfDue } from "./reprovide-on-address-change.js";
@@ -124,11 +122,7 @@ export async function start(community: LocalCommunity) {
     if (
         community.started ||
         findStartedCommunity(community._pkc, { publicKey: community.publicKey, name: community.name }) ||
-        findCommunityInRegistry(
-            processStartedCommunities,
-            { publicKey: community.publicKey, name: community.name },
-            community._pkc.dataPath
-        )
+        findProcessStartedCommunity(community)
     )
         throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: community.address });
     try {
@@ -148,7 +142,7 @@ export async function start(community: LocalCommunity) {
         await community._updateStartedValue();
         await community._dbHandler.lockCommunityStart(); // Will throw if community is locked already
         trackStartedCommunity(community._pkc, community);
-        syncCommunityRegistryEntry(processStartedCommunities, community, community._pkc.dataPath);
+        syncProcessStartedCommunity(community);
         await community._updateStartedValue();
         await community._dbHandler.initDbIfNeeded();
         await community._dbHandler.createOrMigrateTablesIfNeeded();
@@ -320,11 +314,7 @@ export async function updateOnce(community: LocalCommunity) {
     await community._updateStartedValue();
     const startedCommunity = <LocalCommunity | undefined>(
         (findStartedCommunity(community._pkc, { publicKey: community.publicKey, name: community.name }) ||
-            findCommunityInRegistry(
-                processStartedCommunities,
-                { publicKey: community.publicKey, name: community.name },
-                community._pkc.dataPath
-            ))
+            findProcessStartedCommunity(community))
     );
     if (community._mirroredStartedOrUpdatingCommunity)
         return; // we're already mirroring a started or updating community
@@ -479,11 +469,7 @@ export async function deleteCommunity(community: LocalCommunity) {
 
     const startedCommunity = <LocalCommunity | undefined>(
         (findStartedCommunity(community._pkc, { publicKey: community.publicKey, name: community.name }) ||
-            findCommunityInRegistry(
-                processStartedCommunities,
-                { publicKey: community.publicKey, name: community.name },
-                community._pkc.dataPath
-            ))
+            findProcessStartedCommunity(community))
     );
     if (startedCommunity && startedCommunity !== community) {
         await startedCommunity.delete();

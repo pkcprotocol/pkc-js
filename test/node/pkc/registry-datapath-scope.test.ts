@@ -1,4 +1,11 @@
 import { describe, it, expect } from "vitest";
+import fs from "fs";
+import path from "path";
+import {
+    findProcessStartedCommunity,
+    processStartedCommunities,
+    syncProcessStartedCommunity
+} from "../../../dist/node/runtime/node/community/local-community/registry.js";
 import { TrackedInstanceRegistry } from "../../../dist/node/pkc/tracked-instance-registry.js";
 import {
     findCommunityInRegistry,
@@ -105,5 +112,110 @@ describe("community registry aliases are scoped by dataPath (issue #238)", () =>
         expect(findCommunityInRegistry(registry, { publicKey: PUBLIC_KEY }, DATA_PATH_A)).to.equal(delegated);
         expect(findCommunityInRegistry(registry, { publicKey: OTHER_PUBLIC_KEY }, DATA_PATH_A)).to.equal(delegated);
         expect(findCommunityInRegistry(registry, { publicKey: OTHER_PUBLIC_KEY }, DATA_PATH_B)).to.be.undefined;
+    });
+});
+
+describe("alias history is kept per registry and re-scoped on every sync", () => {
+    it("syncing into an unscoped registry first does not leak bare aliases into a scoped one", () => {
+        // lifecycle.ts start() tracks the per-PKC registry (unscoped) right before the process registry
+        // (scoped). With a single history Set per object the process registry also received the bare
+        // aliases, so an unscoped lookup (or a caller forgetting dataPath) matched across dataPaths.
+        const perPkcRegistry = new TrackedInstanceRegistry<TestCommunity>();
+        const processRegistry = new TrackedInstanceRegistry<TestCommunity>();
+        const community: TestCommunity = { publicKey: PUBLIC_KEY };
+        syncCommunityRegistryEntry(perPkcRegistry, community);
+        syncCommunityRegistryEntry(processRegistry, community, DATA_PATH_A);
+
+        expect(processRegistry.aliases()).to.not.include(PUBLIC_KEY);
+        expect(findCommunityInRegistry(processRegistry, { publicKey: PUBLIC_KEY })).to.be.undefined;
+        expect(findCommunityInRegistry(processRegistry, { publicKey: PUBLIC_KEY }, DATA_PATH_A)).to.equal(community);
+        // and the scoped aliases do not flow back into the unscoped registry either
+        expect(perPkcRegistry.aliases()).to.deep.equal([PUBLIC_KEY]);
+    });
+
+    it("a community re-tracked under a new dataPath is no longer found under the old one", () => {
+        // RPC setSettings swaps community._pkc (possibly with a new dataPath), then stop()/start()s the
+        // same object. The old scope must not survive that restart.
+        const registry = new TrackedInstanceRegistry<TestCommunity>();
+        const community: TestCommunity = { publicKey: PUBLIC_KEY };
+        syncCommunityRegistryEntry(registry, community, DATA_PATH_A);
+        registry.untrack(community);
+        syncCommunityRegistryEntry(registry, community, DATA_PATH_B);
+
+        expect(findCommunityInRegistry(registry, { publicKey: PUBLIC_KEY }, DATA_PATH_A)).to.be.undefined;
+        expect(findCommunityInRegistry(registry, { publicKey: PUBLIC_KEY }, DATA_PATH_B)).to.equal(community);
+    });
+
+    it("renamed communities stay reachable by their old name within the same dataPath (sticky aliases)", () => {
+        const registry = new TrackedInstanceRegistry<TestCommunity>();
+        const community: TestCommunity = { name: "before-238.eth", publicKey: PUBLIC_KEY };
+        syncCommunityRegistryEntry(registry, community, DATA_PATH_A);
+        community.name = "after-238.eth";
+        syncCommunityRegistryEntry(registry, community, DATA_PATH_A);
+
+        expect(findCommunityInRegistry(registry, { name: "before-238.eth" }, DATA_PATH_A)).to.equal(community);
+        expect(findCommunityInRegistry(registry, { name: "after-238.eth" }, DATA_PATH_A)).to.equal(community);
+        expect(findCommunityInRegistry(registry, { name: "before-238.eth" }, DATA_PATH_B)).to.be.undefined;
+    });
+});
+
+describe("processStartedCommunities scope normalizes the dataPath", () => {
+    it("different spellings of the same directory land in the same scope", () => {
+        const dir = path.join(process.cwd(), ".tmp", "pkc-238-scope-spellings");
+        fs.mkdirSync(dir, { recursive: true });
+        const inA = { publicKey: PUBLIC_KEY, _pkc: { dataPath: dir } };
+        syncProcessStartedCommunity(inA);
+        try {
+            expect(findProcessStartedCommunity({ publicKey: PUBLIC_KEY, _pkc: { dataPath: `${dir}/` } })).to.equal(inA);
+            expect(findProcessStartedCommunity({ publicKey: PUBLIC_KEY, _pkc: { dataPath: path.relative(process.cwd(), dir) } })).to.equal(
+                inA
+            );
+            expect(
+                findProcessStartedCommunity({ publicKey: PUBLIC_KEY, _pkc: { dataPath: path.join(dir, "..", path.basename(dir)) } })
+            ).to.equal(inA);
+        } finally {
+            processStartedCommunities.untrack(inA);
+        }
+    });
+
+    it("a symlink to the dataPath resolves to the same scope", () => {
+        const real = path.join(process.cwd(), ".tmp", "pkc-238-scope-real");
+        const link = path.join(process.cwd(), ".tmp", "pkc-238-scope-link");
+        fs.mkdirSync(real, { recursive: true });
+        fs.rmSync(link, { force: true });
+        fs.symlinkSync(real, link);
+        const inReal = { publicKey: PUBLIC_KEY, _pkc: { dataPath: real } };
+        syncProcessStartedCommunity(inReal);
+        try {
+            expect(findProcessStartedCommunity({ publicKey: PUBLIC_KEY, _pkc: { dataPath: link } })).to.equal(inReal);
+        } finally {
+            processStartedCommunities.untrack(inReal);
+            fs.rmSync(link, { force: true });
+        }
+    });
+
+    it("a dataPath that does not exist yet still scopes consistently with its later spelling", () => {
+        // start() creates the directory; the registry may be consulted before that.
+        const missing = path.join(process.cwd(), ".tmp", "pkc-238-scope-missing", "nested");
+        fs.rmSync(path.dirname(missing), { recursive: true, force: true });
+        const inMissing = { publicKey: PUBLIC_KEY, _pkc: { dataPath: missing } };
+        syncProcessStartedCommunity(inMissing);
+        try {
+            expect(findProcessStartedCommunity({ publicKey: PUBLIC_KEY, _pkc: { dataPath: `${missing}/` } })).to.equal(inMissing);
+        } finally {
+            processStartedCommunities.untrack(inMissing);
+        }
+    });
+
+    it("different directories stay in different scopes", () => {
+        const a = path.join(process.cwd(), ".tmp", "pkc-238-scope-dir-a");
+        const b = path.join(process.cwd(), ".tmp", "pkc-238-scope-dir-b");
+        const inA = { publicKey: PUBLIC_KEY, _pkc: { dataPath: a } };
+        syncProcessStartedCommunity(inA);
+        try {
+            expect(findProcessStartedCommunity({ publicKey: PUBLIC_KEY, _pkc: { dataPath: b } })).to.be.undefined;
+        } finally {
+            processStartedCommunities.untrack(inA);
+        }
     });
 });

@@ -9,7 +9,7 @@ import { parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails } from "../../
 import { deriveDbPosts, resolveDbPostsCidRefs, importSignerIntoKuboNode } from "../../util.js";
 import { SignerWithPublicKeyAddress } from "../../../../signer/index.js";
 import { getIpfsKeyFromPrivateKey, getPublicKeyFromPrivateKey } from "../../../../signer/util.js";
-import { findCommunityInRegistry, findStartedCommunity } from "../../../../pkc/tracked-instance-registry-util.js";
+import { findStartedCommunity } from "../../../../pkc/tracked-instance-registry-util.js";
 import { getCommunityChallengeFromCommunityChallengeSettings } from "../challenges/index.js";
 import type {
     CommunityIpfsType,
@@ -20,9 +20,8 @@ import type {
 import type { DbPostsFormat } from "../../../../publications/comment/types.js";
 import type { LocalCommunity } from "../local-community.js";
 import { generateDefaultChallenges, isDefaultChallengeStructure } from "./defaults.js";
-import { processStartedCommunities } from "./registry.js";
+import { findProcessStartedCommunity, processStartedCommunities, syncProcessStartedCommunity } from "./registry.js";
 import { CommunitySignedPropertyNames } from "../../../../community/schema.js";
-import { syncCommunityRegistryEntry } from "../../../../pkc/tracked-instance-registry-util.js";
 import { DbHandler } from "../db-handler.js";
 import { getHighestAcceptedAnchorSequence } from "./anchor-publishing.js";
 import { PageGenerator } from "../page-generator.js";
@@ -149,11 +148,7 @@ export async function updateInstancePropsWithStartedCommunityOrDb(community: Loc
     const log = Logger("pkc-js:local-community:_updateInstancePropsWithStartedCommunityOrDb");
     const startedCommunity = <LocalCommunity | undefined>(
         (findStartedCommunity(community._pkc, { publicKey: community.publicKey, name: community.name }) ||
-            findCommunityInRegistry(
-                processStartedCommunities,
-                { publicKey: community.publicKey, name: community.name },
-                community._pkc.dataPath
-            ))
+            findProcessStartedCommunity(community))
     );
     if (startedCommunity) {
         log("Loading local community", community.address, "from started community instance");
@@ -368,7 +363,7 @@ export async function initInternalCommunityAfterFirstUpdateNoMerge(
     if (Array.isArray(newProps._cidsToUnPin)) newProps._cidsToUnPin.forEach((cid) => community._cidsToUnPin.add(cid));
     if (Array.isArray(newProps._mfsPathsToRemove)) newProps._mfsPathsToRemove.forEach((path) => community._mfsPathsToRemove.add(path));
     community._updateIpnsPubsubPropsIfNeeded(newProps);
-    if (processStartedCommunities.has(community)) syncCommunityRegistryEntry(processStartedCommunities, community, community._pkc.dataPath);
+    if (processStartedCommunities.has(community)) syncProcessStartedCommunity(community);
     if (community.updateCid) community.raw.localCommunity = community.toJSONInternalRpcAfterFirstUpdate();
 }
 
@@ -389,7 +384,7 @@ export async function initInternalCommunityBeforeFirstUpdateNoMerge(
     // LocalCommunity's override always derives these from signer.address, so the explicit
     // minter-based assignment that used to follow this call is no longer needed here.
     community._updateIpnsPubsubPropsIfNeeded(newProps);
-    if (processStartedCommunities.has(community)) syncCommunityRegistryEntry(processStartedCommunities, community, community._pkc.dataPath);
+    if (processStartedCommunities.has(community)) syncProcessStartedCommunity(community);
     community.raw.localCommunity = community.toJSONInternalRpcBeforeFirstUpdate();
 }
 

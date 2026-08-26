@@ -27,8 +27,14 @@ type CommentLookup = {
 
 const trackedAliasHistorySymbol = Symbol("trackedAliasHistory");
 
+// One history per (object, registry). A single Set shared by every registry let the per-PKC
+// registries (unscoped) and processStartedCommunities (dataPath-scoped) feed each other's aliases:
+// the process registry ended up holding bare aliases that matched across dataPaths, defeating the
+// #238 scope. The history holds UNSCOPED aliases and the scope is applied on every sync, so a
+// community re-tracked under a new dataPath (RPC setSettings swaps community._pkc) drops the old
+// scope while a renamed community stays reachable by its old name within the same scope.
 type TrackedAliasHistoryHolder = object & {
-    [trackedAliasHistorySymbol]?: Set<string>;
+    [trackedAliasHistorySymbol]?: WeakMap<object, Set<string>>;
 };
 
 function isEthAliasDomain(address: string): boolean {
@@ -47,21 +53,27 @@ function dedupeAliases(aliases: (string | undefined)[]): string[] {
     return [...new Set(aliases.filter((alias): alias is string => typeof alias === "string" && alias.length > 0))];
 }
 
-function getTrackedAliasHistory(target: object): Set<string> {
+function getTrackedAliasHistory(target: object, registry: object): Set<string> {
     const holder = target as TrackedAliasHistoryHolder;
     if (!holder[trackedAliasHistorySymbol]) {
         Object.defineProperty(holder, trackedAliasHistorySymbol, {
-            value: new Set<string>(),
+            value: new WeakMap<object, Set<string>>(),
             enumerable: false,
             configurable: false,
             writable: false
         });
     }
-    return holder[trackedAliasHistorySymbol]!;
+    const histories = holder[trackedAliasHistorySymbol]!;
+    let history = histories.get(registry);
+    if (!history) {
+        history = new Set<string>();
+        histories.set(registry, history);
+    }
+    return history;
 }
 
-function persistAliases<T extends object>(target: T, aliases: string[]): string[] {
-    const aliasHistory = getTrackedAliasHistory(target);
+function persistAliases<T extends object>(target: T, registry: object, aliases: string[]): string[] {
+    const aliasHistory = getTrackedAliasHistory(target, registry);
     aliases.forEach((alias) => aliasHistory.add(alias));
     return [...aliasHistory];
 }
@@ -111,11 +123,14 @@ export function syncCommunityRegistryEntry<T extends CommunityWithAliases>(
     community: T,
     dataPath?: string
 ): T {
-    return registry.track({ value: community, aliases: persistAliases(community, getCommunityRegistryAliases(community, dataPath)) });
+    return registry.track({
+        value: community,
+        aliases: scopeAliasesToDataPath(persistAliases(community, registry, getCommunityRegistryAliases(community)), dataPath)
+    });
 }
 
 export function syncCommentRegistryEntry<T extends CommentLookup>(registry: TrackedInstanceRegistry<T>, comment: T): T {
-    return registry.track({ value: comment, aliases: persistAliases(comment, getCommentRegistryAliases(comment)) });
+    return registry.track({ value: comment, aliases: persistAliases(comment, registry, getCommentRegistryAliases(comment)) });
 }
 
 export function findCommunityInRegistry<T extends CommunityWithAliases>(
