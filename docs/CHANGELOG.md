@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.88](https://github.com/pkcprotocol/pkc-js/compare/v0.0.87...v0.0.88) (2026-08-26)
+
+### Bug Fixes
+
+* **community:** make statsCid optional on CommunityIpfsSchema ([#298](https://github.com/pkcprotocol/pkc-js/issues/298)) ([2aa45bf](https://github.com/pkcprotocol/pkc-js/commit/2aa45bf17d2e10c68ce6d021cd86aed5e10ffe2d)), closes [#297](https://github.com/pkcprotocol/pkc-js/issues/297)
+
+### Build
+
+* **ci:** make the PR title releasable-commit check runnable locally ([#296](https://github.com/pkcprotocol/pkc-js/issues/296)) ([e5c3cef](https://github.com/pkcprotocol/pkc-js/commit/e5c3cef06b27b15568c55d8a45c8e6a06b057191))
+
 ## [0.0.87](https://github.com/pkcprotocol/pkc-js/compare/v0.0.86...v0.0.87) (2026-08-26)
 
 ### ⚠ BREAKING CHANGES
