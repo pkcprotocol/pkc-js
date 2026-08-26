@@ -19,12 +19,12 @@ import type { NameResolver } from "../../../dist/node/types.js";
 import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/comment/types.js";
 
 // Issue #267. `author.address` is `name || keyDerivedAddress`, built from the unresolved wire name. Before this
-// fix every author-identity matcher on the community side (exclude.address, exclude.role/roles, the blacklist and
+// fix every author-identity matcher on the community side (exclude.address, exclude.roles/roles, the blacklist and
 // whitelist challenges) compared that string lexically, so with `resolveAuthorNames: false` any signer could set
 // `author.name` to a domain it does not own and match an exclude or role keyed on that domain.
 //
-// Now an exclude says which identity it means: `signerAddress` is compared against the address derived from
-// `signature.publicKey`, and `name` (like a domain role key or a domain in a blacklist/whitelist) is resolved at
+// Now an exclude says which identity it means: `publicKeys` is compared against the address derived from
+// `signature.publicKey`, and `names` (like a domain role key or a domain in a blacklist/whitelist) is resolved at
 // match time, regardless of `resolveAuthorNames`, and must resolve to the signer.
 
 const ownerSigner = signers[6];
@@ -107,11 +107,11 @@ for (const resolveAuthorNames of [false, true]) {
             await destroyHarness(harness);
         });
 
-        describe("exclude.name", () => {
+        describe("exclude.names", () => {
             let community: LocalCommunity;
             beforeAll(async () => {
                 community = await harness.createStartedCommunity({
-                    settings: { challenges: [{ name: "fail", exclude: [{ name: [harness.ownerDomain] }] }] }
+                    settings: { challenges: [{ name: "fail", exclude: [{ names: [harness.ownerDomain] }] }] }
                 });
             });
 
@@ -132,11 +132,11 @@ for (const resolveAuthorNames of [false, true]) {
             });
         });
 
-        describe("exclude.signerAddress", () => {
+        describe("exclude.publicKeys", () => {
             let community: LocalCommunity;
             beforeAll(async () => {
                 community = await harness.createStartedCommunity({
-                    settings: { challenges: [{ name: "fail", exclude: [{ signerAddress: [ownerSigner.address] }] }] }
+                    settings: { challenges: [{ name: "fail", exclude: [{ publicKeys: [ownerSigner.address] }] }] }
                 });
             });
 
@@ -153,12 +153,12 @@ for (const resolveAuthorNames of [false, true]) {
             });
         });
 
-        describe("exclude.role with a domain role key", () => {
+        describe("exclude.roles with a domain role key", () => {
             let community: LocalCommunity;
             beforeAll(async () => {
                 community = await harness.createStartedCommunity({
                     roles: { [harness.ownerDomain]: { role: "moderator" } },
-                    settings: { challenges: [{ name: "fail", exclude: [{ role: ["moderator"] }] }] }
+                    settings: { challenges: [{ name: "fail", exclude: [{ roles: ["moderator"] }] }] }
                 });
             });
 

@@ -226,7 +226,7 @@ const excludeNameChallengeCommunity: MockCommunity = {
                     error: `You're not whitelisted.`
                 },
                 // challenge should never be triggered if the author's domain is excluded (and resolves to the signer)
-                exclude: [{ name: ["high-karma.bso"] }]
+                exclude: [{ names: ["high-karma.bso"] }]
             }
         ]
     }
@@ -413,7 +413,7 @@ const excludeModsChallengeCommunity: MockCommunity = {
                 options: {
                     error: `You're not a mod.`
                 },
-                exclude: [{ role: ["moderator", "admin", "owner"] }]
+                exclude: [{ roles: ["moderator", "admin", "owner"] }]
             }
         ]
     }

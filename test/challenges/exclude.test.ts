@@ -363,7 +363,7 @@ describe("shouldExcludePublication", () => {
     // Exclude based on roles
     it("Moderator edits are excluded from challenges", async () => {
         const communityChallenge = {
-            exclude: [{ role: ["moderator", "admin", "owner"], publicationType: { commentModeration: true } }]
+            exclude: [{ roles: ["moderator", "admin", "owner"], publicationType: { commentModeration: true } }]
         };
         // the mod is identified by its signer address (issue #267): role keys are matched through the signature
         const modSigner = signers[0];
@@ -400,7 +400,7 @@ describe("shouldExcludePublication", () => {
 
     it("should only exclude authors with specified roles, not all authors (bug reproduction)", async () => {
         const communityChallenge = {
-            exclude: [{ role: ["moderator", "admin", "owner"] }]
+            exclude: [{ roles: ["moderator", "admin", "owner"] }]
         };
 
         // Author without any roles
@@ -450,8 +450,8 @@ describe("shouldExcludePublication", () => {
     });
 
     // Issue #267: identity excludes are bound to the signature, not to the publisher-controlled author.address
-    it("signerAddress matches the signer regardless of the claimed author.address", async () => {
-        const communityChallenge = { exclude: [{ signerAddress: [signers[0].address] }] };
+    it("publicKeys matches the signer regardless of the claimed author.address", async () => {
+        const communityChallenge = { exclude: [{ publicKeys: [signers[0].address] }] };
         const signedByZero = { author: { address: "whatever.bso" }, signature: { publicKey: signers[0].publicKey } };
         const signedByOne = { author: { address: signers[0].address }, signature: { publicKey: signers[1].publicKey } };
         expect(await testShouldExcludePublication(communityChallenge, { comment: signedByZero })).to.equal(true);
@@ -459,8 +459,8 @@ describe("shouldExcludePublication", () => {
         expect(await testShouldExcludePublication(communityChallenge, { comment: signedByOne })).to.equal(false);
     });
 
-    it("name matches only when the wire name is the domain and it resolves to the signer", async () => {
-        const communityChallenge = { exclude: [{ name: ["high-karma.bso"] }] };
+    it("names matches only when the wire name is the domain and it resolves to the signer", async () => {
+        const communityChallenge = { exclude: [{ names: ["high-karma.bso"] }] };
         const community = { _clientsManager: mockClientsManager, _pkc: PKC() };
         const owner = { author: { address: "high-karma.bso" }, signature: { publicKey: authorSigners["high-karma.bso"].publicKey } };
         const impostor = { author: { address: "high-karma.bso" }, signature: { publicKey: signers[8].publicKey } };
@@ -475,8 +475,8 @@ describe("shouldExcludePublication", () => {
         expect(await testShouldExcludePublication(communityChallenge, { comment: unresolvable }, community)).to.equal(false);
     });
 
-    it("name does not match when the resolver throws", async () => {
-        const communityChallenge = { exclude: [{ name: ["high-karma.bso"] }] };
+    it("names does not match when the resolver throws", async () => {
+        const communityChallenge = { exclude: [{ names: ["high-karma.bso"] }] };
         const community = {
             _clientsManager: {
                 resolveAuthorNameIfNeeded: async () => {
@@ -490,7 +490,7 @@ describe("shouldExcludePublication", () => {
     });
 
     it("role with a domain role key is bound to the signer", async () => {
-        const communityChallenge = { exclude: [{ role: ["moderator"] }] };
+        const communityChallenge = { exclude: [{ roles: ["moderator"] }] };
         const community = { roles: { "high-karma.bso": { role: "moderator" } }, _clientsManager: mockClientsManager, _pkc: PKC() };
         const owner = { author: { address: "high-karma.bso" }, signature: { publicKey: authorSigners["high-karma.bso"].publicKey } };
         const impostor = { author: { address: "high-karma.bso" }, signature: { publicKey: signers[8].publicKey } };

@@ -163,9 +163,9 @@ export enum messages {
     ERR_INVALID_CREATE_PKC_WS_SERVER_OPTIONS_SCHEMA = "Invalid create arguments for PKC WS RPC server",
     ERR_INVALID_CREATE_PKC_ARGS_SCHEMA = "User sent arguments with invalid schema in an attempt to create a PKC instance",
     ERR_INVALID_CREATE_COMMUNITY_WITH_RPC_ARGS_SCHEMA = "User provided invalid schema of arguments for pkc.createCommunity while connected to RPC",
-    ERR_CHALLENGE_EXCLUDE_ADDRESS_FIELD_REMOVED = "community.settings.challenges[x].exclude[y].address has been removed. Use exclude.signerAddress for key-derived author addresses and exclude.name for author domains",
-    ERR_CHALLENGE_EXCLUDE_SIGNER_ADDRESS_MUST_NOT_BE_DOMAIN = "community.settings.challenges[x].exclude[y].signerAddress must contain key-derived author addresses, not domains. Use exclude.name for domains",
-    ERR_CHALLENGE_EXCLUDE_NAME_MUST_BE_DOMAIN = "community.settings.challenges[x].exclude[y].name must contain author domains, not key-derived addresses. Use exclude.signerAddress for addresses",
+    ERR_CHALLENGE_EXCLUDE_ADDRESS_FIELD_REMOVED = "community.settings.challenges[x].exclude[y].address has been removed. Use exclude.publicKeys for key-derived author addresses (author.publicKey) and exclude.names for author domains",
+    ERR_CHALLENGE_EXCLUDE_PUBLIC_KEYS_MUST_NOT_BE_DOMAIN = "community.settings.challenges[x].exclude[y].publicKeys must contain key-derived author addresses (author.publicKey), not domains. Use exclude.names for domains",
+    ERR_CHALLENGE_EXCLUDE_NAMES_MUST_BE_DOMAIN = "community.settings.challenges[x].exclude[y].names must contain author domains, not key-derived addresses. Use exclude.publicKeys for addresses",
     ERR_CAN_NOT_SET_EXCLUDE_PUBLICATION_TO_EMPTY_OBJECT = "The community has community.settings.challenges[x].exclude[y].publicationType is set to an empty object. You should either choose which publication to exclude or remove exclude.publicationType",
     ERR_COMMUNITY_HAS_NO_INTERNAL_STATE = "The community has no internal state. This should never happen. Please report this bug.",
 

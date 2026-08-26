@@ -22,7 +22,7 @@ interface MockChallengeSettings {
     name: string;
     options?: { question: string; answer: string };
     pendingApproval?: boolean;
-    exclude?: Array<{ challenges?: number[]; signerAddress?: string[]; rateLimit?: number; rateLimitChallengeSuccess?: boolean }>;
+    exclude?: Array<{ challenges?: number[]; publicKeys?: string[]; rateLimit?: number; rateLimitChallengeSuccess?: boolean }>;
 }
 
 interface MockCommunityWithChallenges {
@@ -207,7 +207,7 @@ describe("pending approval", () => {
                 name: "question",
                 options: { question: "Password?", answer: "password" },
                 pendingApproval: true,
-                exclude: [{ signerAddress: [signers[2].address] }]
+                exclude: [{ publicKeys: [signers[2].address] }]
             }
         ];
         const community = await createCommunityWithChallenges(pkc, challengeSettings);

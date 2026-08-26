@@ -450,7 +450,7 @@ export class DbHandler {
     }
 
     _migrateOldSettings(oldSettings: InternalCommunityRecordBeforeFirstUpdateType["settings"]) {
-        const fieldsToRemove = ["post", "reply", "vote", "address"] as const;
+        const fieldsToRemove = ["post", "reply", "vote", "address", "role"] as const;
         const newSettings = clone(oldSettings);
         if (Array.isArray(newSettings.challenges)) {
             // Filter out challenges that reference removed built-in names
@@ -458,19 +458,24 @@ export class DbHandler {
             for (const oldChallengeSetting of newSettings.challenges)
                 if (oldChallengeSetting.exclude)
                     for (const oldExcludeSetting of oldChallengeSetting.exclude) {
-                        // < v42: the conflated `exclude.address` is split by kind into `signerAddress` (key-derived,
-                        // verified against the signature) and `name` (domain, resolved to the signer). Issue #267.
+                        // < v42: the conflated `exclude.address` is split by kind into `publicKeys` (key-derived,
+                        // verified against the signature) and `names` (domain, resolved to the signer). Issue #267.
+                        // < v42: `exclude.role` renamed to `exclude.roles` (array fields are plural)
+                        if (Array.isArray(oldExcludeSetting.role)) {
+                            const oldRoles = oldExcludeSetting.role.filter((role): role is string => typeof role === "string");
+                            if (oldRoles.length > 0)
+                                oldExcludeSetting.roles = [...new Set([...(oldExcludeSetting.roles ?? []), ...oldRoles])];
+                        }
                         if (Array.isArray(oldExcludeSetting.address)) {
                             const oldAddresses = oldExcludeSetting.address.filter(
                                 (address): address is string => typeof address === "string"
                             );
                             const domains = oldAddresses.filter((address) => isStringDomain(address));
                             const signerAddresses = oldAddresses.filter((address) => !isStringDomain(address));
-                            if (domains.length > 0) oldExcludeSetting.name = [...new Set([...(oldExcludeSetting.name ?? []), ...domains])];
+                            if (domains.length > 0)
+                                oldExcludeSetting.names = [...new Set([...(oldExcludeSetting.names ?? []), ...domains])];
                             if (signerAddresses.length > 0)
-                                oldExcludeSetting.signerAddress = [
-                                    ...new Set([...(oldExcludeSetting.signerAddress ?? []), ...signerAddresses])
-                                ];
+                                oldExcludeSetting.publicKeys = [...new Set([...(oldExcludeSetting.publicKeys ?? []), ...signerAddresses])];
                         }
                         for (const fieldToMove of fieldsToRemove) delete oldExcludeSetting[fieldToMove];
                     }

@@ -127,7 +127,7 @@ export const ResultOfGetChallengeSchema = ChallengeFromGetChallengeSchema.or(Cha
 
 export const ChallengeExcludeCommunitySchema = z
     .object({
-        addresses: CommunityAddressSchema.array().nonempty(), // list of community addresses that can be used to exclude, plural because not a condition field like 'role'
+        addresses: CommunityAddressSchema.array().nonempty(), // list of community addresses that can be used to exclude
         maxCommentCids: z.number().nonnegative().int(), // maximum amount of comment cids that will be fetched to check
         postScore: z.number().int().optional(),
         replyScore: z.number().int().optional(),
@@ -152,16 +152,16 @@ export const ChallengeExcludePublicationTypeSchema = z
     );
 
 // An exclude names the author identity it means explicitly (issue #267):
-// - signerAddress: key-derived addresses, matched against the address derived from the publication signature
-// - name: domains, resolved at match time (regardless of pkc.resolveAuthorNames) and required to resolve to the signer
+// - publicKeys: key-derived author addresses (the runtime author.publicKey), matched against the publication signature
+// - names: domains, resolved at match time (regardless of pkc.resolveAuthorNames) and required to resolve to the signer
 // The former conflated `exclude.address` (matched lexically against `name || signerAddress`) is rejected outright.
-export const ChallengeExcludeSignerAddressSchema = AuthorAddressSchema.refine(
+export const ChallengeExcludePublicKeySchema = AuthorAddressSchema.refine(
     (address) => !isStringDomain(address),
-    messages.ERR_CHALLENGE_EXCLUDE_SIGNER_ADDRESS_MUST_NOT_BE_DOMAIN
+    messages.ERR_CHALLENGE_EXCLUDE_PUBLIC_KEYS_MUST_NOT_BE_DOMAIN
 );
 export const ChallengeExcludeNameSchema = AuthorAddressSchema.refine(
     (name) => isStringDomain(name),
-    messages.ERR_CHALLENGE_EXCLUDE_NAME_MUST_BE_DOMAIN
+    messages.ERR_CHALLENGE_EXCLUDE_NAMES_MUST_BE_DOMAIN
 );
 
 export const ChallengeExcludeSchema = z
@@ -173,9 +173,9 @@ export const ChallengeExcludeSchema = z
         replyCount: z.number().nonnegative().int().optional(),
         firstCommentTimestamp: PKCTimestampSchema.optional(),
         challenges: z.number().nonnegative().int().array().optional(),
-        role: CommunityRoleSchema.shape.role.array().optional(),
-        signerAddress: ChallengeExcludeSignerAddressSchema.array().nonempty().optional(),
-        name: ChallengeExcludeNameSchema.array().nonempty().optional(),
+        roles: CommunityRoleSchema.shape.role.array().nonempty().optional(),
+        publicKeys: ChallengeExcludePublicKeySchema.array().nonempty().optional(),
+        names: ChallengeExcludeNameSchema.array().nonempty().optional(),
         rateLimit: z.number().nonnegative().int().optional(),
         rateLimitChallengeSuccess: z.boolean().optional(),
         publicationType: ChallengeExcludePublicationTypeSchema.optional()

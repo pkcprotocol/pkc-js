@@ -143,13 +143,13 @@ describe("getChallengeVerification", () => {
         settings: {
             challenges: [
                 // add random exlcuded challenges to tests
-                { name: "fail", exclude: [{ signerAddress: [author.address] }] },
+                { name: "fail", exclude: [{ publicKeys: [author.address] }] },
                 // exlcude if other math challenge succeeds
                 { name: "text-math", exclude: [{ challenges: [3] }] },
-                { name: "fail", exclude: [{ signerAddress: [author.address] }] },
+                { name: "fail", exclude: [{ publicKeys: [author.address] }] },
                 // exlcude if other math challenge succeeds
                 { name: "text-math", exclude: [{ challenges: [1] }] },
-                { name: "fail", exclude: [{ signerAddress: [author.address] }] },
+                { name: "fail", exclude: [{ publicKeys: [author.address] }] },
                 {
                     name: "question",
                     options: {
@@ -582,28 +582,33 @@ describe("real-world config: AI moderation getChallenge() fires even when exclud
                             matches: '[{"propertyName":"author.name","regexp":"\\\\.(bso)$"}]',
                             error: "Posting requires a name ending with .bso"
                         },
-                        exclude: [{ role: ["moderator", "admin", "owner"] }, { challenges: [1] }, { challenges: [2] }]
+                        exclude: [{ roles: ["moderator", "admin", "owner"] }, { challenges: [1] }, { challenges: [2] }]
                     },
                     // C1: whitelist — succeeds if author address is whitelisted
                     {
                         name: "whitelist",
                         options: { addresses: "whitelisted-author.bso" },
-                        exclude: [{ role: ["moderator", "admin", "owner"] }, { challenges: [0] }, { challenges: [2] }]
+                        exclude: [{ roles: ["moderator", "admin", "owner"] }, { challenges: [0] }, { challenges: [2] }]
                     },
                     // C2: spam-blocker — pending iframe
                     {
                         name: "mock-spam-blocker",
-                        exclude: [{ challenges: [0] }, { challenges: [1] }, { role: ["owner", "admin", "moderator"] }]
+                        exclude: [{ challenges: [0] }, { challenges: [1] }, { roles: ["owner", "admin", "moderator"] }]
                     },
                     // C3: ai-moderation "allow" — calls OpenAI
                     {
                         name: "mock-ai-moderation-allow",
-                        exclude: [{ challenges: [0] }, { challenges: [1] }, { challenges: [4] }, { role: ["owner", "admin", "moderator"] }]
+                        exclude: [{ challenges: [0] }, { challenges: [1] }, { challenges: [4] }, { roles: ["owner", "admin", "moderator"] }]
                     },
                     // C4: ai-moderation "review" — calls OpenAI, pendingApproval
                     {
                         name: "mock-ai-moderation-review",
-                        exclude: [{ challenges: [0] }, { challenges: [1] }, { challenges: [3] }, { role: ["owner", "admin", "moderator"] }],
+                        exclude: [
+                            { challenges: [0] },
+                            { challenges: [1] },
+                            { challenges: [3] },
+                            { roles: ["owner", "admin", "moderator"] }
+                        ],
                         pendingApproval: true
                     }
                 ]
@@ -702,24 +707,29 @@ describe("real-world config: AI moderation getChallenge() fires even when exclud
                             matches: '[{"propertyName":"author.name","regexp":"\\\\.(bso)$"}]',
                             error: "Posting requires a name ending with .bso"
                         },
-                        exclude: [{ role: ["moderator", "admin", "owner"] }, { challenges: [1] }, { challenges: [2] }]
+                        exclude: [{ roles: ["moderator", "admin", "owner"] }, { challenges: [1] }, { challenges: [2] }]
                     },
                     {
                         name: "whitelist",
                         options: { addresses: "whitelisted-author.bso" },
-                        exclude: [{ role: ["moderator", "admin", "owner"] }, { challenges: [0] }, { challenges: [2] }]
+                        exclude: [{ roles: ["moderator", "admin", "owner"] }, { challenges: [0] }, { challenges: [2] }]
                     },
                     {
                         name: "mock-spam-blocker",
-                        exclude: [{ challenges: [0] }, { challenges: [1] }, { role: ["owner", "admin", "moderator"] }]
+                        exclude: [{ challenges: [0] }, { challenges: [1] }, { roles: ["owner", "admin", "moderator"] }]
                     },
                     {
                         name: "mock-ai-moderation-allow",
-                        exclude: [{ challenges: [0] }, { challenges: [1] }, { challenges: [4] }, { role: ["owner", "admin", "moderator"] }]
+                        exclude: [{ challenges: [0] }, { challenges: [1] }, { challenges: [4] }, { roles: ["owner", "admin", "moderator"] }]
                     },
                     {
                         name: "mock-ai-moderation-review",
-                        exclude: [{ challenges: [0] }, { challenges: [1] }, { challenges: [3] }, { role: ["owner", "admin", "moderator"] }],
+                        exclude: [
+                            { challenges: [0] },
+                            { challenges: [1] },
+                            { challenges: [3] },
+                            { roles: ["owner", "admin", "moderator"] }
+                        ],
                         pendingApproval: true
                     }
                 ]
@@ -769,7 +779,7 @@ describe("request-only excludes fire before getChallenge()", () => {
                 challenges: [
                     {
                         name: "tracking-role-exclude",
-                        exclude: [{ role: ["moderator", "admin", "owner"] }]
+                        exclude: [{ roles: ["moderator", "admin", "owner"] }]
                     }
                 ]
             },
@@ -1328,7 +1338,7 @@ describe("real-world bitsocial config: production-faithful coverage", () => {
                             error: "Posting requires a name ending with .bso"
                         },
                         exclude: [
-                            { role: ["moderator", "admin", "owner"] },
+                            { roles: ["moderator", "admin", "owner"] },
                             { postScore: 3, replyScore: 0, firstCommentTimestamp: 2592000, rateLimit: 2 },
                             { challenges: [1] },
                             { challenges: [2] }
@@ -1337,14 +1347,14 @@ describe("real-world bitsocial config: production-faithful coverage", () => {
                     {
                         name: "whitelist",
                         options: { addresses: WHITELISTED_ADDRESS },
-                        exclude: [{ role: ["moderator", "admin", "owner"] }, { challenges: [0] }, { challenges: [2] }]
+                        exclude: [{ roles: ["moderator", "admin", "owner"] }, { challenges: [0] }, { challenges: [2] }]
                     },
                     {
                         name: "mock-spam-blocker",
                         exclude: [
                             { challenges: [0] },
                             { challenges: [1] },
-                            { role: ["owner", "admin", "moderator"] },
+                            { roles: ["owner", "admin", "moderator"] },
                             { publicationType: { commentModeration: true, communityEdit: true } }
                         ]
                     },
@@ -1354,7 +1364,7 @@ describe("real-world bitsocial config: production-faithful coverage", () => {
                             { challenges: [0] },
                             { challenges: [1] },
                             { challenges: [4] },
-                            { role: ["owner", "admin", "moderator"] },
+                            { roles: ["owner", "admin", "moderator"] },
                             { publicationType: { commentModeration: true, communityEdit: true } }
                         ]
                     },
@@ -1364,7 +1374,7 @@ describe("real-world bitsocial config: production-faithful coverage", () => {
                             { challenges: [0] },
                             { challenges: [1] },
                             { challenges: [3] },
-                            { role: ["owner", "admin", "moderator"] },
+                            { roles: ["owner", "admin", "moderator"] },
                             { publicationType: { commentModeration: true, communityEdit: true } }
                         ],
                         pendingApproval: true

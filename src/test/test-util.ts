@@ -157,7 +157,7 @@ export function createPendingApprovalChallenge(overrides: Partial<CommunityChall
             ...(options ?? {})
         },
         pendingApproval: rest.pendingApproval ?? true,
-        exclude: exclude ?? [{ role: ["moderator"] }]
+        exclude: exclude ?? [{ roles: ["moderator"] }]
     } as CommunityChallengeSetting;
 }
 

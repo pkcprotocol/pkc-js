@@ -16,7 +16,7 @@ import { getPKCAddressFromPublicKeySync } from "../../../../../signer/util.js";
 // Does the author hold one of excludeRole in community.roles? Role keys may be key-derived addresses or domains;
 // both are bound to the signer through the identity matcher rather than compared against author.address.
 const testRole = async (
-    excludeRole: NonNullable<Exclude["role"]>,
+    excludeRole: NonNullable<Exclude["roles"]>,
     getIdentityMatcher: () => AuthorIdentityMatcher,
     communityRoles: LocalCommunity["roles"]
 ): Promise<boolean> => {
@@ -65,11 +65,11 @@ const shouldExcludePublication = async (
             typeof exclude.postCount !== "number" &&
             typeof exclude.replyCount !== "number" &&
             typeof exclude.firstCommentTimestamp !== "number" &&
-            !exclude.signerAddress?.length &&
-            !exclude.name?.length &&
+            !exclude.publicKeys?.length &&
+            !exclude.names?.length &&
             exclude.publicationType === undefined &&
             exclude.rateLimit === undefined &&
-            !exclude.role?.length
+            !exclude.roles?.length
         ) {
             continue;
         }
@@ -92,13 +92,13 @@ const shouldExcludePublication = async (
         if (!testRateLimit(exclude, request)) {
             shouldExclude = false;
         }
-        if (exclude.signerAddress && !exclude.signerAddress.includes(getIdentityMatcher().signerAddress)) {
+        if (exclude.publicKeys && !exclude.publicKeys.includes(getIdentityMatcher().signerAddress)) {
             shouldExclude = false;
         }
-        if (exclude.name && !(await getIdentityMatcher().matchesAnyIdentity(exclude.name))) {
+        if (exclude.names && !(await getIdentityMatcher().matchesAnyIdentity(exclude.names))) {
             shouldExclude = false;
         }
-        if (Array.isArray(exclude.role) && !(await testRole(exclude.role, getIdentityMatcher, community?.roles))) {
+        if (Array.isArray(exclude.roles) && !(await testRole(exclude.roles, getIdentityMatcher, community?.roles))) {
             shouldExclude = false;
         }
         if (typeof exclude.postCount === "number" || typeof exclude.replyCount === "number") {

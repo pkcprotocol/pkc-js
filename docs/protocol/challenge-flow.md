@@ -62,8 +62,8 @@ Each challenge in `CommunityIpfsType.challenges[]` can have `exclude` rules that
 
 -   Author karma thresholds (postScore, replyScore)
 -   Account age
--   Author identity: `signerAddress` (key-derived addresses) or `name` (domains)
--   Author role (admin, moderator)
+-   Author identity: `publicKeys` (key-derived addresses, the runtime `author.publicKey`) or `names` (domains). All exclude array fields are plural; `address` and `role` were the pre-v42 names
+-   Author role (`roles`: admin, moderator)
 -   Whether previous challenges in the array were already passed
 -   Rate limiting
 
@@ -73,12 +73,12 @@ Exclude logic: `src/runtime/node/community/challenges/exclude/exclude.ts`
 
 `author.address` at runtime is `name || signerAddress`, built from the unresolved wire `author.name`. It is publisher-controlled and never used to decide identity on the community side. Every matcher goes through `createAuthorIdentityMatcher` (`src/runtime/node/community/local-community/author-identity.ts`):
 
-| Configured identity                                                                               | Matches when                                                                                                                                                                                                                     |
-| ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| key-derived address (`exclude.signerAddress`, a raw `roles` key, a raw blacklist/whitelist entry) | it equals the address derived from `signature.publicKey`                                                                                                                                                                         |
-| domain (`exclude.name`, a domain `roles` key, a domain blacklist/whitelist entry)                 | it equals the wire `author.name` **and** resolves to the signer address. Resolution happens at match time with `cache: { maxAge: 0 }`, regardless of `pkc.resolveAuthorNames`. A resolver failure is a non-match, never an error |
+| Configured identity                                                                            | Matches when                                                                                                                                                                                                                     |
+| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| key-derived address (`exclude.publicKeys`, a raw `roles` key, a raw blacklist/whitelist entry) | it equals the address derived from `signature.publicKey`                                                                                                                                                                         |
+| domain (`exclude.names`, a domain `roles` key, a domain blacklist/whitelist entry)             | it equals the wire `author.name` **and** resolves to the signer address. Resolution happens at match time with `cache: { maxAge: 0 }`, regardless of `pkc.resolveAuthorNames`. A resolver failure is a non-match, never an error |
 
-There is no `exclude.address`; the schema rejects it. Private settings written before DB version 42 are migrated by `DbHandler._migrateOldSettings`, which splits the old `address` array by kind into `signerAddress` and `name`. See issue #267.
+There is no `exclude.address`; the schema rejects it. Private settings written before DB version 42 are migrated by `DbHandler._migrateOldSettings`, which splits the old `address` array by kind into `publicKeys` and `names`. See issue #267.
 
 ## ChallengeVerification Result
 

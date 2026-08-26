@@ -9,8 +9,8 @@ import type { InternalCommunityRecordBeforeFirstUpdateType } from "../../../dist
 import type Database from "better-sqlite3";
 
 // v41 -> v42 changes no table schema. It migrates the private challenge settings: the conflated
-// `exclude.address` array is split into `exclude.signerAddress` (key-derived addresses, matched
-// against the publication signature) and `exclude.name` (domains, resolved and compared to the
+// `exclude.address` array is split into `exclude.publicKeys` (key-derived addresses, matched
+// against the publication signature) and `exclude.names` (domains, resolved and compared to the
 // signer at match time). See issue #267.
 
 const COMMUNITY_ADDRESS = "12D3KooWTestCommunityAddressV42";
@@ -71,7 +71,14 @@ function getPrivate(handler: DbHandler): DbHandlerPrivate {
 
 // The pre-v42 shape of an exclude, as stored by older clients.
 type LegacyExclude = { address?: string[]; challenges?: number[]; role?: string[] };
-type MigratedExclude = { address?: string[]; signerAddress?: string[]; name?: string[]; challenges?: number[]; role?: string[] };
+type MigratedExclude = {
+    address?: string[];
+    publicKeys?: string[];
+    names?: string[];
+    challenges?: number[];
+    role?: string[];
+    roles?: string[];
+};
 type MigratedInternalState = {
     settings: { challenges?: Array<{ name?: string; exclude?: MigratedExclude[] }> };
     challenges?: Array<{ exclude?: MigratedExclude[] }>;
@@ -97,11 +104,16 @@ const legacyChallenges: Array<{ name: string; exclude?: LegacyExclude[]; options
     {
         // no exclude at all
         name: "fail"
+    },
+    {
+        // role rename, alone and combined with an address split
+        name: "fail",
+        exclude: [{ role: ["moderator", "admin"] }, { role: ["owner"], address: [OWNER_DOMAIN, RAW_ADDRESS] }]
     }
 ];
 
 // Uses DbHandler directly (Node-only) and seeds the private internal state; cannot run under RPC.
-describeSkipIfRpc("v41 -> v42 DB migration (exclude.address split into signerAddress and name)", () => {
+describeSkipIfRpc("v41 -> v42 DB migration (exclude.address split into publicKeys and names)", () => {
     let dbHandler: DbHandler | undefined;
     let migrated: MigratedInternalState;
 
@@ -170,42 +182,55 @@ describeSkipIfRpc("v41 -> v42 DB migration (exclude.address split into signerAdd
         expect(env.DB_VERSION).to.be.greaterThanOrEqual(42);
     });
 
-    it("splits a mixed exclude.address into signerAddress and name", () => {
+    it("splits a mixed exclude.address into publicKeys and names", () => {
         const exclude = migrated.settings.challenges![0].exclude!;
         expect(exclude[0]).to.not.have.property("address");
-        expect(exclude[0].signerAddress).to.deep.equal([RAW_ADDRESS]);
-        expect(exclude[0].name).to.deep.equal([OWNER_DOMAIN]);
-        // sibling exclude without an address is untouched
-        expect(exclude[1]).to.deep.equal({ role: ["moderator"] });
+        expect(exclude[0].publicKeys).to.deep.equal([RAW_ADDRESS]);
+        expect(exclude[0].names).to.deep.equal([OWNER_DOMAIN]);
+        // sibling exclude without an address only gets the role rename
+        expect(exclude[1]).to.deep.equal({ roles: ["moderator"] });
     });
 
-    it("migrates a domain-only exclude.address into name only", () => {
+    it("migrates a domain-only exclude.address into names only", () => {
         const exclude = migrated.settings.challenges![1].exclude!;
         expect(exclude[0]).to.not.have.property("address");
-        expect(exclude[0]).to.not.have.property("signerAddress");
-        expect(exclude[0].name).to.deep.equal([MOD_DOMAIN]);
+        expect(exclude[0]).to.not.have.property("publicKeys");
+        expect(exclude[0].names).to.deep.equal([MOD_DOMAIN]);
         expect(exclude[1]).to.deep.equal({ challenges: [0] });
     });
 
-    it("migrates a raw-address-only exclude.address into signerAddress only", () => {
+    it("migrates a raw-address-only exclude.address into publicKeys only", () => {
         const exclude = migrated.settings.challenges![2].exclude!;
         expect(exclude[0]).to.not.have.property("address");
-        expect(exclude[0]).to.not.have.property("name");
-        expect(exclude[0].signerAddress).to.deep.equal([OTHER_RAW_ADDRESS]);
+        expect(exclude[0]).to.not.have.property("names");
+        expect(exclude[0].publicKeys).to.deep.equal([OTHER_RAW_ADDRESS]);
     });
 
     it("leaves challenges without excludes alone", () => {
         expect(migrated.settings.challenges![3]).to.not.have.property("exclude");
     });
 
+    it("renames exclude.role to exclude.roles, alone and alongside an address split", () => {
+        const exclude = migrated.settings.challenges![4].exclude!;
+        expect(exclude[0]).to.deep.equal({ roles: ["moderator", "admin"] });
+        expect(exclude[1]).to.not.have.property("role");
+        expect(exclude[1]).to.not.have.property("address");
+        expect(exclude[1].roles).to.deep.equal(["owner"]);
+        expect(exclude[1].names).to.deep.equal([OWNER_DOMAIN]);
+        expect(exclude[1].publicKeys).to.deep.equal([RAW_ADDRESS]);
+        for (const challenge of migrated.settings.challenges!)
+            for (const e of challenge.exclude || []) expect(e).to.not.have.property("role");
+    });
+
     it("re-derives the public challenges from the migrated settings", () => {
-        expect(migrated.challenges).to.have.length(4);
-        for (let i = 0; i < 4; i++) expect(migrated.challenges![i].exclude).to.deep.equal(migrated.settings.challenges![i].exclude);
+        expect(migrated.challenges).to.have.length(5);
+        for (let i = 0; i < 5; i++) expect(migrated.challenges![i].exclude).to.deep.equal(migrated.settings.challenges![i].exclude);
         for (const challenge of migrated.challenges!)
             for (const exclude of challenge.exclude || []) expect(exclude).to.not.have.property("address");
     });
 
-    it("migration is idempotent: no address field is ever reintroduced", () => {
+    it("no legacy field survives anywhere in the migrated state", () => {
         expect(JSON.stringify(migrated)).to.not.match(/"address":\s*\[/);
+        expect(JSON.stringify(migrated)).to.not.match(/"role":\s*\[/);
     });
 });

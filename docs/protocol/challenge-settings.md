@@ -94,11 +94,11 @@ All built-in challenges also accept an `error` option (custom error message), no
 
 ## Exclude identity fields
 
-`exclude.signerAddress` lists key-derived author addresses, matched against the publication signature. `exclude.name` lists author domains, resolved at match time and required to resolve to the signer. `exclude.address` was removed (issue #267): it matched the conflated runtime `author.address`, which a publisher controls. Old private settings are migrated at DB version 42, see `docs/protocol/challenge-flow.md`.
+`exclude.publicKeys` lists key-derived author addresses, matched against the publication signature. `exclude.names` lists author domains, resolved at match time and required to resolve to the signer. `exclude.address` was removed (issue #267): it matched the conflated runtime `author.address`, which a publisher controls. Old private settings are migrated at DB version 42, see `docs/protocol/challenge-flow.md`.
 
 ## Common Mistakes
 
--   Putting a domain in `exclude.signerAddress` or an address in `exclude.name` - the schema rejects both. Pick the field by what the string is.
+-   Putting a domain in `exclude.publicKeys` or an address in `exclude.names` - the schema rejects both. Pick the field by what the string is.
 
 -   Logging or serializing `community.settings` in a context visible to users — `options` contains secrets, including the ones not named in `publicOptions`.
 -   Assuming `publicOptions` on the public record is the owner's `publicOptions` array — the public one is a `Record<string, string>` of resolved values, the private one is a `string[]` of names.
