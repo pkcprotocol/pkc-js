@@ -7,8 +7,11 @@ import type { PurgedCommentTableRows } from "../db-handler-types.js";
 import type { LocalCommunity } from "../local-community.js";
 import { calculateLocalMfsPathForCommentUpdate } from "./comment-updates.js";
 
-// pin.ls probe that retries transient Kubo RPC connection errors (`fetch failed`, ECONNRESET,
-// ETIMEDOUT...). "is not pinned" is the expected "needs a repin" signal and is never retried.
+// pin.ls probe with the same retry policy as statMfsPathSafely (3 retries, 1s/2s/4s backoff). It
+// does not distinguish transient errors (`fetch failed`, ECONNRESET, ETIMEDOUT...) from deterministic
+// ones (ECONNREFUSED, 401...): those cost ~7s on the community start path before rethrowing, which
+// matches every other Kubo RPC helper in util.ts. "is not pinned" is the expected "needs a repin"
+// signal and is never retried.
 async function _pinLsWithRetries({
     kuboRpcClient,
     cid,

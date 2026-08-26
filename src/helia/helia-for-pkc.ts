@@ -13,7 +13,7 @@ import { peerIdFromString } from "@libp2p/peer-id";
 import { createBlockstoreForLibp2pJsClient } from "../runtime/node/blockstore.js";
 import { LruBlockstore } from "./lru-blockstore.js";
 import { delegatedRoutingV1HttpApiClientContentRouting } from "@helia/delegated-routing-v1-http-api-client";
-import { NotFoundError, type AbortOptions } from "@libp2p/interface";
+import { NotFoundError, type AbortOptions, type Connection } from "@libp2p/interface";
 import { unixfs } from "@helia/unixfs";
 import { fetch as libp2pFetch } from "@libp2p/fetch";
 import { pubSubIPNSRouting as createIpnsPubusubRouter } from "@helia/ipns";
@@ -103,6 +103,18 @@ function getDelegatedRoutingFields(routers: string[]) {
         };
     }
     return routersObj;
+}
+
+// @helia/ipns routers identify themselves through a literal toString() tag ("LocalStoreRouting()",
+// "HeliaRouting()", "PubSubRouting()"). Use that, never `constructor.name`: the classes are
+// module-private and bundlers mangle their names, which turned the old class-name filter into a
+// silent no-op in production builds.
+export function ipnsRouterTag(router: unknown): string {
+    return String(router);
+}
+
+export function isLocalStoreIpnsRouter(router: unknown): boolean {
+    return ipnsRouterTag(router) === "LocalStoreRouting()";
 }
 
 export async function createLibp2pJsClientOrUseExistingOne(
@@ -245,8 +257,11 @@ export async function createLibp2pJsClientOrUseExistingOne(
         // NotStartedError until then — so start the node before wiring anything that reads it.
         // Nothing can race the wiring below: no topic is subscribed and no dial is made until
         // this factory returns the client.
-        await helia.start();
+        // Assigned before start(): helia 7's start() has no rollback, so if a later mixin throws
+        // (e.g. bitswap's network.start() after withLibp2p already started libp2p) the node is
+        // half-started and must still be stopped by the catch below.
         startedHelia = helia;
+        await helia.start();
 
         log("Initialized libp2pjs helia with key", pkcOptions.key, "peer id", helia.libp2p.peerId.toString());
 
@@ -355,25 +370,36 @@ export async function createLibp2pJsClientOrUseExistingOne(
         // original list. We drop LocalStoreIPNSRouting because pkc-js never publishes IPNS via
         // @helia/ipns (kubo does that), so the local cache is always empty and just adds a wasted
         // lookup. Keep HeliaIPNSRouting (HTTP delegated routing via helia.routing) and our pubsub
-        // router. Filter by class name so a future @helia/ipns release that re-orders the array
-        // can't silently drop the wrong router. ("LocalStoreRouting" was the pre-@helia/ipns-10 name.)
+        // router. Match by the router's toString() tag ("LocalStoreRouting()") rather than by
+        // `constructor.name`: the class is module-private and bundlers mangle its name (in 5chan's
+        // production build it becomes `dMe`), so a class-name match is a silent no-op there. The
+        // tag is a string literal and survives minification. Matching by identity (rather than
+        // by index) also means a future @helia/ipns release that re-orders the array can't make
+        // us drop the wrong router.
         for (let i = ipnsNameResolver.routers.length - 1; i >= 0; i--) {
-            const routerName = ipnsNameResolver.routers[i]?.constructor?.name;
-            if (routerName === "LocalStoreIPNSRouting" || routerName === "LocalStoreRouting") ipnsNameResolver.routers.splice(i, 1);
+            if (isLocalStoreIpnsRouter(ipnsNameResolver.routers[i])) ipnsNameResolver.routers.splice(i, 1);
         }
 
-        // The IPNS facade marks itself started (and runs its republisher) from helia's 'start'
-        // event, which helia 7 dispatches exactly once at the end of start(), i.e. before the
+        // The IPNS facade marks itself started (and runs its hourly republisher) from helia's
+        // 'start' event, which helia 7 dispatches exactly once at the end of start(), i.e. before the
         // facade existed (its constructor walks helia's components, whose `libp2p` getter throws
-        // until start(), so it cannot be built earlier). helia 6's `libp2p.status === 'started'`
-        // fallback is gone, so start it by hand or it stays "not started" forever, silently.
-        // start() is on the class but not on the exported IPNS interface.
+        // until start(), so it cannot be built earlier). helia 6 fell back to
+        // `libp2p.status === 'started'` and so ran the republisher; that fallback is gone in 7.
+        // Nothing in pkc depends on the facade being "started" (resolve() has no started check and
+        // pkc walks `routers` directly), so this only keeps helia-6 lifecycle parity for the
+        // republisher. start() is on the class but not on the exported IPNS interface.
         (ipnsNameResolver as { start?: () => void }).start?.();
         // The router is Startable but neither helia.start() (blockstore/datastore/routing/brokers
         // only) nor the IPNS facade (republisher only) starts user-supplied routers. Its start()
-        // registers the libp2p/fetch topology that fills `fetchPeers`; without it the
-        // subscription-change fast path (fetch the record from a server that joins the topic after
-        // our get() already ran, ipfs/helia#906) never fires. stop() is mirrored in stop() below.
+        // registers the libp2p/fetch topology that fills `fetchPeers`, which gates the
+        // subscription-change fast path: fetch the record over /libp2p/fetch from a server that
+        // joins the topic after our get() already ran (ipfs/helia#906) and republish it to the
+        // topic. NOTE: this path is newly enabled here, not restored. Under helia 6 nothing ever
+        // called start() on this router either, so `fetchPeers` stayed empty and the fast path
+        // never fired. It is largely redundant with the direct fetch below (issue #210) but bounded
+        // (one fetch per subscription-change event, into the router's own queue); its republish
+        // goes through raw libp2p pubsub, not pkc's mesh-gated wrapper, so a `could not publish
+        // record` error line is possible when no mesh peer exists. stop() is mirrored in stop() below.
         await (ipnsPubsubRouter as { start?: () => void | Promise<void> }).start?.();
         // The router's localStore is where gossipsub-delivered records get cached (handleRecord).
         // It's declared private but is a plain class field at runtime; the direct-fetch path below
@@ -799,7 +825,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                             try {
                                 await lifecycle.stop();
                             } catch (e) {
-                                log.error("Error stopping IPNS router", router?.constructor?.name, e);
+                                log.error("Error stopping IPNS router", ipnsRouterTag(router), e);
                             }
                         }
                     }
@@ -876,7 +902,13 @@ export async function createLibp2pJsClientOrUseExistingOne(
         // The client never reached libp2pJsClients, so stop() can't be called on it: release
         // whatever this factory started before rethrowing (mirrors the final-release path in stop()).
         if (startedHelia) {
-            for (const connection of startedHelia.libp2p.getConnections()) {
+            // The `libp2p` getter throws NotStartedError if start() failed before the libp2p mixin
+            // ran, in which case there is nothing to abort.
+            let connections: Connection[] = [];
+            try {
+                connections = startedHelia.libp2p.getConnections();
+            } catch {}
+            for (const connection of connections) {
                 try {
                     connection.abort(new Error("pkc-js libp2p instance failed to initialize"));
                 } catch (e) {

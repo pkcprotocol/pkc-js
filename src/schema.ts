@@ -102,7 +102,14 @@ export const PKCUserOptionBaseSchema = z.object({
         .object({
             key: z.string().min(1),
             libp2pOptions: z.custom<libp2pOptions>().default({}),
-            heliaOptions: z.custom<Partial<heliaOptions>>().default({}),
+            // `http` is excluded at the type level (see heliaOptions) and rejected here at runtime too,
+            // since z.custom() alone would let a JS caller pass it and have it silently ignored.
+            heliaOptions: z
+                .custom<Partial<heliaOptions>>()
+                .refine((options) => !("http" in options), {
+                    message: "heliaOptions.http is not supported: the libp2p-js client is composed without Helia's HTTP components"
+                })
+                .default({}),
             // Size cap for the libp2p-js block cache. Defaults per runtime (see
             // runtime/{node,browser}/blockstore.ts) and is ignored when heliaOptions.blockstore is
             // supplied, since the caller then owns block storage entirely.
