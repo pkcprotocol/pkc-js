@@ -308,24 +308,37 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             const community = await remotePKC.createCommunity({ address: publishedSub.ipnsObj.signer.address });
 
-            await community.update();
+            // Attach the error listener BEFORE update(): over RPC the server already holds the invalid
+            // record, so the non-retriable error can arrive milliseconds after subscribing, i.e. before
+            // `await community.update()` returns. A listener attached afterwards misses it (the error
+            // bubbles to pkc instead) and the test hangs until the vitest timeout.
+            const errorPromise = isPKCFetchingUsingGateways(remotePKC)
+                ? undefined
+                : new Promise<PKCError>((resolve) => community.once("error", resolve as (err: Error) => void));
 
-            if (isPKCFetchingUsingGateways(remotePKC)) {
-                // Gateway invalid signature errors are silently retriable — wait for retry state
-                await resolveWhenConditionIsTrue({
-                    toUpdate: community,
-                    predicate: async () => community.updatingState === "waiting-retry",
-                    eventName: "updatingstatechange"
-                });
-            } else {
-                const error = await new Promise<PKCError>((resolve) => community.once("error", resolve as (err: Error) => void));
-                expect(error.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
-                expect(error.details.signatureValidity.reason).to.equal(messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD);
+            try {
+                await community.update();
+
+                if (errorPromise === undefined) {
+                    // Gateway invalid signature errors are silently retriable — wait for retry state
+                    await resolveWhenConditionIsTrue({
+                        toUpdate: community,
+                        predicate: async () => community.updatingState === "waiting-retry",
+                        eventName: "updatingstatechange"
+                    });
+                } else {
+                    const error = await errorPromise;
+                    expect(error.code).to.equal("ERR_COMMUNITY_SIGNATURE_IS_INVALID");
+                    expect(error.details.signatureValidity.reason).to.equal(messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD);
+                }
+
+                expect(community.updatedAt).to.be.undefined;
+            } finally {
+                // Always release the server-side updating community: if this test fails without stopping,
+                // the next test subscribes to the same stale instance, which never re-emits the error.
+                await community.stop();
+                await remotePKC.destroy();
             }
-
-            expect(community.updatedAt).to.be.undefined;
-            await community.stop();
-            await remotePKC.destroy();
         });
 
         it(`getCommunity() throws when CommunityIpfs has nameResolved reserved field (timeout for gateways, error for RPC)`, async () => {
