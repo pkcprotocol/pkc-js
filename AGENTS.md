@@ -38,6 +38,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 
 - Run `npm run build` when modifying files inside `src/`, and make sure it passes with no errors. You don't need to run build if you're modifying files outside `src/`.
 - Node-only code MUST go under `src/runtime/node/`, not directly under `src/` — otherwise the browser build will fail.
+- Never import `src/util.ts` (or any other module that transitively imports the runtime, e.g. `pubsub-messages/schema.ts`, `pkc/pkc.ts`) from a zod schema module. Schema modules use each other's exports at top level (`.extend()`, `.strict()`, `.merge()`), so a cycle through them throws `Cannot access X before initialization` at import time, and only when a test or consumer imports that leaf module first, which is why the rest of CI stays green. Put pure helpers in a dependency-free module instead (e.g. `src/domain-util.ts`). `npm run build` runs `verify:module-import-order`, which imports every `dist/node` module standalone in a fresh process and fails on any new failure; `config/module-import-order-baseline.json` lists the pre-existing known failures and may only shrink, never grow.
 - Do not commit `/dist` to git.
 - Do not write temporary files (logs, test output) to `/tmp` — it is RAM-backed (`tmpfs`) on Linux and wastes memory. Use `.tmp/` in the project root instead (it is gitignored and cleaned up by the test server on startup).
 

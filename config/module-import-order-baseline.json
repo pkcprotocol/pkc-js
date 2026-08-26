@@ -1,0 +1,26 @@
+{
+    "_comment": "Modules under dist/node that are KNOWN to throw when imported standalone because of a top-level circular-import use (pre-existing debt, tracked in issue #295). The verifier fails on any module NOT in this list that throws, and on any entry here that no longer throws, so this list can only shrink. Never add to it to make a PR green: fix the cycle instead (see src/domain-util.ts).",
+    "modules": [
+        "dist/node/clients/base-client-manager.js",
+        "dist/node/clients/rpc-client/rpc-schema-util.js",
+        "dist/node/clients/rpc-client/schema.js",
+        "dist/node/community/community-client-manager.js",
+        "dist/node/community/remote-community.js",
+        "dist/node/community/rpc-local-community.js",
+        "dist/node/community/rpc-remote-community.js",
+        "dist/node/pages/pages-client-manager.js",
+        "dist/node/pages/pages.js",
+        "dist/node/pages/util.js",
+        "dist/node/pkc/pkc-client-manager.js",
+        "dist/node/publications/comment-edit/comment-edit.js",
+        "dist/node/publications/comment-moderation/comment-moderation.js",
+        "dist/node/publications/comment/comment.js",
+        "dist/node/publications/community-edit/community-edit.js",
+        "dist/node/publications/publication-client-manager.js",
+        "dist/node/publications/publication.js",
+        "dist/node/publications/vote/vote.js",
+        "dist/node/rpc/src/schema.js",
+        "dist/node/runtime/node/community/page-generator.js",
+        "dist/node/schema.js"
+    ]
+}

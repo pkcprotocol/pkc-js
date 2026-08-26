@@ -18,7 +18,7 @@ import type { LocalCommunity } from "../runtime/node/community/local-community.j
 import { difference, isEmpty, keys, omit } from "remeda";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../pubsub-messages/types.js";
 import { messages } from "../errors.js";
-import { isStringDomain } from "../util.js";
+import { isStringDomain } from "../domain-util.js";
 
 // Other props of Community Ipfs here
 export const CommunityEncryptionSchema = z.looseObject({
