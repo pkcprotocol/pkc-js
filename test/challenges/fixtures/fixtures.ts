@@ -51,7 +51,7 @@ interface MockCommunity {
 interface MockPKC {
     getComment: (cid: string | { cid: string }) => Comment;
     createComment: (cid: string | { cid: string }) => Comment;
-    settings?: { challenges?: Record<string, any> };
+    settings?: { challenges?: Record<string, unknown> };
     _timeouts: { "resolve-author-name": number };
 }
 

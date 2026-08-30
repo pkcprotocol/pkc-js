@@ -98,7 +98,7 @@ If an RPC server has no resolvers configured, any request with a domain name wil
 | ---------------------------------- | ---------------------------------------- | --------------------------------------- |
 | `getPKCAddressFromPublicKeySync()` | `src/signer/util.ts`                     | Ed25519 public key → IPNS address       |
 | `isStringDomain()`                 | `src/util.ts`                            | Check if a string is a domain name      |
-| `getAuthorDomainFromWire()`        | `src/publications/publication-author.ts` | Extract domain from wire author         |
+| `getAuthorNameFromWire()`          | `src/publications/publication-author.ts` | Extract name from wire author           |
 | `getCommunityDomainFromWire()`     | `src/community/community-wire.ts`        | Extract domain from wire community      |
 | `buildRuntimeAuthor()`             | `src/publications/publication-author.ts` | Compute `address` from wire + signature |
 | `buildRuntimeCommunity()`          | `src/community/community-wire.ts`        | Compute `address` from wire + signature |
