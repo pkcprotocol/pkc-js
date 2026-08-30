@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.89](https://github.com/pkcprotocol/pkc-js/compare/v0.0.88...v0.0.89) (2026-08-30)
+
+### Bug Fixes
+
+* **deps:** upgrade helia to v7 and bump libp2p/ipfs ecosystem deps ([#293](https://github.com/pkcprotocol/pkc-js/issues/293)) ([e533cf9](https://github.com/pkcprotocol/pkc-js/commit/e533cf9ebd662340e8cd2b882f1b69217168dd42)), closes [#292](https://github.com/pkcprotocol/pkc-js/issues/292)
+
 ## [0.0.88](https://github.com/pkcprotocol/pkc-js/compare/v0.0.87...v0.0.88) (2026-08-26)
 
 ### Bug Fixes
