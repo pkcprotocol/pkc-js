@@ -22,7 +22,7 @@ export class Libp2pJsClient {
     _heliaIpnsRouter: ReturnType<typeof ipns>;
     heliaWithKuboRpcClientFunctions: HeliaWithKuboRpcClientFunctions;
     _libp2pJsClientsOptions: NonNullable<ParsedPKCOptions["libp2pJsClientsOptions"]>[number];
-    _mergedHeliaOptions: Parameters<typeof createHelia>[0]; // merged defaults with user input for helia and libp2p
+    _mergedHeliaOptions: Omit<NonNullable<Parameters<typeof createHelia>[0]>, "http"> | undefined; // merged defaults with user input for helia and libp2p
     key: Libp2pJsClientInit["key"];
     countOfUsesOfInstance: number;
 

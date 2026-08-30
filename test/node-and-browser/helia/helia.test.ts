@@ -353,11 +353,14 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
     });
 
     // The @helia/ipns IPNS class constructs `routers = [localStoreRouting, heliaRouting, ...userRouters]`.
-    // pkc-js passes `[ourPubsubRouter]` and then does `routers = routers.slice(1)`, leaving
-    // `[heliaRouting, ourPubsubRouter]`. This shape is load-bearing: future @helia/ipns
-    // versions could re-order the array and silently drop the pubsub router (or keep the
-    // local-store cache that nothing populates). This test pins the current shape so any
-    // upgrade that breaks it surfaces here instead of at runtime.
+    // pkc-js passes `[ourPubsubRouter]` and then splices the local-store router out in place
+    // (matched by its toString() tag, see helia-for-pkc.ts), leaving `[heliaRouting, ourPubsubRouter]`.
+    // This shape is load-bearing: future @helia/ipns versions could re-order the array and silently
+    // drop the pubsub router (or keep the local-store cache that nothing populates). This test pins
+    // the current shape so any upgrade that breaks it surfaces here instead of at runtime.
+    // Routers are identified by `String(router)` ("PubSubRouting()" etc.), NOT `constructor.name`:
+    // the classes are module-private and get mangled by bundlers, so a class-name assertion would
+    // pass here and still be a no-op in a production build.
     describe(`IPNS router shape - ${config.name}`, () => {
         it("ipnsNameResolver.routers contains exactly heliaRouting and our pubsub router", async () => {
             const pkc = await config.pkcInstancePromise();
@@ -367,14 +370,16 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
 
                 expect(routers.length, `expected exactly 2 routers (heliaRouting + pubsub), got ${routers.length}`).to.equal(2);
 
-                const constructorNames = routers.map((r) => r?.constructor?.name);
+                const tags = routers.map((r) => String(r));
                 // pubsub router should be present
-                expect(constructorNames, `routers: ${constructorNames.join(", ")}`).to.include("PubSubRouting");
-                // localStoreRouting should NOT be present (we slice it off intentionally so reads don't
+                expect(tags, `routers: ${tags.join(", ")}`).to.include("PubSubRouting()");
+                expect(tags, `routers: ${tags.join(", ")}`).to.include("HeliaRouting()");
+                // localStoreRouting should NOT be present (we splice it off intentionally so reads don't
                 // hit a cache we never populate)
-                expect(constructorNames, `localStoreRouting must be sliced off, got: ${constructorNames.join(", ")}`).to.not.include(
-                    "LocalStoreRouting"
-                );
+                expect(tags, `localStoreRouting must be spliced off, got: ${tags.join(", ")}`).to.not.include("LocalStoreRouting()");
+                // Guard against the identification regressing to a bundler-fragile mechanism: the tag
+                // must be a literal, not derived from the (mangleable) class name.
+                for (const r of routers) expect(String(r)).to.not.equal(r?.constructor?.name);
             } finally {
                 await pkc.destroy();
             }
@@ -387,7 +392,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 //@ts-expect-error — helia.routing.routers is internal
                 const routers: unknown[] = heliaClient._helia.routing.routers;
                 const constructorNames = routers.map((r) => (r as { constructor?: { name?: string } })?.constructor?.name);
-                // We slice helia.routing.routers down to a single non-gateway router (line 95 of helia-for-pkc.ts).
+                // helia is composed with createHeliaLight + withLibp2p + withBitswap and never withHTTP
+                // (helia-for-pkc.ts), so the only router is the libp2p one; no gateway router exists.
                 // Block requests over an HTTP gateway are not what we want via IPNS resolution.
                 expect(routers.length, `expected exactly 1 routing router, got ${routers.length}`).to.equal(1);
                 expect(
@@ -410,12 +416,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             const pkc = await config.pkcInstancePromise();
             const heliaClient = Object.values(pkc.clients.libp2pJsClients)[0];
 
-            // Find the pubsub router by class name (matches the shape pinned in the
+            // Find the pubsub router by its toString() tag (matches the shape pinned in the
             // "IPNS router shape" suite above).
-            const pubsubRouter = heliaClient._heliaIpnsRouter.routers.find((r) => r?.constructor?.name === "PubSubRouting") as
-                | (import("@helia/ipns/routing").PubsubRoutingComponents extends never ? never : unknown)
+            const pubsubRouter = heliaClient._heliaIpnsRouter.routers.find((r) => String(r) === "PubSubRouting()") as
+                | (import("@helia/ipns").PubsubRoutingComponents extends never ? never : unknown)
                 | undefined;
-            expect(pubsubRouter, "expected to find a PubSubRouting in _heliaIpnsRouter.routers").to.exist;
+            expect(pubsubRouter, "expected to find a PubSubRouting() in _heliaIpnsRouter.routers").to.exist;
 
             const routerWithLifecycle = pubsubRouter as {
                 get: (routingKey: Uint8Array, options?: { signal?: AbortSignal }) => Promise<unknown>;

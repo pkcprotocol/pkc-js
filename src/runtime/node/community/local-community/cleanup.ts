@@ -1,4 +1,5 @@
 import pLimit from "p-limit";
+import retry from "retry";
 import Logger from "../../../../logger.js";
 import { genToArray, removeMfsFilesSafely, statMfsPathSafely } from "../../../../util.js";
 import type { DbRepliesSortEntry } from "../../../../publications/comment/types.js";
@@ -6,13 +7,51 @@ import type { PurgedCommentTableRows } from "../db-handler-types.js";
 import type { LocalCommunity } from "../local-community.js";
 import { calculateLocalMfsPathForCommentUpdate } from "./comment-updates.js";
 
+// pin.ls probe with the same retry policy as statMfsPathSafely (3 retries, 1s/2s/4s backoff). It
+// does not distinguish transient errors (`fetch failed`, ECONNRESET, ETIMEDOUT...) from deterministic
+// ones (ECONNREFUSED, 401...): those cost ~7s on the community start path before rethrowing, which
+// matches every other Kubo RPC helper in util.ts. "is not pinned" is the expected "needs a repin"
+// signal and is never retried.
+async function _pinLsWithRetries({
+    kuboRpcClient,
+    cid,
+    log,
+    inputNumOfRetries
+}: {
+    kuboRpcClient: ReturnType<LocalCommunity["_clientsManager"]["getDefaultKuboRpcClient"]>;
+    cid: string;
+    log: Logger;
+    inputNumOfRetries?: number;
+}): Promise<void> {
+    const numOfRetries = inputNumOfRetries ?? 3;
+    return new Promise<void>((resolve, reject) => {
+        const operation = retry.operation({ retries: numOfRetries, factor: 2, minTimeout: 1000 });
+        operation.attempt(async (currentAttempt) => {
+            try {
+                await genToArray(kuboRpcClient._client.pin.ls({ paths: cid }));
+                resolve();
+            } catch (error) {
+                if ((error as Error).message?.includes("is not pinned")) {
+                    reject(error);
+                    return;
+                }
+                log.error(`Failed attempt ${currentAttempt}/${numOfRetries + 1} to check whether ${cid} is pinned:`, error);
+                if (operation.retry(error as Error)) return;
+                reject(operation.mainError() || error);
+            }
+        });
+    });
+}
+
 export async function repinCommentsIPFSIfNeeded(community: LocalCommunity) {
     const log = Logger("pkc-js:local-community:start:_repinCommentsIPFSIfNeeded");
     const latestCommentCid = community._dbHandler.queryLatestCommentCid(); // latest comment ordered by id
     if (!latestCommentCid) return;
     const kuboRpcOrHelia = community._clientsManager.getDefaultKuboRpcClient();
     try {
-        await genToArray(kuboRpcOrHelia._client.pin.ls({ paths: latestCommentCid.cid }));
+        // Retries on transient Kubo connection errors so a daemon blip doesn't fail community.start(),
+        // same as the files.stat probe in repinCommentUpdateIfNeeded.
+        await _pinLsWithRetries({ kuboRpcClient: kuboRpcOrHelia, cid: latestCommentCid.cid, log });
         return; // the comment is already pinned, we assume the rest of the comments are so too
     } catch (e) {
         if (!(<Error>e).message.includes("is not pinned")) throw e;
