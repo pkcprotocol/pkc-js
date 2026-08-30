@@ -1,9 +1,10 @@
 {
     "name": "@pkcprotocol/pkc-js",
-    "version": "0.1.0",
+    "version": "0.0.88",
     "type": "module",
     "scripts": {
         "prebuild": "node config/generate-version.js",
+        "check:pr-title": "node .github/workflows/check-pr-title-type.cjs",
         "build": "npm run clean && run-s build:node verify:module-import-order build:browser verify:browser-imports build:node:bundle verify:bundle",
         "build:node": "tsc --project config/tsconfig.json",
         "build:node:bundle": "node config/build-node-bundle.js",

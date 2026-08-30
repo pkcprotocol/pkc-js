@@ -1,4 +1,5 @@
 {
+  "increment": "patch",
   "git": {
     "requireCleanWorkingDir": false,
     "requireCommits": true,
@@ -27,7 +28,8 @@
         ]
       },
       "infile": "docs/CHANGELOG.md",
-      "header": "# Changelog"
+      "header": "# Changelog",
+      "ignoreRecommendedBump": true
     }
   },
   "hooks": {

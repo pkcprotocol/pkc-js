@@ -197,4 +197,14 @@ describe.concurrent("Wire format migration — backward compat parsing", async (
         expect(result).to.have.property("signature");
         expect(result.name).to.equal("test-sub.eth");
     });
+
+    it(`parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails accepts a record without statsCid`, () => {
+        // statsCid is optional on the wire: a community that has not generated stats yet (or chooses not to
+        // publish them) must still load instead of failing with ERR_INVALID_COMMUNITY_IPFS_SCHEMA
+        const record = clone(newFormatFixture) as Partial<CommunityIpfsType>;
+        delete record.statsCid;
+        const result = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(record as CommunityIpfsType);
+        expect(result).to.have.property("signature");
+        expect(result.statsCid).to.be.undefined;
+    });
 });

@@ -80,6 +80,13 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
   ```
 
   If the subject does not fit, shorten it — do not split it with `;` or move detail into the title. Put the detail in the PR body.
+- The PR title type MUST NOT hide releasable commits. PRs are squash-merged, so the title becomes the only commit message release-it sees; a PR titled `chore:`/`docs:`/`test:` that contains a `fix`/`feat`/`perf`/`build`/`revert` commit ships a release with empty notes, and the `lint-pr-title` CI job (`.github/workflows/check-pr-title-type.cjs`) fails. This most often happens when a PR is opened as `chore:` and a `fix:` commit is pushed later. Before creating a PR and again before every push to an open PR, run the same check locally:
+
+  ```bash
+  npm run check:pr-title -- --title "$TITLE"
+  ```
+
+  If it fails, retitle the PR with the type of its user-visible effect (`gh pr edit <n> --title "$TITLE"`) rather than retyping the commits.
 
 ## SHOULD Rules
 

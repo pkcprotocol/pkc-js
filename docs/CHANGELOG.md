@@ -1,6 +1,16 @@
 # Changelog
 
-## [0.1.0](https://github.com/pkcprotocol/pkc-js/compare/v0.0.86...v0.1.0) (2026-08-22)
+## [0.0.88](https://github.com/pkcprotocol/pkc-js/compare/v0.0.87...v0.0.88) (2026-08-26)
+
+### Bug Fixes
+
+* **community:** make statsCid optional on CommunityIpfsSchema ([#298](https://github.com/pkcprotocol/pkc-js/issues/298)) ([2aa45bf](https://github.com/pkcprotocol/pkc-js/commit/2aa45bf17d2e10c68ce6d021cd86aed5e10ffe2d)), closes [#297](https://github.com/pkcprotocol/pkc-js/issues/297)
+
+### Build
+
+* **ci:** make the PR title releasable-commit check runnable locally ([#296](https://github.com/pkcprotocol/pkc-js/issues/296)) ([e5c3cef](https://github.com/pkcprotocol/pkc-js/commit/e5c3cef06b27b15568c55d8a45c8e6a06b057191))
+
+## [0.0.87](https://github.com/pkcprotocol/pkc-js/compare/v0.0.86...v0.0.87) (2026-08-26)
 
 ### ⚠ BREAKING CHANGES
 
@@ -19,6 +29,13 @@ tracked separately.
 ### Bug Fixes
 
 * **community:** await the source db removal in delete() instead of a fire-and-forget rm ([#291](https://github.com/pkcprotocol/pkc-js/issues/291)) ([812a5fa](https://github.com/pkcprotocol/pkc-js/commit/812a5fa93c53ff78d67ff4eee393598041a0f060))
+* **community:** scope the process-wide started-community registry by dataPath ([#280](https://github.com/pkcprotocol/pkc-js/issues/280)) ([43f9b92](https://github.com/pkcprotocol/pkc-js/commit/43f9b9257d8fcc43aa6cbd204048af66e18a4bc7)), closes [#238](https://github.com/pkcprotocol/pkc-js/issues/238)
+* **release:** force patch version bumps and ignore the conventional recommended bump ([990a2a0](https://github.com/pkcprotocol/pkc-js/commit/990a2a0ad3359aab6fc0c1b499da65a2bca75058)), closes [#279](https://github.com/pkcprotocol/pkc-js/issues/279)
+
+### Reverts
+
+* Revert "chore(release): 0.1.0 [skip ci]" ([6a8b23b](https://github.com/pkcprotocol/pkc-js/commit/6a8b23b96390ff6239741216911c219fdcc9f6e6))
+* Revert "chore(release): 0.2.0 [skip ci]" ([7ab90bc](https://github.com/pkcprotocol/pkc-js/commit/7ab90bcd411c477e9b56c6d77506bce9ef1be729))
 
 ## [0.0.86](https://github.com/pkcprotocol/pkc-js/compare/v0.0.85...v0.0.86) (2026-08-22)
 

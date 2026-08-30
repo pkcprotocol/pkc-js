@@ -280,7 +280,7 @@ export const CommunityIpfsSchema = z
         createdAt: PKCTimestampSchema,
         updatedAt: PKCTimestampSchema,
         pubsubTopic: PubsubTopicSchema.optional(),
-        statsCid: CidStringSchema,
+        statsCid: CidStringSchema.optional(),
         protocolVersion: ProtocolVersionSchema,
         postUpdates: z.record(nonNegativeIntStringSchema, CidStringSchema).optional(),
         title: z.string().optional(),
