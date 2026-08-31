@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.90](https://github.com/pkcprotocol/pkc-js/compare/v0.0.89...v0.0.90) (2026-08-31)
+
+### Performance
+
+* **helia:** serve repeat IPNS resolves from the gossip-fed record cache, not a refetch ([#301](https://github.com/pkcprotocol/pkc-js/issues/301)) ([#302](https://github.com/pkcprotocol/pkc-js/issues/302)) ([18432cd](https://github.com/pkcprotocol/pkc-js/commit/18432cd5c5fe13ae7982a8ad31d7ed08ae06ebfe))
+
 ## [0.0.89](https://github.com/pkcprotocol/pkc-js/compare/v0.0.88...v0.0.89) (2026-08-30)
 
 ### Bug Fixes
