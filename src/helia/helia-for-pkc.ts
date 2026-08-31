@@ -28,6 +28,7 @@ import { Libp2pJsClient } from "./libp2pjsClient.js";
 import {
     BITSWAP_SESSION_STALLED_GET_FAILOVER_MS,
     cacheIpnsRecordInPubsubLocalStore,
+    readFreshCachedIpnsRecordFromPubsubLocalStore,
     connectToPubsubPeers,
     directFetchIpnsRecordFromProviders,
     fetchBlockWithStalledSessionFailover,
@@ -367,9 +368,12 @@ export async function createLibp2pJsClientOrUseExistingOne(
         // and hands that SAME array to its resolver/publisher/republisher, so it must be mutated in
         // place: reassigning `.routers` only changes what pkc's own loops below iterate, while
         // ipnsNameResolver.resolve() keeps querying (and writing the local cache through) the
-        // original list. We drop LocalStoreIPNSRouting because pkc-js never publishes IPNS via
-        // @helia/ipns (kubo does that), so the local cache is always empty and just adds a wasted
-        // lookup. Keep HeliaIPNSRouting (HTTP delegated routing via helia.routing) and our pubsub
+        // original list. We drop LocalStoreIPNSRouting because its get() serves whatever the
+        // datastore holds with no ttl/EOL judgment of its own: the datastore is no longer empty
+        // (gossiped pushes and the issue #210 direct-fetch write land there), and cache reads must
+        // instead go through name.resolve's ttl-honoring cache gate (issue #301) so the network
+        // fallback loop below stays a NETWORK loop rather than short-circuiting on possibly-stale
+        // cache. Keep HeliaIPNSRouting (HTTP delegated routing via helia.routing) and our pubsub
         // router. Match by the router's toString() tag ("LocalStoreRouting()") rather than by
         // `constructor.name`: the class is module-private and bundlers mangle its name (in 5chan's
         // production build it becomes `dMe`), so a class-name match is a silent no-op there. The
@@ -403,8 +407,22 @@ export async function createLibp2pJsClientOrUseExistingOne(
         await (ipnsPubsubRouter as { start?: () => void | Promise<void> }).start?.();
         // The router's localStore is where gossipsub-delivered records get cached (handleRecord).
         // It's declared private but is a plain class field at runtime; the direct-fetch path below
-        // writes to it to keep the cached-record invariant (issue #210).
+        // writes to it to keep the cached-record invariant (issue #210), and the cache gate in
+        // name.resolve reads it to serve repeat resolves locally (issue #301).
         const ipnsPubsubLocalStore = (ipnsPubsubRouter as unknown as { localStore: IpnsPubsubLocalStore }).localStore;
+        // The router's message listener drops any gossiped record whose topic is not in this
+        // private Set, and upstream only populates it inside router.get() — which the direct-fetch
+        // fast path below never calls (and which, since @helia/ipns 10, skips the add when the
+        // topic is already libp2p-subscribed). name.resolve adds every IPNS topic it subscribes
+        // here as well, so pushed records actually reach handleRecord and the localStore
+        // (issue #301). Same structural-access pattern as localStore above.
+        const ipnsPubsubRouterSubscriptions = (ipnsPubsubRouter as unknown as { subscriptions: Set<string> }).subscriptions;
+        // Per-topic time of the last NETWORK fetch that validated a record for that name. Feeds
+        // the cache gate's freshness check (issue #301): a refetch that returns bytes identical to
+        // the cache never refreshes the localStore's write time, so without this an idle name
+        // would re-fetch on every resolve once its record's ttl first expired. Bounded by the set
+        // of IPNS names this helia instance resolves (communities the app follows).
+        const ipnsRecordNetworkValidatedAtMs = new Map<string, number>();
 
         // Side-channel awaitable warmup: gossipsub's pubsub.subscribe(topic) is sync and returns
         // void, so we can't make it awaitable without breaking @helia/ipns and other internal
@@ -454,6 +472,39 @@ export async function createLibp2pJsClientOrUseExistingOne(
                         const ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(ipnsNameAsPeerId.toString());
                         const routingKey = multihashToIPNSRoutingKey(ipnsNameAsPeerId.toMultihash());
 
+                        // Cache gate (issue #301): once a name's topic is subscribed, gossiped
+                        // records keep the localStore fresh (handleRecord, enabled by the
+                        // subscriptions add below), so a repeat resolve is a local read while the
+                        // cached record is inside its ttl window — not a fresh multi-peer fetch
+                        // race per call. This is what turns the update loop's 1s cadence from
+                        // ~150 fetch streams/s at 64 communities into pushes plus one
+                        // revalidation per name per ttl. Gated on the topic being subscribed
+                        // because freshness relies on the push channel this resolver set up on a
+                        // previous call; nocache: true bypasses the cache entirely (explicit
+                        // refresh, kubo semantics). A cache read failure must never fail the
+                        // resolve, so any error falls through to the network path.
+                        if (options?.nocache !== true && helia.libp2p.services.pubsub.getTopics().includes(ipnsPubsubTopic)) {
+                            try {
+                                const cachedRecord = await readFreshCachedIpnsRecordFromPubsubLocalStore({
+                                    localStore: ipnsPubsubLocalStore,
+                                    routingKey,
+                                    lastNetworkValidatedAtMs: ipnsRecordNetworkValidatedAtMs.get(ipnsPubsubTopic)
+                                });
+                                if (cachedRecord) {
+                                    log.trace("Serving IPNS record for", currentName, "from the routing-layer cache");
+                                    yield cachedRecord.value;
+                                    return;
+                                }
+                            } catch (cacheErr) {
+                                log.trace(
+                                    "Reading the cached IPNS record for",
+                                    ipnsPubsubTopic,
+                                    "failed, falling through to the network",
+                                    cacheErr
+                                );
+                            }
+                        }
+
                         // Fast path: fetch the record over libp2p/fetch, in parallel, directly from BOTH
                         // the topic's current gossipsub subscribers AND providers freshly discovered from
                         // the HTTP routers — first signature-valid record wins. This skips the
@@ -471,6 +522,13 @@ export async function createLibp2pJsClientOrUseExistingOne(
                             // future pushes; we do NOT await it — the direct fetch does not need the mesh.
                             if (!helia.libp2p.services.pubsub.getTopics().includes(ipnsPubsubTopic))
                                 helia.libp2p.services.pubsub.subscribe(ipnsPubsubTopic);
+                            // Also register the topic with the pubsub router (issue #301): without
+                            // this, its message listener drops every gossiped record for the topic
+                            // and the subscription above only ever feeds the mesh, not the cache.
+                            // Idempotent, and also heals topics first subscribed via the fallback
+                            // router.get() (which since @helia/ipns 10 skips this add when the
+                            // topic is already libp2p-subscribed).
+                            ipnsPubsubRouterSubscriptions.add(ipnsPubsubTopic);
                             void warmupForTopic(ipnsPubsubTopic, options).catch((e) =>
                                 log.trace("Fire-and-forget warmup failed for", ipnsPubsubTopic, e)
                             );
@@ -497,6 +555,12 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                     // Record already validated inside the helper — unmarshal directly,
                                     // do NOT re-run ipnsValidator.
                                     const record = unmarshalIPNSRecord(direct.recordBytes);
+                                    // Stamp the network validation time for the cache gate even when
+                                    // the fetched bytes turn out identical to the cache (issue #301):
+                                    // identical bytes never refresh the localStore's write time, so
+                                    // this stamp is what lets an idle name serve from cache for
+                                    // another ttl window after a revalidation.
+                                    ipnsRecordNetworkValidatedAtMs.set(ipnsPubsubTopic, Date.now());
                                     // Direct fetch bypasses the pubsub router's handleRecord, which is
                                     // where gossipsub-delivered records get cached at the routing layer.
                                     // Persist the record there ourselves (newer-only, issue #210) so
@@ -584,16 +648,17 @@ export async function createLibp2pJsClientOrUseExistingOne(
                         // - per-router error aggregation below is what the tests and callers report on.
                         // Equivalence of the resolved value with resolve() is pinned in
                         // test/node/community/helia-ipns-resolve-equivalence.unit.test.ts.
-                        // This does NOT bypass an active cache/TTL: all cache-read + TTL logic lives in the
-                        // resolver's #findIpnsRecord and is gated on `nocache !== true`, but pkc always
-                        // resolves IPNS with nocache:true (see resolveIpnsToCidP2P in base-client-manager),
-                        // so that path is inert — the old resolve()-based code skipped it too. IPNS here is
-                        // pubsub-only (HTTP routers have getIPNS disabled in getDelegatedRoutingFields), and
-                        // the pubsub router's get() never serves from cache; it always queries peers. Record
-                        // caching + ipnsSelector happen inside the pubsub router's handleRecord for
-                        // gossipsub-delivered records and router.get() fetches; the direct-fetch fast path
-                        // above bypasses handleRecord, so it writes the record to the router's localStore
-                        // itself (cacheIpnsRecordInPubsubLocalStore, issue #210).
+                        // This does NOT bypass an active cache/TTL: the cache gate at the top of this
+                        // generator (issue #301) is the cache read for this resolver, honoring
+                        // `nocache !== true` and the record's ttl the way @helia/ipns' #findIpnsRecord
+                        // would. IPNS here is pubsub-only (HTTP routers have getIPNS disabled in
+                        // getDelegatedRoutingFields), and the pubsub router's get() never serves from
+                        // cache; it always queries peers. Record caching + ipnsSelector happen inside the
+                        // pubsub router's handleRecord for gossipsub-delivered records (reachable because
+                        // the fast path registers each topic in the router's subscriptions Set) and
+                        // router.get() fetches; the direct-fetch fast path above bypasses handleRecord, so
+                        // it writes the record to the router's localStore itself
+                        // (cacheIpnsRecordInPubsubLocalStore, issue #210).
                         let recordBytes: Uint8Array | undefined;
                         const routerErrors: Error[] = [];
                         for (const router of ipnsNameResolver.routers) {
@@ -628,6 +693,8 @@ export async function createLibp2pJsClientOrUseExistingOne(
                         // Validate the record's signature against its routing key before trusting its value.
                         await ipnsValidator(routingKey, recordBytes);
                         const record = unmarshalIPNSRecord(recordBytes);
+                        // Same freshness stamp as the direct-fetch hit above (issue #301).
+                        ipnsRecordNetworkValidatedAtMs.set(ipnsPubsubTopic, Date.now());
                         yield record.value;
                     }
 

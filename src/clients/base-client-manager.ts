@@ -627,7 +627,16 @@ export class BaseClientsManager {
         throwIfAbortSignalAborted(loadOpts.abortSignal);
         // recursive: false so the resolver returns the IMMEDIATE value of each record (so we can
         // walk /ipns/ -> /ipns/ hops ourselves); see performIpnsResolve below.
-        const ipnsResolveOpts = { nocache: true, recursive: false, ...loadOpts };
+        // nocache differs by client (issue #301). The libp2p-js resolver keeps its routing-layer
+        // cache fresh from gossipsub pushes and honors the record's ttl, so letting it serve from
+        // cache is what turns the update loop's 1s cadence into pushes plus one revalidation per
+        // ttl instead of a multi-peer fetch race per community per second. Kubo keeps
+        // nocache: true (pre-existing behavior): its namesys cache is not fed by pkc's pubsub
+        // subscriptions, so serving from it could hand back records up to a full record ttl stale.
+        // Mirrors getIpfsClientWithKuboRpcClientFunctions' precedence: kubo wins when present.
+        const resolvingViaLibp2pJsClient =
+            keys(this._pkc.clients.kuboRpcClients).length === 0 && keys(this._pkc.clients.libp2pJsClients).length > 0;
+        const ipnsResolveOpts = { nocache: !resolvingViaLibp2pJsClient, recursive: false, ...loadOpts };
         const ipfsClient = this.getIpfsClientWithKuboRpcClientFunctions();
 
         const performIpnsResolve = async () => {

@@ -3,6 +3,9 @@ import type { PeerId, PeerInfo, PeerUpdate } from "@libp2p/interface";
 import type { Multiaddr } from "@multiformats/multiaddr";
 import { CID } from "multiformats/cid";
 import { ipnsSelector } from "ipns/selector";
+import { ipnsValidator } from "ipns/validator";
+import { unmarshalIPNSRecord } from "ipns";
+import type { IPNSRecord } from "ipns";
 import { equals as uint8ArrayEquals } from "uint8arrays/equals";
 import Logger from "../logger.js";
 import { PKCError } from "../pkc-error.js";
@@ -860,4 +863,48 @@ export async function cacheIpnsRecordInPubsubLocalStore({
         if (ipnsSelector(routingKey, [currentRecord, marshalledRecord]) === 0) return;
     }
     await localStore.put(routingKey, marshalledRecord);
+}
+
+// When a cached record carries no ttl field, fall back to pkc's own publish cadence: communities
+// publish their IPNS records with ttl = publishInterval * 3 (60s by default, see
+// ipns-publishing.ts), so this matches what a well-formed community record would have carried.
+const DEFAULT_CACHED_IPNS_RECORD_TTL_MS = 60_000;
+
+// Read the record cached at the pubsub routing layer and return it only while it may still be
+// served WITHOUT a network revalidation (issue #301). Freshness follows the IPNS spec's ttl
+// semantics: a record may be served from cache for `ttl` after it was last confirmed current.
+// "Last confirmed current" is the LATER of:
+// - the localStore write time (`created`): refreshed whenever a NEWER record lands, via a
+//   gossipsub push (handleRecord) or a direct fetch (cacheIpnsRecordInPubsubLocalStore);
+// - `lastNetworkValidatedAtMs`, the caller-tracked time of the last network fetch that validated
+//   a record for this name. This half matters for an IDLE name: a network refetch that returns
+//   bytes identical to the cache never refreshes `created` (both localStore.put and
+//   cacheIpnsRecordInPubsubLocalStore deliberately skip identical writes), so without it every
+//   resolve after the first ttl expiry would go back to the network forever, reintroducing the
+//   per-second churn this cache exists to stop.
+// The record's signature and validity window are re-checked on every read (a cached record can
+// pass its EOL while sitting in the store); an invalid, expired, or stale record yields
+// undefined so the caller falls through to the network path.
+export async function readFreshCachedIpnsRecordFromPubsubLocalStore({
+    localStore,
+    routingKey,
+    lastNetworkValidatedAtMs
+}: {
+    localStore: IpnsPubsubLocalStore;
+    routingKey: Uint8Array;
+    lastNetworkValidatedAtMs?: number;
+}): Promise<IPNSRecord | undefined> {
+    if (!(await localStore.has(routingKey))) return undefined;
+    const { record: recordBytes, created } = await localStore.get(routingKey);
+    try {
+        await ipnsValidator(routingKey, recordBytes);
+    } catch {
+        // signature no longer checks out or the record passed its EOL while cached
+        return undefined;
+    }
+    const record = unmarshalIPNSRecord(recordBytes);
+    const ttlMs = record.ttl !== undefined ? Number(record.ttl / 1_000_000n) : DEFAULT_CACHED_IPNS_RECORD_TTL_MS;
+    const lastConfirmedCurrentAtMs = Math.max(created.getTime(), lastNetworkValidatedAtMs ?? 0);
+    if (Date.now() - lastConfirmedCurrentAtMs >= ttlMs) return undefined;
+    return record;
 }
