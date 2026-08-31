@@ -25,7 +25,7 @@ These are mutable: the community regenerates and republishes them as state chang
 | `CommunityIpfsType` | Community owner | IPNS name (mutable pointer) | When any community state changes |
 | Pages | Community owner | CIDs referenced in `CommunityIpfsType` or CommentUpdate | When comments/votes change sort order |
 
-Pages are regenerated with **new CIDs** on each update. Old page CIDs are unpinned and discarded by the community: they are not kept around long term. The unpin is deferred by a 30-minute grace period (`UNPIN_GRACE_PERIOD_MS` in `src/runtime/node/community/local-community/cleanup.ts`), so clients that resolved the previous update can finish paging through it before a repo GC can delete the blocks. Purged content bypasses the grace period and is removed immediately.
+Pages are regenerated with **new CIDs** on each update. Old page CIDs are unpinned and discarded by the community: they are not kept around long term. The unpin is deferred by a 30-minute grace period (`UNPIN_GRACE_PERIOD_MS` in `src/runtime/node/community/local-community/cleanup.ts`), so clients that resolved the previous update can finish paging through it before a repo GC can delete the blocks. A purge flushes the grace period for the whole unpin queue: records generated before the purge still reference the purged content, so nothing referencing it stays pinned, and the purged blocks themselves are force-removed immediately.
 
 ## IPFS vs IPNS
 

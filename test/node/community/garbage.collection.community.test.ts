@@ -285,19 +285,37 @@ describe("local community garbage collection", () => {
         }
     });
 
-    it("unpins cids queued for block removal immediately, so purges are not delayed by the grace period", async () => {
+    it("flushes the grace period for the whole queue when a purge is pending in _blocksToRm", async () => {
         const { community, kuboClient } = createTestCommunity();
-        // VALID_CID_A is purged content: it is queued for a forced block.rm, and that block.rm runs
-        // right after unpinStaleCids in updateCommunityIpnsIfNeeded, so its pin must go now (a still
-        // pinned block cannot be removed). VALID_CID_B is merely superseded and must wait out the
-        // grace period.
+        // VALID_CID_A is purged content queued for a forced block.rm; VALID_CID_B is a merely
+        // superseded cid. A pending purge flushes both: records generated before the purge (old
+        // update cids, old page cids) still reference the purged content, so nothing may stay pinned,
+        // and the purged cid itself could not wait anyway since kubo refuses to rm a pinned block.
         community._cidsToUnPin = new Set([VALID_CID_A, VALID_CID_B]);
         community._blocksToRm = [VALID_CID_A];
 
         await unpinStaleCids(community as unknown as LocalCommunity);
 
-        expect(kuboClient.pinRmCalls).to.deep.equal([VALID_CID_A]);
-        expect(Array.from(community._cidsToUnPin)).to.deep.equal([VALID_CID_B]);
+        expect(new Set(kuboClient.pinRmCalls)).to.deep.equal(new Set([VALID_CID_A, VALID_CID_B]));
+        expect(community._cidsToUnPin.size).to.equal(0);
+    });
+
+    it("still flushes the grace period when the purge landed mid-sync and _blocksToRm already drained", async () => {
+        const { community, kuboClient } = createTestCommunity();
+        // A purge that lands after a cycle's unpin pass gets its blocks removed by that same cycle's
+        // block.rm, so by the next unpin pass _blocksToRm is empty again; the flush must still happen
+        // via the pending-purge flag set when the purge queued its cids.
+        await addAllCidsUnderPurgedCommentToBeRemoved(
+            community as unknown as LocalCommunity,
+            { commentTableRow: { cid: VALID_CID_A } } as unknown as PurgedCommentTableRows
+        );
+        community._cidsToUnPin.add(VALID_CID_B); // superseded pre-purge, still references purged content
+        community._blocksToRm = []; // drained by the previous cycle's block.rm
+
+        await unpinStaleCids(community as unknown as LocalCommunity);
+
+        expect(new Set(kuboClient.pinRmCalls)).to.deep.equal(new Set([VALID_CID_A, VALID_CID_B]));
+        expect(community._cidsToUnPin.size).to.equal(0);
     });
 
     it("removes queued MFS paths and keeps pending ones when files are missing", async () => {

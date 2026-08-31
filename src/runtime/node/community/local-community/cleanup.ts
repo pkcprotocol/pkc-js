@@ -95,6 +95,12 @@ export const UNPIN_GRACE_PERIOD_MS = 30 * 60 * 1000;
 // direction. WeakMap so a stopped community's tracking dies with it.
 const cidsToUnpinFirstSeenAtMsByCommunity = new WeakMap<LocalCommunity, Map<string, number>>();
 
+// Communities with a purge whose unpin flush has not completed yet. A purge can land mid-sync, after
+// that cycle's unpinStaleCids already ran and before its block.rm drains _blocksToRm, so "is
+// _blocksToRm non-empty right now" alone can miss the flush; this survives until a flush pass
+// actually drains the unpin queue.
+const communitiesWithPendingPurgeFlush = new WeakSet<LocalCommunity>();
+
 export async function unpinStaleCids(community: LocalCommunity, options: { bypassGracePeriod?: boolean } = {}) {
     const log = Logger("pkc-js:local-community:sync:unpinStaleCids");
 
@@ -108,13 +114,18 @@ export async function unpinStaleCids(community: LocalCommunity, options: { bypas
         const now = Date.now();
         for (const cid of community._cidsToUnPin) if (!firstSeenAtMs.has(cid)) firstSeenAtMs.set(cid, now);
 
-        // A cid in _blocksToRm is purged content: its block gets force-removed right after this
-        // function in updateCommunityIpnsIfNeeded, and kubo refuses to rm a pinned block, so holding
-        // its pin through the grace period would delay the purge instead of protecting a reader.
-        const cidsQueuedForBlockRm = new Set(community._blocksToRm);
+        // _blocksToRm is fed only by the purge flows, so a non-empty queue means a purge is pending,
+        // and that flushes the grace period for the ENTIRE unpin queue, not just the purged cids
+        // themselves: every record generated before the purge still references the purged content (a
+        // superseded community update embeds the whole comment tree, superseded page cids list the
+        // purged comment), and the purge guarantee that the community node stops pinning that content
+        // outranks the reader grace of issue #305. The purged cids also could not wait anyway: their
+        // blocks get force-removed right after this function in updateCommunityIpnsIfNeeded, and kubo
+        // refuses to rm a pinned block.
+        const flushGraceForPendingPurge = communitiesWithPendingPurgeFlush.has(community) || community._blocksToRm.length > 0;
         const cidsToUnpinNow = Array.from(community._cidsToUnPin.values()).filter(
             (cid) =>
-                options.bypassGracePeriod || cidsQueuedForBlockRm.has(cid) || now - (firstSeenAtMs.get(cid) ?? now) >= UNPIN_GRACE_PERIOD_MS
+                options.bypassGracePeriod || flushGraceForPendingPurge || now - (firstSeenAtMs.get(cid) ?? now) >= UNPIN_GRACE_PERIOD_MS
         );
         if (cidsToUnpinNow.length === 0) {
             log.trace(
@@ -147,6 +158,10 @@ export async function unpinStaleCids(community: LocalCommunity, options: { bypas
                 })
             )
         );
+
+        // In flush mode every queued cid was eligible, so an empty queue means the flush completed; a
+        // non-empty one means some pin.rm failed and the flag must survive for the next pass.
+        if (flushGraceForPendingPurge && community._cidsToUnPin.size === 0) communitiesWithPendingPurgeFlush.delete(community);
 
         log.trace(`unpinned ${sizeBefore - community._cidsToUnPin.size} stale cids from ipfs node for community (${community.address})`);
     }
@@ -342,6 +357,9 @@ export async function addAllCidsUnderPurgedCommentToBeRemoved(
     community: LocalCommunity,
     purgedCommentAndCommentUpdate: PurgedCommentTableRows
 ) {
+    // Every purge flow funnels through here, and the flag makes the next unpinStaleCids pass flush
+    // the grace period for the whole queue even when the purge lands mid-sync (see unpinStaleCids).
+    communitiesWithPendingPurgeFlush.add(community);
     community._cidsToUnPin.add(purgedCommentAndCommentUpdate.commentTableRow.cid);
     community._blocksToRm.push(purgedCommentAndCommentUpdate.commentTableRow.cid);
     if (typeof purgedCommentAndCommentUpdate.commentUpdateTableRow?.postUpdatesBucket === "number") {
