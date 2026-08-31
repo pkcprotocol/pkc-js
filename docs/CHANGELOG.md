@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.91](https://github.com/pkcprotocol/pkc-js/compare/v0.0.90...v0.0.91) (2026-08-31)
+
+### Bug Fixes
+
+* **community:** rm purged post's postUpdates MFS entry when the purge lands mid-sync ([#304](https://github.com/pkcprotocol/pkc-js/issues/304)) ([#303](https://github.com/pkcprotocol/pkc-js/issues/303)) ([5f06b97](https://github.com/pkcprotocol/pkc-js/commit/5f06b971aa3e5f248a42eec5013c16864fb2374a)), closes [#253](https://github.com/pkcprotocol/pkc-js/issues/253) [#142](https://github.com/pkcprotocol/pkc-js/issues/142)
+
 ## [0.0.90](https://github.com/pkcprotocol/pkc-js/compare/v0.0.89...v0.0.90) (2026-08-31)
 
 ### Performance
