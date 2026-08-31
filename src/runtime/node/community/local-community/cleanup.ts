@@ -81,11 +81,47 @@ export async function repinCommentsIPFSIfNeeded(community: LocalCommunity) {
     log(`${unpinnedCommentsFromDb.length} comments' IPFS have been repinned`);
 }
 
-export async function unpinStaleCids(community: LocalCommunity) {
+// How long a superseded cid stays pinned after landing in _cidsToUnPin (issue #305). A client that
+// resolved the previous CommunityUpdate/CommentUpdate can still be walking its page cids when the
+// next generation supersedes them; the pin is the only thing standing between those blocks and a
+// repo.gc, and in CI a GC landed 129ms after the unpin, deleting a replies page mid-fetch
+// (ERR_FETCH_CID_P2P_TIMEOUT). Thirty minutes comfortably outlasts a paging session (page fetches
+// time out at 30s per cid) while bounding the extra pin debt to one generation's worth of churn.
+export const UNPIN_GRACE_PERIOD_MS = 30 * 60 * 1000;
+
+// First time each queued cid was seen by unpinStaleCids, per community. Deliberately not persisted:
+// _cidsToUnPin round-trips through the DB as a plain cid array, and re-stamping restored entries on
+// the first pass after a restart just grants them a fresh grace period, which is the conservative
+// direction. WeakMap so a stopped community's tracking dies with it.
+const cidsToUnpinFirstSeenAtMsByCommunity = new WeakMap<LocalCommunity, Map<string, number>>();
+
+export async function unpinStaleCids(community: LocalCommunity, options: { bypassGracePeriod?: boolean } = {}) {
     const log = Logger("pkc-js:local-community:sync:unpinStaleCids");
 
     if (community._cidsToUnPin.size > 0) {
         const sizeBefore = community._cidsToUnPin.size;
+
+        let firstSeenAtMs = cidsToUnpinFirstSeenAtMsByCommunity.get(community);
+        if (!firstSeenAtMs) cidsToUnpinFirstSeenAtMsByCommunity.set(community, (firstSeenAtMs = new Map()));
+        for (const cid of firstSeenAtMs.keys()) if (!community._cidsToUnPin.has(cid)) firstSeenAtMs.delete(cid);
+
+        const now = Date.now();
+        for (const cid of community._cidsToUnPin) if (!firstSeenAtMs.has(cid)) firstSeenAtMs.set(cid, now);
+
+        // A cid in _blocksToRm is purged content: its block gets force-removed right after this
+        // function in updateCommunityIpnsIfNeeded, and kubo refuses to rm a pinned block, so holding
+        // its pin through the grace period would delay the purge instead of protecting a reader.
+        const cidsQueuedForBlockRm = new Set(community._blocksToRm);
+        const cidsToUnpinNow = Array.from(community._cidsToUnPin.values()).filter(
+            (cid) =>
+                options.bypassGracePeriod || cidsQueuedForBlockRm.has(cid) || now - (firstSeenAtMs.get(cid) ?? now) >= UNPIN_GRACE_PERIOD_MS
+        );
+        if (cidsToUnpinNow.length === 0) {
+            log.trace(
+                `All ${sizeBefore} stale cids of community (${community.address}) are within their unpin grace period, keeping them pinned for now`
+            );
+            return;
+        }
 
         // Create a concurrency limiter with a limit of 50
         const limit = pLimit(50);
@@ -93,15 +129,17 @@ export async function unpinStaleCids(community: LocalCommunity) {
         const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
         // Process all unpinning in parallel with concurrency limit
         await Promise.all(
-            Array.from(community._cidsToUnPin.values()).map((cid) =>
+            cidsToUnpinNow.map((cid) =>
                 limit(async () => {
                     try {
                         await kuboRpc._client.pin.rm(cid, { recursive: true });
                         community._cidsToUnPin.delete(cid);
+                        firstSeenAtMs.delete(cid);
                     } catch (e) {
                         const error = <Error>e;
                         if (error.message.startsWith("not pinned")) {
                             community._cidsToUnPin.delete(cid);
+                            firstSeenAtMs.delete(cid);
                         } else {
                             log.trace("Failed to unpin cid", cid, "on community", community.address, "due to error", error);
                         }
