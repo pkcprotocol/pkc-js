@@ -244,12 +244,22 @@ export class RpcRemoteCommunity extends RemoteCommunity {
             const rpcClient = this._pkc._pkcRpcClient;
             // The community may have been stopped, restarted, or the RPC client destroyed in the meantime
             if (this._updateRpcSubscriptionId !== subscriptionId || !rpcClient?.subscriptionActive(subscriptionId)) return;
-            rpcClient
-                .getSubscription(subscriptionId)
-                .on("update", this._processUpdateEventFromRpcUpdate.bind(this))
-                .on("updatingstatechange", this._handleUpdatingStateChangeFromRpcUpdate.bind(this))
-                .on("error", this._handleRpcErrorEvent.bind(this));
-            rpcClient.emitAllPendingMessages(subscriptionId);
+            try {
+                rpcClient
+                    .getSubscription(subscriptionId)
+                    .on("update", this._processUpdateEventFromRpcUpdate.bind(this))
+                    .on("updatingstatechange", this._handleUpdatingStateChangeFromRpcUpdate.bind(this))
+                    .on("error", this._handleRpcErrorEvent.bind(this));
+                rpcClient.emitAllPendingMessages(subscriptionId);
+            } catch (e) {
+                // A handler throw during the replay (e.g. a replayed "error" event that bubbled to a
+                // pkc instance with no "error" listeners) used to reject update() when the replay was
+                // synchronous; update() has already resolved here, so contain the throw (it would
+                // otherwise escape the timer as an uncaughtException and crash the process) and stop
+                // the community so it does not stay "updating" with a half-initialized subscription
+                log.error("Error thrown while replaying buffered subscribe-time notifications, stopping the community", e);
+                this.stop().catch((stopError) => log.error("Failed to stop the community after a replay error", stopError));
+            }
         }, 0);
     }
 
@@ -366,12 +376,17 @@ export class RpcRemoteCommunity extends RemoteCommunity {
             await this._cleanupMirroringUpdatingCommunity();
         } else {
             if (this._updateRpcSubscriptionId) {
+                // Clear the id synchronously, before the awaited unsubscribe round trip, so the
+                // deferred attach-and-replay timer from _initRpcUpdateSubscription (#299) sees the
+                // stop immediately. Clearing it after the await left a window where the timer fired
+                // mid-stop and replayed buffered events into a stopping community
+                const subscriptionId = this._updateRpcSubscriptionId;
+                this._updateRpcSubscriptionId = undefined;
                 try {
-                    await this._pkc._pkcRpcClient!.unsubscribe(this._updateRpcSubscriptionId);
+                    await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
                 } catch (e) {
                     log.error("Failed to unsubscribe from communityUpdate", e);
                 }
-                this._updateRpcSubscriptionId = undefined;
                 log.trace(`Stopped the update of remote community (${this.address}) via RPC`);
             }
             // Untracked even without a subscription id. _createAndSubscribeToNewUpdatingCommunity

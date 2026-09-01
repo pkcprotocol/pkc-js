@@ -10,12 +10,16 @@
 // crashes the process. Before the deferral, the identical throw happened inside update()'s
 // synchronous replay and surfaced as a catchable rejection of update().
 //
-// This test asserts the DESIRED behavior: the subscribe-time error must be delivered through a
-// catchable path (update() rejecting, or reaching an error listener attached later) and no
-// uncaughtException may fire. Today it is RED: the process listener installed below captures
-// the ERR_UNHANDLED_ERROR escaping the setTimeout replay (vitest's own uncaughtException
-// handler may additionally report an "Unhandled Error" for the same throw — that is the same
-// mechanism, not a separate failure).
+// This test asserts the DESIRED behavior: no uncaughtException may fire, and the error must not
+// be silently swallowed with the community left "updating" forever — it must either reach a
+// catchable path (update() rejecting, or an error listener attached later) or the community must
+// terminate cleanly (state "stopped"). A rejection of update() is no longer possible once the
+// replay is deferred (update() has already resolved), so the fix contains the throw and stops
+// the community; a caller who wants the error itself must attach a listener, as the README
+// documents. Without the fix this is RED: the process listener installed below captures the
+// ERR_UNHANDLED_ERROR escaping the setTimeout replay (vitest's own uncaughtException handler
+// may additionally report an "Unhandled Error" for the same throw — that is the same mechanism,
+// not a separate failure).
 //
 // The subscribe-time error is injected exactly like in
 // test/node/rpc/community-error-at-subscribe-time.rpc.test.ts: the in-process PKCWsServer's
@@ -114,7 +118,7 @@ describe("RPC: subscribe-time community error with no listeners attached must no
         if (serverPKC && !serverPKC.destroyed) await serverPKC.destroy();
     });
 
-    itIfRpc("subscribe-time error is delivered catchably and never crashes the process", async () => {
+    itIfRpc("subscribe-time error with no listeners is handled without crashing the process", async () => {
         const client = await PKC({
             pkcRpcClientsOptions: [rpcUrl],
             dataPath: undefined,
@@ -122,7 +126,8 @@ describe("RPC: subscribe-time community error with no listeners attached must no
         });
 
         // Deliberately NO client.on("error") and NO community.on("error") around update(): the
-        // caller that never attaches listeners must get a rejection, not a process crash.
+        // caller that never attaches listeners must not crash the process, and the community
+        // must not stay "updating" forever on a swallowed error.
         const uncaughtErrors: unknown[] = [];
         const onUncaught = (err: unknown) => {
             uncaughtErrors.push(err);
@@ -160,19 +165,24 @@ describe("RPC: subscribe-time community error with no listeners attached must no
                 mentionsInjectedError(updateRejection) ||
                 lateCommunityErrors.some(mentionsInjectedError) ||
                 latePkcErrors.some(mentionsInjectedError);
+            // The fix's contained-throw path stops the community; capture the state BEFORE the
+            // test's own cleanup stop() below so the assertion is not trivially satisfied by it
+            const terminatedCleanly = (): boolean => community.state === "stopped";
 
             const deadline = Date.now() + 5_000;
-            while (Date.now() < deadline && !deliveredCatchably() && !uncaughtErrors.some(mentionsInjectedError))
+            while (Date.now() < deadline && !deliveredCatchably() && !terminatedCleanly() && !uncaughtErrors.some(mentionsInjectedError))
                 await new Promise((resolve) => setTimeout(resolve, 100));
+
+            const handledWithoutCrash = deliveredCatchably() || terminatedCleanly();
 
             await community.stop().catch((): undefined => undefined);
 
             expect({
                 injectedErrorEscapedAsUncaughtException: uncaughtErrors.some(mentionsInjectedError),
-                injectedErrorDeliveredCatchably: deliveredCatchably()
+                injectedErrorHandledWithoutCrash: handledWithoutCrash
             }).toEqual({
                 injectedErrorEscapedAsUncaughtException: false,
-                injectedErrorDeliveredCatchably: true
+                injectedErrorHandledWithoutCrash: true
             });
         } finally {
             process.removeListener("uncaughtException", onUncaught);

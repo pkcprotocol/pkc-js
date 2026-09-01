@@ -129,13 +129,18 @@ describe("RPC: community error emitted at subscribe time reaches a listener atta
             while (Date.now() < deadline && !communityLevelErrors.some(isInjectedError))
                 await new Promise((resolve) => setTimeout(resolve, 100));
 
+            // Extra settle window so a duplicate delivery (e.g. a replay that runs twice or a
+            // buffer that isn't cleared after draining) would have time to arrive and fail the
+            // exactly-once assertion below.
+            await new Promise((resolve) => setTimeout(resolve, 500));
+
             await community.stop();
 
             expect({
-                communityListenerGotInjectedError: communityLevelErrors.some(isInjectedError),
+                injectedErrorsAtCommunityListener: communityLevelErrors.filter(isInjectedError).length,
                 pkcGotInjectedErrorAsUnhandled: pkcLevelErrors.some(isInjectedError)
             }).toEqual({
-                communityListenerGotInjectedError: true,
+                injectedErrorsAtCommunityListener: 1, // exactly once: not dropped, not duplicated
                 pkcGotInjectedErrorAsUnhandled: false
             });
         } finally {
