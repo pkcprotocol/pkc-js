@@ -1683,7 +1683,12 @@ export async function createNewIpns() {
     // ONLY controls the helper's own post-publish name.resolve() sanity check (which syncs Kubo's
     // cache for RPC tests) — it does NOT change what name.publish does. Set it false when
     // publishing a hop whose target isn't resolvable yet, so that resolve check doesn't fail.
-    const publishToIpnsValue = async (value: string, opts?: { verifyResolves?: boolean }) => {
+    // `ttl` (kubo duration string, e.g. "10s") overrides kubo's default record ttl, which is 5
+    // MINUTES on kubo 0.43, not the 60s a LocalCommunity publishes (publishInterval * 3). The
+    // ttl bounds how long the libp2p-js resolver may serve a name from its routing-layer cache
+    // without revalidating (issue #301/#307), so any test that must observe a cache expiry
+    // inside its own timeout has to shorten it here instead of waiting out kubo's default.
+    const publishToIpnsValue = async (value: string, opts?: { verifyResolves?: boolean; ttl?: string }) => {
         const verifyResolves = opts?.verifyResolves ?? true;
         // Wrapped in retry because Kubo can transiently ETIMEDOUT in CI
         await new Promise<void>((resolve, reject) => {
@@ -1697,7 +1702,8 @@ export async function createNewIpns() {
                 try {
                     await ipfsClient._client.name.publish(value, {
                         key: signer.address,
-                        allowOffline: true
+                        allowOffline: true,
+                        ...(opts?.ttl ? { ttl: opts.ttl } : {})
                     });
                     resolve();
                 } catch (error) {
@@ -1739,9 +1745,9 @@ export async function createNewIpns() {
         });
     };
 
-    const publishToIpns = async (content: string) => {
+    const publishToIpns = async (content: string, opts?: { verifyResolves?: boolean; ttl?: string }) => {
         const cid = await addStringToIpfs(content);
-        await publishToIpnsValue(cid);
+        await publishToIpnsValue(cid, opts);
     };
 
     return {
@@ -1824,7 +1830,11 @@ async function getTemplateCommunityRecord(pkc: PKC): Promise<CommunityIpfsType> 
     return result;
 }
 
-export async function publishCommunityRecordWithExtraProp(opts?: { includeExtraPropInSignedPropertyNames: boolean; extraProps: Object }) {
+export async function publishCommunityRecordWithExtraProp(opts?: {
+    includeExtraPropInSignedPropertyNames?: boolean;
+    extraProps?: Object;
+    ttl?: string;
+}) {
     const ipnsObj = await createNewIpns();
     const communityRecord = JSON.parse(JSON.stringify(await getTemplateCommunityRecord(ipnsObj.pkc)));
     communityRecord.pubsubTopic = ipnsObj.signer.address;
@@ -1840,7 +1850,7 @@ export async function publishCommunityRecordWithExtraProp(opts?: { includeExtraP
         Logger("pkc-js:test-util:publishCommunityRecordWithExtraProp")
     );
 
-    await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
+    await ipnsObj.publishToIpns(JSON.stringify(communityRecord), opts?.ttl ? { ttl: opts.ttl } : undefined);
 
     return { communityRecord, ipnsObj };
 }

@@ -50,6 +50,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
 
         const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+        // kubo 0.43's name.publish default ttl is 300s, so the routing-layer cache would serve a
+        // stale record for 225s+ (the ttl is jittered down to [0.75, 1.0) of itself, issue #307).
+        // The safety-net test has to observe a cache expiry inside its own timeout, so it
+        // publishes with a short ttl instead of waiting out kubo's default.
+        const SHORT_RECORD_TTL = "10s";
+
         // Every call publishes a fresh static community record under a fresh IPNS key, so each
         // test drives its own update loop instead of attaching as a mirror to a loop another
         // test already started for a shared address.
@@ -244,6 +250,84 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             clearTimeout(timer);
             community.removeListener("update", onUpdate);
             expect(deliveredInTime, "the newer community record must reach the updating community").to.equal(true);
+        }, 240_000);
+
+        // The safety net is the whole reason it is safe to stop polling, and nothing exercised
+        // it: every other test here is satisfied by the push channel, so a loop that ONLY ever
+        // woke on pushes would pass them all and then strand a community forever the first time
+        // a push was missed (mesh partition, a record published while we had no subscribers, or
+        // a regression in the arrival plumbing itself).
+        //
+        // Suppressing ipnsRecordArrivals.subscribe is the faithful way to model that: the loop
+        // registers no listener, so nothing can wake it early and only the jittered timeout can
+        // fire. Gossipsub itself keeps running underneath (the record may still land in the
+        // routing-layer cache), which is deliberate — this pins the loss of the WAKE SIGNAL, the
+        // failure mode PR #311 actually introduces, not a total pubsub outage.
+        //
+        // The record carries a 10s ttl instead of kubo 0.43's 300s default so the bound holds on
+        // both branches: whether or not gossip warmed the cache, the safety-net tick that fires
+        // at updateInterval * [0.75, 1.25] (45-75s) is guaranteed to find the cache expired and
+        // revalidate against the network. 120s covers that plus the record fetch.
+        it("a newer record still arrives via the safety-net poll when the push wake is lost", async () => {
+            const libp2pJsClient = pkc.clients.libp2pJsClients[Object.keys(pkc.clients.libp2pJsClients)[0]];
+            const arrivals = libp2pJsClient.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals;
+            // Spied before the loop starts so the loop never registers an arrival listener at all.
+            // The spy sits on the shared client, so it is restored in finally to avoid muting the
+            // push channel for anything else in this file.
+            const subscribeSpy = vi.spyOn(arrivals, "subscribe").mockImplementation(() => {});
+            try {
+                const staticRecord = await publishCommunityRecordWithExtraProp({ ttl: SHORT_RECORD_TTL });
+                staticRecordsToCleanUp.push(staticRecord);
+                const community = (await pkc.createCommunity({
+                    address: staticRecord.ipnsObj.signer.address
+                })) as RemoteCommunity;
+                communitiesToStop.push(community);
+                const firstUpdate = new Promise<void>((resolve) => community.once("update", () => resolve()));
+                await community.update();
+                await firstUpdate;
+
+                // The update event fires INSIDE updateOnce, while the loop syncs its arrival
+                // subscriptions immediately AFTER updateOnce returns, so poll instead of racing
+                // that ordering (same reason as the stop() test above).
+                const subscribeDeadline = Date.now() + 10_000;
+                while (Date.now() < subscribeDeadline && subscribeSpy.mock.calls.length === 0) await sleep(100);
+                expect(
+                    subscribeSpy.mock.calls.length,
+                    "the loop must have attempted to register an arrival listener, otherwise this test is not suppressing anything"
+                ).to.be.greaterThan(0);
+
+                const newerRecord = JSON.parse(JSON.stringify(staticRecord.communityRecord)) as typeof staticRecord.communityRecord;
+                newerRecord.updatedAt = Math.max(newerRecord.updatedAt + 1, timestamp());
+                newerRecord.signature = await signCommunity({ community: newerRecord, signer: staticRecord.ipnsObj.signer });
+
+                const onUpdate = () => {
+                    if (community.updatedAt === newerRecord.updatedAt) deliveredResolve();
+                };
+                let deliveredResolve!: () => void;
+                const delivered = new Promise<void>((resolve) => {
+                    deliveredResolve = resolve;
+                    community.on("update", onUpdate);
+                });
+                await staticRecord.ipnsObj.publishToIpns(JSON.stringify(newerRecord), { ttl: SHORT_RECORD_TTL });
+
+                let deliveredInTime = true;
+                let timer: ReturnType<typeof setTimeout> | undefined;
+                const timeout = new Promise<void>((resolve) => {
+                    timer = setTimeout(() => {
+                        deliveredInTime = false;
+                        resolve();
+                    }, 120_000);
+                });
+                await Promise.race([delivered, timeout]);
+                clearTimeout(timer);
+                community.removeListener("update", onUpdate);
+                expect(
+                    deliveredInTime,
+                    "with the push wake suppressed the jittered safety-net poll must still deliver the newer record; a miss here means a missed push strands the community until it is restarted"
+                ).to.equal(true);
+            } finally {
+                subscribeSpy.mockRestore();
+            }
         }, 240_000);
     });
 });
