@@ -1,4 +1,4 @@
-import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import { getAvailablePKCConfigsToTestAgainst, publishCommunityRecordWithExtraProp } from "../../../dist/node/test/test-util.js";
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
 import { timestamp } from "../../../dist/node/util.js";
@@ -85,6 +85,65 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 recordedStates.length,
                 `an idle updating community must not churn updatingstatechange; saw [${recordedStates.join(", ")}]`
             ).to.be.at.most(4);
+        }, 120_000);
+
+        it("stop() unsubscribes every gossip arrival listener the update loop registered", async () => {
+            // Spy BEFORE the loop starts so every subscribe the loop makes is captured. The
+            // arrival listener map lives on the SHARED libp2p-js client and outlives any one
+            // community, so a listener stop() fails to remove would retain the stopped
+            // community's whole manager graph for the life of the client.
+            const libp2pJsClient = pkc.clients.libp2pJsClients[Object.keys(pkc.clients.libp2pJsClients)[0]];
+            const arrivals = libp2pJsClient.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals;
+            const subscribeSpy = vi.spyOn(arrivals, "subscribe");
+            const unsubscribeSpy = vi.spyOn(arrivals, "unsubscribe");
+            try {
+                const { community } = await startUpdatingStaticCommunityAndAwaitFirstUpdate();
+
+                // The update loop (and so the arrival subscriptions) runs on the TRACKED
+                // updating instance; the instance createCommunity returned may be a mirror
+                // attached to it, whose own manager never runs a loop. Inspect the instance
+                // that actually loops. The update event also fires INSIDE updateOnce while
+                // the loop syncs subscriptions right after it returns, so poll briefly
+                // instead of racing that ordering.
+                const updatingInstance = community._updatingCommunityInstanceWithListeners?.community ?? community;
+                const managerInternals = updatingInstance._clientsManager as unknown as {
+                    _subscribedIpnsArrivalTopics: Set<string>;
+                };
+                const deadline = Date.now() + 10_000;
+                while (Date.now() < deadline && managerInternals._subscribedIpnsArrivalTopics.size === 0) await sleep(100);
+                expect(
+                    managerInternals._subscribedIpnsArrivalTopics.size,
+                    "the loop must have registered at least one arrival subscription after the first update"
+                ).to.be.greaterThan(0);
+                // Scope all spy assertions to THIS community's topics: the spies sit on the
+                // shared client, and another test's still-updating community may add its own
+                // (legitimately still-subscribed) calls while this test runs.
+                const communityTopics = [...managerInternals._subscribedIpnsArrivalTopics];
+                for (const topic of communityTopics)
+                    expect(
+                        subscribeSpy.mock.calls.some(([subscribedTopic]) => subscribedTopic === topic),
+                        `subscribe must have been called for the community's topic ${topic}`
+                    ).to.equal(true);
+
+                await community.stop();
+
+                expect(
+                    managerInternals._subscribedIpnsArrivalTopics.size,
+                    "stop() must clear the manager's arrival subscriptions"
+                ).to.equal(0);
+                // Every (topic, listener) pair this community subscribed must have been
+                // unsubscribed, so the shared client's listener map holds nothing of it.
+                for (const [topic, listener] of subscribeSpy.mock.calls) {
+                    if (!communityTopics.includes(topic)) continue;
+                    expect(
+                        unsubscribeSpy.mock.calls.some(([unsubTopic, unsubListener]) => unsubTopic === topic && unsubListener === listener),
+                        `stop() must unsubscribe the arrival listener it subscribed for topic ${topic}`
+                    ).to.equal(true);
+                }
+            } finally {
+                subscribeSpy.mockRestore();
+                unsubscribeSpy.mockRestore();
+            }
         }, 120_000);
 
         it("a newer record published while updating is still delivered", async () => {
