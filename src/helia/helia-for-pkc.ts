@@ -4,7 +4,6 @@ import { withBitswap } from "@helia/bitswap";
 import { ipns } from "@helia/ipns";
 import { unmarshalIPNSRecord, multihashToIPNSRoutingKey } from "ipns";
 import type { IPNSRecord } from "ipns";
-import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { ipnsValidator } from "ipns/validator";
 import { gossipsub } from "@libp2p/gossipsub";
 import { identify } from "@libp2p/identify";
@@ -39,7 +38,7 @@ import {
 } from "./util.js";
 import type { IpnsPubsubLocalStore } from "./util.js";
 import { createDefaultDialTransportGater } from "./dial-transport-filter.js";
-import { ipnsNameToIpnsOverPubsubTopic } from "../util.js";
+import { binaryKeyToPubsubTopic, ipnsNameToIpnsOverPubsubTopic } from "../util.js";
 
 const log = Logger("pkc-js:libp2p-js");
 
@@ -434,13 +433,15 @@ export async function createLibp2pJsClientOrUseExistingOne(
         // locally", with none of the ordering hazards of listening to raw pubsub messages
         // (which fire before handleRecord has validated and cached the record). The topic key is
         // derivable from the routing key alone: routingKey = '/ipns/' + multihash bytes and the
-        // gossip topic is '/record/' + base64url(routingKey) (see ipnsNameToIpnsOverPubsubTopic).
-        // A listener failure or an unmarshal failure must never fail the put itself.
+        // gossip topic is binaryKeyToPubsubTopic(routingKey) — the same encoding the subscriber
+        // side derives through ipnsNameToIpnsOverPubsubTopic, so publisher and subscriber cannot
+        // silently diverge. A listener failure or an unmarshal failure must never fail the put
+        // itself.
         const ipnsRecordArrivalListeners = new Map<string, Set<IpnsRecordArrivalListener>>();
         const originalLocalStorePut = ipnsPubsubLocalStore.put.bind(ipnsPubsubLocalStore);
         ipnsPubsubLocalStore.put = async (routingKey, marshalledRecord, options) => {
             await originalLocalStorePut(routingKey, marshalledRecord, options);
-            const pubsubTopic = "/record/" + uint8ArrayToString(routingKey, "base64url");
+            const pubsubTopic = binaryKeyToPubsubTopic(routingKey);
             const listeners = ipnsRecordArrivalListeners.get(pubsubTopic);
             if (!listeners || listeners.size === 0) return;
             let record: IPNSRecord;
