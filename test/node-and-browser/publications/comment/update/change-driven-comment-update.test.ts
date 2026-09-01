@@ -72,7 +72,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         }, 300_000);
 
         const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-        const communityAddress = signers[0].address;
+        // NOT signers[0]: this suite drives the live community with filler posts, and several
+        // concurrently-running suites (post.updatingstate and friends) assert EXACT tail slices
+        // of updating states for posts on the signers[0] community; a filler-triggered update
+        // cycle landing between their post's succeeded and stopped shifts that tail and flakes
+        // them (observed on the browser CI legs). signers[7] runs the same no-challenge
+        // community with far fewer concurrent users.
+        const communityAddress = signers[7].address;
 
         // Publish a post, set it updating on the measuring pkc, and wait for its first update.
         // Also returns an updating community mirror on the same pkc (it attaches to the same
