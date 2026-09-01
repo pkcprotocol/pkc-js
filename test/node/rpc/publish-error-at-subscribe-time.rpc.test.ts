@@ -24,34 +24,16 @@
 // pending buffer, and is replayed synchronously inside the client's comment.publish().
 import { describe, beforeAll, afterAll, expect } from "vitest";
 import path from "path";
-import net from "node:net";
 import PKC from "../../../dist/node/index.js";
-import PKCWsServer from "../../../dist/node/rpc/src/index.js";
+import { createInProcessRpcServer, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
 import { mockRpcServerPKC, createSubWithNoChallenge } from "../../../dist/node/test/test-util.js";
 import { PKCError } from "../../../dist/node/pkc-error.js";
 import { itIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 
-type PKCWsServerType = Awaited<ReturnType<typeof PKCWsServer.PKCWsServer>>;
-
 const RPC_AUTH_KEY = "test-publish-error-at-subscribe-time";
 const INJECTED_MARKER = "injectedSubscribeTimePublishError314";
-
-const getAvailablePort = async (): Promise<number> =>
-    new Promise<number>((resolve, reject) => {
-        const server = net.createServer();
-        server.unref();
-        server.on("error", reject);
-        server.listen(0, () => {
-            const address = server.address();
-            if (!address || typeof address === "string") {
-                server.close(() => reject(new Error("Failed to allocate a TCP port for the RPC test server")));
-                return;
-            }
-            server.close(() => resolve(address.port));
-        });
-    });
 
 const isInjectedError = (err: unknown): boolean =>
     Boolean(err && typeof err === "object" && (err as { details?: Record<string, unknown> }).details?.[INJECTED_MARKER]);
@@ -76,21 +58,9 @@ describe("RPC: publish error emitted at subscribe time reaches a listener attach
         serverCommunity = await createSubWithNoChallenge({}, serverPKC);
         await serverCommunity.start();
 
-        const rpcPort = await getAvailablePort();
-        rpcUrl = `ws://localhost:${rpcPort}`;
-
-        rpcServer = await PKCWsServer.PKCWsServer({
-            port: rpcPort,
-            authKey: RPC_AUTH_KEY,
-            pkcOptions: {
-                kuboRpcClientsOptions: ["http://localhost:15001/api/v0"],
-                httpRoutersOptions: [],
-                dataPath: serverPKC.dataPath
-            }
-        });
+        ({ rpcServer, rpcUrl } = await createInProcessRpcServer({ serverPKC, authKey: RPC_AUTH_KEY }));
 
         const server = rpcServer as unknown as Record<string, Function>;
-        server._initPKC(serverPKC);
 
         // Make the server-side comment's publish() emit a non-retriable error instead of
         // publishing. publishComment awaits comment.publish() after all subscription listeners

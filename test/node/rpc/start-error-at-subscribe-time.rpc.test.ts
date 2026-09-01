@@ -30,9 +30,8 @@
 // scope here.
 import { describe, beforeAll, afterAll, expect } from "vitest";
 import path from "path";
-import net from "node:net";
 import PKC from "../../../dist/node/index.js";
-import PKCWsServer from "../../../dist/node/rpc/src/index.js";
+import { createInProcessRpcServer, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
 import { mockRpcServerPKC } from "../../../dist/node/test/test-util.js";
 import { PKCError } from "../../../dist/node/pkc-error.js";
 import { itIfRpc } from "../../helpers/conditional-tests.js";
@@ -40,25 +39,8 @@ import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 
-type PKCWsServerType = Awaited<ReturnType<typeof PKCWsServer.PKCWsServer>>;
-
 const RPC_AUTH_KEY = "test-start-error-at-subscribe-time";
 const INJECTED_MARKER = "injectedStartSubscribeTimeError314";
-
-const getAvailablePort = async (): Promise<number> =>
-    new Promise<number>((resolve, reject) => {
-        const server = net.createServer();
-        server.unref();
-        server.on("error", reject);
-        server.listen(0, () => {
-            const address = server.address();
-            if (!address || typeof address === "string") {
-                server.close(() => reject(new Error("Failed to allocate a TCP port for the RPC test server")));
-                return;
-            }
-            server.close(() => resolve(address.port));
-        });
-    });
 
 const isInjectedError = (err: unknown): boolean =>
     Boolean(err && typeof err === "object" && (err as { details?: Record<string, unknown> }).details?.[INJECTED_MARKER]);
@@ -76,21 +58,9 @@ describe("RPC: community error emitted at start-subscribe time reaches a listene
         );
         serverPKC = await mockRpcServerPKC({ dataPath });
 
-        const rpcPort = await getAvailablePort();
-        rpcUrl = `ws://localhost:${rpcPort}`;
-
-        rpcServer = await PKCWsServer.PKCWsServer({
-            port: rpcPort,
-            authKey: RPC_AUTH_KEY,
-            pkcOptions: {
-                kuboRpcClientsOptions: ["http://localhost:15001/api/v0"],
-                httpRoutersOptions: [],
-                dataPath: serverPKC.dataPath
-            }
-        });
+        ({ rpcServer, rpcUrl } = await createInProcessRpcServer({ serverPKC, authKey: RPC_AUTH_KEY }));
 
         const server = rpcServer as unknown as Record<string, Function>;
-        server._initPKC(serverPKC);
 
         // Emit a non-retriable error on the server-side started instance after the start
         // subscription's listeners are bound (startCommunityImpl calls _setupStartedEvents before

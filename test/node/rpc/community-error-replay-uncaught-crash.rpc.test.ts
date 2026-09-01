@@ -29,9 +29,8 @@
 // deferred task.
 import { describe, beforeAll, afterAll, expect } from "vitest";
 import path from "path";
-import net from "node:net";
 import PKC from "../../../dist/node/index.js";
-import PKCWsServer from "../../../dist/node/rpc/src/index.js";
+import { createInProcessRpcServer, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
 import { mockRpcServerPKC } from "../../../dist/node/test/test-util.js";
 import { PKCError } from "../../../dist/node/pkc-error.js";
 import { findUpdatingCommunity } from "../../../dist/node/pkc/tracked-instance-registry-util.js";
@@ -39,25 +38,8 @@ import { itIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 
-type PKCWsServerType = Awaited<ReturnType<typeof PKCWsServer.PKCWsServer>>;
-
 const RPC_AUTH_KEY = "test-community-error-replay-uncaught-crash";
 const INJECTED_MARKER = "injectedSubscribeTimeErrorReplayCrash";
-
-const getAvailablePort = async (): Promise<number> =>
-    new Promise<number>((resolve, reject) => {
-        const server = net.createServer();
-        server.unref();
-        server.on("error", reject);
-        server.listen(0, () => {
-            const address = server.address();
-            if (!address || typeof address === "string") {
-                server.close(() => reject(new Error("Failed to allocate a TCP port for the RPC test server")));
-                return;
-            }
-            server.close(() => resolve(address.port));
-        });
-    });
 
 // Matches the injected error both as delivered over RPC (plain object with .details carrying the
 // marker) and as rethrown by EventEmitter for an unhandled "error" event (an Error instance is
@@ -81,21 +63,9 @@ describe("RPC: subscribe-time community error with no listeners attached must no
         dataPath = path.join(process.cwd(), `.tmp/.pkc-rpc-error-replay-crash-test-${Date.now()}-${Math.floor(Math.random() * 100000)}`);
         serverPKC = await mockRpcServerPKC({ dataPath });
 
-        const rpcPort = await getAvailablePort();
-        rpcUrl = `ws://localhost:${rpcPort}`;
-
-        rpcServer = await PKCWsServer.PKCWsServer({
-            port: rpcPort,
-            authKey: RPC_AUTH_KEY,
-            pkcOptions: {
-                kuboRpcClientsOptions: ["http://localhost:15001/api/v0"],
-                httpRoutersOptions: [],
-                dataPath: serverPKC.dataPath
-            }
-        });
+        ({ rpcServer, rpcUrl } = await createInProcessRpcServer({ serverPKC, authKey: RPC_AUTH_KEY }));
 
         const server = rpcServer as unknown as Record<string, Function>;
-        server._initPKC(serverPKC);
 
         // Emit a non-retriable error on the server-side updating instance after the subscription's
         // listeners are bound but before communityUpdateSubscribe returns its response, so the

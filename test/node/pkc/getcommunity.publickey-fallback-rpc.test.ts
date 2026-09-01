@@ -1,8 +1,7 @@
 import { describe, beforeAll, afterAll, expect } from "vitest";
 import path from "path";
-import net from "node:net";
 import PKC from "../../../dist/node/index.js";
-import PKCWsServer from "../../../dist/node/rpc/src/index.js";
+import { createInProcessRpcServer, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
 import {
     createMockedCommunityIpns,
     createMockNameResolver,
@@ -13,24 +12,7 @@ import { itIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { InputPKCOptions } from "../../../dist/node/types.js";
 
-type PKCWsServerType = Awaited<ReturnType<typeof PKCWsServer.PKCWsServer>>;
-
 const RPC_AUTH_KEY = "test-getcommunity-publickey-fallback";
-
-const getAvailablePort = async (): Promise<number> =>
-    new Promise<number>((resolve, reject) => {
-        const server = net.createServer();
-        server.unref();
-        server.on("error", reject);
-        server.listen(0, () => {
-            const address = server.address();
-            if (!address || typeof address === "string") {
-                server.close(() => reject(new Error("Failed to allocate a TCP port for the RPC test server")));
-                return;
-            }
-            server.close(() => resolve(address.port));
-        });
-    });
 
 const createResolverLimitedNameResolvers = () => [
     createMockNameResolver({
@@ -54,21 +36,9 @@ describe("pkc.getCommunity publicKey fallback over RPC", () => {
             nameResolvers: createResolverLimitedNameResolvers()
         });
 
-        const rpcPort = await getAvailablePort();
-        rpcUrl = `ws://localhost:${rpcPort}`;
-
-        rpcServer = await PKCWsServer.PKCWsServer({
-            port: rpcPort,
-            authKey: RPC_AUTH_KEY,
-            pkcOptions: {
-                kuboRpcClientsOptions: ["http://localhost:15001/api/v0"],
-                httpRoutersOptions: [],
-                dataPath: serverPKC.dataPath
-            }
-        });
+        ({ rpcServer, rpcUrl } = await createInProcessRpcServer({ serverPKC, authKey: RPC_AUTH_KEY }));
 
         const server = rpcServer as unknown as Record<string, Function>;
-        server._initPKC(serverPKC);
         server._createPKCInstanceFromSetSettings = async (newOptions: InputPKCOptions) =>
             mockRpcServerPKC({
                 dataPath,
