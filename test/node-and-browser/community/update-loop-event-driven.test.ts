@@ -1,5 +1,9 @@
 import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
-import { getAvailablePKCConfigsToTestAgainst, publishCommunityRecordWithExtraProp } from "../../../dist/node/test/test-util.js";
+import {
+    getAvailablePKCConfigsToTestAgainst,
+    isRunningInBrowser,
+    publishCommunityRecordWithExtraProp
+} from "../../../dist/node/test/test-util.js";
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
 import { timestamp } from "../../../dist/node/util.js";
 
@@ -49,6 +53,17 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         });
 
         const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+        // Node-only, and this is a load decision rather than a correctness one. The safety-net
+        // test below parks a real jittered period (45-75s observed) with a live updating
+        // community. CI runs the browser jobs with --parallel, which turns on fileParallelism, so
+        // all ~126 node-and-browser files share ONE page and one Helia node; adding a minute of
+        // extra concurrent load there measurably worsens a suite that is already flaky in that
+        // configuration (the issue #138 class: state-order assertions racing concurrent community
+        // loops — reproduced locally on the unmodified base commit too). The behavior under test
+        // is update-loop timing with no browser-specific component, so the three node libp2p-js
+        // jobs cover it.
+        const itSkipIfBrowser = isRunningInBrowser() ? it.skip : it;
 
         // kubo 0.43's name.publish default ttl is 300s, so the routing-layer cache would serve a
         // stale record for 225s+ (the ttl is jittered down to [0.75, 1.0) of itself, issue #307).
@@ -280,81 +295,85 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         // failure (which costs another whole jittered park) does not turn a slow CI runner into a
         // red build; the test still fails outright if the safety net never fires at all, which is
         // the property being pinned.
-        it("a newer record still arrives via the safety-net poll when the push wake is lost", async () => {
-            type ManagerArrivalInternals = {
-                _subscribedIpnsArrivalTopics: Set<string>;
-                _syncIpnsArrivalSubscriptions(client: unknown): void;
-                _clearIpnsArrivalSubscriptions(): void;
-            };
-            let managerInternals: ManagerArrivalInternals | undefined;
-            let originalSync: ManagerArrivalInternals["_syncIpnsArrivalSubscriptions"] | undefined;
-            try {
-                const staticRecord = await publishCommunityRecordWithExtraProp({ ttl: SHORT_RECORD_TTL });
-                staticRecordsToCleanUp.push(staticRecord);
-                const community = (await pkc.createCommunity({
-                    address: staticRecord.ipnsObj.signer.address
-                })) as RemoteCommunity;
-                communitiesToStop.push(community);
-                const firstUpdate = new Promise<void>((resolve) => community.once("update", () => resolve()));
-                await community.update();
-                await firstUpdate;
-
-                // The loop runs on the TRACKED updating instance; the instance createCommunity
-                // returned may be a mirror attached to it. The update event also fires INSIDE
-                // updateOnce, while the loop syncs its arrival subscriptions immediately AFTER
-                // updateOnce returns, so poll instead of racing that ordering (same reason as the
-                // stop() test above).
-                const updatingInstance = community._updatingCommunityInstanceWithListeners?.community ?? community;
-                managerInternals = updatingInstance._clientsManager as unknown as ManagerArrivalInternals;
-                const subscribeDeadline = Date.now() + 10_000;
-                while (Date.now() < subscribeDeadline && managerInternals._subscribedIpnsArrivalTopics.size === 0) await sleep(100);
-                expect(
-                    managerInternals._subscribedIpnsArrivalTopics.size,
-                    "the loop must have registered an arrival subscription, otherwise this test is not suppressing anything"
-                ).to.be.greaterThan(0);
-
-                originalSync = managerInternals._syncIpnsArrivalSubscriptions;
-                managerInternals._syncIpnsArrivalSubscriptions = () => {};
-                managerInternals._clearIpnsArrivalSubscriptions();
-                expect(
-                    managerInternals._subscribedIpnsArrivalTopics.size,
-                    "the community under test must hold no arrival subscription once suppressed"
-                ).to.equal(0);
-
-                const newerRecord = JSON.parse(JSON.stringify(staticRecord.communityRecord)) as typeof staticRecord.communityRecord;
-                newerRecord.updatedAt = Math.max(newerRecord.updatedAt + 1, timestamp());
-                newerRecord.signature = await signCommunity({ community: newerRecord, signer: staticRecord.ipnsObj.signer });
-
-                const onUpdate = () => {
-                    if (community.updatedAt === newerRecord.updatedAt) deliveredResolve();
+        itSkipIfBrowser(
+            "a newer record still arrives via the safety-net poll when the push wake is lost",
+            async () => {
+                type ManagerArrivalInternals = {
+                    _subscribedIpnsArrivalTopics: Set<string>;
+                    _syncIpnsArrivalSubscriptions(client: unknown): void;
+                    _clearIpnsArrivalSubscriptions(): void;
                 };
-                let deliveredResolve!: () => void;
-                const delivered = new Promise<void>((resolve) => {
-                    deliveredResolve = resolve;
-                    community.on("update", onUpdate);
-                });
-                await staticRecord.ipnsObj.publishToIpns(JSON.stringify(newerRecord), { ttl: SHORT_RECORD_TTL });
+                let managerInternals: ManagerArrivalInternals | undefined;
+                let originalSync: ManagerArrivalInternals["_syncIpnsArrivalSubscriptions"] | undefined;
+                try {
+                    const staticRecord = await publishCommunityRecordWithExtraProp({ ttl: SHORT_RECORD_TTL });
+                    staticRecordsToCleanUp.push(staticRecord);
+                    const community = (await pkc.createCommunity({
+                        address: staticRecord.ipnsObj.signer.address
+                    })) as RemoteCommunity;
+                    communitiesToStop.push(community);
+                    const firstUpdate = new Promise<void>((resolve) => community.once("update", () => resolve()));
+                    await community.update();
+                    await firstUpdate;
 
-                let deliveredInTime = true;
-                let timer: ReturnType<typeof setTimeout> | undefined;
-                const timeout = new Promise<void>((resolve) => {
-                    timer = setTimeout(() => {
-                        deliveredInTime = false;
-                        resolve();
-                    }, 180_000);
-                });
-                await Promise.race([delivered, timeout]);
-                clearTimeout(timer);
-                community.removeListener("update", onUpdate);
-                expect(
-                    deliveredInTime,
-                    "with the push wake suppressed the jittered safety-net poll must still deliver the newer record; a miss here means a missed push strands the community until it is restarted"
-                ).to.equal(true);
-            } finally {
-                // Hand the loop its real sync back so the community resubscribes on its next
-                // iteration and afterAll's stop() unsubscribes a consistent set.
-                if (managerInternals && originalSync) managerInternals._syncIpnsArrivalSubscriptions = originalSync;
-            }
-        }, 240_000);
+                    // The loop runs on the TRACKED updating instance; the instance createCommunity
+                    // returned may be a mirror attached to it. The update event also fires INSIDE
+                    // updateOnce, while the loop syncs its arrival subscriptions immediately AFTER
+                    // updateOnce returns, so poll instead of racing that ordering (same reason as the
+                    // stop() test above).
+                    const updatingInstance = community._updatingCommunityInstanceWithListeners?.community ?? community;
+                    managerInternals = updatingInstance._clientsManager as unknown as ManagerArrivalInternals;
+                    const subscribeDeadline = Date.now() + 10_000;
+                    while (Date.now() < subscribeDeadline && managerInternals._subscribedIpnsArrivalTopics.size === 0) await sleep(100);
+                    expect(
+                        managerInternals._subscribedIpnsArrivalTopics.size,
+                        "the loop must have registered an arrival subscription, otherwise this test is not suppressing anything"
+                    ).to.be.greaterThan(0);
+
+                    originalSync = managerInternals._syncIpnsArrivalSubscriptions;
+                    managerInternals._syncIpnsArrivalSubscriptions = () => {};
+                    managerInternals._clearIpnsArrivalSubscriptions();
+                    expect(
+                        managerInternals._subscribedIpnsArrivalTopics.size,
+                        "the community under test must hold no arrival subscription once suppressed"
+                    ).to.equal(0);
+
+                    const newerRecord = JSON.parse(JSON.stringify(staticRecord.communityRecord)) as typeof staticRecord.communityRecord;
+                    newerRecord.updatedAt = Math.max(newerRecord.updatedAt + 1, timestamp());
+                    newerRecord.signature = await signCommunity({ community: newerRecord, signer: staticRecord.ipnsObj.signer });
+
+                    const onUpdate = () => {
+                        if (community.updatedAt === newerRecord.updatedAt) deliveredResolve();
+                    };
+                    let deliveredResolve!: () => void;
+                    const delivered = new Promise<void>((resolve) => {
+                        deliveredResolve = resolve;
+                        community.on("update", onUpdate);
+                    });
+                    await staticRecord.ipnsObj.publishToIpns(JSON.stringify(newerRecord), { ttl: SHORT_RECORD_TTL });
+
+                    let deliveredInTime = true;
+                    let timer: ReturnType<typeof setTimeout> | undefined;
+                    const timeout = new Promise<void>((resolve) => {
+                        timer = setTimeout(() => {
+                            deliveredInTime = false;
+                            resolve();
+                        }, 180_000);
+                    });
+                    await Promise.race([delivered, timeout]);
+                    clearTimeout(timer);
+                    community.removeListener("update", onUpdate);
+                    expect(
+                        deliveredInTime,
+                        "with the push wake suppressed the jittered safety-net poll must still deliver the newer record; a miss here means a missed push strands the community until it is restarted"
+                    ).to.equal(true);
+                } finally {
+                    // Hand the loop its real sync back so the community resubscribes on its next
+                    // iteration and afterAll's stop() unsubscribes a consistent set.
+                    if (managerInternals && originalSync) managerInternals._syncIpnsArrivalSubscriptions = originalSync;
+                }
+            },
+            240_000
+        );
     });
 });
