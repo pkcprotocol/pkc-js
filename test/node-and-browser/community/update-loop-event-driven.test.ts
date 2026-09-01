@@ -146,6 +146,69 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             }
         }, 120_000);
 
+        // The arrival listener fires from the wrapped localStore.put MID-updateOnce (inside
+        // resolveIpnsToCidP2P's direct-fetch cache write), BEFORE updateOnce records the cid in
+        // _updateCidsAlreadyLoaded / updateCid. The filter in _onIpnsRecordArrival therefore
+        // cannot tell the loop's own fetch of a new record from a genuinely unconsumed push, and
+        // the park must re-check pending arrivals against POST-updateOnce state instead of
+        // fast-returning on a stale boolean — otherwise every record change the loop discovers
+        // itself (a missed gossip push picked up by the safety net) triggers one redundant full
+        // updateOnce plus a phantom fetching-ipns/waiting-retry pair, reintroducing #308 churn.
+        // Exercised as a unit sequence on a non-updating community's manager so the mid-flight
+        // ordering is deterministic instead of raced through the real network.
+        describe("the park re-checks pending arrivals against post-update state", () => {
+            type ManagerParkInternals = {
+                _onIpnsRecordArrival(arrival: { pubsubTopic: string; record: { value: string } }): void;
+                _sleepUntilIpnsArrivalOrTimeoutOrAbort(ms: number, signal?: AbortSignal): Promise<void>;
+                _updateCidsAlreadyLoaded: { add(cid: string): void };
+            };
+            const makeIdleManager = async () => {
+                // A fresh, never-updated community: its manager has no running loop, so parking it
+                // directly cannot collide with a live loop's wake slot.
+                const signer = await pkc.createSigner();
+                const community = (await pkc.createCommunity({ address: signer.address })) as RemoteCommunity;
+                return community._clientsManager as unknown as ManagerParkInternals;
+            };
+            const CID_A = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
+            const CID_B = "bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku";
+
+            it("an arrival consumed by the update cycle it woke does not fast-return the park (issue #308)", async () => {
+                const manager = await makeIdleManager();
+                // Mid-updateOnce: the loop's own cache write reports the record being consumed.
+                manager._onIpnsRecordArrival({ pubsubTopic: "/record/test", record: { value: `/ipfs/${CID_A}` } });
+                // updateOnce then finishes consuming exactly that record.
+                manager._updateCidsAlreadyLoaded.add(CID_A);
+                const parkStartedAt = Date.now();
+                await manager._sleepUntilIpnsArrivalOrTimeoutOrAbort(400);
+                expect(
+                    Date.now() - parkStartedAt,
+                    "the park must sleep its full period: its only pending arrival was consumed by the cycle that produced it"
+                ).to.be.at.least(350);
+            });
+
+            it("an arrival the update cycle did not consume still fast-returns the park", async () => {
+                const manager = await makeIdleManager();
+                manager._onIpnsRecordArrival({ pubsubTopic: "/record/test", record: { value: `/ipfs/${CID_B}` } });
+                manager._updateCidsAlreadyLoaded.add(CID_A); // the cycle consumed something else
+                const parkStartedAt = Date.now();
+                await manager._sleepUntilIpnsArrivalOrTimeoutOrAbort(10_000);
+                expect(
+                    Date.now() - parkStartedAt,
+                    "a genuinely unconsumed arrival must skip the park so the loop reacts to the push"
+                ).to.be.below(2000);
+            });
+
+            it("an intermediate-hop (/ipns/ value) arrival fast-returns the park", async () => {
+                const manager = await makeIdleManager();
+                manager._onIpnsRecordArrival({ pubsubTopic: "/record/test", record: { value: "/ipns/someintermediatehopname" } });
+                const parkStartedAt = Date.now();
+                await manager._sleepUntilIpnsArrivalOrTimeoutOrAbort(10_000);
+                expect(Date.now() - parkStartedAt, "a newer delegated-chain hop record always warrants an immediate walk").to.be.below(
+                    2000
+                );
+            });
+        });
+
         it("a newer record published while updating is still delivered", async () => {
             const { community, staticRecord } = await startUpdatingStaticCommunityAndAwaitFirstUpdate();
 
@@ -153,26 +216,34 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             newerRecord.updatedAt = Math.max(newerRecord.updatedAt + 1, timestamp());
             newerRecord.signature = await signCommunity({ community: newerRecord, signer: staticRecord.ipnsObj.signer });
 
+            const onUpdate = () => {
+                if (community.updatedAt === newerRecord.updatedAt) deliveredResolve();
+            };
+            let deliveredResolve!: () => void;
             const delivered = new Promise<void>((resolve) => {
-                const onUpdate = () => {
-                    if (community.updatedAt === newerRecord.updatedAt) {
-                        community.removeListener("update", onUpdate);
-                        resolve();
-                    }
-                };
+                deliveredResolve = resolve;
                 community.on("update", onUpdate);
             });
             await staticRecord.ipnsObj.publishToIpns(JSON.stringify(newerRecord));
 
-            // On master the 1s polling loop delivers this within a couple of seconds. After
-            // the fix delivery rides the gossipsub push channel (or, if the push is missed,
-            // the safety-net poll), so allow one full jittered safety-net period.
+            // On master the 1s polling loop delivers this within a couple of seconds. After the
+            // fix delivery rides the gossipsub push channel; if the push is missed, worst case is
+            // a safety-net tick that still serves the stale record inside its jittered effective
+            // ttl (up to 60s, issue #307) followed by one full jittered safety-net period (up to
+            // 75s) before the revalidating tick — ~135s total, so allow 150s. The losing timer is
+            // cleared so no 150s handle outlives the test.
             let deliveredInTime = true;
-            const timer = sleep(120_000).then(() => {
-                deliveredInTime = false;
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const timeout = new Promise<void>((resolve) => {
+                timer = setTimeout(() => {
+                    deliveredInTime = false;
+                    resolve();
+                }, 150_000);
             });
-            await Promise.race([delivered, timer]);
+            await Promise.race([delivered, timeout]);
+            clearTimeout(timer);
+            community.removeListener("update", onUpdate);
             expect(deliveredInTime, "the newer community record must reach the updating community").to.equal(true);
-        }, 180_000);
+        }, 240_000);
     });
 });

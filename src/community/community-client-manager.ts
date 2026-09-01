@@ -28,6 +28,7 @@ import {
     isStringDomain,
     pubsubTopicToDhtKey,
     sleepUntilTimeoutOrAbort,
+    interruptibleSleep,
     throwIfAbortSignalAborted,
     timestamp
 } from "../util.js";
@@ -66,13 +67,17 @@ export class CommunityClientsManager extends PKCClientsManager {
     _updateCidsAlreadyLoaded: LimitedSet<string> = new LimitedSet<string>(30); // we will keep track of the last 50 community update cids that we loaded
 
     // Event-driven update loop plumbing (issue #308), used only when the default record resolver
-    // is a libp2p-js client. _ipnsArrivalPending survives an arrival that lands while updateOnce
-    // is mid-flight, so the loop re-runs immediately instead of parking for a full safety-net
-    // period and missing the record it was just told about.
+    // is a libp2p-js client. Pending arrivals survive an arrival that lands while updateOnce is
+    // mid-flight, so the loop re-runs immediately instead of parking for a full safety-net
+    // period and missing the record it was just told about. Pending CIDs (not a boolean) because
+    // the loop's OWN direct-fetch cache write fires the arrival listener mid-updateOnce, before
+    // the consumed cid is recorded anywhere — only the park, running after updateOnce, can tell
+    // that self-arrival apart from a genuinely unconsumed push (see _consumePendingIpnsArrivals).
     private _subscribedIpnsArrivalTopics = new Set<string>();
     private _ipnsArrivalListener?: IpnsRecordArrivalListener;
     private _ipnsArrivalClient?: Libp2pJsClient;
-    private _ipnsArrivalPending = false;
+    private _pendingIpnsArrivalCids = new Set<string>();
+    private _pendingIpnsArrivalHopWake = false;
     private _wakeUpdateLoopForIpnsArrival?: () => void;
 
     constructor(community: CommunityClientsManager["_community"]) {
@@ -387,18 +392,36 @@ export class CommunityClientsManager extends PKCClientsManager {
     // Wake the update loop when a record NEWER than anything already consumed lands in the
     // routing-layer cache (gossip push, direct-fetch cache write, or fallback fetch — all
     // newer-only writers). A terminal record whose /ipfs/ value was already consumed is not
-    // news: communities re-publish records with a bumped sequence but an unchanged CID, and
-    // updateOnce's own direct-fetch cache write reports the record it just consumed, which
-    // this filter keeps from waking the loop it came from. An /ipns/ value is an intermediate
-    // hop of a delegated chain; a newer hop record always warrants a walk.
+    // news: communities re-publish records with a bumped sequence but an unchanged CID. The
+    // filter here only catches cids already recorded; the loop's OWN direct-fetch cache write
+    // fires mid-updateOnce, BEFORE the cid it is consuming reaches _updateCidsAlreadyLoaded
+    // (line ~770) or updateCid — that self-arrival passes here and is dropped by the park's
+    // post-updateOnce re-check instead (_consumePendingIpnsArrivals). An /ipns/ value is an
+    // intermediate hop of a delegated chain; a newer hop record always warrants a walk.
     private _onIpnsRecordArrival(arrival: IpnsRecordArrival) {
         const value = arrival.record.value;
-        if (isIpfsPath(value)) {
-            const cid = value.split("/")[2];
-            if (cid && (this._updateCidsAlreadyLoaded.has(cid) || this._community.updateCid === cid)) return;
-        }
-        this._ipnsArrivalPending = true;
+        const cid = isIpfsPath(value) ? value.split("/")[2] : undefined;
+        if (cid) {
+            if (this._updateCidsAlreadyLoaded.has(cid) || this._community.updateCid === cid) return;
+            this._pendingIpnsArrivalCids.add(cid);
+        } else this._pendingIpnsArrivalHopWake = true;
         this._wakeUpdateLoopForIpnsArrival?.();
+    }
+
+    // Consume the pending arrivals, dropping every cid the updateOnce that just ran consumed
+    // (or that any earlier cycle consumed — a gossip replay). Returns whether anything genuinely
+    // new remains, in which case the caller must skip its park and re-run updateOnce now. All
+    // pending state is cleared on a true return: the immediate updateOnce re-run is the reaction
+    // to it, and keeping it would re-trigger on the next park even when that re-run failed on a
+    // non-retriable record (the arrival will not re-fire — the record is already the newest
+    // cached one — so a stale entry here would spin the loop hot against a broken record).
+    private _consumePendingIpnsArrivals(): boolean {
+        for (const cid of this._pendingIpnsArrivalCids)
+            if (this._updateCidsAlreadyLoaded.has(cid) || this._community.updateCid === cid) this._pendingIpnsArrivalCids.delete(cid);
+        if (this._pendingIpnsArrivalCids.size === 0 && !this._pendingIpnsArrivalHopWake) return false;
+        this._pendingIpnsArrivalCids.clear();
+        this._pendingIpnsArrivalHopWake = false;
+        return true;
     }
 
     // Keep the arrival subscriptions in sync with the hops the last resolve walked: one topic
@@ -431,31 +454,22 @@ export class CommunityClientsManager extends PKCClientsManager {
                 this._ipnsArrivalClient.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals.unsubscribe(topic, this._ipnsArrivalListener);
         this._subscribedIpnsArrivalTopics.clear();
         this._ipnsArrivalClient = undefined;
-        this._ipnsArrivalPending = false;
+        this._pendingIpnsArrivalCids.clear();
+        this._pendingIpnsArrivalHopWake = false;
     }
 
     // Park until a pushed record arrival, the (jittered) safety-net timeout, or the stop signal,
-    // whichever fires first. The timer and abort listener are detached on EVERY outcome so
-    // nothing leaks on the long-lived stop signal (the issue #145 pattern); an arrival that
-    // fired while updateOnce was mid-flight is consumed immediately instead of being lost.
+    // whichever fires first (interruptibleSleep detaches its timer and abort listener on every
+    // outcome, the issue #145 pattern). An arrival that fired while updateOnce was mid-flight is
+    // consumed immediately instead of being lost — unless that very updateOnce consumed it (the
+    // loop's own cache write reports the record it is fetching before recording it as loaded, so
+    // only this post-updateOnce re-check can drop it; see _consumePendingIpnsArrivals).
     private async _sleepUntilIpnsArrivalOrTimeoutOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
-        if (this._ipnsArrivalPending) {
-            this._ipnsArrivalPending = false;
-            return;
-        }
-        await new Promise<void>((resolve) => {
-            if (signal?.aborted) return resolve();
-            const settle = () => {
-                clearTimeout(timer);
-                signal?.removeEventListener("abort", settle);
-                if (this._wakeUpdateLoopForIpnsArrival === settle) this._wakeUpdateLoopForIpnsArrival = undefined;
-                resolve();
-            };
-            const timer = setTimeout(settle, ms);
-            signal?.addEventListener("abort", settle, { once: true });
-            this._wakeUpdateLoopForIpnsArrival = settle;
-        });
-        this._ipnsArrivalPending = false;
+        if (this._consumePendingIpnsArrivals()) return;
+        const { promise, wake } = interruptibleSleep(ms, signal);
+        this._wakeUpdateLoopForIpnsArrival = wake;
+        await promise;
+        if (this._wakeUpdateLoopForIpnsArrival === wake) this._wakeUpdateLoopForIpnsArrival = undefined;
     }
 
     // fetching community ipns here
