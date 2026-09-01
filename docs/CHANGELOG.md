@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.92](https://github.com/pkcprotocol/pkc-js/compare/v0.0.91...v0.0.92) (2026-09-01)
+
+### Bug Fixes
+
+* **community:** defer unpinning superseded cids so repo.gc cannot race clients still fetching them ([#306](https://github.com/pkcprotocol/pkc-js/issues/306)) ([871703c](https://github.com/pkcprotocol/pkc-js/commit/871703c2a3294228582b15cf08e3d0fa6c6dc653)), closes [#305](https://github.com/pkcprotocol/pkc-js/issues/305)
+
 ## [0.0.91](https://github.com/pkcprotocol/pkc-js/compare/v0.0.90...v0.0.91) (2026-08-31)
 
 ### Bug Fixes
