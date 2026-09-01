@@ -9,6 +9,7 @@ Concise protocol reference for AI agents and contributors. Each doc covers one d
 | [names-and-addresses.md](names-and-addresses.md) | `address = name \|\| publicKey`, domain resolution, immutability |
 | [delegated-ipns.md](delegated-ipns.md) | Delegated IPNS chains (anchor → minter → /ipfs), client-side loading & verification |
 | [community-architecture.md](community-architecture.md) | Local vs Remote vs RPC variants, state machines |
+| [community-lists.md](community-lists.md) | `CommunityList` (formerly "multisub"): curated community lists, wire format, owner publish, delegated RPC publish |
 | [signing.md](signing.md) | Ed25519 signatures, signedPropertyNames, CBORG encoding |
 | [pages.md](pages.md) | Pagination, sort types, ephemeral nature of pages |
 | [crossposts.md](crossposts.md) | `comment.crosspost`, the embedded record, tier-1 vs tier-2 verification, `features.noCrossposts` |
