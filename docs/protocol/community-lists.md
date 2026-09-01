@@ -41,6 +41,16 @@ CommunityListEntry { // metadata set by the list owner, NOT the community owner
   check like every other record.
 - All array-valued fields are plural (`communities`, `languages`, `locations`, `features`,
   `tags`).
+- **Load schemas are loose.** When loading a record, `CommunityListSchema` and
+  `CommunityListEntrySchema` must accept and preserve unknown extra props (zod `.loose()`),
+  exactly like `CommentIpfsSchema` and `CommunityIpfsSchema`. This is load-bearing, not
+  stylistic: a newer publisher may add fields and sign them, and verification walks the
+  record's own `signature.signedPropertyNames`, so a strict schema would both reject records
+  from newer publishers and break signature verification by dropping signed props. Extra
+  props ride along into the runtime instance and JSON round-trips untouched.
+- The runtime-only conveniences (`address`, `shortAddress`) go on reserved-field lists
+  (`CommunityListReservedFields` and the entry equivalent), so looseness never lets a wire
+  record smuggle in runtime-only names; same rule as every other record type.
 
 ## Identity and addressing
 
