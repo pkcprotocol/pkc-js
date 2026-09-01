@@ -444,7 +444,9 @@ export async function stop(community: LocalCommunity) {
         }
 
         try {
-            await unpinStaleCids(community);
+            // Bypass the unpin grace period: this is the process's last chance to unpin, and a
+            // community that never starts again would otherwise leak its queued pins forever.
+            await unpinStaleCids(community, { bypassGracePeriod: true });
         } catch (e) {
             log.error("Failed to unpin stale cids and remove mfs paths before stopping", e);
         }
@@ -559,7 +561,9 @@ export async function deleteCommunity(community: LocalCommunity) {
     if (community.statsCid) community._cidsToUnPin.add(community.statsCid);
 
     try {
-        await unpinStaleCids(community);
+        // Bypass the unpin grace period: the community is being deleted, nothing will ever run a
+        // later unpin pass for it.
+        await unpinStaleCids(community, { bypassGracePeriod: true });
     } catch (e) {
         log.error("Failed to unpin stale cids before deleting", e);
     }
