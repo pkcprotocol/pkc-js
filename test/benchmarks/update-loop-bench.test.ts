@@ -165,20 +165,33 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             const cpuAfter = process.cpuUsage(cpuBefore);
             const bwAfter = await readServingDaemonBandwidth();
             libp2pJsClient._helia.libp2p.services.pubsub.removeEventListener("message", onPubsubMessage);
+            // Snapshot every counter at the boundary: the fetch wrapper and community listeners
+            // stay live while the delivery wait below runs, and the report divides by windowSec,
+            // so post-window activity must not leak into the per-second rates.
+            const windowUpdatingStateChanges = updatingStateChanges;
+            const windowUpdateEvents = updateEvents;
+            const windowPubsubMessagesReceived = pubsubMessagesReceived;
+            const windowFetchTimestamps = fetchTimestamps.filter((ts) => ts <= windowEndedAt);
 
-            // Give the mid-window delivery until the end of the run to land, then require it.
+            // Give the mid-window delivery until the end of the run to land, then require it. The
+            // losing timer is cleared so no 120s handle outlives the run.
             let deliveredInTime = true;
+            let deliveryTimer: ReturnType<typeof setTimeout> | undefined;
             await Promise.race([
                 midWindowDelivery,
-                sleep(120_000).then(() => {
-                    deliveredInTime = false;
+                new Promise<void>((resolve) => {
+                    deliveryTimer = setTimeout(() => {
+                        deliveredInTime = false;
+                        resolve();
+                    }, 120_000);
                 })
             ]);
+            clearTimeout(deliveryTimer);
 
             // ---- report ----
             const windowSec = (windowEndedAt - windowStart) / 1000;
             const fetchBuckets = new Map<number, number>();
-            for (const ts of fetchTimestamps) {
+            for (const ts of windowFetchTimestamps) {
                 const second = Math.floor((ts - windowStart) / 1000);
                 fetchBuckets.set(second, (fetchBuckets.get(second) ?? 0) + 1);
             }
@@ -192,18 +205,18 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 windowSec: Number(windowSec.toFixed(1)),
                 recordTtl: RECORD_TTL,
                 updatingStateChanges: {
-                    total: updatingStateChanges,
-                    perSecond: Number((updatingStateChanges / windowSec).toFixed(2)),
-                    perCommunityPerSecond: Number((updatingStateChanges / windowSec / COMMUNITY_COUNT).toFixed(3))
+                    total: windowUpdatingStateChanges,
+                    perSecond: Number((windowUpdatingStateChanges / windowSec).toFixed(2)),
+                    perCommunityPerSecond: Number((windowUpdatingStateChanges / windowSec / COMMUNITY_COUNT).toFixed(3))
                 },
-                updateEvents,
+                updateEvents: windowUpdateEvents,
                 ipnsNetworkFetchOps: {
-                    total: fetchTimestamps.length,
-                    perSecond: Number((fetchTimestamps.length / windowSec).toFixed(2)),
+                    total: windowFetchTimestamps.length,
+                    perSecond: Number((windowFetchTimestamps.length / windowSec).toFixed(2)),
                     maxInOneSecond: busiestFetchSeconds[0]?.fetchOps ?? 0,
                     busiestSeconds: busiestFetchSeconds
                 },
-                pubsubMessagesReceived,
+                pubsubMessagesReceived: windowPubsubMessagesReceived,
                 clientCpu: {
                     userMs: Math.round(cpuAfter.user / 1000),
                     systemMs: Math.round(cpuAfter.system / 1000),

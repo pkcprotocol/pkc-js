@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, beforeAll, afterAll, vi } from "vitest";
 import { readFreshCachedIpnsRecordFromPubsubLocalStore } from "../../../dist/node/helia/util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { generateKeyPair } from "@libp2p/crypto/keys";
@@ -23,10 +23,21 @@ import type { IpnsPubsubLocalStore } from "../../../dist/node/helia/util.js";
 // Expected on master: the lockstep test FAILS (every name is served until exactly ttl, so at 85%
 // of ttl age all names are still uniformly fresh); the floor/ceiling/determinism pins pass and
 // must stay green after the fix.
+//
+// Skipped under RPC only because it is a pure in-process unit test of the cache gate against a
+// stubbed localStore: nothing in it touches an RPC server, so running it per-RPC-config would
+// only duplicate coverage.
 describeSkipIfRpc("IPNS cache ttl jitter (issue #307)", () => {
     const VALUE_CID = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
     const TTL_MS = 120_000;
     const LIFETIME_MS = 24 * 60 * 60 * 1000; // far away, so record EOL never interferes with ttl
+
+    // Freeze Date (and only Date — no timers are used here) so `created` and the freshness
+    // check's Date.now() agree exactly: with a live clock, a name whose jittered expiry boundary
+    // falls between the two reads of the determinism pin flips freshness mid-test (probability
+    // roughly gap/30s per name, so a loaded CI runner's event-loop stall makes it a real flake).
+    beforeAll(() => vi.useFakeTimers({ toFake: ["Date"] }));
+    afterAll(() => vi.useRealTimers());
 
     // A marshalled record for a fresh key plus a localStore stub that serves it as cached at
     // `ageMs` ago. The stub implements the same structural IpnsPubsubLocalStore contract src
