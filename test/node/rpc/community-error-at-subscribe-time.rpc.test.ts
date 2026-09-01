@@ -1,11 +1,12 @@
-// Repro for issue #299: over PKC RPC, RpcRemoteCommunity._initRpcUpdateSubscription() awaits
-// communityUpdateSubscribe, attaches the "error" forwarder, then synchronously calls
-// emitAllPendingMessages(subscriptionId), which replays every buffered notification INSIDE
-// update(). Any error the server emitted at subscribe time (before the JSON-RPC subscribe
-// response) is therefore delivered before the caller of update() gets a chance to attach an
-// "error" listener. The missed error bubbles to pkc via the listenerCount("error") === 1 rule
+// Regression test for issue #299: over PKC RPC, RpcRemoteCommunity._initRpcUpdateSubscription()
+// used to attach the "error" forwarder and synchronously call emitAllPendingMessages(subscriptionId)
+// INSIDE update(), replaying every buffered notification before the caller of update() got a
+// chance to attach an "error" listener. Any error the server emitted at subscribe time (before
+// the JSON-RPC subscribe response) then bubbled to pkc via the listenerCount("error") === 1 rule
 // in remote-community.ts, so callers following the natural `await community.update();
-// community.on("error", ...)` order never see it and pkc emits it as unhandled instead.
+// community.on("error", ...)` order never saw it and pkc emitted it as unhandled instead. The fix
+// defers the handler attachment and the buffered replay to a macrotask, so a listener attached
+// synchronously after `await update()` resolves receives the subscribe-time error.
 //
 // The server sends notifications for a subscription before returning the subscribe response
 // (src/rpc/src/index.ts _bindCommunityUpdateSubscription awaits community.update() before

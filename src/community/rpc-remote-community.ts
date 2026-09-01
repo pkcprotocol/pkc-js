@@ -220,11 +220,12 @@ export class RpcRemoteCommunity extends RemoteCommunity {
     async _initRpcUpdateSubscription() {
         const log = Logger("pkc-js:rpc-remote-community:_initRpcUpdateSubscription");
         this._setState("updating");
+        let subscriptionId: number;
         try {
-            const { subscriptionId } = await this._pkc._pkcRpcClient!.communityUpdateSubscribe({
+            ({ subscriptionId } = await this._pkc._pkcRpcClient!.communityUpdateSubscribe({
                 name: this.name,
                 publicKey: this.publicKey
-            });
+            }));
             this._updateRpcSubscriptionId = subscriptionId;
         } catch (e) {
             log.error("Failed to receive communityUpdate from RPC due to error", e);
@@ -232,13 +233,24 @@ export class RpcRemoteCommunity extends RemoteCommunity {
             this._setUpdatingStateWithEventEmissionIfNewState("failed");
             throw e;
         }
-        this._pkc
-            ._pkcRpcClient!.getSubscription(this._updateRpcSubscriptionId)
-            .on("update", this._processUpdateEventFromRpcUpdate.bind(this))
-            .on("updatingstatechange", this._handleUpdatingStateChangeFromRpcUpdate.bind(this))
-            .on("error", this._handleRpcErrorEvent.bind(this));
-
-        this._pkc._pkcRpcClient!.emitAllPendingMessages(this._updateRpcSubscriptionId);
+        // Attach the notification handlers and replay the buffered notifications in a macrotask so
+        // a listener attached synchronously after `await update()` resolves still receives events
+        // the server emitted at subscribe time (#299). A microtask is not enough: it is enqueued
+        // before the promise-resolution jobs that unwind the awaits, so it would still run before
+        // the caller's continuation. Attaching the handlers inside the same deferred task keeps
+        // delivery ordered: notifications arriving in the window find no listeners, so the client
+        // buffers them and the replay drains everything in arrival order.
+        setTimeout(() => {
+            const rpcClient = this._pkc._pkcRpcClient;
+            // The community may have been stopped, restarted, or the RPC client destroyed in the meantime
+            if (this._updateRpcSubscriptionId !== subscriptionId || !rpcClient?.subscriptionActive(subscriptionId)) return;
+            rpcClient
+                .getSubscription(subscriptionId)
+                .on("update", this._processUpdateEventFromRpcUpdate.bind(this))
+                .on("updatingstatechange", this._handleUpdatingStateChangeFromRpcUpdate.bind(this))
+                .on("error", this._handleRpcErrorEvent.bind(this));
+            rpcClient.emitAllPendingMessages(subscriptionId);
+        }, 0);
     }
 
     async _createAndSubscribeToNewUpdatingCommunity(updatingCommunity?: RpcRemoteCommunity) {

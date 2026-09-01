@@ -1351,6 +1351,8 @@ await community.start()
 
 > Start polling the network for new posts published in the community, update itself and emit the 'update' event. Only usable if community.address exists.
 
+Attach your `update` and `error` listeners before calling `update()`, as in the examples below. That said, events are never delivered synchronously from inside `update()` itself: a listener attached immediately after `await community.update()`, before yielding to the event loop, still receives every event, including errors that happened while subscribing. If a community has no `error` listener of its own, its errors bubble up to the `pkc` instance's `error` event instead.
+
 #### Example
 
 ```js

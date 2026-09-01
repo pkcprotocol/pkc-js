@@ -352,7 +352,14 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         if (rest && Object.keys(rest).length > 0) Object.assign(target, rest);
     }
 
+    subscriptionActive(subscriptionId: number): boolean {
+        return Boolean(this._subscriptionEvents[subscriptionId]);
+    }
+
     emitAllPendingMessages(subscriptionId: number) {
+        // The replay may be deferred to a later task (#299), so the subscription can be
+        // unsubscribed or the connection destroyed before it runs
+        if (!this._pendingSubscriptionMsgs[subscriptionId]) return;
         this._pendingSubscriptionMsgs[subscriptionId].forEach((message) =>
             this._subscriptionEvents[subscriptionId].emit(message?.params?.event, message)
         );
