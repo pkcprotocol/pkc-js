@@ -45,7 +45,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         const communities: RemoteCommunity[] = [];
 
         beforeAll(async () => {
-            pkc = await config.pkcInstancePromise();
+            // Production default, not test-util's updateInterval: 500 — the event-driven loop
+            // uses updateInterval as its safety-net period, so the bench must run with the value
+            // real apps run with. Master's kubo/helia loop hardcodes 1s and ignores this option,
+            // so baseline numbers are unaffected by the override.
+            pkc = await config.pkcInstancePromise({ pkcOptions: { updateInterval: 60_000 } });
         }, 60_000);
         afterAll(async () => {
             for (const community of communities.splice(0)) {

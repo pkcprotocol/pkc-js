@@ -30,7 +30,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         const staticRecordsToCleanUp: Awaited<ReturnType<typeof publishCommunityRecordWithExtraProp>>[] = [];
 
         beforeAll(async () => {
-            pkc = await config.pkcInstancePromise();
+            // Test pkc instances default to updateInterval: 500 (test-util's mockPKC), and the
+            // event-driven loop honors updateInterval as its safety-net period — a 500ms net is
+            // polling again, which is exactly what this suite pins against. Use the production
+            // default (60s) so the loop's quiet steady state is observable in the window.
+            pkc = await config.pkcInstancePromise({ pkcOptions: { updateInterval: 60_000 } });
         });
         afterAll(async () => {
             for (const community of communitiesToStop.splice(0)) {
