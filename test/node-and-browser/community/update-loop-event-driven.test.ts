@@ -258,23 +258,36 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         // a push was missed (mesh partition, a record published while we had no subscribers, or
         // a regression in the arrival plumbing itself).
         //
-        // Suppressing ipnsRecordArrivals.subscribe is the faithful way to model that: the loop
-        // registers no listener, so nothing can wake it early and only the jittered timeout can
-        // fire. Gossipsub itself keeps running underneath (the record may still land in the
-        // routing-layer cache), which is deliberate — this pins the loss of the WAKE SIGNAL, the
-        // failure mode PR #311 actually introduces, not a total pubsub outage.
+        // The suppression is scoped to THIS community's own manager, never to the shared client's
+        // ipnsRecordArrivals.subscribe. The libp2p-js client is shared by every pkc in the test
+        // run (test-util keys it by a constant so a browser tab does not accumulate Helia nodes),
+        // so stubbing subscribe there would mute the push channel for every other community for
+        // the ~50s this test parks — in the browser, where all suites share one page, that
+        // silently perturbs whichever state-order suites happen to run alongside it.
+        //
+        // Instead: stub the manager's own _syncIpnsArrivalSubscriptions so the loop stops
+        // re-registering, THEN drop the listener it already registered. That order matters — the
+        // loop re-syncs in its finally on every iteration, so clearing first would just be undone
+        // on the next pass. Gossipsub itself keeps running underneath (the record may still land
+        // in the routing-layer cache), which is deliberate: this pins the loss of the WAKE SIGNAL,
+        // the failure mode PR #311 actually introduces, not a total pubsub outage.
         //
         // The record carries a 10s ttl instead of kubo 0.43's 300s default so the bound holds on
         // both branches: whether or not gossip warmed the cache, the safety-net tick that fires
         // at updateInterval * [0.75, 1.25] (45-75s) is guaranteed to find the cache expired and
-        // revalidate against the network. 120s covers that plus the record fetch.
+        // revalidate against the network. Observed at 49.6s and 73.6s across local runs, i.e. the
+        // full jitter range. The budget is 180s rather than ~90s so that one transient resolve
+        // failure (which costs another whole jittered park) does not turn a slow CI runner into a
+        // red build; the test still fails outright if the safety net never fires at all, which is
+        // the property being pinned.
         it("a newer record still arrives via the safety-net poll when the push wake is lost", async () => {
-            const libp2pJsClient = pkc.clients.libp2pJsClients[Object.keys(pkc.clients.libp2pJsClients)[0]];
-            const arrivals = libp2pJsClient.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals;
-            // Spied before the loop starts so the loop never registers an arrival listener at all.
-            // The spy sits on the shared client, so it is restored in finally to avoid muting the
-            // push channel for anything else in this file.
-            const subscribeSpy = vi.spyOn(arrivals, "subscribe").mockImplementation(() => {});
+            type ManagerArrivalInternals = {
+                _subscribedIpnsArrivalTopics: Set<string>;
+                _syncIpnsArrivalSubscriptions(client: unknown): void;
+                _clearIpnsArrivalSubscriptions(): void;
+            };
+            let managerInternals: ManagerArrivalInternals | undefined;
+            let originalSync: ManagerArrivalInternals["_syncIpnsArrivalSubscriptions"] | undefined;
             try {
                 const staticRecord = await publishCommunityRecordWithExtraProp({ ttl: SHORT_RECORD_TTL });
                 staticRecordsToCleanUp.push(staticRecord);
@@ -286,15 +299,27 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 await community.update();
                 await firstUpdate;
 
-                // The update event fires INSIDE updateOnce, while the loop syncs its arrival
-                // subscriptions immediately AFTER updateOnce returns, so poll instead of racing
-                // that ordering (same reason as the stop() test above).
+                // The loop runs on the TRACKED updating instance; the instance createCommunity
+                // returned may be a mirror attached to it. The update event also fires INSIDE
+                // updateOnce, while the loop syncs its arrival subscriptions immediately AFTER
+                // updateOnce returns, so poll instead of racing that ordering (same reason as the
+                // stop() test above).
+                const updatingInstance = community._updatingCommunityInstanceWithListeners?.community ?? community;
+                managerInternals = updatingInstance._clientsManager as unknown as ManagerArrivalInternals;
                 const subscribeDeadline = Date.now() + 10_000;
-                while (Date.now() < subscribeDeadline && subscribeSpy.mock.calls.length === 0) await sleep(100);
+                while (Date.now() < subscribeDeadline && managerInternals._subscribedIpnsArrivalTopics.size === 0) await sleep(100);
                 expect(
-                    subscribeSpy.mock.calls.length,
-                    "the loop must have attempted to register an arrival listener, otherwise this test is not suppressing anything"
+                    managerInternals._subscribedIpnsArrivalTopics.size,
+                    "the loop must have registered an arrival subscription, otherwise this test is not suppressing anything"
                 ).to.be.greaterThan(0);
+
+                originalSync = managerInternals._syncIpnsArrivalSubscriptions;
+                managerInternals._syncIpnsArrivalSubscriptions = () => {};
+                managerInternals._clearIpnsArrivalSubscriptions();
+                expect(
+                    managerInternals._subscribedIpnsArrivalTopics.size,
+                    "the community under test must hold no arrival subscription once suppressed"
+                ).to.equal(0);
 
                 const newerRecord = JSON.parse(JSON.stringify(staticRecord.communityRecord)) as typeof staticRecord.communityRecord;
                 newerRecord.updatedAt = Math.max(newerRecord.updatedAt + 1, timestamp());
@@ -316,7 +341,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                     timer = setTimeout(() => {
                         deliveredInTime = false;
                         resolve();
-                    }, 120_000);
+                    }, 180_000);
                 });
                 await Promise.race([delivered, timeout]);
                 clearTimeout(timer);
@@ -326,7 +351,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                     "with the push wake suppressed the jittered safety-net poll must still deliver the newer record; a miss here means a missed push strands the community until it is restarted"
                 ).to.equal(true);
             } finally {
-                subscribeSpy.mockRestore();
+                // Hand the loop its real sync back so the community resubscribes on its next
+                // iteration and afterAll's stop() unsubscribes a consistent set.
+                if (managerInternals && originalSync) managerInternals._syncIpnsArrivalSubscriptions = originalSync;
             }
         }, 240_000);
     });
