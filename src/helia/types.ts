@@ -6,6 +6,17 @@ import type { PubsubRoutingComponents } from "@helia/ipns";
 import type { GossipSub } from "@libp2p/gossipsub";
 import type { Fetch } from "@libp2p/fetch";
 import type { Identify } from "@libp2p/identify";
+import type { IPNSRecord } from "ipns";
+
+// A validated IPNS record newer than the locally held one just landed in the routing-layer cache
+// for `pubsubTopic` — via a gossipsub push (handleRecord), the direct-fetch cache write, or a
+// fallback router.get() fetch. All three converge on the pubsub router's localStore.put, which is
+// where these arrivals are observed (issue #308).
+export interface IpnsRecordArrival {
+    pubsubTopic: string;
+    record: IPNSRecord;
+}
+export type IpnsRecordArrivalListener = (arrival: IpnsRecordArrival) => void;
 
 export interface HeliaWithKuboRpcClientFunctions extends Pick<NonNullable<KuboRpcClient["_client"]>, "add" | "cat" | "pubsub" | "stop"> {
     add: KuboRpcClient["_client"]["add"];
@@ -21,6 +32,14 @@ export interface HeliaWithKuboRpcClientFunctions extends Pick<NonNullable<KuboRp
     ): ReturnType<KuboRpcClient["_client"]["cat"]>;
     pubsub: KuboRpcClient["_client"]["pubsub"];
     stop: KuboRpcClient["_client"]["stop"];
+    // Push signal for IPNS names (issue #308), pkc-only with no kubo-rpc-client equivalent: the
+    // community update loop subscribes per IPNS pubsub topic to react to pushed records instead
+    // of polling name.resolve every second. Listeners fire AFTER the record is validated and
+    // persisted in the routing-layer cache, so a resolve issued from a listener observes it.
+    ipnsRecordArrivals: {
+        subscribe(pubsubTopic: string, listener: IpnsRecordArrivalListener): void;
+        unsubscribe(pubsubTopic: string, listener: IpnsRecordArrivalListener): void;
+    };
     // Test-only override of BITSWAP_SESSION_STALLED_GET_FAILOVER_MS, read by cat() at each block
     // get. The issue #189 guard test (at most one routing query per DAG) sets it beyond its own
     // timeout: on slow CI runners a block can legitimately stall, and the failover's broadcast

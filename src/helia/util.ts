@@ -870,6 +870,24 @@ export async function cacheIpnsRecordInPubsubLocalStore({
 // ipns-publishing.ts), so this matches what a well-formed community record would have carried.
 const DEFAULT_CACHED_IPNS_RECORD_TTL_MS = 60_000;
 
+// Deterministic per-name jitter over the cached record's serve window (issue #307). A directory
+// app fetches all N of its community records in the same second and they all carry the same ttl,
+// so without jitter all N cache entries expire in the same instant and every name misses the
+// cache in the same update-loop pass: N=64 launches 250-320 near-simultaneous /libp2p/fetch
+// streams against a 64-stream outbound cap, once per ttl window. Scaling each name's effective
+// ttl by a factor derived from its routing key (FNV-1a, uniform-ish in [0.75, 1.0)) de-correlates
+// the expiries while never serving a record beyond its own ttl. Deterministic per name on
+// purpose: a factor re-rolled per read would make freshness flappy and bias the effective ttl
+// toward the floor as reads accumulate.
+export function ipnsCacheTtlJitterFactor(routingKey: Uint8Array): number {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < routingKey.length; i++) {
+        hash ^= routingKey[i];
+        hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return 0.75 + (hash / 0x1_0000_0000) * 0.25;
+}
+
 // Read the record cached at the pubsub routing layer and return it only while it may still be
 // served WITHOUT a network revalidation (issue #301). Freshness follows the IPNS spec's ttl
 // semantics: a record may be served from cache for `ttl` after it was last confirmed current.
@@ -904,7 +922,10 @@ export async function readFreshCachedIpnsRecordFromPubsubLocalStore({
     }
     const record = unmarshalIPNSRecord(recordBytes);
     const ttlMs = record.ttl !== undefined ? Number(record.ttl / 1_000_000n) : DEFAULT_CACHED_IPNS_RECORD_TTL_MS;
+    // Effective ttl is jittered per name (issue #307) so names cached together don't all miss
+    // the cache together; the factor only ever shortens the window, never extends it.
+    const effectiveTtlMs = ttlMs * ipnsCacheTtlJitterFactor(routingKey);
     const lastConfirmedCurrentAtMs = Math.max(created.getTime(), lastNetworkValidatedAtMs ?? 0);
-    if (Date.now() - lastConfirmedCurrentAtMs >= ttlMs) return undefined;
+    if (Date.now() - lastConfirmedCurrentAtMs >= effectiveTtlMs) return undefined;
     return record;
 }

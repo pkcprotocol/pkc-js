@@ -46,6 +46,8 @@ import { CID } from "multiformats/cid"; // re-sourced from kubo-rpc-client (iden
 import { getAuthorNameFromRuntime } from "../publications/publication-author.js";
 
 import { type CommunityGatewayFetch, selectWinningGatewayCommunity } from "./community-gateway-selection.js";
+import type { Libp2pJsClient } from "../helia/libp2pjsClient.js";
+import type { IpnsRecordArrival, IpnsRecordArrivalListener } from "../helia/types.js";
 
 export const MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS = 1024 * 1024; // 1mb
 
@@ -62,6 +64,16 @@ export class CommunityClientsManager extends PKCClientsManager {
     private _suppressUpdatingStateForNameResolution = 0;
     _ipnsLoadingOperation?: RetryOperation = undefined;
     _updateCidsAlreadyLoaded: LimitedSet<string> = new LimitedSet<string>(30); // we will keep track of the last 50 community update cids that we loaded
+
+    // Event-driven update loop plumbing (issue #308), used only when the default record resolver
+    // is a libp2p-js client. _ipnsArrivalPending survives an arrival that lands while updateOnce
+    // is mid-flight, so the loop re-runs immediately instead of parking for a full safety-net
+    // period and missing the record it was just told about.
+    private _subscribedIpnsArrivalTopics = new Set<string>();
+    private _ipnsArrivalListener?: IpnsRecordArrivalListener;
+    private _ipnsArrivalClient?: Libp2pJsClient;
+    private _ipnsArrivalPending = false;
+    private _wakeUpdateLoopForIpnsArrival?: () => void;
 
     constructor(community: CommunityClientsManager["_community"]) {
         super(community._pkc);
@@ -326,7 +338,15 @@ export class CommunityClientsManager extends PKCClientsManager {
 
         const areWeConnectedToKuboOrHelia =
             Object.keys(this._pkc.clients.kuboRpcClients).length > 0 || Object.keys(this._pkc.clients.libp2pJsClients).length > 0;
-        const updateInterval = areWeConnectedToKuboOrHelia ? 1000 : this._pkc.updateInterval; // if we're on helia or kubo we should resolve IPNS every second
+        const defaultIpfsClient = areWeConnectedToKuboOrHelia ? this.getDefaultKuboRpcClientOrHelia() : undefined;
+        // Push-driven only for the libp2p-js resolver (issue #308): its routing-layer cache is
+        // fed by gossipsub (issue #301), so a localStore write IS the "new record arrived"
+        // signal, and the loop only needs a slow jittered safety-net poll for pushes it missed
+        // (mesh partition, record published while we had no subscribers). The kubo-RPC resolver
+        // keeps the 1s poll: kubo's namesys cache is not observable from here, so pkc has no
+        // push signal for it yet (issue #308 tracks giving it the same treatment); gateways
+        // already poll at pkc.updateInterval.
+        const defaultLibp2pJsClient = defaultIpfsClient && "_helia" in defaultIpfsClient ? defaultIpfsClient : undefined;
 
         while (this._community.state === "updating" && !this._community._getStopAbortSignal()?.aborted) {
             try {
@@ -334,12 +354,26 @@ export class CommunityClientsManager extends PKCClientsManager {
             } catch (e) {
                 log.error(`Failed to update community ${this._community.address} for this iteration, will retry later`, e);
             } finally {
-                // Re-read the stop signal each iteration; sleepUntilTimeoutOrAbort detaches its abort
-                // listener on both outcomes so it never leaks on the long-lived signal (see issue #145).
-                await sleepUntilTimeoutOrAbort(updateInterval, this._community._getStopAbortSignal());
+                // Re-read the stop signal each iteration; both waits detach their listeners on
+                // every outcome so nothing leaks on the long-lived signal (see issue #145).
+                if (defaultLibp2pJsClient) {
+                    try {
+                        this._syncIpnsArrivalSubscriptions(defaultLibp2pJsClient);
+                    } catch (e) {
+                        log.error(`Failed to sync IPNS record arrival subscriptions of community ${this._community.address}`, e);
+                    }
+                    // Jittered per iteration so a directory of communities started together does
+                    // not run its safety-net polls in lockstep (issue #307).
+                    const safetyNetMs = this._pkc.updateInterval * (0.75 + Math.random() * 0.5);
+                    await this._sleepUntilIpnsArrivalOrTimeoutOrAbort(safetyNetMs, this._community._getStopAbortSignal());
+                } else {
+                    const updateInterval = areWeConnectedToKuboOrHelia ? 1000 : this._pkc.updateInterval; // if we're on kubo we should resolve IPNS every second
+                    await sleepUntilTimeoutOrAbort(updateInterval, this._community._getStopAbortSignal());
+                }
             }
         }
 
+        this._clearIpnsArrivalSubscriptions();
         this._community._clearStopAbortController();
         log("Community", this._community.address, "is no longer updating");
     }
@@ -347,6 +381,81 @@ export class CommunityClientsManager extends PKCClientsManager {
     async stopUpdatingLoop() {
         this._ipnsLoadingOperation?.stop();
         this._updateCidsAlreadyLoaded.clear();
+        this._clearIpnsArrivalSubscriptions();
+    }
+
+    // Wake the update loop when a record NEWER than anything already consumed lands in the
+    // routing-layer cache (gossip push, direct-fetch cache write, or fallback fetch — all
+    // newer-only writers). A terminal record whose /ipfs/ value was already consumed is not
+    // news: communities re-publish records with a bumped sequence but an unchanged CID, and
+    // updateOnce's own direct-fetch cache write reports the record it just consumed, which
+    // this filter keeps from waking the loop it came from. An /ipns/ value is an intermediate
+    // hop of a delegated chain; a newer hop record always warrants a walk.
+    private _onIpnsRecordArrival(arrival: IpnsRecordArrival) {
+        const value = arrival.record.value;
+        if (isIpfsPath(value)) {
+            const cid = value.split("/")[2];
+            if (cid && (this._updateCidsAlreadyLoaded.has(cid) || this._community.updateCid === cid)) return;
+        }
+        this._ipnsArrivalPending = true;
+        this._wakeUpdateLoopForIpnsArrival?.();
+    }
+
+    // Keep the arrival subscriptions in sync with the hops the last resolve walked: one topic
+    // per IPNS name in the chain, so a delegated community wakes on a push to ANY hop. Runs
+    // after every updateOnce because a key migration or delegation change swaps the hops.
+    private _syncIpnsArrivalSubscriptions(client: Libp2pJsClient) {
+        if (!this._ipnsArrivalListener) this._ipnsArrivalListener = (arrival) => this._onIpnsRecordArrival(arrival);
+        this._ipnsArrivalClient = client;
+        const ipnsNamesToWatch = this._community.ipnsHops?.length
+            ? this._community.ipnsHops
+            : this._community.ipnsName
+              ? [this._community.ipnsName]
+              : [];
+        const desiredTopics = new Set(ipnsNamesToWatch.map(ipnsNameToIpnsOverPubsubTopic));
+        for (const topic of this._subscribedIpnsArrivalTopics)
+            if (!desiredTopics.has(topic)) {
+                client.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals.unsubscribe(topic, this._ipnsArrivalListener);
+                this._subscribedIpnsArrivalTopics.delete(topic);
+            }
+        for (const topic of desiredTopics)
+            if (!this._subscribedIpnsArrivalTopics.has(topic)) {
+                client.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals.subscribe(topic, this._ipnsArrivalListener);
+                this._subscribedIpnsArrivalTopics.add(topic);
+            }
+    }
+
+    private _clearIpnsArrivalSubscriptions() {
+        if (this._ipnsArrivalClient && this._ipnsArrivalListener)
+            for (const topic of this._subscribedIpnsArrivalTopics)
+                this._ipnsArrivalClient.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals.unsubscribe(topic, this._ipnsArrivalListener);
+        this._subscribedIpnsArrivalTopics.clear();
+        this._ipnsArrivalClient = undefined;
+        this._ipnsArrivalPending = false;
+    }
+
+    // Park until a pushed record arrival, the (jittered) safety-net timeout, or the stop signal,
+    // whichever fires first. The timer and abort listener are detached on EVERY outcome so
+    // nothing leaks on the long-lived stop signal (the issue #145 pattern); an arrival that
+    // fired while updateOnce was mid-flight is consumed immediately instead of being lost.
+    private async _sleepUntilIpnsArrivalOrTimeoutOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
+        if (this._ipnsArrivalPending) {
+            this._ipnsArrivalPending = false;
+            return;
+        }
+        await new Promise<void>((resolve) => {
+            if (signal?.aborted) return resolve();
+            const settle = () => {
+                clearTimeout(timer);
+                signal?.removeEventListener("abort", settle);
+                if (this._wakeUpdateLoopForIpnsArrival === settle) this._wakeUpdateLoopForIpnsArrival = undefined;
+                resolve();
+            };
+            const timer = setTimeout(settle, ms);
+            signal?.addEventListener("abort", settle, { once: true });
+            this._wakeUpdateLoopForIpnsArrival = settle;
+        });
+        this._ipnsArrivalPending = false;
     }
 
     // fetching community ipns here
