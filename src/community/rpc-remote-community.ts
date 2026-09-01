@@ -233,34 +233,24 @@ export class RpcRemoteCommunity extends RemoteCommunity {
             this._setUpdatingStateWithEventEmissionIfNewState("failed");
             throw e;
         }
-        // Attach the notification handlers and replay the buffered notifications in a macrotask so
-        // a listener attached synchronously after `await update()` resolves still receives events
-        // the server emitted at subscribe time (#299). A microtask is not enough: it is enqueued
-        // before the promise-resolution jobs that unwind the awaits, so it would still run before
-        // the caller's continuation. Attaching the handlers inside the same deferred task keeps
-        // delivery ordered: notifications arriving in the window find no listeners, so the client
-        // buffers them and the replay drains everything in arrival order.
-        setTimeout(() => {
-            const rpcClient = this._pkc._pkcRpcClient;
-            // The community may have been stopped, restarted, or the RPC client destroyed in the meantime
-            if (this._updateRpcSubscriptionId !== subscriptionId || !rpcClient?.subscriptionActive(subscriptionId)) return;
-            try {
-                rpcClient
-                    .getSubscription(subscriptionId)
+        // Deferred so a listener attached synchronously after `await update()` resolves still
+        // receives events the server emitted at subscribe time (#299); see
+        // attachSubscriptionHandlersDeferred for the mechanism
+        this._pkc._pkcRpcClient!.attachSubscriptionHandlersDeferred({
+            subscriptionId,
+            isStale: () => this._updateRpcSubscriptionId !== subscriptionId,
+            attach: (subscription) =>
+                subscription
                     .on("update", this._processUpdateEventFromRpcUpdate.bind(this))
                     .on("updatingstatechange", this._handleUpdatingStateChangeFromRpcUpdate.bind(this))
-                    .on("error", this._handleRpcErrorEvent.bind(this));
-                rpcClient.emitAllPendingMessages(subscriptionId);
-            } catch (e) {
-                // A handler throw during the replay (e.g. a replayed "error" event that bubbled to a
-                // pkc instance with no "error" listeners) used to reject update() when the replay was
-                // synchronous; update() has already resolved here, so contain the throw (it would
-                // otherwise escape the timer as an uncaughtException and crash the process) and stop
-                // the community so it does not stay "updating" with a half-initialized subscription
+                    .on("error", this._handleRpcErrorEvent.bind(this)),
+            onReplayError: (e) => {
+                // Pre-deferral this throw rejected update(); contain it and stop the community so
+                // it does not stay "updating" with a half-initialized subscription
                 log.error("Error thrown while replaying buffered subscribe-time notifications, stopping the community", e);
                 this.stop().catch((stopError) => log.error("Failed to stop the community after a replay error", stopError));
             }
-        }, 0);
+        });
     }
 
     async _createAndSubscribeToNewUpdatingCommunity(updatingCommunity?: RpcRemoteCommunity) {

@@ -356,6 +356,37 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         return Boolean(this._subscriptionEvents[subscriptionId]);
     }
 
+    // Attach a subscription's notification handlers and replay its buffered notifications in a
+    // macrotask, so events the server emitted at subscribe time (before the JSON-RPC subscribe
+    // response) still reach a listener attached synchronously after the subscribing call resolves
+    // (#299/#314). A microtask is not enough: it is enqueued before the promise-resolution jobs
+    // that unwind the awaits, so it would still run before the caller's continuation. Attaching
+    // the handlers inside the same deferred task keeps delivery ordered: notifications arriving in
+    // the window find no listeners, so they are buffered and the replay drains everything in
+    // arrival order. Opt-in per call site because some subscribers (e.g. the exports subscription
+    // in rpc-local-community.ts) deliberately rely on the synchronous replay ordering.
+    attachSubscriptionHandlersDeferred(opts: {
+        subscriptionId: number;
+        // Return true if the caller no longer owns this subscription (stopped, restarted)
+        isStale: () => boolean;
+        attach: (subscription: EventEmitter) => void;
+        // Called when a handler throw escapes the replay; pre-deferral the throw rejected the
+        // subscribing call, post-deferral nothing awaits it, so the caller must contain it
+        // (typically log + stop) or it would escape the timer as an uncaughtException
+        onReplayError: (error: unknown) => void;
+    }) {
+        setTimeout(() => {
+            // The subscription may have been unsubscribed or the connection destroyed in the meantime
+            if (opts.isStale() || !this.subscriptionActive(opts.subscriptionId)) return;
+            try {
+                opts.attach(this.getSubscription(opts.subscriptionId));
+                this.emitAllPendingMessages(opts.subscriptionId);
+            } catch (e) {
+                opts.onReplayError(e);
+            }
+        }, 0);
+    }
+
     emitAllPendingMessages(subscriptionId: number) {
         // The replay may be deferred to a later task (#299), so the subscription can be
         // unsubscribed or the connection destroyed before it runs
