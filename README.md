@@ -1366,6 +1366,9 @@ community.on('update', (updatedCommunityInstance) => {
   // if you want to stop polling for new updates after only the first one
   community.stop()
 })
+community.on('error', (error) => {
+  console.error(error)
+})
 community.update()
 ```
 
