@@ -35,6 +35,7 @@ await community.edit({
             {
                 name: "fail",
                 options: { error: "Only the owner can post to this profile." },
+                publicOptions: ["error"], // publish the rejection text, see "What a reader can actually tell"
                 exclude: [
                     { role: ["owner"] },
                     { publicationType: { reply: true, vote: true, commentEdit: true, commentModeration: true, communityEdit: true } }
@@ -65,12 +66,16 @@ question: they get one immediate failed verification rather than a challenge rou
 
 Set the `error` option. It is what the rejected publisher actually sees: a `fail` challenge reports
 through `challengeErrors`, not through the verification `reason`, and its default text is the generic
-`"You're not allowed to publish."`.
+`"You're not allowed to publish."`. Naming it in `publicOptions` publishes that sentence in the record
+too, which is worth doing here: a reader then sees the intent without publishing anything. It is still
+a hint rather than an attestation, for the reason below.
 
 ### What a reader can actually tell
 
 `exclude` is copied verbatim from the private `settings.challenges` into the public signed `challenges`
-array, while `path`, `name` and `options` are stripped (see
+array, while `path` and `name` are stripped. `options` are private by default and leave only by name:
+the owner lists individual option names in `settings.challenges[i].publicOptions`, and those, and only
+those, are published as `challenges[i].publicOptions` (see
 [challenge-settings.md](challenge-settings.md)). Be precise about what that does and does not give a
 client, because it is easy to overclaim:
 
@@ -79,10 +84,17 @@ matched against. A reader can see that the owner and every non-post publication 
 that nobody else does.
 
 **Not legible**: whether challenge 0 can be passed at all. `name` and `options` are exactly what
-distinguish `fail` from, say, `question`, and both are stripped, so a community that gates non-owner
+distinguish `fail` from, say, `question`, and neither is published, so a community that gates non-owner
 posts behind an answerable challenge publishes the same exemption structure as one that forbids them
-outright. `description` differs by default but is operator-settable free text, so it is a hint, not a
-discriminator.
+outright. `type` does not separate them either: both are `text/plain`. `description` differs by default
+but is operator-settable free text, so it is a hint, not a discriminator.
+
+`publicOptions` is the same kind of hint. A profile that opts its `error` in publishes the rejection
+sentence, and that is a better hint than `description` because a passable challenge has no reason to
+carry one. It is still not a discriminator: the value is free text chosen by the same node that decides
+whether to honor it, and a custom challenge file may declare an `error` option of its own and publish an
+identical string while remaining passable. What a client learns from `publicOptions` is what the owner
+says the rule is, which is exactly what it learns from the rest of the record.
 
 So "only the owner posts here" is a **reasonable inference from the record, not a fact the record
 attests**. A client should render it as a strong hint, and find out for certain the same way it would
