@@ -7,7 +7,8 @@ import {
     createCommentUpdateWithInvalidSignature,
     mockCommentToNotUsePagesForUpdates,
     resolveWhenConditionIsTrue,
-    mockPostToReturnSpecificCommentUpdate
+    mockPostToReturnSpecificCommentUpdate,
+    publishStaticCommunityWithPostInPages
 } from "../../../../../dist/node/test/test-util.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
@@ -50,9 +51,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`Correct order of ${clientFieldName} state when updating a post that was created with pkc.createComment({cid})`, async () => {
-            const community = await pkc.getCommunity({ address: signers[0].address });
-
-            const mockPost = await pkc.createComment({ cid: community.posts.pages.hot.comments[0].cid });
+            // A STATIC community (fresh key, published once) instead of the shared live
+            // signers[0]: this asserts the WHOLE state sequence with deep.equal, so a new
+            // signers[0] record published by any concurrently-running suite mid-test inserts a
+            // community fetch cycle anywhere in the array (arrival-driven update loop, issue
+            // #308) and fails it — the PR #311 CI flake class.
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
+            const mockPost = await pkc.createComment({ cid: staticCommunity.commentCid });
 
             const expectedStates = [
                 "fetching-ipfs",
@@ -79,6 +84,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             await mockPost.stop();
 
             expect(actualStates).to.deep.equal(expectedStates);
+            await staticCommunity.ipnsObj.pkc.destroy();
         });
 
         it(`Correct order of ${clientFieldName} state when updating a reply that was created with pkc.createComment({cid}) and the post has a single preloaded page`, async () => {
@@ -186,20 +192,21 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         it(`Correct order of ${clientFieldName} when we update a post but its community is not publishing new community records`, async () => {
             const customPKC = await config.pkcInstancePromise();
 
-            const community = await customPKC.createCommunity({ address: signers[0].address });
+            // A STATIC community under its own fresh IPNS key, published exactly once: the title's
+            // "not publishing new community records" is literal, no resolve stubbing needed. It
+            // must NOT be a shared live community (signers[0]): every concurrent suite publishes
+            // there, and since the update loop reacts to gossip arrivals (issue #308) each of
+            // those publishes would start a fetch cycle at a random moment, racing the exact
+            // state-sequence assertions below (the PR #311 CI flake).
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
+
+            const community = await customPKC.createCommunity({ address: staticCommunity.communityAddress });
 
             // now pkc._updatingCommunities will be defined
 
             const updatePromise = new Promise((resolve) => community.once("update", resolve));
             await community.update();
             await updatePromise;
-
-            const updatingSubInstance = customPKC._updatingCommunities[community.address];
-
-            updatingSubInstance._clientsManager.resolveIpnsToCidP2P = async () => ({
-                cid: community.updateCid!,
-                ipnsHops: [community.address]
-            }); // stop it from loading new IPNS
 
             const mockPost = await customPKC.createComment({ cid: community.posts.pages.hot.comments[0].cid });
 
@@ -233,6 +240,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             }
 
             await community.stop();
+            await staticCommunity.ipnsObj.pkc.destroy();
         });
 
         it(`Correct order of ${clientFieldName} when we update a post but its commentupdate is an invalid record (bad signature/schema/etc)`, async () => {

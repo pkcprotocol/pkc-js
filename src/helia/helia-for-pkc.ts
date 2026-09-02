@@ -3,6 +3,7 @@ import { libp2pDefaults, withLibp2p } from "@helia/libp2p";
 import { withBitswap } from "@helia/bitswap";
 import { ipns } from "@helia/ipns";
 import { unmarshalIPNSRecord, multihashToIPNSRoutingKey } from "ipns";
+import type { IPNSRecord } from "ipns";
 import { ipnsValidator } from "ipns/validator";
 import { gossipsub } from "@libp2p/gossipsub";
 import { identify } from "@libp2p/identify";
@@ -22,7 +23,7 @@ import type { AddResult, NameResolveOptions as KuboNameResolveOptions } from "ku
 import type { IpfsHttpClientPubsubMessage, ParsedPKCOptions } from "../types.js";
 
 import { EventEmitter } from "events";
-import type { HeliaWithLibp2pPubsub } from "./types.js";
+import type { HeliaWithLibp2pPubsub, IpnsRecordArrivalListener } from "./types.js";
 import { PKCError } from "../pkc-error.js";
 import { Libp2pJsClient } from "./libp2pjsClient.js";
 import {
@@ -37,7 +38,7 @@ import {
 } from "./util.js";
 import type { IpnsPubsubLocalStore } from "./util.js";
 import { createDefaultDialTransportGater } from "./dial-transport-filter.js";
-import { ipnsNameToIpnsOverPubsubTopic } from "../util.js";
+import { binaryKeyToPubsubTopic, ipnsNameToIpnsOverPubsubTopic } from "../util.js";
 
 const log = Logger("pkc-js:libp2p-js");
 
@@ -423,6 +424,41 @@ export async function createLibp2pJsClientOrUseExistingOne(
         // would re-fetch on every resolve once its record's ttl first expired. Bounded by the set
         // of IPNS names this helia instance resolves (communities the app follows).
         const ipnsRecordNetworkValidatedAtMs = new Map<string, number>();
+
+        // Push signal for IPNS names (issue #308): every accepted-newer record converges on the
+        // pubsub router's localStore.put — gossipsub delivery (handleRecord), the direct-fetch
+        // cache write (cacheIpnsRecordInPubsubLocalStore), and the fallback router.get() fetch
+        // all write through it, and none of them writes a record older than the cached one.
+        // Wrapping put therefore yields exactly "a newer record for this name is now held
+        // locally", with none of the ordering hazards of listening to raw pubsub messages
+        // (which fire before handleRecord has validated and cached the record). The topic key is
+        // derivable from the routing key alone: routingKey = '/ipns/' + multihash bytes and the
+        // gossip topic is binaryKeyToPubsubTopic(routingKey) — the same encoding the subscriber
+        // side derives through ipnsNameToIpnsOverPubsubTopic, so publisher and subscriber cannot
+        // silently diverge. A listener failure or an unmarshal failure must never fail the put
+        // itself.
+        const ipnsRecordArrivalListeners = new Map<string, Set<IpnsRecordArrivalListener>>();
+        const originalLocalStorePut = ipnsPubsubLocalStore.put.bind(ipnsPubsubLocalStore);
+        ipnsPubsubLocalStore.put = async (routingKey, marshalledRecord, options) => {
+            await originalLocalStorePut(routingKey, marshalledRecord, options);
+            const pubsubTopic = binaryKeyToPubsubTopic(routingKey);
+            const listeners = ipnsRecordArrivalListeners.get(pubsubTopic);
+            if (!listeners || listeners.size === 0) return;
+            let record: IPNSRecord;
+            try {
+                record = unmarshalIPNSRecord(marshalledRecord);
+            } catch (e) {
+                log.error("Failed to unmarshal a cached IPNS record for the arrival listeners of topic", pubsubTopic, e);
+                return;
+            }
+            for (const listener of [...listeners]) {
+                try {
+                    listener({ pubsubTopic, record });
+                } catch (e) {
+                    log.error("An IPNS record arrival listener threw for topic", pubsubTopic, e);
+                }
+            }
+        };
 
         // Side-channel awaitable warmup: gossipsub's pubsub.subscribe(topic) is sync and returns
         // void, so we can't make it awaitable without breaking @helia/ipns and other internal
@@ -873,6 +909,19 @@ export async function createLibp2pJsClientOrUseExistingOne(
             ): Promise<AddResult> {
                 throw Error("Helia 'add' is not supported at the moment in pkc-js API");
             },
+            ipnsRecordArrivals: {
+                subscribe: ({ pubsubTopic, listener }: { pubsubTopic: string; listener: IpnsRecordArrivalListener }) => {
+                    const listeners = ipnsRecordArrivalListeners.get(pubsubTopic) ?? new Set<IpnsRecordArrivalListener>();
+                    listeners.add(listener);
+                    ipnsRecordArrivalListeners.set(pubsubTopic, listeners);
+                },
+                unsubscribe: ({ pubsubTopic, listener }: { pubsubTopic: string; listener: IpnsRecordArrivalListener }) => {
+                    const listeners = ipnsRecordArrivalListeners.get(pubsubTopic);
+                    if (!listeners) return;
+                    listeners.delete(listener);
+                    if (listeners.size === 0) ipnsRecordArrivalListeners.delete(pubsubTopic);
+                }
+            },
             async stop(options) {
                 const clientFromMap = libp2pJsClients[pkcOptions.key];
                 if (!clientFromMap) return; // already been stopped
@@ -882,6 +931,10 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     // Remove from the lookup map BEFORE awaiting helia.stop() so a concurrent
                     // createLibp2pJsClientOrUseExistingOne() can't grab a mid-stopping client.
                     delete libp2pJsClients[pkcOptions.key];
+
+                    // Update loops unsubscribe their own arrival listeners on stop; clearing here
+                    // covers loops torn down after the shared client's final release.
+                    ipnsRecordArrivalListeners.clear();
 
                     // Tear down the IPNS pubsub router's internal subscription state.
                     // PubSubIPNSRouting (@helia/ipns) implements Startable and tracks its own

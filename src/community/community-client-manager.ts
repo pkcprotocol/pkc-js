@@ -28,6 +28,7 @@ import {
     isStringDomain,
     pubsubTopicToDhtKey,
     sleepUntilTimeoutOrAbort,
+    interruptibleSleep,
     throwIfAbortSignalAborted,
     timestamp
 } from "../util.js";
@@ -46,8 +47,21 @@ import { CID } from "multiformats/cid"; // re-sourced from kubo-rpc-client (iden
 import { getAuthorNameFromRuntime } from "../publications/publication-author.js";
 
 import { type CommunityGatewayFetch, selectWinningGatewayCommunity } from "./community-gateway-selection.js";
+import type { Libp2pJsClient } from "../helia/libp2pjsClient.js";
+import type { IpnsRecordArrival, IpnsRecordArrivalListener } from "../helia/types.js";
 
 export const MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS = 1024 * 1024; // 1mb
+
+// Floor on how often a timer-fired safety-net tick may force a network revalidation of the
+// community's IPNS record. At the production updateInterval (60s) every tick revalidates, so
+// this changes nothing there; it only engages for sub-30s intervals (every test pkc runs 500ms),
+// where forcing the network on each tick would turn every idle community into a constant
+// multi-peer fetcher AND flip the loop's duty cycle from parked-in-waiting-retry to
+// mid-fetching-ipns — which is what tripped the browser CI legs' state-sampling assertions
+// (post.updatingState races against the community tick's phase). Worst-case staleness after a
+// missed push at an aggressive interval is therefore ~30s, still 10x under riding out kubo
+// 0.43's default 300s record ttl the way the pre-#311 cache-gated poll did.
+const FORCED_IPNS_NETWORK_REVALIDATION_MIN_INTERVAL_MS = 30_000;
 
 export class CommunityClientsManager extends PKCClientsManager {
     override clients!: {
@@ -62,6 +76,31 @@ export class CommunityClientsManager extends PKCClientsManager {
     private _suppressUpdatingStateForNameResolution = 0;
     _ipnsLoadingOperation?: RetryOperation = undefined;
     _updateCidsAlreadyLoaded: LimitedSet<string> = new LimitedSet<string>(30); // we will keep track of the last 50 community update cids that we loaded
+
+    // Event-driven update loop plumbing (issue #308), used only when the default record resolver
+    // is a libp2p-js client. Pending arrivals survive an arrival that lands while updateOnce is
+    // mid-flight, so the loop re-runs immediately instead of parking for a full safety-net
+    // period and missing the record it was just told about. Pending CIDs / hop targets (not a
+    // boolean) because the loop's OWN direct-fetch cache writes fire the arrival listener
+    // mid-updateOnce, before the consumed cid (or walked hop) is recorded anywhere — only the
+    // park, running after updateOnce, can tell those self-arrivals apart from a genuinely
+    // unconsumed push (see _consumePendingIpnsArrivals).
+    private _subscribedIpnsArrivalTopics = new Set<string>();
+    private _ipnsArrivalListener?: IpnsRecordArrivalListener;
+    private _ipnsArrivalClient?: Libp2pJsClient;
+    private _pendingIpnsArrivalCids = new Set<string>();
+    private _pendingIpnsArrivalHopTargets = new Set<string>();
+    // Set when the park ends by its safety-net timer rather than an arrival wake: the tick
+    // exists to catch pushes that never arrived, which the routing-layer cache gate by
+    // definition cannot observe (the cache still holds the old record, fresh inside its ttl),
+    // so the resolve that follows must revalidate against the network (nocache). An
+    // arrival-woken cycle keeps the cache read — the arrival IS the newly cached record.
+    private _nextResolveRevalidatesNetwork = false;
+    // Time of the last resolve that actually forced the network (plus the loop start, whose
+    // first updateOnce resolves against the network anyway — no subscription exists yet, so the
+    // cache gate is off). Feeds the FORCED_IPNS_NETWORK_REVALIDATION_MIN_INTERVAL_MS floor.
+    private _lastForcedIpnsNetworkRevalidationAtMs = 0;
+    private _wakeUpdateLoopForIpnsArrival?: () => void;
 
     constructor(community: CommunityClientsManager["_community"]) {
         super(community._pkc);
@@ -326,7 +365,37 @@ export class CommunityClientsManager extends PKCClientsManager {
 
         const areWeConnectedToKuboOrHelia =
             Object.keys(this._pkc.clients.kuboRpcClients).length > 0 || Object.keys(this._pkc.clients.libp2pJsClients).length > 0;
-        const updateInterval = areWeConnectedToKuboOrHelia ? 1000 : this._pkc.updateInterval; // if we're on helia or kubo we should resolve IPNS every second
+        const defaultIpfsClient = areWeConnectedToKuboOrHelia ? this.getDefaultKuboRpcClientOrHelia() : undefined;
+        // Push-driven only for the libp2p-js resolver (issue #308): its routing-layer cache is
+        // fed by gossipsub (issue #301), so a localStore write IS the "new record arrived"
+        // signal, and the loop only needs a slow jittered safety-net poll for pushes it missed
+        // (mesh partition, record published while we had no subscribers). The kubo-RPC resolver
+        // keeps the 1s poll: kubo's namesys cache is not observable from here, so pkc has no
+        // push signal for it yet (issue #308 tracks giving it the same treatment); gateways
+        // already poll at pkc.updateInterval.
+        const defaultLibp2pJsClient = defaultIpfsClient && "_helia" in defaultIpfsClient ? defaultIpfsClient : undefined;
+
+        // Arm the arrival subscription BEFORE the first updateOnce: the first cycle spans the
+        // resolve, the community IPFS fetch, parsing and signature verification — seconds on a
+        // cold client — and a record pushed while it is mid-flight would otherwise fire no
+        // listener and be recorded nowhere, waiting for the first safety-net tick (45-75s at
+        // the production interval) where the old 1s poll picked it up in a second. The topic is
+        // derivable pre-resolve for every non-domain address (ipnsName === address, see
+        // _syncIpnsArrivalSubscriptions' fallback); a never-resolved domain address arms right
+        // after its first updateOnce in the finally below, as before.
+        if (defaultLibp2pJsClient) {
+            try {
+                this._syncIpnsArrivalSubscriptions(defaultLibp2pJsClient);
+            } catch (e) {
+                log.error(
+                    `Failed to arm IPNS record arrival subscriptions of community ${this._community.address} before its first update`,
+                    e
+                );
+            }
+            // The first updateOnce always resolves against the network (no topic subscription
+            // exists yet, so the cache gate is off), so the revalidation floor counts from here.
+            this._lastForcedIpnsNetworkRevalidationAtMs = Date.now();
+        }
 
         while (this._community.state === "updating" && !this._community._getStopAbortSignal()?.aborted) {
             try {
@@ -334,12 +403,26 @@ export class CommunityClientsManager extends PKCClientsManager {
             } catch (e) {
                 log.error(`Failed to update community ${this._community.address} for this iteration, will retry later`, e);
             } finally {
-                // Re-read the stop signal each iteration; sleepUntilTimeoutOrAbort detaches its abort
-                // listener on both outcomes so it never leaks on the long-lived signal (see issue #145).
-                await sleepUntilTimeoutOrAbort(updateInterval, this._community._getStopAbortSignal());
+                // Re-read the stop signal each iteration; both waits detach their listeners on
+                // every outcome so nothing leaks on the long-lived signal (see issue #145).
+                if (defaultLibp2pJsClient) {
+                    try {
+                        this._syncIpnsArrivalSubscriptions(defaultLibp2pJsClient);
+                    } catch (e) {
+                        log.error(`Failed to sync IPNS record arrival subscriptions of community ${this._community.address}`, e);
+                    }
+                    // Jittered per iteration so a directory of communities started together does
+                    // not run its safety-net polls in lockstep (issue #307).
+                    const safetyNetMs = this._pkc.updateInterval * (0.75 + Math.random() * 0.5);
+                    await this._sleepUntilIpnsArrivalOrTimeoutOrAbort({ ms: safetyNetMs, signal: this._community._getStopAbortSignal() });
+                } else {
+                    const updateInterval = areWeConnectedToKuboOrHelia ? 1000 : this._pkc.updateInterval; // if we're on kubo we should resolve IPNS every second
+                    await sleepUntilTimeoutOrAbort(updateInterval, this._community._getStopAbortSignal());
+                }
             }
         }
 
+        this._clearIpnsArrivalSubscriptions();
         this._community._clearStopAbortController();
         log("Community", this._community.address, "is no longer updating");
     }
@@ -347,6 +430,163 @@ export class CommunityClientsManager extends PKCClientsManager {
     async stopUpdatingLoop() {
         this._ipnsLoadingOperation?.stop();
         this._updateCidsAlreadyLoaded.clear();
+        this._clearIpnsArrivalSubscriptions();
+    }
+
+    // Wake the update loop when a record NEWER than anything already consumed lands in the
+    // routing-layer cache (gossip push, direct-fetch cache write, or fallback fetch — all
+    // newer-only writers). A record whose value was already consumed is not news: communities
+    // re-publish records with a bumped sequence but an unchanged value — an unchanged /ipfs/
+    // CID for a terminal record, an unchanged /ipns/ delegation target for an anchor's record
+    // (kubo republishes on a timer, so an undiscriminating hop wake would re-run updateOnce at
+    // the anchor's republish cadence — the #308 churn — on every delegated community). The
+    // filters here only catch values already recorded; the loop's OWN direct-fetch cache
+    // writes fire mid-updateOnce, BEFORE the cid it is consuming reaches
+    // _updateCidsAlreadyLoaded (line ~790) / updateCid or the walked hop reaches ipnsHops —
+    // those self-arrivals pass here and are dropped by the park's post-updateOnce re-check
+    // instead (_consumePendingIpnsArrivals). A hop record delegating OUTSIDE the walked chain
+    // is a delegation change and always warrants a walk. Any other value shape is unsupported
+    // (resolveIpnsToCidP2P would throw on it), so it cannot advance the loop and wakes nothing.
+    private _onIpnsRecordArrival(arrival: IpnsRecordArrival) {
+        const value = arrival.record.value;
+        if (isIpfsPath(value)) {
+            const cid = value.split("/")[2];
+            if (this._updateCidsAlreadyLoaded.has(cid) || this._community.updateCid === cid) return;
+            this._pendingIpnsArrivalCids.add(cid);
+        } else if (isIpnsPath(value)) {
+            const hopTarget = value.split("/")[2];
+            if (this._community.ipnsHops?.includes(hopTarget)) return;
+            this._pendingIpnsArrivalHopTargets.add(hopTarget);
+        } else return;
+        this._wakeUpdateLoopForIpnsArrival?.();
+    }
+
+    // Consume the pending arrivals, dropping every cid the updateOnce that just ran consumed
+    // and every hop target on the chain it walked (or that any earlier cycle consumed/walked —
+    // a gossip replay). Returns whether anything genuinely new remains, in which case the
+    // caller must skip its park and re-run updateOnce now. All pending state is cleared on a
+    // true return: the immediate updateOnce re-run is the reaction to it, and keeping it would
+    // re-trigger on the next park even when that re-run failed on a non-retriable record (the
+    // arrival will not re-fire — the record is already the newest cached one — so a stale
+    // entry here would spin the loop hot against a broken record).
+    private _consumePendingIpnsArrivals(): boolean {
+        for (const cid of this._pendingIpnsArrivalCids)
+            if (this._updateCidsAlreadyLoaded.has(cid) || this._community.updateCid === cid) this._pendingIpnsArrivalCids.delete(cid);
+        for (const hopTarget of this._pendingIpnsArrivalHopTargets)
+            if (this._community.ipnsHops?.includes(hopTarget)) this._pendingIpnsArrivalHopTargets.delete(hopTarget);
+        if (this._pendingIpnsArrivalCids.size === 0 && this._pendingIpnsArrivalHopTargets.size === 0) return false;
+        this._pendingIpnsArrivalCids.clear();
+        this._pendingIpnsArrivalHopTargets.clear();
+        return true;
+    }
+
+    // Keep the arrival subscriptions in sync with the hops the last resolve walked: one topic
+    // per IPNS name in the chain, so a delegated community wakes on a push to ANY hop. Runs
+    // before the FIRST updateOnce (so a record pushed mid-first-fetch is not missed) and after
+    // every updateOnce, because a key migration or delegation change swaps the hops, and from
+    // wherever else the identity is decided (_resyncIpnsArrivalSubscriptionsIfArmed). Before
+    // anything resolved, the name the first resolve will walk is derivable for every instance
+    // but a never-resolved domain: the pinned publicKey (_pinnedIpnsName) or, failing that, a
+    // non-domain address verbatim, exactly as fetchNewUpdateForCommunity seeds ipnsName.
+    private _syncIpnsArrivalSubscriptions(client: Libp2pJsClient) {
+        if (!this._ipnsArrivalListener) this._ipnsArrivalListener = (arrival) => this._onIpnsRecordArrival(arrival);
+        this._ipnsArrivalClient = client;
+        const preResolveIpnsName =
+            this._community.ipnsName ??
+            this._pinnedIpnsName() ??
+            (!isStringDomain(this._community.address) ? this._community.address : undefined);
+        const ipnsNamesToWatch = this._community.ipnsHops?.length
+            ? this._community.ipnsHops
+            : preResolveIpnsName
+              ? [preResolveIpnsName]
+              : [];
+        const desiredTopics = new Set(ipnsNamesToWatch.map(ipnsNameToIpnsOverPubsubTopic));
+        for (const topic of this._subscribedIpnsArrivalTopics)
+            if (!desiredTopics.has(topic)) {
+                client.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals.unsubscribe({
+                    pubsubTopic: topic,
+                    listener: this._ipnsArrivalListener
+                });
+                this._subscribedIpnsArrivalTopics.delete(topic);
+            }
+        for (const topic of desiredTopics)
+            if (!this._subscribedIpnsArrivalTopics.has(topic)) {
+                client.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals.subscribe({
+                    pubsubTopic: topic,
+                    listener: this._ipnsArrivalListener
+                });
+                this._subscribedIpnsArrivalTopics.add(topic);
+            }
+    }
+
+    // Re-derive the arrival subscriptions from the community's current identity, if the update
+    // loop armed them. The loop owns their lifetime (armed before its first cycle, cleared when
+    // it ends), so a one-shot fetch outside a loop must never create any.
+    private _resyncIpnsArrivalSubscriptionsIfArmed() {
+        if (!this._ipnsArrivalClient) return;
+        try {
+            this._syncIpnsArrivalSubscriptions(this._ipnsArrivalClient);
+        } catch (e) {
+            Logger("pkc-js:remote-community:update").error(
+                `Failed to sync IPNS record arrival subscriptions of community ${this._community.address}`,
+                e
+            );
+        }
+    }
+
+    private _clearIpnsArrivalSubscriptions() {
+        if (this._ipnsArrivalClient && this._ipnsArrivalListener)
+            for (const topic of this._subscribedIpnsArrivalTopics)
+                this._ipnsArrivalClient.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals.unsubscribe({
+                    pubsubTopic: topic,
+                    listener: this._ipnsArrivalListener
+                });
+        this._subscribedIpnsArrivalTopics.clear();
+        this._ipnsArrivalClient = undefined;
+        this._pendingIpnsArrivalCids.clear();
+        this._pendingIpnsArrivalHopTargets.clear();
+        this._nextResolveRevalidatesNetwork = false;
+    }
+
+    // Park until a pushed record arrival, the (jittered) safety-net timeout, or the stop signal,
+    // whichever fires first (interruptibleSleep detaches its timer and abort listener on every
+    // outcome, the issue #145 pattern). An arrival that fired while updateOnce was mid-flight is
+    // consumed immediately instead of being lost — unless that very updateOnce consumed it (the
+    // loop's own cache write reports the record it is fetching before recording it as loaded, so
+    // only this post-updateOnce re-check can drop it; see _consumePendingIpnsArrivals).
+    private async _sleepUntilIpnsArrivalOrTimeoutOrAbort({ ms, signal }: { ms: number; signal?: AbortSignal }): Promise<void> {
+        if (this._consumePendingIpnsArrivals()) {
+            // Arrival-driven cycle: the arrival IS the freshly cached record, so the resolve
+            // that follows may serve it from the routing-layer cache.
+            this._nextResolveRevalidatesNetwork = false;
+            return;
+        }
+        const { promise, wake } = interruptibleSleep({ ms, signal });
+        let wokenByArrival = false;
+        const wakeForArrival = () => {
+            wokenByArrival = true;
+            wake();
+        };
+        this._wakeUpdateLoopForIpnsArrival = wakeForArrival;
+        await promise;
+        if (this._wakeUpdateLoopForIpnsArrival === wakeForArrival) this._wakeUpdateLoopForIpnsArrival = undefined;
+        if (wokenByArrival) {
+            // The updateOnce that follows is the reaction to everything pending. Keeping the
+            // entries would fast-return the NEXT park into an identical re-run whenever that
+            // cycle fails without changing the chain (a hop arrival delegating beyond
+            // MAX_IPNS_HOPS is non-retriable and leaves ipnsHops as it was): two error events
+            // per push instead of one. Same rule _consumePendingIpnsArrivals applies on a hit.
+            this._pendingIpnsArrivalCids.clear();
+            this._pendingIpnsArrivalHopTargets.clear();
+        }
+        // A timer-fired park end is the safety net's tick: it exists precisely for pushes that
+        // never arrived, which the cache gate cannot observe — the next resolve must go to the
+        // network (see _nextResolveRevalidatesNetwork), bounded by the revalidation floor so a
+        // sub-30s updateInterval does not force the network on every tick. The abort outcome
+        // also lands here, but the loop exits before another resolve runs, so the flag value is
+        // moot.
+        this._nextResolveRevalidatesNetwork =
+            !wokenByArrival && Date.now() - this._lastForcedIpnsNetworkRevalidationAtMs >= FORCED_IPNS_NETWORK_REVALIDATION_MIN_INTERVAL_MS;
     }
 
     // fetching community ipns here
@@ -386,6 +626,41 @@ export class CommunityClientsManager extends PKCClientsManager {
         return [...chainKeys];
     }
 
+    // Switch the community to the key its name now resolves to: drop every piece of state that
+    // described the old key (it may be compromised), point the update loop's push channel at
+    // the new key, and restart the in-flight fetch.
+    private _applyKeyMigration({ communityName, newPublicKey }: { communityName: string; newPublicKey: string }) {
+        const log = Logger("pkc-js:community-client-manager:_applyKeyMigration");
+        log("Key migration detected for", communityName, "old:", this._community.publicKey, "new:", newPublicKey);
+        const previousPublicKey = this._community.publicKey;
+        const error = new PKCError("ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY", {
+            communityName,
+            previousPublicKey,
+            newPublicKey
+        });
+
+        // Clear all data immediately (old data may be from compromised key)
+        this._community._clearDataForKeyMigration(newPublicKey);
+        this._updateCidsAlreadyLoaded.clear();
+        this._community.nameResolved = true;
+        // The pending arrivals describe the old key's records, and with the loaded set and
+        // updateCid just cleared nothing downstream filters them (a wasted old-key cycle). The
+        // loop must also watch the NEW key's topic from now on, not from when its record is
+        // first fetched: until then an old-key republish would keep waking it (issue #308).
+        this._pendingIpnsArrivalCids.clear();
+        this._pendingIpnsArrivalHopTargets.clear();
+        this._resyncIpnsArrivalSubscriptionsIfArmed();
+
+        // Abort in-flight fetch (using old key) by aborting the stop controller,
+        // then immediately create a new one so the update loop continues.
+        this._community._abortStopOperations("Key migration: name resolved to different public key");
+        this._community._createStopAbortController();
+
+        // Emit update so UI drops stale data right away
+        this._community.emit("update", this._community);
+        this._community.emit("error", error);
+    }
+
     private _resolveNameInBackground(name: string) {
         const log = Logger("pkc-js:community-client-manager:_resolveNameInBackground");
         const setNameResolvedAndEmitUpdate = (newNameResolved: boolean) => {
@@ -421,27 +696,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                     }
                     // Key change detected: name now points to a different key.
                     // Most likely: cached publicKey is stale after community key migration.
-                    log("Key migration detected for", name, "old:", this._community.publicKey, "new:", resolved);
-                    const previousPublicKey = this._community.publicKey;
-                    const error = new PKCError("ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY", {
-                        communityName: name,
-                        previousPublicKey,
-                        newPublicKey: resolved
-                    });
-
-                    // Clear all data immediately (old data may be from compromised key)
-                    this._community._clearDataForKeyMigration(resolved);
-                    this._updateCidsAlreadyLoaded.clear();
-                    this._community.nameResolved = true;
-
-                    // Abort in-flight fetch (using old key) by aborting the stop controller,
-                    // then immediately create a new one so the update loop continues.
-                    this._community._abortStopOperations("Key migration: name resolved to different public key");
-                    this._community._createStopAbortController();
-
-                    // Emit update so UI drops stale data right away
-                    this._community.emit("update", this._community);
-                    this._community.emit("error", error);
+                    this._applyKeyMigration({ communityName: name, newPublicKey: resolved });
                 } else if (resolved) {
                     setNameResolvedAndEmitUpdate(true);
                 }
@@ -492,22 +747,34 @@ export class CommunityClientsManager extends PKCClientsManager {
         });
     }
 
+    // The IPNS name every fetch pins to WITHOUT resolving anything, once one is known: a
+    // publicKey given alongside a domain address, a loaded anchor claim, or a verified name.
+    // A record with an anchor claim routes through the identity (the anchor chain) no matter
+    // how the instance was addressed (#257): the anchor is the rotation-safe pointer, so a
+    // reader must never stay pinned to the minter it happened to reach the record through.
+    // Shared by fetchNewUpdateForCommunity and the arrival subscription derivation so a
+    // domain+publicKey community is watchable before its first resolve, like a raw-key one.
+    private _pinnedIpnsName(): string | undefined {
+        const isDomain = isStringDomain(this._community.address);
+        const hasAnchorClaim = Boolean(this._community.anchor);
+        if (
+            this._community.publicKey &&
+            (isDomain || hasAnchorClaim || (!isDomain && this._community.name && this._community.nameResolved === true))
+        )
+            return this._community.publicKey;
+        return undefined;
+    }
+
     async fetchNewUpdateForCommunity(communityAddress: string): Promise<ResultOfFetchingCommunity> {
         return this._withInflightCommunityFetch(communityAddress, async () => {
             let ipnsName: string | null;
             const isDomain = isStringDomain(communityAddress);
 
-            // A record with an anchor claim routes through the identity (the anchor chain) no matter
-            // how the instance was addressed (#257): the anchor is the rotation-safe pointer, so a
-            // reader must never stay pinned to the minter it happened to reach the record through.
-            const hasAnchorClaim = Boolean(this._community.anchor);
-            if (
-                this._community.publicKey &&
-                (isDomain || hasAnchorClaim || (!isDomain && this._community.name && this._community.nameResolved === true))
-            ) {
+            const pinnedIpnsName = this._pinnedIpnsName();
+            if (pinnedIpnsName) {
                 // Once a domain has been verified against a public key, keep fetching through the current public key
                 // even if the immutable address on the instance is a raw IPNS key.
-                ipnsName = this._community.publicKey;
+                ipnsName = pinnedIpnsName;
                 if (isDomain) this._resolveNameInBackground(communityAddress);
             } else {
                 // Name only or publicKey only: use existing resolution flow
@@ -535,6 +802,10 @@ export class CommunityClientsManager extends PKCClientsManager {
                 this._community.ipnsHops = [ipnsName];
                 this._community.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(ipnsName);
                 this._community.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this._community.ipnsPubsubTopic);
+                // A freshly resolved domain now has a watchable topic: arm it for the rest of this
+                // cycle instead of only after updateOnce returns, so a record pushed while the
+                // cycle fetches and verifies is recorded rather than dropped at the source.
+                this._resyncIpnsArrivalSubscriptionsIfArmed();
             }
 
             if (this._community.updateCid) this._updateCidsAlreadyLoaded.add(this._community.updateCid);
@@ -601,9 +872,22 @@ export class CommunityClientsManager extends PKCClientsManager {
         if ("_helia" in kuboRpcOrHelia) {
             this.updateLibp2pJsClientState("fetching-ipns", kuboRpcOrHelia._libp2pJsClientsOptions.key);
         } else this.updateKuboRpcState("fetching-ipns", kuboRpcOrHelia.url);
+        // A cycle woken by the safety-net timer (not by an arrival) must revalidate on the
+        // network: the routing-layer cache gate cannot observe a push that never arrived, and
+        // would otherwise serve the stale record for its whole remaining ttl (300s at kubo
+        // 0.43's default) instead of the max(updateInterval, revalidation floor) the safety net
+        // promises. No-op for the kubo-RPC resolver, which always resolves with nocache: true.
+        const forceNetworkRevalidation = this._nextResolveRevalidatesNetwork;
+        // Consumed by the cycle's FIRST attempt only: updateOnce retries this fetch (forever,
+        // with backoff) on retriable errors such as a CID fetch timeout after a successful
+        // resolve, and those attempts must ride the cache as the 1s poll's retries did instead
+        // of re-resolving over the network on every backoff step.
+        this._nextResolveRevalidatesNetwork = false;
+        if (forceNetworkRevalidation) this._lastForcedIpnsNetworkRevalidationAtMs = Date.now();
         const { cid: latestCommunityCid, ipnsHops } = await this.resolveIpnsToCidP2P(ipnsName, {
             timeoutMs: this._pkc._timeouts["community-ipns"],
-            abortSignal: this._community._getStopAbortSignal()
+            abortSignal: this._community._getStopAbortSignal(),
+            ...(forceNetworkRevalidation ? { nocache: true } : {})
         });
         // ipnsHops[0] is the anchor (== ipnsName), ipnsHops.at(-1) is the terminal name whose
         // record points at the CID, i.e. the key that signs the community content. For a

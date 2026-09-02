@@ -484,6 +484,13 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         // Update to new key and IPNS routing props
         this.publicKey = newPublicKey;
         this.ipnsName = newPublicKey;
+        // The resolved delegation chain described the OLD key's record; keeping it would leave the
+        // update loop's IPNS arrival subscriptions (derived from ipnsHops, preferred over ipnsName)
+        // watching the old key's gossip topics, so the migrated key's record pushes could not wake
+        // the loop (issue #308). Default to the single-hop chain, the same shape
+        // fetchNewUpdateForCommunity seeds for a fresh ipnsName; the next successful resolve
+        // replaces it with the full walked chain.
+        this.ipnsHops = [newPublicKey];
         this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(newPublicKey);
         this.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this.ipnsPubsubTopic);
         this._assertHasIdentity();
