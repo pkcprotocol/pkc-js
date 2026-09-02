@@ -18,6 +18,18 @@ export interface IpnsRecordArrival {
 }
 export type IpnsRecordArrivalListener = (arrival: IpnsRecordArrival) => void;
 
+// Per-topic registry of arrival listeners, implemented by every record resolver the community
+// update loop can be push-driven on: the libp2p-js client (in-process, subscribe is sync and
+// always live) and the kubo-RPC client (a pubsub RPC stream per topic, issue #322 — subscribe
+// resolves once the stream is established and rejects if it cannot be, and isSubscribed reports
+// a stream that has since died). A source without isSubscribed is live for as long as a
+// listener is registered.
+export interface IpnsRecordArrivals {
+    subscribe(args: { pubsubTopic: string; listener: IpnsRecordArrivalListener }): void | Promise<void>;
+    unsubscribe(args: { pubsubTopic: string; listener: IpnsRecordArrivalListener }): void;
+    isSubscribed?(args: { pubsubTopic: string }): boolean;
+}
+
 export interface HeliaWithKuboRpcClientFunctions extends Pick<NonNullable<KuboRpcClient["_client"]>, "add" | "cat" | "pubsub" | "stop"> {
     add: KuboRpcClient["_client"]["add"];
     name: Pick<KuboRpcClient["_client"]["name"], "resolve">;
@@ -36,10 +48,7 @@ export interface HeliaWithKuboRpcClientFunctions extends Pick<NonNullable<KuboRp
     // community update loop subscribes per IPNS pubsub topic to react to pushed records instead
     // of polling name.resolve every second. Listeners fire AFTER the record is validated and
     // persisted in the routing-layer cache, so a resolve issued from a listener observes it.
-    ipnsRecordArrivals: {
-        subscribe(args: { pubsubTopic: string; listener: IpnsRecordArrivalListener }): void;
-        unsubscribe(args: { pubsubTopic: string; listener: IpnsRecordArrivalListener }): void;
-    };
+    ipnsRecordArrivals: IpnsRecordArrivals;
     // Test-only override of BITSWAP_SESSION_STALLED_GET_FAILOVER_MS, read by cat() at each block
     // get. The issue #189 guard test (at most one routing query per DAG) sets it beyond its own
     // timeout: on slow CI runners a block can legitimately stall, and the failover's broadcast

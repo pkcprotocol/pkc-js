@@ -39,6 +39,7 @@ import Vote from "../publications/vote/vote.js";
 import { createSigner, verifyCommentPubsubMessage } from "../signer/index.js";
 import { CommentEdit } from "../publications/comment-edit/comment-edit.js";
 import Logger from "../logger.js";
+import { createKuboIpnsRecordArrivals } from "../clients/kubo-ipns-record-arrivals.js";
 import env from "../version.js";
 import { verifyCommentEdit, verifyCommentIpfs, verifyCommentUpdate, verifyCommunityEdit } from "../signer/signatures.js";
 import Stats from "../stats.js";
@@ -342,12 +343,15 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         if (!this.kuboRpcClientsOptions) return;
         for (const clientOptions of this.kuboRpcClientsOptions) {
             const kuboRpcClient = await createKuboRpcClient(clientOptions);
-            this.clients.kuboRpcClients[clientOptions.url!.toString()] = {
+            const kuboRpcClientUrl = clientOptions.url!.toString();
+            const ipnsRecordArrivals = createKuboIpnsRecordArrivals({ kuboRpcClient, kuboRpcClientUrl });
+            this.clients.kuboRpcClients[kuboRpcClientUrl] = {
                 _client: kuboRpcClient,
                 _clientOptions: clientOptions,
                 peers: kuboRpcClient.swarm.peers,
-                url: clientOptions.url!.toString(),
-                destroy: async () => {}
+                url: kuboRpcClientUrl,
+                ipnsRecordArrivals,
+                destroy: () => ipnsRecordArrivals.destroy()
             };
         }
     }
