@@ -1,11 +1,12 @@
 // Regression test for issue #314: over PKC RPC, Comment._updateViaRpc() (src/publications/comment/comment.ts)
-// attaches the notification handlers and synchronously calls emitAllPendingMessages(subscriptionId)
+// used to attach the notification handlers and synchronously call emitAllPendingMessages(subscriptionId)
 // INSIDE update(), replaying every buffered notification before the caller of update() got a
 // chance to attach an "error" listener. Any error the server emitted at subscribe time (before
 // the JSON-RPC subscribe response) then bubbled to pkc via the listenerCount("error") === 1 rule
 // in publication.ts, so callers following the natural `await comment.update();
-// comment.on("error", ...)` order never saw it and pkc emitted it as unhandled instead.
-// PR #313 fixed this race for RpcRemoteCommunity.update() only; comment.update() still has it.
+// comment.on("error", ...)` order never saw it and pkc emitted it as unhandled instead. The race
+// was first fixed for RpcRemoteCommunity.update() only; comment.update() got the same
+// deferred-replay fix afterwards (#314), which this test pins.
 //
 // The server sends notifications for a subscription before returning the subscribe response
 // (src/rpc/src/index.ts commentUpdateSubscribe calls sendUpdate() and awaits the server-side
@@ -19,12 +20,18 @@
 // commentUpdateSubscribe emits a non-retriable error right after its update() resolves — i.e.
 // after the subscription listeners are bound and before the subscribe call returns. That is
 // exactly "an error the server emitted at subscribe time": the error notification is written to
-// the websocket ahead of the subscribe response, lands in the client's pending buffer, and is
-// replayed synchronously inside comment.update().
+// the websocket ahead of the subscribe response, lands in the client's pending buffer, and used
+// to be replayed synchronously inside comment.update() (the deferred replay now delivers it on a
+// later tick).
 import { describe, beforeAll, afterAll, expect, vi } from "vitest";
-import path from "path";
 import PKC from "../../../dist/node/index.js";
-import { createInProcessRpcServer, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
+import {
+    createInProcessRpcServer,
+    makeInjectedErrorMatcher,
+    pollUntil,
+    uniqueTmpDataPath,
+    type PKCWsServerType
+} from "../../helpers/rpc-server-harness.js";
 import { mockRpcServerPKC, createSubWithNoChallenge, publishRandomPost } from "../../../dist/node/test/test-util.js";
 import { PKCError } from "../../../dist/node/pkc-error.js";
 import { itIfRpc } from "../../helpers/conditional-tests.js";
@@ -33,8 +40,7 @@ import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 const RPC_AUTH_KEY = "test-comment-error-at-subscribe-time";
 const INJECTED_MARKER = "injectedSubscribeTimeError314";
 
-const isInjectedError = (err: unknown): boolean =>
-    Boolean(err && typeof err === "object" && (err as { details?: Record<string, unknown> }).details?.[INJECTED_MARKER]);
+const isInjectedError = makeInjectedErrorMatcher(INJECTED_MARKER);
 
 describe("RPC: comment error emitted at subscribe time reaches a listener attached after update() (#314)", () => {
     let rpcServer: PKCWsServerType;
@@ -44,10 +50,7 @@ describe("RPC: comment error emitted at subscribe time reaches a listener attach
     let postCid: string;
 
     beforeAll(async () => {
-        dataPath = path.join(
-            process.cwd(),
-            `.tmp/.pkc-rpc-comment-subscribe-time-error-test-${Date.now()}-${Math.floor(Math.random() * 100000)}`
-        );
+        dataPath = uniqueTmpDataPath("pkc-rpc-comment-subscribe-time-error-test");
         serverPKC = await mockRpcServerPKC({ dataPath });
 
         // A real comment CID is needed for commentUpdateSubscribe: create+start a local community
@@ -60,8 +63,6 @@ describe("RPC: comment error emitted at subscribe time reaches a listener attach
         postCid = publishedPost.cid;
 
         ({ rpcServer, rpcUrl } = await createInProcessRpcServer({ serverPKC, authKey: RPC_AUTH_KEY }));
-
-        const server = rpcServer as unknown as Record<string, Function>;
 
         // Emit a non-retriable error on the server-side comment instance after the subscription's
         // listeners are bound but before commentUpdateSubscribe returns its response. There is no
@@ -111,9 +112,7 @@ describe("RPC: comment error emitted at subscribe time reaches a listener attach
             comment.on("error", (err) => commentLevelErrors.push(err));
 
             // Give delivery ample time in case a fix defers the replay to a later tick.
-            const deadline = Date.now() + 5_000;
-            while (Date.now() < deadline && !commentLevelErrors.some(isInjectedError))
-                await new Promise((resolve) => setTimeout(resolve, 100));
+            await pollUntil(() => commentLevelErrors.some(isInjectedError), { timeoutMs: 5_000, intervalMs: 100 });
 
             // Extra settle window so a duplicate delivery (e.g. a replay that runs twice or a
             // buffer that isn't cleared after draining) would have time to arrive and fail the

@@ -1,12 +1,13 @@
-// Regression test for issue #314: PR #313 fixed the subscribe-time notification replay for
-// RpcRemoteCommunity.update() only. publication.publish() over RPC still attaches its
-// notification handlers and synchronously calls emitAllPendingMessages(subscriptionId) INSIDE
+// Regression test for issue #314: publication.publish() over RPC used to attach its
+// notification handlers and synchronously call emitAllPendingMessages(subscriptionId) INSIDE
 // the awaited publish() call (src/publications/publication.ts _publishWithRpc), replaying every
-// buffered notification before the caller of publish() gets a chance to attach an "error"
+// buffered notification before the caller of publish() got a chance to attach an "error"
 // listener. Any error the server emitted at publish-subscribe time (before the JSON-RPC publish
-// response) then bubbles to pkc via the listenerCount("error") === 1 rule in the Publication
+// response) then bubbled to pkc via the listenerCount("error") === 1 rule in the Publication
 // constructor, so callers following the natural `await comment.publish(); comment.on("error",
-// ...)` order never see it and pkc emits it as unhandled instead.
+// ...)` order never saw it and pkc emitted it as unhandled instead. The race was first fixed for
+// RpcRemoteCommunity.update() only; publish() got the same deferred-replay fix afterwards
+// (#314), which this test pins.
 //
 // The server sends notifications for a publish subscription before returning the subscribe
 // response (src/rpc/src/index.ts publishComment attaches its listeners and awaits
@@ -21,11 +22,17 @@
 // non-retriable error instead of publishing. publishComment awaits that publish() AFTER binding
 // all its subscription listeners and BEFORE writing the JSON-RPC response, so the error
 // notification is written to the websocket ahead of the publish response, lands in the client's
-// pending buffer, and is replayed synchronously inside the client's comment.publish().
+// pending buffer, and used to be replayed synchronously inside the client's comment.publish()
+// (the deferred replay now delivers it on a later tick).
 import { describe, beforeAll, afterAll, expect, vi } from "vitest";
-import path from "path";
 import PKC from "../../../dist/node/index.js";
-import { createInProcessRpcServer, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
+import {
+    createInProcessRpcServer,
+    makeInjectedErrorMatcher,
+    pollUntil,
+    uniqueTmpDataPath,
+    type PKCWsServerType
+} from "../../helpers/rpc-server-harness.js";
 import { mockRpcServerPKC, createSubWithNoChallenge } from "../../../dist/node/test/test-util.js";
 import { PKCError } from "../../../dist/node/pkc-error.js";
 import { itIfRpc } from "../../helpers/conditional-tests.js";
@@ -35,8 +42,7 @@ import type { Comment } from "../../../dist/node/publications/comment/comment.js
 const RPC_AUTH_KEY = "test-publish-error-at-subscribe-time";
 const INJECTED_MARKER = "injectedSubscribeTimePublishError314";
 
-const isInjectedError = (err: unknown): boolean =>
-    Boolean(err && typeof err === "object" && (err as { details?: Record<string, unknown> }).details?.[INJECTED_MARKER]);
+const isInjectedError = makeInjectedErrorMatcher(INJECTED_MARKER);
 
 describe("RPC: publish error emitted at subscribe time reaches a listener attached after publish() (#314)", () => {
     let rpcServer: PKCWsServerType;
@@ -46,10 +52,7 @@ describe("RPC: publish error emitted at subscribe time reaches a listener attach
     let dataPath: string;
 
     beforeAll(async () => {
-        dataPath = path.join(
-            process.cwd(),
-            `.tmp/.pkc-rpc-publish-subscribe-time-error-test-${Date.now()}-${Math.floor(Math.random() * 100000)}`
-        );
+        dataPath = uniqueTmpDataPath("pkc-rpc-publish-subscribe-time-error-test");
         serverPKC = await mockRpcServerPKC({ dataPath });
 
         // A real, started local community so the client's publish() can fetch it over RPC for
@@ -121,9 +124,10 @@ describe("RPC: publish error emitted at subscribe time reaches a listener attach
             comment.on("error", (err) => publicationLevelErrors.push(err));
 
             // Give delivery ample time in case a fix defers the replay to a later tick.
-            const deadline = Date.now() + 5_000;
-            while (Date.now() < deadline && !publicationLevelErrors.some(isInjectedError) && !publishRejectedWithInjectedError)
-                await new Promise((resolve) => setTimeout(resolve, 100));
+            await pollUntil(() => publicationLevelErrors.some(isInjectedError) || publishRejectedWithInjectedError, {
+                timeoutMs: 5_000,
+                intervalMs: 100
+            });
 
             // Extra settle window so a duplicate delivery (e.g. a replay that runs twice or a
             // buffer that isn't cleared after draining) would have time to arrive and fail the
@@ -132,15 +136,14 @@ describe("RPC: publish error emitted at subscribe time reaches a listener attach
 
             const injectedAtPublicationListener = publicationLevelErrors.filter(isInjectedError).length;
             expect({
-                // Desired: the injected error reaches a catchable path — either the listener
-                // attached right after the await (exactly once: not dropped, not duplicated) or
-                // the publish() rejection — and never surfaces only as an unhandled pkc error.
-                injectedErrorReachedCatchablePath: injectedAtPublicationListener === 1 || publishRejectedWithInjectedError,
-                injectedErrorsAtPublicationListener: publishRejectedWithInjectedError ? 0 : injectedAtPublicationListener,
+                // Desired: the injected error reaches a catchable path exactly once across the
+                // two acceptable routes - the publish() rejection and the listener attached right
+                // after the await sum to one delivery (a fix that both rejected and replayed
+                // would double-deliver) - and never surfaces only as an unhandled pkc error.
+                totalInjectedDeliveries: injectedAtPublicationListener + (publishRejectedWithInjectedError ? 1 : 0),
                 pkcGotInjectedErrorAsUnhandled: pkcLevelErrors.some(isInjectedError)
             }).toEqual({
-                injectedErrorReachedCatchablePath: true,
-                injectedErrorsAtPublicationListener: publishRejectedWithInjectedError ? 0 : 1,
+                totalInjectedDeliveries: 1,
                 pkcGotInjectedErrorAsUnhandled: false
             });
         } finally {

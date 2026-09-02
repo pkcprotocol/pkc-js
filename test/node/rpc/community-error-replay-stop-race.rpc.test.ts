@@ -2,20 +2,21 @@
 // RpcRemoteCommunity._initRpcUpdateSubscription() defers attaching the subscription handlers and
 // replaying buffered notifications to a setTimeout(0) macrotask, guarded by
 // `this._updateRpcSubscriptionId !== subscriptionId || !rpcClient?.subscriptionActive(subscriptionId)`.
-// But stop() clears _updateRpcSubscriptionId only AFTER awaiting the unsubscribe RPC round trip
-// (src/community/rpc-remote-community.ts, stop()), and the client deletes _subscriptionEvents[id]
-// only after the websocket "unsubscribe" call resolves (src/clients/rpc-client/pkc-rpc-client.ts,
-// unsubscribe()). So in the natural sequence `await community.update(); await community.stop();`
-// the 0ms timer fires while stop()'s unsubscribe is still in flight, both guard halves pass, the
-// handlers attach, and a buffered subscribe-time error notification is replayed into a community
-// that is stopping and has no user error listener. The bubbling rule in remote-community.ts
-// (`listenerCount("error") === 1` forwards to pkc) then emits it as a stray pkc-level error - the
-// exact #299 symptom, narrowed to the stop-in-flight window.
+// But stop() used to clear _updateRpcSubscriptionId only AFTER awaiting the unsubscribe RPC
+// round trip (src/community/rpc-remote-community.ts, stop()), and the client deletes
+// _subscriptionEvents[id] only after the websocket "unsubscribe" call resolves
+// (src/clients/rpc-client/pkc-rpc-client.ts, unsubscribe()). So in the natural sequence
+// `await community.update(); await community.stop();` the 0ms timer fired while stop()'s
+// unsubscribe was still in flight, both guard halves passed, the handlers attached, and a
+// buffered subscribe-time error notification was replayed into a community that was stopping and
+// had no user error listener. The bubbling rule in remote-community.ts
+// (`listenerCount("error") === 1` forwards to pkc) then emitted it as a stray pkc-level error -
+// the exact #299 symptom, narrowed to the stop-in-flight window.
 //
 // The desired behavior asserted here: once stop() has been initiated, the buffered subscribe-time
 // error must not be delivered anywhere - in particular it must not surface as an unhandled
-// pkc-level error. Today this test is RED because the deferred replay wins the race against
-// stop()'s awaited unsubscribe.
+// pkc-level error. Before the fix (stop() now clears the subscription id synchronously before
+// the awaited unsubscribe) this test was RED because the deferred replay won the race.
 //
 // The injection harness is identical to community-error-at-subscribe-time.rpc.test.ts: the
 // PKCWsServer runs in-process and its _bindCommunityUpdateSubscription is wrapped so the
@@ -23,21 +24,24 @@
 // bound but before the subscribe response, guaranteeing the error notification sits in the
 // client's pending buffer before update() resolves.
 import { describe, beforeAll, afterAll, expect, vi } from "vitest";
-import path from "path";
 import PKC from "../../../dist/node/index.js";
-import { createInProcessRpcServer, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
+import {
+    createInProcessRpcServer,
+    makeInjectedErrorMatcher,
+    pollUntil,
+    uniqueTmpDataPath,
+    wrapCommunityUpdateSubscriptionBind,
+    type PKCWsServerType
+} from "../../helpers/rpc-server-harness.js";
 import { mockRpcServerPKC } from "../../../dist/node/test/test-util.js";
 import { PKCError } from "../../../dist/node/pkc-error.js";
-import { findUpdatingCommunity } from "../../../dist/node/pkc/tracked-instance-registry-util.js";
 import { itIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
-import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 
 const RPC_AUTH_KEY = "test-community-error-replay-stop-race";
 const INJECTED_MARKER = "injectedStopRaceError313";
 
-const isInjectedError = (err: unknown): boolean =>
-    Boolean(err && typeof err === "object" && (err as { details?: Record<string, unknown> }).details?.[INJECTED_MARKER]);
+const isInjectedError = makeInjectedErrorMatcher(INJECTED_MARKER);
 
 describe("RPC: buffered subscribe-time error must not be replayed into a community that is stopping", () => {
     let rpcServer: PKCWsServerType;
@@ -46,29 +50,21 @@ describe("RPC: buffered subscribe-time error must not be replayed into a communi
     let dataPath: string;
 
     beforeAll(async () => {
-        dataPath = path.join(process.cwd(), `.tmp/.pkc-rpc-stop-race-test-${Date.now()}-${Math.floor(Math.random() * 100000)}`);
+        dataPath = uniqueTmpDataPath("pkc-rpc-stop-race-test");
         serverPKC = await mockRpcServerPKC({ dataPath });
 
         ({ rpcServer, rpcUrl } = await createInProcessRpcServer({ serverPKC, authKey: RPC_AUTH_KEY }));
-
-        const server = rpcServer as unknown as {
-            _bindCommunityUpdateSubscription: (
-                parsedArgs: { name?: string; publicKey?: string },
-                connectionId: string,
-                subscriptionId: number
-            ) => Promise<void>;
-        };
 
         // Emit a non-retriable error on the server-side updating instance after the subscription's
         // listeners are bound but before communityUpdateSubscribe returns its response. The error
         // notification is written to the websocket ahead of the subscribe response, so the client
         // buffers it in _pendingSubscriptionMsgs before update() resolves.
-        const originalBind = server._bindCommunityUpdateSubscription.bind(rpcServer);
-        vi.spyOn(server, "_bindCommunityUpdateSubscription").mockImplementation(async (parsedArgs, connectionId, subscriptionId) => {
-            await originalBind(parsedArgs, connectionId, subscriptionId);
-            const entry = findUpdatingCommunity(serverPKC, parsedArgs) as RemoteCommunity | undefined;
-            if (!entry) throw new Error("Test setup failed: no server-side updating entry after binding the subscription");
-            entry.emit("error", new PKCError("ERR_INVALID_JSON", { [INJECTED_MARKER]: true }));
+        wrapCommunityUpdateSubscriptionBind({
+            rpcServer,
+            serverPKC,
+            onBound: (entry) => {
+                entry.emit("error", new PKCError("ERR_INVALID_JSON", { [INJECTED_MARKER]: true }));
+            }
         });
     });
 
@@ -103,8 +99,7 @@ describe("RPC: buffered subscribe-time error must not be replayed into a communi
 
             // Generous settle window so the deferred replay (and any later delivery a fix might
             // introduce) has fired before we assert. Exit early if the leak already happened.
-            const deadline = Date.now() + 2_000;
-            while (Date.now() < deadline && !pkcLevelErrors.some(isInjectedError)) await new Promise((resolve) => setTimeout(resolve, 50));
+            await pollUntil(() => pkcLevelErrors.some(isInjectedError), { timeoutMs: 2_000, intervalMs: 50 });
 
             // Desired behavior: once stop() was initiated, the buffered subscribe-time error is
             // dropped - nothing is delivered to a community with no listeners, and nothing bubbles

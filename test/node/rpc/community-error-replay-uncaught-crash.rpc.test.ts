@@ -28,15 +28,18 @@
 // returns, so the notification lands in the client's pending buffer and is replayed by the
 // deferred task.
 import { describe, beforeAll, afterAll, expect, vi } from "vitest";
-import path from "path";
 import PKC from "../../../dist/node/index.js";
-import { createInProcessRpcServer, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
+import {
+    createInProcessRpcServer,
+    pollUntil,
+    uniqueTmpDataPath,
+    wrapCommunityUpdateSubscriptionBind,
+    type PKCWsServerType
+} from "../../helpers/rpc-server-harness.js";
 import { mockRpcServerPKC } from "../../../dist/node/test/test-util.js";
 import { PKCError } from "../../../dist/node/pkc-error.js";
-import { findUpdatingCommunity } from "../../../dist/node/pkc/tracked-instance-registry-util.js";
 import { itIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
-import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 
 const RPC_AUTH_KEY = "test-community-error-replay-uncaught-crash";
 const INJECTED_MARKER = "injectedSubscribeTimeErrorReplayCrash";
@@ -60,28 +63,20 @@ describe("RPC: subscribe-time community error with no listeners attached must no
     let dataPath: string;
 
     beforeAll(async () => {
-        dataPath = path.join(process.cwd(), `.tmp/.pkc-rpc-error-replay-crash-test-${Date.now()}-${Math.floor(Math.random() * 100000)}`);
+        dataPath = uniqueTmpDataPath("pkc-rpc-error-replay-crash-test");
         serverPKC = await mockRpcServerPKC({ dataPath });
 
         ({ rpcServer, rpcUrl } = await createInProcessRpcServer({ serverPKC, authKey: RPC_AUTH_KEY }));
 
-        const server = rpcServer as unknown as {
-            _bindCommunityUpdateSubscription: (
-                parsedArgs: { name?: string; publicKey?: string },
-                connectionId: string,
-                subscriptionId: number
-            ) => Promise<void>;
-        };
-
         // Emit a non-retriable error on the server-side updating instance after the subscription's
         // listeners are bound but before communityUpdateSubscribe returns its response, so the
         // error notification is buffered client-side and replayed by the deferred task.
-        const originalBind = server._bindCommunityUpdateSubscription.bind(rpcServer);
-        vi.spyOn(server, "_bindCommunityUpdateSubscription").mockImplementation(async (parsedArgs, connectionId, subscriptionId) => {
-            await originalBind(parsedArgs, connectionId, subscriptionId);
-            const entry = findUpdatingCommunity(serverPKC, parsedArgs) as RemoteCommunity | undefined;
-            if (!entry) throw new Error("Test setup failed: no server-side updating entry after binding the subscription");
-            entry.emit("error", new PKCError("ERR_INVALID_JSON", { [INJECTED_MARKER]: true }));
+        wrapCommunityUpdateSubscriptionBind({
+            rpcServer,
+            serverPKC,
+            onBound: (entry) => {
+                entry.emit("error", new PKCError("ERR_INVALID_JSON", { [INJECTED_MARKER]: true }));
+            }
         });
     });
 
@@ -142,9 +137,10 @@ describe("RPC: subscribe-time community error with no listeners attached must no
             // test's own cleanup stop() below so the assertion is not trivially satisfied by it
             const terminatedCleanly = (): boolean => community.state === "stopped";
 
-            const deadline = Date.now() + 5_000;
-            while (Date.now() < deadline && !deliveredCatchably() && !terminatedCleanly() && !uncaughtErrors.some(mentionsInjectedError))
-                await new Promise((resolve) => setTimeout(resolve, 100));
+            await pollUntil(() => deliveredCatchably() || terminatedCleanly() || uncaughtErrors.some(mentionsInjectedError), {
+                timeoutMs: 5_000,
+                intervalMs: 100
+            });
 
             const handledWithoutCrash = deliveredCatchably() || terminatedCleanly();
 

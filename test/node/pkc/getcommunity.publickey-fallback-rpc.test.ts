@@ -1,7 +1,6 @@
 import { describe, beforeAll, afterAll, expect } from "vitest";
-import path from "path";
 import PKC from "../../../dist/node/index.js";
-import { createInProcessRpcServer, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
+import { createInProcessRpcServer, uniqueTmpDataPath, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
 import {
     createMockedCommunityIpns,
     createMockNameResolver,
@@ -27,10 +26,7 @@ describe("pkc.getCommunity publicKey fallback over RPC", () => {
     let dataPath: string;
 
     beforeAll(async () => {
-        dataPath = path.join(
-            process.cwd(),
-            `.pkc-rpc-getcommunity-publickey-fallback-test-${Date.now()}-${Math.floor(Math.random() * 100000)}`
-        );
+        dataPath = uniqueTmpDataPath("pkc-rpc-getcommunity-publickey-fallback-test");
         serverPKC = await mockRpcServerPKC({
             dataPath,
             nameResolvers: createResolverLimitedNameResolvers()
