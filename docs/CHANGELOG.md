@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.93](https://github.com/pkcprotocol/pkc-js/compare/v0.0.92...v0.0.93) (2026-09-02)
+
+### Bug Fixes
+
+* **rpc:** deliver subscribe-time errors to late listeners across update, publish, and start ([#299](https://github.com/pkcprotocol/pkc-js/issues/299)) ([#313](https://github.com/pkcprotocol/pkc-js/issues/313)) ([eff51d0](https://github.com/pkcprotocol/pkc-js/commit/eff51d08705d74f45957b007f62b5706d16d5576)), closes [#314](https://github.com/pkcprotocol/pkc-js/issues/314) [#314](https://github.com/pkcprotocol/pkc-js/issues/314) [#314](https://github.com/pkcprotocol/pkc-js/issues/314) [#314](https://github.com/pkcprotocol/pkc-js/issues/314) [#316](https://github.com/pkcprotocol/pkc-js/issues/316) [#315](https://github.com/pkcprotocol/pkc-js/issues/315) [#316](https://github.com/pkcprotocol/pkc-js/issues/316)
+
 ## [0.0.92](https://github.com/pkcprotocol/pkc-js/compare/v0.0.91...v0.0.92) (2026-09-01)
 
 ### Bug Fixes
