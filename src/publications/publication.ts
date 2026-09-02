@@ -905,8 +905,12 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 log.error("Failed to unsubscribe from publication publish", e);
             }
             this._setRpcClientState("stopped");
-        } else if (typeof this._community?.pubsubTopic === "string") {
-            // the client is publishing to pubsub without using PKC RPC
+        } else if (!this._pkc._pkcRpcClient && typeof this._community?.pubsubTopic === "string") {
+            // The client is publishing to pubsub without using PKC RPC. Routed on the RPC
+            // client's absence, not just the subscription id: with an RPC client the id may
+            // already be cleared (the challengeverification handler clears it synchronously
+            // before its awaited unsubscribe), and this branch can never succeed in RPC mode -
+            // _updatePubsubState needs a default pubsub provider and an RPC-mode PKC has none
             await this._clientsManager.pubsubUnsubscribe(this._community.pubsubTopic, this._handleChallengeExchange);
             Object.values(this._challengeExchanges).forEach((exchange) => this._updatePubsubState("stopped", exchange.providerUrl));
         }
