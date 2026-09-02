@@ -376,15 +376,33 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         onReplayError: (error: unknown) => void;
     }) {
         setTimeout(() => {
+            const ownsSubscription = () => !opts.isStale() && this.subscriptionActive(opts.subscriptionId);
             // The subscription may have been unsubscribed or the connection destroyed in the meantime
-            if (opts.isStale() || !this.subscriptionActive(opts.subscriptionId)) return;
+            if (!ownsSubscription()) return;
             try {
                 opts.attach(this.getSubscription(opts.subscriptionId));
-                this.emitAllPendingMessages(opts.subscriptionId);
+                this._emitPendingMessagesWhile(opts.subscriptionId, ownsSubscription);
             } catch (e) {
                 opts.onReplayError(e);
             }
         }, 0);
+    }
+
+    // Replay the buffered notifications one message at a time, re-checking ownership between
+    // messages: a replayed handler may call stop(), whose synchronous prefix clears the caller's
+    // subscription id (directly, or through the mirror cleanup chain), and the remaining buffered
+    // notifications must then be dropped instead of delivered into a stopping instance. The
+    // messages delivered before the stop are consumed; the leftovers stay buffered for
+    // unsubscribe() to discard.
+    private _emitPendingMessagesWhile(subscriptionId: number, shouldDeliver: () => boolean) {
+        const pendingMessages = this._pendingSubscriptionMsgs[subscriptionId];
+        if (!pendingMessages) return;
+        while (pendingMessages.length > 0) {
+            if (!shouldDeliver()) return;
+            const message = pendingMessages.shift();
+            this._subscriptionEvents[subscriptionId].emit(message?.params?.event, message);
+        }
+        delete this._pendingSubscriptionMsgs[subscriptionId];
     }
 
     emitAllPendingMessages(subscriptionId: number) {
