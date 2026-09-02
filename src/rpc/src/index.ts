@@ -179,6 +179,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     // http server underlies the WS.
     private _httpServer: HTTPServer | HTTPSServer | undefined;
     private _ownsHttpServer: boolean = false;
+    private _pendingDisconnectionCleanups: Set<Promise<void>> = new Set();
 
     constructor({
         port,
@@ -275,25 +276,18 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             log("Established connection with new RPC client", ws._id);
         });
 
-        // cleanup on disconnect
-        this.rpcWebsockets.on("disconnection", async (ws) => {
-            log("RPC client disconnected", ws._id, "number of rpc clients connected", this.rpcWebsockets.wss.clients.size);
-            const subscriptionCleanups = this.subscriptionCleanups[ws._id];
-            if (!subscriptionCleanups) {
-                delete this.subscriptionCleanups[ws._id];
-                delete this.connections[ws._id];
-                delete this._onSettingsChange[ws._id];
-                log("Disconnected from RPC client (no subscriptions to clean)", ws._id);
-                return;
-            }
-            for (const subscriptionId in subscriptionCleanups) {
-                await subscriptionCleanups[subscriptionId]();
-                delete subscriptionCleanups[subscriptionId];
-            }
-            delete this.subscriptionCleanups[ws._id];
-            delete this.connections[ws._id];
-            delete this._onSettingsChange[ws._id];
-            log("Disconnected from RPC client", ws._id);
+        // cleanup on disconnect. rpc-websockets does not await this listener, so its promise is tracked in
+        // _pendingDisconnectionCleanups for destroy() to await (#325): a subscription registered between
+        // destroy()'s unsubscribe loop and the socket close would otherwise still be cleaning up after
+        // destroy() resolved.
+        this.rpcWebsockets.on("disconnection", (ws) => {
+            const cleanup = this._cleanUpDisconnectedClient(ws._id);
+            this._pendingDisconnectionCleanups.add(cleanup);
+            const untrack = () => this._pendingDisconnectionCleanups.delete(cleanup);
+            cleanup.then(untrack, (e) => {
+                log.error("Failed to clean up after RPC client disconnected", ws._id, e);
+                untrack();
+            });
         });
 
         // register all JSON RPC methods
@@ -1986,6 +1980,26 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         return { success: true };
     }
 
+    private async _cleanUpDisconnectedClient(connectionId: string) {
+        log("RPC client disconnected", connectionId, "number of rpc clients connected", this.rpcWebsockets.wss.clients.size);
+        const subscriptionCleanups = this.subscriptionCleanups[connectionId];
+        if (!subscriptionCleanups) {
+            delete this.subscriptionCleanups[connectionId];
+            delete this.connections[connectionId];
+            delete this._onSettingsChange[connectionId];
+            log("Disconnected from RPC client (no subscriptions to clean)", connectionId);
+            return;
+        }
+        for (const subscriptionId in subscriptionCleanups) {
+            await subscriptionCleanups[subscriptionId]();
+            delete subscriptionCleanups[subscriptionId];
+        }
+        delete this.subscriptionCleanups[connectionId];
+        delete this.connections[connectionId];
+        delete this._onSettingsChange[connectionId];
+        log("Disconnected from RPC client", connectionId);
+    }
+
     async destroy() {
         for (const connectionId of keys(this.subscriptionCleanups))
             for (const subscriptionId of keys(this.subscriptionCleanups[connectionId]))
@@ -2009,6 +2023,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             for (const client of this.ws.clients) client.terminate();
             await wssClosed;
         }
+        // Every client's "disconnection" has fired by now; wait for the cleanups they started
+        await Promise.allSettled(this._pendingDisconnectionCleanups); // failures were already logged where they happened
         if (this._ownsHttpServer && this._httpServer) await new Promise<void>((r) => this._httpServer!.close(() => r()));
         const pkc = await this._getPKCInstance();
         await pkc.destroy(); // this will stop all started communities
