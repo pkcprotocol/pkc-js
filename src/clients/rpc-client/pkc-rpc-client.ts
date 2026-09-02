@@ -70,6 +70,14 @@ import {
 
 const log = Logger("pkc-js:PKCRpcClient");
 
+// The subset of ws (Node) and the native WebSocket (browser) that destroy() needs to wait for a close
+interface RawWebSocket {
+    readonly readyState: number;
+    addEventListener(type: "close", listener: () => void, options?: { once: boolean }): void;
+}
+const WEBSOCKET_READY_STATE_CLOSED = 3;
+const DESTROY_SOCKET_CLOSE_TIMEOUT_MS = 5_000;
+
 // Captured at module load so the deferred attach-and-replay (attachSubscriptionHandlersDeferred)
 // keeps working when a downstream app enables fake timers: vitest/jest replace the GLOBAL
 // setTimeout after modules are imported, so this bound reference stays the real timer and
@@ -189,7 +197,9 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
             });
 
             this._webSocketClient.on("close", () => {
-                log.error("connection with web socket has been closed", this._websocketServerUrl);
+                // destroy() already awaited this close and logged it; a log here would land after
+                // destroy() resolved (#325)
+                if (!this._destroyRequested) log.error("connection with web socket has been closed", this._websocketServerUrl);
                 this._openConnectionPromise = undefined;
                 this.setState("stopped");
             });
@@ -278,7 +288,12 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         try {
             if (this._webSocketClient instanceof WebSocketClient) {
                 this._webSocketClient.setAutoReconnect(false);
+                // Wait for the socket to actually close so nothing (in particular no log line) runs on our
+                // behalf after destroy() has resolved (#325)
+                const socketClosed = this._waitForSocketClose();
                 this._webSocketClient.close();
+                await socketClosed;
+                log("Closed websocket connection to", this._websocketServerUrl);
             }
         } catch (e) {
             log.error("Failed to close websocket", e);
@@ -286,6 +301,21 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
 
         this._openConnectionPromise = undefined;
         this.setState("stopped");
+    }
+
+    // Resolves once the raw socket under rpc-websockets has fully closed, right away if there is none.
+    // Bounded so a peer that never completes the close handshake cannot hang destroy(); rpc-websockets
+    // exposes the raw socket as `.socket` (ws in Node, the native WebSocket in browsers), both of which
+    // support addEventListener.
+    private async _waitForSocketClose(): Promise<void> {
+        const socket = (this._webSocketClient as unknown as { socket?: RawWebSocket }).socket;
+        if (!socket || socket.readyState === WEBSOCKET_READY_STATE_CLOSED) return;
+        const closed = new Promise<void>((resolve) => socket.addEventListener("close", () => resolve(), { once: true }));
+        try {
+            await pTimeout(closed, { milliseconds: DESTROY_SOCKET_CLOSE_TIMEOUT_MS });
+        } catch {
+            log.error("Websocket did not close within", DESTROY_SOCKET_CLOSE_TIMEOUT_MS, "ms of destroy()", this._websocketServerUrl);
+        }
     }
 
     toJSON() {

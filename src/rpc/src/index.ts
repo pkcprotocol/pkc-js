@@ -34,6 +34,7 @@ import type {
     DecryptedChallengeVerificationMessageType
 } from "../../pubsub-messages/types.js";
 import WebSocket from "ws";
+import pTimeout from "p-timeout";
 import Publication from "../../publications/publication.js";
 import { PKCError } from "../../pkc-error.js";
 import { LocalCommunity } from "../../runtime/node/community/local-community.js";
@@ -114,6 +115,8 @@ import { findStartedCommunity } from "../../pkc/tracked-instance-registry-util.j
 // store as a singleton because not possible to start the same community twice at the same time
 
 const log = Logger("pkc-js-rpc:pkc-ws-server");
+
+const DESTROY_CLIENTS_CLOSE_TIMEOUT_MS = 5_000;
 
 // Max retries when an auto-start hits a transient Kubo network blip (e.g. a boot-time restart).
 // With factor=2, minTimeout=2s, maxTimeout=15s this spans ~89s of backoff, comfortably covering a
@@ -1988,7 +1991,24 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             for (const subscriptionId of keys(this.subscriptionCleanups[connectionId]))
                 await this.unsubscribe([{ subscriptionId: Number(subscriptionId) }], connectionId);
 
+        // Close every connected client and wait for the websocket server's "close", which ws only emits once
+        // the last client is gone. ws.close() alone leaves existing connections open when the http server is
+        // external, and http.Server.close() does not wait for upgraded sockets either, so the "disconnection"
+        // cleanup (and its logs) used to run after destroy() had resolved (#325).
+        const wssClosed = new Promise<void>((resolve) => this.ws.once("close", () => resolve()));
         this.ws.close();
+        for (const client of this.ws.clients) client.close(1000, "PKCWsServer is shutting down");
+        try {
+            await pTimeout(wssClosed, { milliseconds: DESTROY_CLIENTS_CLOSE_TIMEOUT_MS });
+        } catch {
+            log.error(
+                "Some RPC clients did not complete the close handshake within",
+                DESTROY_CLIENTS_CLOSE_TIMEOUT_MS,
+                "ms of destroy(), terminating them"
+            );
+            for (const client of this.ws.clients) client.terminate();
+            await wssClosed;
+        }
         if (this._ownsHttpServer && this._httpServer) await new Promise<void>((r) => this._httpServer!.close(() => r()));
         const pkc = await this._getPKCInstance();
         await pkc.destroy(); // this will stop all started communities
