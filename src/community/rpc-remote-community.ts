@@ -246,8 +246,16 @@ export class RpcRemoteCommunity extends RemoteCommunity {
                     .on("error", this._handleRpcErrorEvent.bind(this)),
             onReplayError: (e) => {
                 // Pre-deferral this throw rejected update(); contain it and stop the community so
-                // it does not stay "updating" with a half-initialized subscription
+                // it does not stay "updating" with a half-initialized subscription. Surface it as
+                // an "error" event first: post-deferral nothing awaits the replay, so without the
+                // emit the only signal is a debug-namespace log. The emit itself can throw (with
+                // no listeners anywhere the pkc bubbling re-throws), so it stays contained too.
                 log.error("Error thrown while replaying buffered subscribe-time notifications, stopping the community", e);
+                try {
+                    this.emit("error", e instanceof Error ? e : new Error(String(e)));
+                } catch (emitError) {
+                    log.error("No listener received the replay error", emitError);
+                }
                 this.stop().catch((stopError) => log.error("Failed to stop the community after a replay error", stopError));
             }
         });

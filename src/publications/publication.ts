@@ -1009,9 +1009,18 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     .on("statechange", this._handleIncomingStateFromRpc.bind(this))
                     .on("error", this._handleIncomingErrorFromRpc.bind(this)),
             onReplayError: (e) => {
-                // Pre-deferral this throw rejected publish(); contain it and stop the publication
+                // Pre-deferral this throw rejected publish(); contain it and stop the publication.
+                // Surface it as an "error" event first: post-deferral nothing awaits the replay,
+                // so without the emit the only signal is a debug-namespace log. The emit itself
+                // can throw (with no listeners anywhere the pkc bubbling re-throws), so it stays
+                // contained too.
                 const log = Logger("pkc-js:publication:publish:_publishWithRpc");
                 log.error("Error thrown while replaying buffered subscribe-time notifications, stopping the publication", e);
+                try {
+                    this.emit("error", e instanceof Error ? e : new Error(String(e)));
+                } catch (emitError) {
+                    log.error("No listener received the replay error", emitError);
+                }
                 this.stop().catch((stopError) => log.error("Failed to stop the publication after a replay error", stopError));
             }
         });
