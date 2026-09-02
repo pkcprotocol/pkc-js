@@ -7,7 +7,8 @@ import {
     resolveWhenConditionIsTrue,
     getAvailablePKCConfigsToTestAgainst,
     addStringToIpfs,
-    createStaticCommunityRecordForComment
+    createStaticCommunityRecordForComment,
+    publishStaticCommunityWithPostInPages
 } from "../../../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../../../helpers/conditional-tests.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
@@ -120,10 +121,14 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
         it(`updating states is in correct order upon updating a post with IPFS client using postUpdates`, async () => {
             const dedicatedPKC = await config.pkcInstancePromise();
+            // A STATIC community under its own fresh key rather than the shared live signers[0]:
+            // concurrent suites publish to signers[0] constantly, and since the update loop reacts
+            // to gossip arrivals (issue #308) each publish starts a community fetch cycle at a
+            // random moment; one landing between the delivering cycle's succeeded and stop()
+            // shifts the exact tail asserted below (the PR #311 CI flake).
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
             try {
-                const community = await dedicatedPKC.getCommunity({ address: communityAddress });
-                const postCid = community.posts.pages.hot.comments[0].cid;
-                const mockPost = await dedicatedPKC.createComment({ cid: postCid });
+                const mockPost = await dedicatedPKC.createComment({ cid: staticCommunity.commentCid });
                 const expectedStates = [
                     "fetching-community-ipns",
                     "fetching-community-ipfs",
@@ -143,6 +148,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 expect(recordedStates.slice(recordedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
             } finally {
                 await dedicatedPKC.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
             }
         });
 
