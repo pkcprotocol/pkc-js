@@ -584,8 +584,12 @@ export class CommunityClientsManager extends PKCClientsManager {
     }
 
     // Whether every armed topic's push channel is live: always for a source without
-    // isSubscribed (in-process), and per RPC stream for the kubo source.
+    // isSubscribed (in-process), and per RPC stream for the kubo source. On kubo, nothing armed
+    // at all also counts as not live (the cycle's resolve failed before walking the name, so no
+    // topic could be armed yet): the loop then keeps polling instead of parking a whole
+    // safety-net period with no push channel to wake it.
     private _areAllIpnsArrivalSubscriptionsLive(source: IpnsRecordArrivals): boolean {
+        if (this._ipnsArrivalsRequireWalkedName && this._subscribedIpnsArrivalTopics.size === 0) return false;
         if (!source.isSubscribed) return true;
         for (const topic of this._subscribedIpnsArrivalTopics) if (!source.isSubscribed({ pubsubTopic: topic })) return false;
         return true;
