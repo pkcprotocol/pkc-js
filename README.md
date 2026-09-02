@@ -1351,6 +1351,8 @@ await community.start()
 
 > Start polling the network for new posts published in the community, update itself and emit the 'update' event. Only usable if community.address exists.
 
+Attach your `update` and `error` listeners before calling `update()`, as in the examples below. Some events can be delivered while `update()` is still resolving (for example the initial snapshot of a community that is already updating, or a warm-start update on the default transport), so a listener attached afterwards can miss them. The one exception is events the server emitted while subscribing over PKC RPC (fresh subscriptions made by `community.update()`, `comment.update()`, `publish()`, and `community.start()`): those are delivered on a later tick, so even a listener attached immediately after the awaited call resolves, before yielding to the event loop, still receives them. This also means properties populated by those events (for example `community.updatedAt` after `update()`) may not be set yet when the call resolves; react to the events rather than reading properties synchronously afterwards. If a community has no `error` listener of its own, its errors bubble up to the `pkc` instance's `error` event instead.
+
 #### Example
 
 ```js
@@ -1363,6 +1365,9 @@ community.on('update', (updatedCommunityInstance) => {
 
   // if you want to stop polling for new updates after only the first one
   community.stop()
+})
+community.on('error', (error) => {
+  console.error(error)
 })
 community.update()
 ```

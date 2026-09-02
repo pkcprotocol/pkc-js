@@ -307,12 +307,15 @@ class Publication extends TypedEmitter<PublicationEvents> {
             }
         });
         if (this._rpcPublishSubscriptionId) {
+            // Cleared synchronously before the awaited unsubscribe so the deferred
+            // attach-and-replay timer from _publishWithRpc (#314) sees the teardown immediately
+            const subscriptionId = this._rpcPublishSubscriptionId;
+            this._rpcPublishSubscriptionId = undefined;
             try {
-                await this._pkc._pkcRpcClient!.unsubscribe(this._rpcPublishSubscriptionId);
+                await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
             } catch (e) {
                 log.error("Failed to unsubscribe from publication publish", e);
             }
-            this._rpcPublishSubscriptionId = undefined;
         }
     }
 
@@ -561,7 +564,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
             challengeAnswers: challengeAnswers
         });
 
-        if (this._pkc._pkcRpcClient && typeof this._rpcPublishSubscriptionId === "number") {
+        if (this._pkc._pkcRpcClient) {
+            // Route on the RPC client alone: with an RPC client the challenge exchange runs
+            // server-side and the local-pubsub branch below can never succeed (RPC-mode
+            // _challengeExchanges carry no signer). A missing subscription id means the exchange
+            // is over, so say that instead of the misleading errors the local branch would throw
+            if (typeof this._rpcPublishSubscriptionId !== "number")
+                throw new PKCError("ERR_RPC_CLIENT_NO_ACTIVE_PUBLISH_SUBSCRIPTION", { publishingState: this.publishingState });
             return this._pkc._pkcRpcClient.publishChallengeAnswers({
                 subscriptionId: this._rpcPublishSubscriptionId,
                 challengeAnswers: toEncryptAnswers.challengeAnswers
@@ -886,15 +895,22 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this._unregisterFromPkcOncePublishWorkSettles();
         this._setStateWithEmission("stopped");
         if (this._rpcPublishSubscriptionId) {
+            // Cleared synchronously before the awaited unsubscribe so the deferred
+            // attach-and-replay timer from _publishWithRpc (#314) sees the teardown immediately
+            const subscriptionId = this._rpcPublishSubscriptionId;
+            this._rpcPublishSubscriptionId = undefined;
             try {
-                await this._pkc._pkcRpcClient!.unsubscribe(this._rpcPublishSubscriptionId);
+                await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
             } catch (e) {
                 log.error("Failed to unsubscribe from publication publish", e);
             }
-            this._rpcPublishSubscriptionId = undefined;
             this._setRpcClientState("stopped");
-        } else if (typeof this._community?.pubsubTopic === "string") {
-            // the client is publishing to pubsub without using PKC RPC
+        } else if (!this._pkc._pkcRpcClient && typeof this._community?.pubsubTopic === "string") {
+            // The client is publishing to pubsub without using PKC RPC. Routed on the RPC
+            // client's absence, not just the subscription id: with an RPC client the id may
+            // already be cleared (the challengeverification handler clears it synchronously
+            // before its awaited unsubscribe), and this branch can never succeed in RPC mode -
+            // _updatePubsubState needs a default pubsub provider and an RPC-mode PKC has none
             await this._clientsManager.pubsubUnsubscribe(this._community.pubsubTopic, this._handleChallengeExchange);
             Object.values(this._challengeExchanges).forEach((exchange) => this._updatePubsubState("stopped", exchange.providerUrl));
         }
@@ -987,16 +1003,30 @@ class Publication extends TypedEmitter<PublicationEvents> {
         const { subscriptionId } = await publishFn.bind(rpcClient)(this.toJSONPubsubRequestToEncrypt());
         this._rpcPublishSubscriptionId = subscriptionId;
 
-        this._pkc._pkcRpcClient
-            .getSubscription(this._rpcPublishSubscriptionId)
-            .on("challengerequest", this._handleIncomingChallengeRequestFromRpc.bind(this))
-            .on("challenge", this._handleIncomingChallengeFromRpc.bind(this))
-            .on("challengeanswer", this._handleIncomingChallengeAnswerFromRpc.bind(this))
-            .on("challengeverification", this._handleIncomingChallengeVerificationFromRpc.bind(this))
-            .on("publishingstatechange", this._handleIncomingPublishingStateFromRpc.bind(this))
-            .on("statechange", this._handleIncomingStateFromRpc.bind(this))
-            .on("error", this._handleIncomingErrorFromRpc.bind(this));
-        this._pkc._pkcRpcClient.emitAllPendingMessages(this._rpcPublishSubscriptionId);
+        // Deferred so a listener attached synchronously after `await publish()` resolves still
+        // receives events the server emitted before the publish response (#314); see
+        // attachSubscriptionHandlersDeferred for the mechanism
+        rpcClient.attachSubscriptionHandlersDeferred({
+            subscriptionId,
+            isStale: () => this._rpcPublishSubscriptionId !== subscriptionId,
+            attach: (subscription) =>
+                subscription
+                    .on("challengerequest", this._handleIncomingChallengeRequestFromRpc.bind(this))
+                    .on("challenge", this._handleIncomingChallengeFromRpc.bind(this))
+                    .on("challengeanswer", this._handleIncomingChallengeAnswerFromRpc.bind(this))
+                    .on("challengeverification", this._handleIncomingChallengeVerificationFromRpc.bind(this))
+                    .on("publishingstatechange", this._handleIncomingPublishingStateFromRpc.bind(this))
+                    .on("statechange", this._handleIncomingStateFromRpc.bind(this))
+                    .on("error", this._handleIncomingErrorFromRpc.bind(this)),
+            // Pre-deferral a replay throw rejected publish(); the helper contains it (log,
+            // surface as an "error" event, stop)
+            replayErrorContainment: {
+                entityName: "publication",
+                log: Logger("pkc-js:publication:publish:_publishWithRpc"),
+                emitError: (error) => this.emit("error", error),
+                stop: () => this.stop()
+            }
+        });
     }
 
     private _changePublicationStateEmitEventEmitStateChangeEvent<

@@ -747,7 +747,7 @@ export async function waitForUpdateInCommunityInstanceWithErrorAndTimeout(opts: 
         if (abortError) throw abortError;
         if (community.state !== "started") await community.update();
         if (abortError) throw abortError; // abort may have landed while update() was in flight
-        if (criticalError) throw criticalError; // Non-retriable error may have fired synchronously during update (e.g. RPC emitAllPendingMessages replay)
+        if (criticalError) throw criticalError; // Non-retriable error may have fired while update() was in flight
         await pTimeout(Promise.race([updatePromise, nonRetriableErrorPromise, abortPromise]), {
             milliseconds: timeoutMs,
             message:

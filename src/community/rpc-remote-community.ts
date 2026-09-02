@@ -220,11 +220,12 @@ export class RpcRemoteCommunity extends RemoteCommunity {
     async _initRpcUpdateSubscription() {
         const log = Logger("pkc-js:rpc-remote-community:_initRpcUpdateSubscription");
         this._setState("updating");
+        let subscriptionId: number;
         try {
-            const { subscriptionId } = await this._pkc._pkcRpcClient!.communityUpdateSubscribe({
+            ({ subscriptionId } = await this._pkc._pkcRpcClient!.communityUpdateSubscribe({
                 name: this.name,
                 publicKey: this.publicKey
-            });
+            }));
             this._updateRpcSubscriptionId = subscriptionId;
         } catch (e) {
             log.error("Failed to receive communityUpdate from RPC due to error", e);
@@ -232,13 +233,27 @@ export class RpcRemoteCommunity extends RemoteCommunity {
             this._setUpdatingStateWithEventEmissionIfNewState("failed");
             throw e;
         }
-        this._pkc
-            ._pkcRpcClient!.getSubscription(this._updateRpcSubscriptionId)
-            .on("update", this._processUpdateEventFromRpcUpdate.bind(this))
-            .on("updatingstatechange", this._handleUpdatingStateChangeFromRpcUpdate.bind(this))
-            .on("error", this._handleRpcErrorEvent.bind(this));
-
-        this._pkc._pkcRpcClient!.emitAllPendingMessages(this._updateRpcSubscriptionId);
+        // Deferred so a listener attached synchronously after `await update()` resolves still
+        // receives events the server emitted at subscribe time (#299); see
+        // attachSubscriptionHandlersDeferred for the mechanism
+        this._pkc._pkcRpcClient!.attachSubscriptionHandlersDeferred({
+            subscriptionId,
+            isStale: () => this._updateRpcSubscriptionId !== subscriptionId,
+            attach: (subscription) =>
+                subscription
+                    .on("update", this._processUpdateEventFromRpcUpdate.bind(this))
+                    .on("updatingstatechange", this._handleUpdatingStateChangeFromRpcUpdate.bind(this))
+                    .on("error", this._handleRpcErrorEvent.bind(this)),
+            // Pre-deferral a replay throw rejected update(); the helper contains it (log, surface
+            // as an "error" event, stop) so the community does not stay "updating" with a
+            // half-initialized subscription
+            replayErrorContainment: {
+                entityName: "community",
+                log,
+                emitError: (error) => this.emit("error", error),
+                stop: () => this.stop()
+            }
+        });
     }
 
     async _createAndSubscribeToNewUpdatingCommunity(updatingCommunity?: RpcRemoteCommunity) {
@@ -354,12 +369,17 @@ export class RpcRemoteCommunity extends RemoteCommunity {
             await this._cleanupMirroringUpdatingCommunity();
         } else {
             if (this._updateRpcSubscriptionId) {
+                // Clear the id synchronously, before the awaited unsubscribe round trip, so the
+                // deferred attach-and-replay timer from _initRpcUpdateSubscription (#299) sees the
+                // stop immediately. Clearing it after the await left a window where the timer fired
+                // mid-stop and replayed buffered events into a stopping community
+                const subscriptionId = this._updateRpcSubscriptionId;
+                this._updateRpcSubscriptionId = undefined;
                 try {
-                    await this._pkc._pkcRpcClient!.unsubscribe(this._updateRpcSubscriptionId);
+                    await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
                 } catch (e) {
                     log.error("Failed to unsubscribe from communityUpdate", e);
                 }
-                this._updateRpcSubscriptionId = undefined;
                 log.trace(`Stopped the update of remote community (${this.address}) via RPC`);
             }
             // Untracked even without a subscription id. _createAndSubscribeToNewUpdatingCommunity
