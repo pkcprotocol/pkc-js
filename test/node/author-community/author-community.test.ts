@@ -122,6 +122,9 @@ function ownerOnlyPostingChallenge(): CommunityChallengeSetting {
     return {
         name: "fail",
         options: { error: OWNER_ONLY_ERROR },
+        // Options are private by default. Naming `error` here publishes that one value, so a reader sees
+        // the rejection text without publishing anything. It is a hint, not proof: see the wire test below.
+        publicOptions: ["error"],
         exclude: [
             { role: ["owner"] },
             { publicationType: { reply: true, vote: true, commentEdit: true, commentModeration: true, communityEdit: true } }
@@ -259,6 +262,13 @@ describe.sequential("author community: a community configured as a profile", () 
             expect(published).to.not.have.property("path");
             // options carries the error text and, for other challenges, the answer
             expect(published).to.not.have.property("options");
+        });
+
+        // Only what the owner named in publicOptions crosses the boundary, and it crosses as a separate
+        // field. A profile publishing its rejection text is the whole reason this config sets it.
+        it("publishes only the option the owner opted into, under publicOptions", () => {
+            const published = community.raw.communityIpfs!.challenges[0];
+            expect(published.publicOptions).to.deep.equal({ error: OWNER_ONLY_ERROR });
         });
     });
 
