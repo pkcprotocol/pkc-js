@@ -295,7 +295,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
                 _nextResolveRevalidatesNetwork: boolean;
                 _ipnsArrivalsRequireWalkedName: boolean;
                 _ipnsNamesWalkedByResolver: Set<string>;
-                _syncIpnsArrivalSubscriptions(source: unknown): { newlyArmed: boolean; established: Promise<void> };
+                _syncIpnsArrivalSubscriptions(source: unknown): { established: Promise<void> };
                 _dropDeadIpnsArrivalSubscriptions(source: unknown): void;
                 _clearIpnsArrivalSubscriptions(): void;
                 _applyKeyMigration(args: { communityName: string; newPublicKey: string }): void;
@@ -774,7 +774,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
             async () => {
                 type ManagerArrivalInternals = {
                     _subscribedIpnsArrivalTopics: Set<string>;
-                    _syncIpnsArrivalSubscriptions(source: unknown): { newlyArmed: boolean; established: Promise<void> };
+                    _syncIpnsArrivalSubscriptions(source: unknown): { established: Promise<void> };
                     _clearIpnsArrivalSubscriptions(): void;
                 };
                 let managerInternals: ManagerArrivalInternals | undefined;
@@ -809,7 +809,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
                     // channel as down and fall back to its 1s poll, which is not the safety net.
                     syncSpy = vi
                         .spyOn(managerInternals, "_syncIpnsArrivalSubscriptions")
-                        .mockImplementation(() => ({ newlyArmed: false, established: Promise.resolve() }));
+                        .mockImplementation(() => ({ established: Promise.resolve() }));
                     managerInternals._clearIpnsArrivalSubscriptions();
                     expect(
                         managerInternals._subscribedIpnsArrivalTopics.size,
@@ -854,7 +854,63 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
             240_000
         );
 
-        // The delivery test above would also pass under the old 1s poll (a poll tick lands within
+        // On kubo the first cycle must arm its topic from INSIDE updateOnce, right after the
+        // resolve walked the name, and must not run a second cycle to compensate for having
+        // started unarmed: that extra cycle emitted a second fetching-ipns per community start,
+        // which every comment and publication mirrors into its own state sequence (the PR #324
+        // CI failures in libp2pjsClient.kuboRpc.clients and publishingstate.comment). Pins: the
+        // topic is in the manager's set by the time the first `update` fires, and one second
+        // later (far inside the 45-75s safety net) the name was resolved exactly once and
+        // fetching-ipns was entered exactly once.
+        itIfKuboResolver(
+            "arms during the first cycle, right after its resolve, without running an extra cycle afterwards",
+            async () => {
+                const staticRecord = await publishCommunityRecordWithExtraProp();
+                staticRecordsToCleanUp.push(staticRecord);
+                const topic = ipnsNameToIpnsOverPubsubTopic(staticRecord.ipnsObj.signer.address);
+                const kuboRpcClient = pkc.clients.kuboRpcClients[Object.keys(pkc.clients.kuboRpcClients)[0]];
+                const originalResolve = kuboRpcClient._client.name.resolve;
+                let resolvesOfThisName = 0;
+                const resolveSpy = vi.spyOn(kuboRpcClient._client.name, "resolve").mockImplementation((name, options) => {
+                    if (String(name) === staticRecord.ipnsObj.signer.address) resolvesOfThisName++;
+                    return originalResolve(name, options);
+                });
+                try {
+                    const community = (await pkc.createCommunity({ address: staticRecord.ipnsObj.signer.address })) as RemoteCommunity;
+                    communitiesToStop.push(community);
+                    let fetchingIpnsEntries = 0;
+                    community.on("updatingstatechange", (newUpdatingState) => {
+                        if (newUpdatingState === "fetching-ipns") fetchingIpnsEntries++;
+                    });
+                    let topicsArmedAtFirstUpdate: string[] | undefined;
+                    const firstUpdate = new Promise<void>((resolve) =>
+                        community.once("update", () => {
+                            const updatingInstance = community._updatingCommunityInstanceWithListeners?.community ?? community;
+                            topicsArmedAtFirstUpdate = [
+                                ...(updatingInstance._clientsManager as unknown as { _subscribedIpnsArrivalTopics: Set<string> })
+                                    ._subscribedIpnsArrivalTopics
+                            ];
+                            resolve();
+                        })
+                    );
+                    await community.update();
+                    await firstUpdate;
+                    expect(
+                        topicsArmedAtFirstUpdate,
+                        "the walked name's topic must be armed inside the first cycle, before its update event"
+                    ).to.deep.equal([topic]);
+                    await sleep(1000);
+                    expect(arrivalsOf(pkc).isSubscribed?.({ pubsubTopic: topic }), "the kubo RPC stream must be live").to.equal(true);
+                    expect(resolvesOfThisName, "the arming cycle must not be followed by an extra resolve").to.equal(1);
+                    expect(fetchingIpnsEntries, "a community start must enter fetching-ipns exactly once").to.equal(1);
+                } finally {
+                    resolveSpy.mockRestore();
+                }
+            },
+            60_000
+        );
+
+        // The delivery test earlier in this suite would also pass under the old 1s poll (a poll tick lands within
         // a second). This pins the mechanism: once the topic is armed, a newer record must reach
         // the community through the push channel, i.e. with exactly ONE name.resolve after the
         // publish (the arrival-woken cycle's), not through a poll cadence.
@@ -866,7 +922,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
                 const deadline = Date.now() + 10_000;
                 while (Date.now() < deadline && !arrivalsOf(pkc).isSubscribed?.({ pubsubTopic: topic })) await sleep(100);
                 expect(arrivalsOf(pkc).isSubscribed?.({ pubsubTopic: topic }), "the topic must be armed before measuring").to.equal(true);
-                // Let the arming iteration's one immediate extra cycle (skipPark) drain before counting.
+                // Let the first cycle's establishment settle before counting.
                 await sleep(2000);
 
                 const kuboRpcClient = pkc.clients.kuboRpcClients[Object.keys(pkc.clients.kuboRpcClients)[0]];
@@ -1036,6 +1092,24 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
                 expect(listenerB.mock.calls.length).to.equal(1);
                 expect(listenerA.mock.calls[0][0].pubsubTopic).to.equal(TOPIC);
                 expect(listenerA.mock.calls[0][0].record.value).to.equal(value);
+            });
+
+            it("a throwing listener does not starve the other listeners of the shared topic", async () => {
+                const { client, streams } = makeFakeKuboPubsub();
+                const arrivals = createKuboIpnsRecordArrivals({ kuboRpcClient: client, kuboRpcClientUrl: "fake" });
+                const throwingListener = vi.fn(() => {
+                    throw new Error("simulated listener failure");
+                });
+                const listenerB = vi.fn();
+                await arrivals.subscribe({ pubsubTopic: TOPIC, listener: throwingListener });
+                await arrivals.subscribe({ pubsubTopic: TOPIC, listener: listenerB });
+                const value = "/ipfs/bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
+                const record = await createIPNSRecord(await generateKeyPair("Ed25519"), value, 1n, 60_000);
+                streams.get(TOPIC)!.handler({ data: marshalIPNSRecord(record), topic: TOPIC });
+                await flush();
+                expect(throwingListener.mock.calls.length).to.equal(1);
+                expect(listenerB.mock.calls.length, "the listener after the throwing one must still get the record").to.equal(1);
+                expect(listenerB.mock.calls[0][0].record.value).to.equal(value);
             });
 
             it("reports a dead stream through isSubscribed and never re-subscribes on its own (namesys join hazard)", async () => {

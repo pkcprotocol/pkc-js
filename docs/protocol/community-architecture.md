@@ -66,8 +66,12 @@ of communities does not tick in lockstep). Gateways poll at `pkc.updateInterval`
 - **kubo-RPC**: arrivals are one `pubsub.subscribe` RPC stream per record topic on the
   resolver daemon (`src/clients/kubo-ipns-record-arrivals.ts`); every resolve stays
   `nocache: true`, which on kubo is a local namesys-store read. **Ordering rule**: a topic is
-  armed only after a resolve of this manager walked its name, and a dead stream is dropped
-  before the next resolve and re-armed after it. An RPC subscription that joins a record
+  armed only after a resolve of this manager walked its name (from inside the same cycle,
+  right after the resolve, so the community IPFS fetch that follows already has a listener),
+  and a dead stream is dropped before the next resolve and re-armed after it. The first cycle
+  never runs twice to compensate for starting unarmed: a second cycle would emit a second
+  `fetching-ipns` per community start, which comments and publications mirror into their own
+  state sequences. An RPC subscription that joins a record
   topic before kubo's namesys permanently blocks namesys from joining that name on that
   daemon (`name.resolve` fails until restart), so never subscribe to an IPNS record topic
   over the kubo RPC ahead of resolving the name. While any hop has no live stream (pubsub

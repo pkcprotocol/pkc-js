@@ -61,7 +61,15 @@ export function createKuboIpnsRecordArrivals({
             ipnsModule
                 .then(({ unmarshalIPNSRecord }) => {
                     const record = unmarshalIPNSRecord(message.data);
-                    for (const listener of state.listeners) listener({ pubsubTopic, record });
+                    // Snapshot, so a listener unsubscribing itself does not disturb the fan-out,
+                    // and one throwing listener does not starve the others of the record.
+                    for (const listener of [...state.listeners]) {
+                        try {
+                            listener({ pubsubTopic, record });
+                        } catch (e) {
+                            log.error("A listener of IPNS record topic", pubsubTopic, "from", kuboRpcClientUrl, "threw", e);
+                        }
+                    }
                 })
                 .catch((e) => log.trace("Ignoring an unparsable message on IPNS record topic", pubsubTopic, "from", kuboRpcClientUrl, e));
         };
