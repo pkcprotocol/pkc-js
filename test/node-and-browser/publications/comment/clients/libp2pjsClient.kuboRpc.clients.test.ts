@@ -125,9 +125,14 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         );
 
         it(`Correct order of ${clientFieldName} state when updating a post that was created with pkc.getComment({cid: cid})`, async () => {
-            const community = await pkc.getCommunity({ address: signers[0].address });
+            // A STATIC community (fresh key, published once) instead of the shared live
+            // signers[0]: this asserts the WHOLE state sequence with deep.equal, so a new
+            // signers[0] record published by any concurrently-running suite mid-test inserts a
+            // community fetch cycle anywhere in the array (arrival-driven update loop, issue
+            // #308) and fails it — the PR #311 CI flake class.
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
 
-            const mockPost = await pkc.getComment({ cid: community.posts.pages.hot.comments[0].cid });
+            const mockPost = await pkc.getComment({ cid: staticCommunity.commentCid });
 
             const expectedStates = ["fetching-community-ipns", "fetching-community-ipfs", "stopped", "fetching-update-ipfs", "stopped"];
 
@@ -145,6 +150,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             await mockPost.stop();
 
             expect(actualStates).to.deep.equal(expectedStates);
+            await staticCommunity.ipnsObj.pkc.destroy();
         });
 
         it(`Correct order of ${clientFieldName} state when updating a reply that was created with pkc.getComment({cid: cid})`);
