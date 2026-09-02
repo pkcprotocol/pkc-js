@@ -43,13 +43,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
         // channel completely and would make the latency bound below meaningless.
         const PRODUCTION_UPDATE_INTERVAL_MS = 60_000;
 
-        // Generous enough for publish overhead (addStringToIpfs + name.publish + the helper's
-        // verify-resolve) plus delivery on a loaded CI runner, and still far under every
-        // fallback path: the libp2p-js safety net cannot fire before
-        // updateInterval * 0.75 = 45s, and even then it only revalidates once the routing-layer
-        // cache has expired, which for a kubo-published record is 225s+ (kubo 0.43 publishes a
-        // 300s ttl). So a delivery inside this budget can only have come from the push channel
-        // on libp2p-js, or from the 1s poll on kubo-RPC.
+        // Generous enough for delivery on a loaded CI runner, and still under the fallback
+        // path: the libp2p-js safety net cannot fire before updateInterval * 0.75 = 45s. So a
+        // delivery inside this budget can only have come from the push channel on libp2p-js,
+        // or from the 1s poll on kubo-RPC. Always measured from AFTER the publish (see
+        // awaitUpdatedAtWithin's callers): publish overhead on a loaded runner must eat into
+        // neither the budget nor the safety-net margin.
         const DELIVERY_BUDGET_MS = 25_000;
 
         beforeAll(async () => {
@@ -119,23 +118,20 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
             const { community, staticRecord } = await startUpdatingStaticCommunityAndAwaitFirstUpdate();
             const previousUpdatedAt = community.updatedAt!;
 
-            // Clock starts before the publish so the budget covers publish overhead too; the
-            // record can be gossiped before publishToIpns even returns, so measuring from after
-            // it would understate nothing but risks a negative window.
-            const startedAt = Date.now();
+            // The budget clock starts AFTER the publish (matching the generations test below):
+            // publishNextGeneration does addStringToIpfs plus a retried name.publish plus the
+            // helper's verify-resolve poll, so a budget started before it can go zero or
+            // negative on a loaded runner and fail here blaming the push channel when delivery
+            // was never given a chance. A record that lands before publishToIpns even returns
+            // is caught by awaitUpdatedAtWithin's immediate updatedAt check, so nothing is
+            // missed by starting late.
             const newerRecord = await publishNextGeneration(staticRecord, previousUpdatedAt);
-            const { deliveredInTime } = await awaitUpdatedAtWithin(
-                community,
-                newerRecord.updatedAt,
-                DELIVERY_BUDGET_MS - (Date.now() - startedAt)
-            );
-            const latencyMs = Date.now() - startedAt;
+            const { deliveredInTime, elapsedMs } = await awaitUpdatedAtWithin(community, newerRecord.updatedAt, DELIVERY_BUDGET_MS);
 
             expect(
                 deliveredInTime,
-                `a newer community record must reach the updating community within ${DELIVERY_BUDGET_MS}ms; on the libp2p-js path a miss here means the gossip push channel is dead and only the safety-net poll is delivering (issue #308)`
+                `a newer community record must reach the updating community within ${DELIVERY_BUDGET_MS}ms of being published (took over ${elapsedMs}ms); on the libp2p-js path a miss here means the gossip push channel is dead and only the safety-net poll is delivering (issue #308)`
             ).to.equal(true);
-            expect(latencyMs, "delivery must not be riding the safety-net poll").to.be.below(DELIVERY_BUDGET_MS);
         }, 240_000);
 
         it("consecutive record generations each arrive and updatedAt never goes backwards", async () => {
