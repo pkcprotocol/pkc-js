@@ -69,15 +69,22 @@ export class CommunityClientsManager extends PKCClientsManager {
     // Event-driven update loop plumbing (issue #308), used only when the default record resolver
     // is a libp2p-js client. Pending arrivals survive an arrival that lands while updateOnce is
     // mid-flight, so the loop re-runs immediately instead of parking for a full safety-net
-    // period and missing the record it was just told about. Pending CIDs (not a boolean) because
-    // the loop's OWN direct-fetch cache write fires the arrival listener mid-updateOnce, before
-    // the consumed cid is recorded anywhere — only the park, running after updateOnce, can tell
-    // that self-arrival apart from a genuinely unconsumed push (see _consumePendingIpnsArrivals).
+    // period and missing the record it was just told about. Pending CIDs / hop targets (not a
+    // boolean) because the loop's OWN direct-fetch cache writes fire the arrival listener
+    // mid-updateOnce, before the consumed cid (or walked hop) is recorded anywhere — only the
+    // park, running after updateOnce, can tell those self-arrivals apart from a genuinely
+    // unconsumed push (see _consumePendingIpnsArrivals).
     private _subscribedIpnsArrivalTopics = new Set<string>();
     private _ipnsArrivalListener?: IpnsRecordArrivalListener;
     private _ipnsArrivalClient?: Libp2pJsClient;
     private _pendingIpnsArrivalCids = new Set<string>();
-    private _pendingIpnsArrivalHopWake = false;
+    private _pendingIpnsArrivalHopTargets = new Set<string>();
+    // Set when the park ends by its safety-net timer rather than an arrival wake: the tick
+    // exists to catch pushes that never arrived, which the routing-layer cache gate by
+    // definition cannot observe (the cache still holds the old record, fresh inside its ttl),
+    // so the resolve that follows must revalidate against the network (nocache). An
+    // arrival-woken cycle keeps the cache read — the arrival IS the newly cached record.
+    private _nextResolveRevalidatesNetwork = false;
     private _wakeUpdateLoopForIpnsArrival?: () => void;
 
     constructor(community: CommunityClientsManager["_community"]) {
@@ -353,6 +360,25 @@ export class CommunityClientsManager extends PKCClientsManager {
         // already poll at pkc.updateInterval.
         const defaultLibp2pJsClient = defaultIpfsClient && "_helia" in defaultIpfsClient ? defaultIpfsClient : undefined;
 
+        // Arm the arrival subscription BEFORE the first updateOnce: the first cycle spans the
+        // resolve, the community IPFS fetch, parsing and signature verification — seconds on a
+        // cold client — and a record pushed while it is mid-flight would otherwise fire no
+        // listener and be recorded nowhere, waiting for the first safety-net tick (45-75s at
+        // the production interval) where the old 1s poll picked it up in a second. The topic is
+        // derivable pre-resolve for every non-domain address (ipnsName === address, see
+        // _syncIpnsArrivalSubscriptions' fallback); a never-resolved domain address arms right
+        // after its first updateOnce in the finally below, as before.
+        if (defaultLibp2pJsClient) {
+            try {
+                this._syncIpnsArrivalSubscriptions(defaultLibp2pJsClient);
+            } catch (e) {
+                log.error(
+                    `Failed to arm IPNS record arrival subscriptions of community ${this._community.address} before its first update`,
+                    e
+                );
+            }
+        }
+
         while (this._community.state === "updating" && !this._community._getStopAbortSignal()?.aborted) {
             try {
                 await this.updateOnce();
@@ -391,42 +417,58 @@ export class CommunityClientsManager extends PKCClientsManager {
 
     // Wake the update loop when a record NEWER than anything already consumed lands in the
     // routing-layer cache (gossip push, direct-fetch cache write, or fallback fetch — all
-    // newer-only writers). A terminal record whose /ipfs/ value was already consumed is not
-    // news: communities re-publish records with a bumped sequence but an unchanged CID. The
-    // filter here only catches cids already recorded; the loop's OWN direct-fetch cache write
-    // fires mid-updateOnce, BEFORE the cid it is consuming reaches _updateCidsAlreadyLoaded
-    // (line ~770) or updateCid — that self-arrival passes here and is dropped by the park's
-    // post-updateOnce re-check instead (_consumePendingIpnsArrivals). An /ipns/ value is an
-    // intermediate hop of a delegated chain; a newer hop record always warrants a walk.
+    // newer-only writers). A record whose value was already consumed is not news: communities
+    // re-publish records with a bumped sequence but an unchanged value — an unchanged /ipfs/
+    // CID for a terminal record, an unchanged /ipns/ delegation target for an anchor's record
+    // (kubo republishes on a timer, so an undiscriminating hop wake would re-run updateOnce at
+    // the anchor's republish cadence — the #308 churn — on every delegated community). The
+    // filters here only catch values already recorded; the loop's OWN direct-fetch cache
+    // writes fire mid-updateOnce, BEFORE the cid it is consuming reaches
+    // _updateCidsAlreadyLoaded (line ~790) / updateCid or the walked hop reaches ipnsHops —
+    // those self-arrivals pass here and are dropped by the park's post-updateOnce re-check
+    // instead (_consumePendingIpnsArrivals). A hop record delegating OUTSIDE the walked chain
+    // is a delegation change and always warrants a walk. Any other value shape is unsupported
+    // (resolveIpnsToCidP2P would throw on it), so it cannot advance the loop and wakes nothing.
     private _onIpnsRecordArrival(arrival: IpnsRecordArrival) {
         const value = arrival.record.value;
-        const cid = isIpfsPath(value) ? value.split("/")[2] : undefined;
-        if (cid) {
+        if (isIpfsPath(value)) {
+            const cid = value.split("/")[2];
             if (this._updateCidsAlreadyLoaded.has(cid) || this._community.updateCid === cid) return;
             this._pendingIpnsArrivalCids.add(cid);
-        } else this._pendingIpnsArrivalHopWake = true;
+        } else if (isIpnsPath(value)) {
+            const hopTarget = value.split("/")[2];
+            if (this._community.ipnsHops?.includes(hopTarget)) return;
+            this._pendingIpnsArrivalHopTargets.add(hopTarget);
+        } else return;
         this._wakeUpdateLoopForIpnsArrival?.();
     }
 
     // Consume the pending arrivals, dropping every cid the updateOnce that just ran consumed
-    // (or that any earlier cycle consumed — a gossip replay). Returns whether anything genuinely
-    // new remains, in which case the caller must skip its park and re-run updateOnce now. All
-    // pending state is cleared on a true return: the immediate updateOnce re-run is the reaction
-    // to it, and keeping it would re-trigger on the next park even when that re-run failed on a
-    // non-retriable record (the arrival will not re-fire — the record is already the newest
-    // cached one — so a stale entry here would spin the loop hot against a broken record).
+    // and every hop target on the chain it walked (or that any earlier cycle consumed/walked —
+    // a gossip replay). Returns whether anything genuinely new remains, in which case the
+    // caller must skip its park and re-run updateOnce now. All pending state is cleared on a
+    // true return: the immediate updateOnce re-run is the reaction to it, and keeping it would
+    // re-trigger on the next park even when that re-run failed on a non-retriable record (the
+    // arrival will not re-fire — the record is already the newest cached one — so a stale
+    // entry here would spin the loop hot against a broken record).
     private _consumePendingIpnsArrivals(): boolean {
         for (const cid of this._pendingIpnsArrivalCids)
             if (this._updateCidsAlreadyLoaded.has(cid) || this._community.updateCid === cid) this._pendingIpnsArrivalCids.delete(cid);
-        if (this._pendingIpnsArrivalCids.size === 0 && !this._pendingIpnsArrivalHopWake) return false;
+        for (const hopTarget of this._pendingIpnsArrivalHopTargets)
+            if (this._community.ipnsHops?.includes(hopTarget)) this._pendingIpnsArrivalHopTargets.delete(hopTarget);
+        if (this._pendingIpnsArrivalCids.size === 0 && this._pendingIpnsArrivalHopTargets.size === 0) return false;
         this._pendingIpnsArrivalCids.clear();
-        this._pendingIpnsArrivalHopWake = false;
+        this._pendingIpnsArrivalHopTargets.clear();
         return true;
     }
 
     // Keep the arrival subscriptions in sync with the hops the last resolve walked: one topic
     // per IPNS name in the chain, so a delegated community wakes on a push to ANY hop. Runs
-    // after every updateOnce because a key migration or delegation change swaps the hops.
+    // before the FIRST updateOnce (so a record pushed mid-first-fetch is not missed) and after
+    // every updateOnce, because a key migration or delegation change swaps the hops. Before
+    // anything resolved, a non-domain address IS the IPNS name the first resolve will walk
+    // (fetchNewUpdateForCommunity seeds ipnsName from it verbatim), so it is watchable
+    // immediately; only a never-resolved domain has no derivable topic yet.
     private _syncIpnsArrivalSubscriptions(client: Libp2pJsClient) {
         if (!this._ipnsArrivalListener) this._ipnsArrivalListener = (arrival) => this._onIpnsRecordArrival(arrival);
         this._ipnsArrivalClient = client;
@@ -434,7 +476,9 @@ export class CommunityClientsManager extends PKCClientsManager {
             ? this._community.ipnsHops
             : this._community.ipnsName
               ? [this._community.ipnsName]
-              : [];
+              : !isStringDomain(this._community.address)
+                ? [this._community.address]
+                : [];
         const desiredTopics = new Set(ipnsNamesToWatch.map(ipnsNameToIpnsOverPubsubTopic));
         for (const topic of this._subscribedIpnsArrivalTopics)
             if (!desiredTopics.has(topic)) {
@@ -455,7 +499,8 @@ export class CommunityClientsManager extends PKCClientsManager {
         this._subscribedIpnsArrivalTopics.clear();
         this._ipnsArrivalClient = undefined;
         this._pendingIpnsArrivalCids.clear();
-        this._pendingIpnsArrivalHopWake = false;
+        this._pendingIpnsArrivalHopTargets.clear();
+        this._nextResolveRevalidatesNetwork = false;
     }
 
     // Park until a pushed record arrival, the (jittered) safety-net timeout, or the stop signal,
@@ -465,11 +510,26 @@ export class CommunityClientsManager extends PKCClientsManager {
     // loop's own cache write reports the record it is fetching before recording it as loaded, so
     // only this post-updateOnce re-check can drop it; see _consumePendingIpnsArrivals).
     private async _sleepUntilIpnsArrivalOrTimeoutOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
-        if (this._consumePendingIpnsArrivals()) return;
+        if (this._consumePendingIpnsArrivals()) {
+            // Arrival-driven cycle: the arrival IS the freshly cached record, so the resolve
+            // that follows may serve it from the routing-layer cache.
+            this._nextResolveRevalidatesNetwork = false;
+            return;
+        }
         const { promise, wake } = interruptibleSleep(ms, signal);
-        this._wakeUpdateLoopForIpnsArrival = wake;
+        let wokenByArrival = false;
+        const wakeForArrival = () => {
+            wokenByArrival = true;
+            wake();
+        };
+        this._wakeUpdateLoopForIpnsArrival = wakeForArrival;
         await promise;
-        if (this._wakeUpdateLoopForIpnsArrival === wake) this._wakeUpdateLoopForIpnsArrival = undefined;
+        if (this._wakeUpdateLoopForIpnsArrival === wakeForArrival) this._wakeUpdateLoopForIpnsArrival = undefined;
+        // A timer-fired park end is the safety net's tick: it exists precisely for pushes that
+        // never arrived, which the cache gate cannot observe — the next resolve must go to the
+        // network (see _nextResolveRevalidatesNetwork). The abort outcome also lands here, but
+        // the loop exits before another resolve runs, so the flag value is moot.
+        this._nextResolveRevalidatesNetwork = !wokenByArrival;
     }
 
     // fetching community ipns here
@@ -726,7 +786,13 @@ export class CommunityClientsManager extends PKCClientsManager {
         } else this.updateKuboRpcState("fetching-ipns", kuboRpcOrHelia.url);
         const { cid: latestCommunityCid, ipnsHops } = await this.resolveIpnsToCidP2P(ipnsName, {
             timeoutMs: this._pkc._timeouts["community-ipns"],
-            abortSignal: this._community._getStopAbortSignal()
+            abortSignal: this._community._getStopAbortSignal(),
+            // A cycle woken by the safety-net timer (not by an arrival) must revalidate on the
+            // network: the routing-layer cache gate cannot observe a push that never arrived,
+            // and would otherwise serve the stale record for its whole remaining ttl (300s at
+            // kubo 0.43's default) instead of the one updateInterval the safety net promises.
+            // No-op for the kubo-RPC resolver, which always resolves with nocache: true.
+            ...(this._nextResolveRevalidatesNetwork ? { nocache: true } : {})
         });
         // ipnsHops[0] is the anchor (== ipnsName), ipnsHops.at(-1) is the terminal name whose
         // record points at the CID, i.e. the key that signs the community content. For a

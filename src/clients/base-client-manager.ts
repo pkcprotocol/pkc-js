@@ -621,7 +621,12 @@ export class BaseClientsManager {
     // directly at the /ipfs/ CID, i.e. the key that signs the content).
     async resolveIpnsToCidP2P(
         ipnsName: string,
-        loadOpts: { timeoutMs: number; abortSignal?: AbortSignal }
+        // `nocache: true` forces a network revalidation even on the libp2p-js resolver (whose
+        // default below is to let its gossip-fed routing-layer cache serve, issue #301). The
+        // community update loop sets it on safety-net ticks, which exist precisely for pushed
+        // records the cache never received. It is spread AFTER the per-client default, so the
+        // caller's value wins.
+        loadOpts: { timeoutMs: number; abortSignal?: AbortSignal; nocache?: boolean }
     ): Promise<{ cid: string; ipnsHops: string[] }> {
         const log = Logger("pkc-js:clients-manager:resolveIpnsToCidP2P");
         throwIfAbortSignalAborted(loadOpts.abortSignal);
