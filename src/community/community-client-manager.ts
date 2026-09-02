@@ -483,20 +483,23 @@ export class CommunityClientsManager extends PKCClientsManager {
     // Keep the arrival subscriptions in sync with the hops the last resolve walked: one topic
     // per IPNS name in the chain, so a delegated community wakes on a push to ANY hop. Runs
     // before the FIRST updateOnce (so a record pushed mid-first-fetch is not missed) and after
-    // every updateOnce, because a key migration or delegation change swaps the hops. Before
-    // anything resolved, a non-domain address IS the IPNS name the first resolve will walk
-    // (fetchNewUpdateForCommunity seeds ipnsName from it verbatim), so it is watchable
-    // immediately; only a never-resolved domain has no derivable topic yet.
+    // every updateOnce, because a key migration or delegation change swaps the hops, and from
+    // wherever else the identity is decided (_resyncIpnsArrivalSubscriptionsIfArmed). Before
+    // anything resolved, the name the first resolve will walk is derivable for every instance
+    // but a never-resolved domain: the pinned publicKey (_pinnedIpnsName) or, failing that, a
+    // non-domain address verbatim, exactly as fetchNewUpdateForCommunity seeds ipnsName.
     private _syncIpnsArrivalSubscriptions(client: Libp2pJsClient) {
         if (!this._ipnsArrivalListener) this._ipnsArrivalListener = (arrival) => this._onIpnsRecordArrival(arrival);
         this._ipnsArrivalClient = client;
+        const preResolveIpnsName =
+            this._community.ipnsName ??
+            this._pinnedIpnsName() ??
+            (!isStringDomain(this._community.address) ? this._community.address : undefined);
         const ipnsNamesToWatch = this._community.ipnsHops?.length
             ? this._community.ipnsHops
-            : this._community.ipnsName
-              ? [this._community.ipnsName]
-              : !isStringDomain(this._community.address)
-                ? [this._community.address]
-                : [];
+            : preResolveIpnsName
+              ? [preResolveIpnsName]
+              : [];
         const desiredTopics = new Set(ipnsNamesToWatch.map(ipnsNameToIpnsOverPubsubTopic));
         for (const topic of this._subscribedIpnsArrivalTopics)
             if (!desiredTopics.has(topic)) {
@@ -514,6 +517,21 @@ export class CommunityClientsManager extends PKCClientsManager {
                 });
                 this._subscribedIpnsArrivalTopics.add(topic);
             }
+    }
+
+    // Re-derive the arrival subscriptions from the community's current identity, if the update
+    // loop armed them. The loop owns their lifetime (armed before its first cycle, cleared when
+    // it ends), so a one-shot fetch outside a loop must never create any.
+    private _resyncIpnsArrivalSubscriptionsIfArmed() {
+        if (!this._ipnsArrivalClient) return;
+        try {
+            this._syncIpnsArrivalSubscriptions(this._ipnsArrivalClient);
+        } catch (e) {
+            Logger("pkc-js:remote-community:update").error(
+                `Failed to sync IPNS record arrival subscriptions of community ${this._community.address}`,
+                e
+            );
+        }
     }
 
     private _clearIpnsArrivalSubscriptions() {
@@ -552,6 +570,15 @@ export class CommunityClientsManager extends PKCClientsManager {
         this._wakeUpdateLoopForIpnsArrival = wakeForArrival;
         await promise;
         if (this._wakeUpdateLoopForIpnsArrival === wakeForArrival) this._wakeUpdateLoopForIpnsArrival = undefined;
+        if (wokenByArrival) {
+            // The updateOnce that follows is the reaction to everything pending. Keeping the
+            // entries would fast-return the NEXT park into an identical re-run whenever that
+            // cycle fails without changing the chain (a hop arrival delegating beyond
+            // MAX_IPNS_HOPS is non-retriable and leaves ipnsHops as it was): two error events
+            // per push instead of one. Same rule _consumePendingIpnsArrivals applies on a hit.
+            this._pendingIpnsArrivalCids.clear();
+            this._pendingIpnsArrivalHopTargets.clear();
+        }
         // A timer-fired park end is the safety net's tick: it exists precisely for pushes that
         // never arrived, which the cache gate cannot observe — the next resolve must go to the
         // network (see _nextResolveRevalidatesNetwork), bounded by the revalidation floor so a
@@ -599,6 +626,41 @@ export class CommunityClientsManager extends PKCClientsManager {
         return [...chainKeys];
     }
 
+    // Switch the community to the key its name now resolves to: drop every piece of state that
+    // described the old key (it may be compromised), point the update loop's push channel at
+    // the new key, and restart the in-flight fetch.
+    private _applyKeyMigration({ communityName, newPublicKey }: { communityName: string; newPublicKey: string }) {
+        const log = Logger("pkc-js:community-client-manager:_applyKeyMigration");
+        log("Key migration detected for", communityName, "old:", this._community.publicKey, "new:", newPublicKey);
+        const previousPublicKey = this._community.publicKey;
+        const error = new PKCError("ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY", {
+            communityName,
+            previousPublicKey,
+            newPublicKey
+        });
+
+        // Clear all data immediately (old data may be from compromised key)
+        this._community._clearDataForKeyMigration(newPublicKey);
+        this._updateCidsAlreadyLoaded.clear();
+        this._community.nameResolved = true;
+        // The pending arrivals describe the old key's records, and with the loaded set and
+        // updateCid just cleared nothing downstream filters them (a wasted old-key cycle). The
+        // loop must also watch the NEW key's topic from now on, not from when its record is
+        // first fetched: until then an old-key republish would keep waking it (issue #308).
+        this._pendingIpnsArrivalCids.clear();
+        this._pendingIpnsArrivalHopTargets.clear();
+        this._resyncIpnsArrivalSubscriptionsIfArmed();
+
+        // Abort in-flight fetch (using old key) by aborting the stop controller,
+        // then immediately create a new one so the update loop continues.
+        this._community._abortStopOperations("Key migration: name resolved to different public key");
+        this._community._createStopAbortController();
+
+        // Emit update so UI drops stale data right away
+        this._community.emit("update", this._community);
+        this._community.emit("error", error);
+    }
+
     private _resolveNameInBackground(name: string) {
         const log = Logger("pkc-js:community-client-manager:_resolveNameInBackground");
         const setNameResolvedAndEmitUpdate = (newNameResolved: boolean) => {
@@ -634,27 +696,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                     }
                     // Key change detected: name now points to a different key.
                     // Most likely: cached publicKey is stale after community key migration.
-                    log("Key migration detected for", name, "old:", this._community.publicKey, "new:", resolved);
-                    const previousPublicKey = this._community.publicKey;
-                    const error = new PKCError("ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY", {
-                        communityName: name,
-                        previousPublicKey,
-                        newPublicKey: resolved
-                    });
-
-                    // Clear all data immediately (old data may be from compromised key)
-                    this._community._clearDataForKeyMigration(resolved);
-                    this._updateCidsAlreadyLoaded.clear();
-                    this._community.nameResolved = true;
-
-                    // Abort in-flight fetch (using old key) by aborting the stop controller,
-                    // then immediately create a new one so the update loop continues.
-                    this._community._abortStopOperations("Key migration: name resolved to different public key");
-                    this._community._createStopAbortController();
-
-                    // Emit update so UI drops stale data right away
-                    this._community.emit("update", this._community);
-                    this._community.emit("error", error);
+                    this._applyKeyMigration({ communityName: name, newPublicKey: resolved });
                 } else if (resolved) {
                     setNameResolvedAndEmitUpdate(true);
                 }
@@ -705,22 +747,34 @@ export class CommunityClientsManager extends PKCClientsManager {
         });
     }
 
+    // The IPNS name every fetch pins to WITHOUT resolving anything, once one is known: a
+    // publicKey given alongside a domain address, a loaded anchor claim, or a verified name.
+    // A record with an anchor claim routes through the identity (the anchor chain) no matter
+    // how the instance was addressed (#257): the anchor is the rotation-safe pointer, so a
+    // reader must never stay pinned to the minter it happened to reach the record through.
+    // Shared by fetchNewUpdateForCommunity and the arrival subscription derivation so a
+    // domain+publicKey community is watchable before its first resolve, like a raw-key one.
+    private _pinnedIpnsName(): string | undefined {
+        const isDomain = isStringDomain(this._community.address);
+        const hasAnchorClaim = Boolean(this._community.anchor);
+        if (
+            this._community.publicKey &&
+            (isDomain || hasAnchorClaim || (!isDomain && this._community.name && this._community.nameResolved === true))
+        )
+            return this._community.publicKey;
+        return undefined;
+    }
+
     async fetchNewUpdateForCommunity(communityAddress: string): Promise<ResultOfFetchingCommunity> {
         return this._withInflightCommunityFetch(communityAddress, async () => {
             let ipnsName: string | null;
             const isDomain = isStringDomain(communityAddress);
 
-            // A record with an anchor claim routes through the identity (the anchor chain) no matter
-            // how the instance was addressed (#257): the anchor is the rotation-safe pointer, so a
-            // reader must never stay pinned to the minter it happened to reach the record through.
-            const hasAnchorClaim = Boolean(this._community.anchor);
-            if (
-                this._community.publicKey &&
-                (isDomain || hasAnchorClaim || (!isDomain && this._community.name && this._community.nameResolved === true))
-            ) {
+            const pinnedIpnsName = this._pinnedIpnsName();
+            if (pinnedIpnsName) {
                 // Once a domain has been verified against a public key, keep fetching through the current public key
                 // even if the immutable address on the instance is a raw IPNS key.
-                ipnsName = this._community.publicKey;
+                ipnsName = pinnedIpnsName;
                 if (isDomain) this._resolveNameInBackground(communityAddress);
             } else {
                 // Name only or publicKey only: use existing resolution flow
@@ -748,6 +802,10 @@ export class CommunityClientsManager extends PKCClientsManager {
                 this._community.ipnsHops = [ipnsName];
                 this._community.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(ipnsName);
                 this._community.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this._community.ipnsPubsubTopic);
+                // A freshly resolved domain now has a watchable topic: arm it for the rest of this
+                // cycle instead of only after updateOnce returns, so a record pushed while the
+                // cycle fetches and verifies is recorded rather than dropped at the source.
+                this._resyncIpnsArrivalSubscriptionsIfArmed();
             }
 
             if (this._community.updateCid) this._updateCidsAlreadyLoaded.add(this._community.updateCid);
@@ -820,6 +878,11 @@ export class CommunityClientsManager extends PKCClientsManager {
         // 0.43's default) instead of the max(updateInterval, revalidation floor) the safety net
         // promises. No-op for the kubo-RPC resolver, which always resolves with nocache: true.
         const forceNetworkRevalidation = this._nextResolveRevalidatesNetwork;
+        // Consumed by the cycle's FIRST attempt only: updateOnce retries this fetch (forever,
+        // with backoff) on retriable errors such as a CID fetch timeout after a successful
+        // resolve, and those attempts must ride the cache as the 1s poll's retries did instead
+        // of re-resolving over the network on every backoff step.
+        this._nextResolveRevalidatesNetwork = false;
         if (forceNetworkRevalidation) this._lastForcedIpnsNetworkRevalidationAtMs = Date.now();
         const { cid: latestCommunityCid, ipnsHops } = await this.resolveIpnsToCidP2P(ipnsName, {
             timeoutMs: this._pkc._timeouts["community-ipns"],

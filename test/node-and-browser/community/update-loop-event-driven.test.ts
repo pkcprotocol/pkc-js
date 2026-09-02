@@ -5,7 +5,7 @@ import {
     publishCommunityRecordWithExtraProp
 } from "../../../dist/node/test/test-util.js";
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
-import { timestamp } from "../../../dist/node/util.js";
+import { ipnsNameToIpnsOverPubsubTopic, timestamp } from "../../../dist/node/util.js";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
@@ -266,6 +266,143 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                     Date.now() - parkStartedAt,
                     "a delegation change must skip the park so the loop walks the new chain now"
                 ).to.be.below(2000);
+            });
+        });
+
+        // The arrival plumbing must follow the community's identity wherever the identity is
+        // decided, not only at the two loop-owned sync points (pre-first-cycle and post-
+        // updateOnce). Each case below is a state the old 1s poll covered for free and the
+        // event-driven loop must cover explicitly, exercised as unit sequences on idle
+        // managers so the ordering is deterministic.
+        describe("arrival subscriptions and pending arrivals follow identity changes", () => {
+            type ManagerIdentityInternals = {
+                _subscribedIpnsArrivalTopics: Set<string>;
+                _pendingIpnsArrivalHopTargets: Set<string>;
+                _nextResolveRevalidatesNetwork: boolean;
+                _syncIpnsArrivalSubscriptions(client: unknown): void;
+                _clearIpnsArrivalSubscriptions(): void;
+                _applyKeyMigration(args: { communityName: string; newPublicKey: string }): void;
+                _onIpnsRecordArrival(arrival: { pubsubTopic: string; record: { value: string } }): void;
+                _sleepUntilIpnsArrivalOrTimeoutOrAbort(args: { ms: number; signal?: AbortSignal }): Promise<void>;
+                resolveIpnsToCidP2P(ipnsName: string, opts: { nocache?: boolean }): Promise<unknown>;
+                fetchNewUpdateForCommunity(communityAddress: string): Promise<unknown>;
+            };
+            const libp2pJsClientOf = (instance: PKCType) =>
+                instance.clients.libp2pJsClients[Object.keys(instance.clients.libp2pJsClients)[0]];
+
+            it("a domain community created with a known publicKey arms that key's topic before its first update", async () => {
+                // createCommunity({ address: domain, publicKey }) skips name resolution: the first
+                // fetch pins to publicKey (fetchNewUpdateForCommunity). The pre-loop arm must derive
+                // the same name, otherwise the first cycle runs with no listener and a record
+                // pushed mid-first-fetch is dropped at the source until the first safety-net tick.
+                const signer = await pkc.createSigner();
+                const community = (await pkc.createCommunity({ address: "plebbit.bso", publicKey: signer.address })) as RemoteCommunity;
+                const manager = community._clientsManager as unknown as ManagerIdentityInternals;
+                try {
+                    manager._syncIpnsArrivalSubscriptions(libp2pJsClientOf(pkc));
+                    expect(
+                        [...manager._subscribedIpnsArrivalTopics],
+                        "the pre-loop arm must watch the pinned publicKey's topic for a domain+publicKey community"
+                    ).to.deep.equal([ipnsNameToIpnsOverPubsubTopic(signer.address)]);
+                } finally {
+                    manager._clearIpnsArrivalSubscriptions();
+                }
+            });
+
+            it("a key migration moves the arrival subscription to the new key and drops the old key's pending arrivals", async () => {
+                const oldSigner = await pkc.createSigner();
+                const newSigner = await pkc.createSigner();
+                const community = (await pkc.createCommunity({
+                    address: "migrating.bso",
+                    publicKey: oldSigner.address
+                })) as RemoteCommunity;
+                const manager = community._clientsManager as unknown as ManagerIdentityInternals;
+                try {
+                    manager._syncIpnsArrivalSubscriptions(libp2pJsClientOf(pkc));
+                    expect([...manager._subscribedIpnsArrivalTopics]).to.deep.equal([ipnsNameToIpnsOverPubsubTopic(oldSigner.address)]);
+                    // An old-key arrival queued before the migration fires: with updateCid and the
+                    // loaded set cleared by the migration nothing filters it, so unless the
+                    // migration drops it the next park fast-returns into a wasted old-key cycle.
+                    manager._onIpnsRecordArrival({
+                        pubsubTopic: ipnsNameToIpnsOverPubsubTopic(oldSigner.address),
+                        record: { value: "/ipfs/bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi" }
+                    });
+
+                    manager._applyKeyMigration({ communityName: "migrating.bso", newPublicKey: newSigner.address });
+
+                    expect(community.publicKey).to.equal(newSigner.address);
+                    expect(
+                        [...manager._subscribedIpnsArrivalTopics],
+                        "after a key migration the loop must watch ONLY the new key's topic, immediately, not after the new key's record is fetched"
+                    ).to.deep.equal([ipnsNameToIpnsOverPubsubTopic(newSigner.address)]);
+                    const parkStartedAt = Date.now();
+                    await manager._sleepUntilIpnsArrivalOrTimeoutOrAbort({ ms: 400 });
+                    expect(
+                        Date.now() - parkStartedAt,
+                        "the old key's pending arrival must not survive the migration and fast-return the park"
+                    ).to.be.at.least(350);
+                } finally {
+                    manager._clearIpnsArrivalSubscriptions();
+                }
+            });
+
+            it("an arrival that wakes the park is consumed by that wake, so a cycle that fails to change the chain is not re-run", async () => {
+                // A hop record delegating outside the walked chain wakes the park; if the walk it
+                // triggers fails without updating ipnsHops (e.g. ERR_IPNS_MAX_HOPS_EXCEEDED, a
+                // non-retriable error), the still-pending hop target must not fast-return the next
+                // park into an identical failing walk: two error events per push instead of one.
+                const signer = await pkc.createSigner();
+                const community = (await pkc.createCommunity({ address: signer.address })) as RemoteCommunity;
+                const manager = community._clientsManager as unknown as ManagerIdentityInternals;
+                community.ipnsHops = ["anchorhopname", "minterhopname"];
+                const wokenPark = manager._sleepUntilIpnsArrivalOrTimeoutOrAbort({ ms: 10_000 });
+                await sleep(100);
+                manager._onIpnsRecordArrival({ pubsubTopic: "/record/anchor", record: { value: "/ipns/replacementminter" } });
+                const wokenParkStartedAt = Date.now();
+                await wokenPark;
+                expect(Date.now() - wokenParkStartedAt, "the arrival must wake the park").to.be.below(2000);
+
+                // The walk that followed failed: the chain is unchanged.
+                const parkStartedAt = Date.now();
+                await manager._sleepUntilIpnsArrivalOrTimeoutOrAbort({ ms: 400 });
+                expect(
+                    Date.now() - parkStartedAt,
+                    "the park that follows the woken cycle must sleep its full period: the arrival was already reacted to"
+                ).to.be.at.least(350);
+            });
+
+            it("a forced network revalidation is consumed by the first resolve attempt so retries within the cycle ride the cache", async () => {
+                // _nextResolveRevalidatesNetwork is set by a timer-fired park and read per
+                // resolve. updateOnce retries fetchNewUpdateForCommunity forever on retriable
+                // errors (e.g. a CID fetch timeout AFTER a successful resolve), and every attempt
+                // must not re-resolve IPNS over the network: master's retries re-read the cache.
+                const signer = await pkc.createSigner();
+                const community = (await pkc.createCommunity({ address: signer.address })) as RemoteCommunity;
+                const manager = community._clientsManager as unknown as ManagerIdentityInternals;
+                const resolveSpy = vi
+                    .spyOn(manager, "resolveIpnsToCidP2P")
+                    .mockImplementation((): Promise<never> => Promise.reject(new Error("simulated resolve failure")));
+                try {
+                    manager._nextResolveRevalidatesNetwork = true;
+                    for (let attempt = 0; attempt < 2; attempt++) {
+                        try {
+                            await manager.fetchNewUpdateForCommunity(signer.address);
+                        } catch {
+                            // every attempt fails at the resolve: only its options matter here
+                        }
+                    }
+                    expect(resolveSpy.mock.calls.length).to.equal(2);
+                    expect(
+                        resolveSpy.mock.calls[0][1].nocache,
+                        "the first attempt after a timer-fired park must revalidate on the network"
+                    ).to.equal(true);
+                    expect(
+                        resolveSpy.mock.calls[1][1].nocache,
+                        "the retry attempt within the same cycle must not force the network again"
+                    ).to.not.equal(true);
+                } finally {
+                    resolveSpy.mockRestore();
+                }
             });
         });
 
