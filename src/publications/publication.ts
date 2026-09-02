@@ -564,7 +564,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
             challengeAnswers: challengeAnswers
         });
 
-        if (this._pkc._pkcRpcClient && typeof this._rpcPublishSubscriptionId === "number") {
+        if (this._pkc._pkcRpcClient) {
+            // Route on the RPC client alone: with an RPC client the challenge exchange runs
+            // server-side and the local-pubsub branch below can never succeed (RPC-mode
+            // _challengeExchanges carry no signer). A missing subscription id means the exchange
+            // is over, so say that instead of the misleading errors the local branch would throw
+            if (typeof this._rpcPublishSubscriptionId !== "number")
+                throw new PKCError("ERR_RPC_CLIENT_NO_ACTIVE_PUBLISH_SUBSCRIPTION", { publishingState: this.publishingState });
             return this._pkc._pkcRpcClient.publishChallengeAnswers({
                 subscriptionId: this._rpcPublishSubscriptionId,
                 challengeAnswers: toEncryptAnswers.challengeAnswers
@@ -1008,20 +1014,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     .on("publishingstatechange", this._handleIncomingPublishingStateFromRpc.bind(this))
                     .on("statechange", this._handleIncomingStateFromRpc.bind(this))
                     .on("error", this._handleIncomingErrorFromRpc.bind(this)),
-            onReplayError: (e) => {
-                // Pre-deferral this throw rejected publish(); contain it and stop the publication.
-                // Surface it as an "error" event first: post-deferral nothing awaits the replay,
-                // so without the emit the only signal is a debug-namespace log. The emit itself
-                // can throw (with no listeners anywhere the pkc bubbling re-throws), so it stays
-                // contained too.
-                const log = Logger("pkc-js:publication:publish:_publishWithRpc");
-                log.error("Error thrown while replaying buffered subscribe-time notifications, stopping the publication", e);
-                try {
-                    this.emit("error", e instanceof Error ? e : new Error(String(e)));
-                } catch (emitError) {
-                    log.error("No listener received the replay error", emitError);
-                }
-                this.stop().catch((stopError) => log.error("Failed to stop the publication after a replay error", stopError));
+            // Pre-deferral a replay throw rejected publish(); the helper contains it (log,
+            // surface as an "error" event, stop)
+            replayErrorContainment: {
+                entityName: "publication",
+                log: Logger("pkc-js:publication:publish:_publishWithRpc"),
+                emitError: (error) => this.emit("error", error),
+                stop: () => this.stop()
             }
         });
     }
