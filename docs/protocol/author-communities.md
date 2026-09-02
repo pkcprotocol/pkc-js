@@ -220,6 +220,12 @@ is never part of an export, so the database is portable by construction.
   always derivable from `comment.signature.publicKey`, so a hint would only save a failed lookup, but
   at scale that may be worth a signed optional boolean on `AuthorPubsubSchema`. Deferred rather than
   rejected: it is permanent wire surface once published.
+- **A field saying this is a profile.** Nothing in the record declares itself a profile rather than an
+  ordinary community, and the pieces that imply one are spread across the anchor, the roles map and the
+  challenge excludes. Right now a client can do `const isAuthor = roles[community.address].role ===
+  "owner"` and it is accurate, because an ordinary community has no reason to hold the owner role over
+  its own address. Whether that is enough, or whether it deserves an explicit field, is open. Like the
+  hint above, a field is permanent wire surface once published.
 - **Delegating profile moderation** to a third party. The schema already supports it; v1 seeds the
   roles map with the owner alone.
 - **Convergence**, one name carrying both a community feed and its owner's author feed.
