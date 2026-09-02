@@ -1,8 +1,9 @@
 // What a client can and cannot conclude about an author community by reading its record. Owner-only
 // posting has no feature flag and no read-side check: it is challenge configuration, and `exclude` is
-// published while `name`, `path` and `options` are stripped. That publishes the exemption structure but
-// not the policy, which is the distinction the last test in the first block pins down. See "What a
-// reader can actually tell" in docs/protocol/author-communities.md, and challenge-settings.md.
+// published while `name` and `path` are stripped and `options` stay private unless the owner names them
+// in publicOptions. That publishes the exemption structure but not the policy, which is the distinction
+// the last test in the first block pins down. See "What a reader can actually tell" in
+// docs/protocol/author-communities.md, and challenge-settings.md.
 //
 // This runs in the browser and touches no network: the point is what a reader can conclude from bytes.
 // The producing half, that a real community actually puts these rules on the wire, is asserted in
@@ -18,6 +19,8 @@ import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
 
 const OWNER_ADDRESS = signers[0].address;
 
+const OWNER_ONLY_ERROR = "Only the owner can post to this profile.";
+
 const ownerOnlyExclude = [
     { role: ["owner"] },
     { publicationType: { reply: true, vote: true, commentEdit: true, commentModeration: true, communityEdit: true } }
@@ -25,20 +28,27 @@ const ownerOnlyExclude = [
 
 // The public half of the challenge settings, i.e. what survives into the signed record. No `name`, no
 // `options`: a reader never learns that the challenge behind this is `fail`, only that a non-owner
-// posting is not excluded from whatever it is.
+// posting is not excluded from whatever it is. publicOptions carries the one option the profile config
+// in the doc opts into, which is the strongest hint a profile can put on the wire.
 const ownerOnlyPublicChallenge = {
     exclude: ownerOnlyExclude,
     description: "A challenge that automatically fails with a custom error message.",
-    type: "text/plain"
+    type: "text/plain",
+    publicOptions: { error: OWNER_ONLY_ERROR }
 };
 
 // The same exemption structure in front of an answerable challenge. `name` and `options` are exactly
-// what would tell these apart, and both are stripped, so this is what the limit of wire legibility
+// what would tell these apart and neither is published, so this is what the limit of wire legibility
 // looks like: a community anyone can post to after answering a question.
+//
+// It publishes the identical publicOptions on purpose. A challenge file declares its own optionInputs,
+// so a passable custom challenge may declare an `error` option and publish the same sentence. That is
+// why an opted-in option is a hint about intent and never a discriminator of policy.
 const answerablePublicChallenge = {
     exclude: ownerOnlyExclude,
     description: "Ask a question, answer it correctly to publish.",
-    type: "text/plain"
+    type: "text/plain",
+    publicOptions: { error: OWNER_ONLY_ERROR }
 };
 
 // The challenge is cloned rather than aliased: the constants above are shared across a concurrent
@@ -120,6 +130,9 @@ describe.concurrent("author community: what the posting restriction looks like o
         expect(answerable.challenges[0].description).to.not.equal(unpassable.challenges[0].description);
         expect(answerable.challenges[0]).to.not.have.property("name");
         expect(answerable.challenges[0]).to.not.have.property("options");
+        // Even the rejection text the profile opted into publishing is reproducible by the answerable
+        // one, so it narrows nothing: both sides carry it and both sides remain what they were.
+        expect(answerable.challenges[0].publicOptions).to.deep.equal(unpassable.challenges[0].publicOptions);
     });
 
     it("carries the anchor claim, so a reader knows the address is the author's identity key", () => {
