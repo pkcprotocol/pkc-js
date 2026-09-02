@@ -27,7 +27,7 @@
 // non-retriable error after the subscription listeners are bound and before the subscribe call
 // returns, so the notification lands in the client's pending buffer and is replayed by the
 // deferred task.
-import { describe, beforeAll, afterAll, expect } from "vitest";
+import { describe, beforeAll, afterAll, expect, vi } from "vitest";
 import path from "path";
 import PKC from "../../../dist/node/index.js";
 import { createInProcessRpcServer, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
@@ -65,25 +65,28 @@ describe("RPC: subscribe-time community error with no listeners attached must no
 
         ({ rpcServer, rpcUrl } = await createInProcessRpcServer({ serverPKC, authKey: RPC_AUTH_KEY }));
 
-        const server = rpcServer as unknown as Record<string, Function>;
+        const server = rpcServer as unknown as {
+            _bindCommunityUpdateSubscription: (
+                parsedArgs: { name?: string; publicKey?: string },
+                connectionId: string,
+                subscriptionId: number
+            ) => Promise<void>;
+        };
 
         // Emit a non-retriable error on the server-side updating instance after the subscription's
         // listeners are bound but before communityUpdateSubscribe returns its response, so the
         // error notification is buffered client-side and replayed by the deferred task.
         const originalBind = server._bindCommunityUpdateSubscription.bind(rpcServer);
-        server._bindCommunityUpdateSubscription = async (
-            parsedArgs: { name?: string; publicKey?: string },
-            connectionId: string,
-            subscriptionId: number
-        ) => {
+        vi.spyOn(server, "_bindCommunityUpdateSubscription").mockImplementation(async (parsedArgs, connectionId, subscriptionId) => {
             await originalBind(parsedArgs, connectionId, subscriptionId);
             const entry = findUpdatingCommunity(serverPKC, parsedArgs) as RemoteCommunity | undefined;
             if (!entry) throw new Error("Test setup failed: no server-side updating entry after binding the subscription");
             entry.emit("error", new PKCError("ERR_INVALID_JSON", { [INJECTED_MARKER]: true }));
-        };
+        });
     });
 
     afterAll(async () => {
+        vi.restoreAllMocks();
         if (rpcServer) await rpcServer.destroy();
         if (serverPKC && !serverPKC.destroyed) await serverPKC.destroy();
     });

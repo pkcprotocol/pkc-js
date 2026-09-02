@@ -22,7 +22,7 @@
 // all its subscription listeners and BEFORE writing the JSON-RPC response, so the error
 // notification is written to the websocket ahead of the publish response, lands in the client's
 // pending buffer, and is replayed synchronously inside the client's comment.publish().
-import { describe, beforeAll, afterAll, expect } from "vitest";
+import { describe, beforeAll, afterAll, expect, vi } from "vitest";
 import path from "path";
 import PKC from "../../../dist/node/index.js";
 import { createInProcessRpcServer, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
@@ -60,7 +60,9 @@ describe("RPC: publish error emitted at subscribe time reaches a listener attach
 
         ({ rpcServer, rpcUrl } = await createInProcessRpcServer({ serverPKC, authKey: RPC_AUTH_KEY }));
 
-        const server = rpcServer as unknown as Record<string, Function>;
+        const server = rpcServer as unknown as {
+            _createCommentInstanceFromPublishCommentParams: (params: unknown) => Promise<Comment>;
+        };
 
         // Make the server-side comment's publish() emit a non-retriable error instead of
         // publishing. publishComment awaits comment.publish() after all subscription listeners
@@ -69,16 +71,17 @@ describe("RPC: publish error emitted at subscribe time reaches a listener attach
         // the deterministic version of the server-side publication failing during the awaited
         // publish() call.
         const originalCreate = server._createCommentInstanceFromPublishCommentParams.bind(rpcServer);
-        server._createCommentInstanceFromPublishCommentParams = async (params: unknown) => {
-            const comment = (await originalCreate(params)) as Comment;
-            (comment as unknown as Record<string, Function>).publish = async () => {
+        vi.spyOn(server, "_createCommentInstanceFromPublishCommentParams").mockImplementation(async (params) => {
+            const comment = await originalCreate(params);
+            vi.spyOn(comment, "publish").mockImplementation(async () => {
                 comment.emit("error", new PKCError("ERR_INVALID_JSON", { [INJECTED_MARKER]: true }));
-            };
+            });
             return comment;
-        };
+        });
     });
 
     afterAll(async () => {
+        vi.restoreAllMocks();
         if (rpcServer) await rpcServer.destroy();
         if (serverPKC && !serverPKC.destroyed) await serverPKC.destroy();
     });

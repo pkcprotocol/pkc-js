@@ -28,7 +28,7 @@
 // NOTE: this repro targets ONLY the start() subscription path. The exports subscription path in
 // rpc-local-community.ts deliberately relies on the synchronous replay ordering and is out of
 // scope here.
-import { describe, beforeAll, afterAll, expect } from "vitest";
+import { describe, beforeAll, afterAll, expect, vi } from "vitest";
 import path from "path";
 import PKC from "../../../dist/node/index.js";
 import { createInProcessRpcServer, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
@@ -60,7 +60,9 @@ describe("RPC: community error emitted at start-subscribe time reaches a listene
 
         ({ rpcServer, rpcUrl } = await createInProcessRpcServer({ serverPKC, authKey: RPC_AUTH_KEY }));
 
-        const server = rpcServer as unknown as Record<string, Function>;
+        const server = rpcServer as unknown as {
+            _setupStartedEvents: (community: LocalCommunity, connectionId: string, subscriptionId: number) => void;
+        };
 
         // Emit a non-retriable error on the server-side started instance after the start
         // subscription's listeners are bound (startCommunityImpl calls _setupStartedEvents before
@@ -68,13 +70,14 @@ describe("RPC: community error emitted at start-subscribe time reaches a listene
         // error notification is written to the websocket ahead of the startCommunity response,
         // which is the deterministic version of a server-side failure during the awaited start.
         const originalSetup = server._setupStartedEvents.bind(rpcServer);
-        server._setupStartedEvents = (community: LocalCommunity, connectionId: string, subscriptionId: number) => {
+        vi.spyOn(server, "_setupStartedEvents").mockImplementation((community, connectionId, subscriptionId) => {
             originalSetup(community, connectionId, subscriptionId);
             community.emit("error", new PKCError("ERR_INVALID_JSON", { [INJECTED_MARKER]: true }));
-        };
+        });
     });
 
     afterAll(async () => {
+        vi.restoreAllMocks();
         if (rpcServer) await rpcServer.destroy();
         if (serverPKC && !serverPKC.destroyed) await serverPKC.destroy();
     });

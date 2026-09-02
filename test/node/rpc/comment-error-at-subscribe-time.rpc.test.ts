@@ -21,7 +21,7 @@
 // exactly "an error the server emitted at subscribe time": the error notification is written to
 // the websocket ahead of the subscribe response, lands in the client's pending buffer, and is
 // replayed synchronously inside comment.update().
-import { describe, beforeAll, afterAll, expect } from "vitest";
+import { describe, beforeAll, afterAll, expect, vi } from "vitest";
 import path from "path";
 import PKC from "../../../dist/node/index.js";
 import { createInProcessRpcServer, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
@@ -72,22 +72,21 @@ describe("RPC: comment error emitted at subscribe time reaches a listener attach
         // error notification is written to the websocket ahead of the subscribe response, which is
         // the deterministic version of a stale, already-failed server-side instance being reused.
         const originalCreateComment = serverPKC.createComment.bind(serverPKC);
-        const serverPkcInternals = serverPKC as unknown as Record<string, Function>;
-        serverPkcInternals.createComment = async (options: Parameters<PKCType["createComment"]>[0]) => {
+        vi.spyOn(serverPKC, "createComment").mockImplementation(async (options: Parameters<PKCType["createComment"]>[0]) => {
             const comment = await originalCreateComment(options);
             if (options && typeof options === "object" && "cid" in options && options.cid === postCid) {
                 const originalUpdate = comment.update.bind(comment);
-                const commentInternals = comment as unknown as Record<string, Function>;
-                commentInternals.update = async () => {
+                vi.spyOn(comment, "update").mockImplementation(async () => {
                     await originalUpdate();
                     comment.emit("error", new PKCError("ERR_INVALID_JSON", { [INJECTED_MARKER]: true }));
-                };
+                });
             }
             return comment;
-        };
+        });
     });
 
     afterAll(async () => {
+        vi.restoreAllMocks();
         if (rpcServer) await rpcServer.destroy();
         if (serverPKC && !serverPKC.destroyed) await serverPKC.destroy();
     });
