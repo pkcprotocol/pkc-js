@@ -28,12 +28,15 @@ import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publica
 // idle post, 100% discarded, and a fetching-update-ipfs -> waiting-retry updatingstatechange
 // cycle per walk.
 //
-// The waste pin below is marked it.fails: it asserts the DESIRED behavior (no per-post
-// postUpdates walk and no state churn when the post's CommentUpdate did not change), which the
-// current code fails, so the suite stays green in CI while the bug exists. The moment the #312
-// fix lands, the inverted test starts failing and the .fails flag must be removed, turning it
-// into the fix's regression pin. The delivery test is a plain green pin guarding that fix
-// against over-deduping.
+// The waste pin below asserts the bug's presence EXPLICITLY (walks happen today) instead of
+// wrapping the desired behavior in it.fails. it.fails records ANY throw as the expected
+// failure: if the filler posts failed to drive two community updates inside the deadline (a
+// live-community round trip on a loaded runner), the setup expect() would throw, vitest would
+// mark the test green, and the #312 oracle would never have been evaluated. As a plain test a
+// setup failure is loud, and the moment the #312 fix lands the inverted assertion goes red —
+// flip it to `.to.equal(0)` (and pin no updatingstatechange churn alongside) to turn it into
+// the fix's regression pin. The delivery test is a plain green pin guarding that fix against
+// over-deduping.
 //
 // remote-libp2pjs only: the waste exists on the kubo path too (same shared code in
 // comment-client-manager), but the network-fetch oracle instruments the libp2p-js client's cat.
@@ -97,62 +100,55 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             return { publishedPost, comment, community };
         };
 
-        it.fails(
-            "a community update that does not change a post's CommentUpdate costs no postUpdates walk and no state churn (issue #312)",
-            async () => {
-                const { publishedPost, comment, community } = await startIdlePostAndCommunityMirror();
-                await sleep(2000); // let the first update cycle's tail settle
+        it("a community update that does not change a post's CommentUpdate still costs a postUpdates walk today (issue #312 inverted pin)", async () => {
+            const { publishedPost, comment, community } = await startIdlePostAndCommunityMirror();
+            await sleep(2000); // let the first update cycle's tail settle
 
-                // Oracle: every P2P file fetch goes through the client functions' cat; a
-                // per-post postUpdates walk is a cat of <folderCid>/<postCid>/update, so any
-                // path containing this post's cid is a walk for it. A future shared
-                // folder-listing fetch (the #312 proposal) does not match, on purpose.
-                const libp2pJsClient = pkc.clients.libp2pJsClients[Object.keys(pkc.clients.libp2pJsClients)[0]];
-                const clientFunctions = libp2pJsClient.heliaWithKuboRpcClientFunctions;
-                const catPaths: string[] = [];
-                const originalCat = clientFunctions.cat.bind(clientFunctions);
-                clientFunctions.cat = ((...args: Parameters<typeof originalCat>) => {
-                    catPaths.push(String(args[0]));
-                    return originalCat(...args);
-                }) as typeof clientFunctions.cat;
+            // Oracle: every P2P file fetch goes through the client functions' cat; a
+            // per-post postUpdates walk is a cat of <folderCid>/<postCid>/update, so any
+            // path containing this post's cid is a walk for it. A future shared
+            // folder-listing fetch (the #312 proposal) does not match, on purpose.
+            const libp2pJsClient = pkc.clients.libp2pJsClients[Object.keys(pkc.clients.libp2pJsClients)[0]];
+            const clientFunctions = libp2pJsClient.heliaWithKuboRpcClientFunctions;
+            const catPaths: string[] = [];
+            const originalCat = clientFunctions.cat.bind(clientFunctions);
+            clientFunctions.cat = ((...args: Parameters<typeof originalCat>) => {
+                catPaths.push(String(args[0]));
+                return originalCat(...args);
+            }) as typeof clientFunctions.cat;
 
-                let communityUpdates = 0;
-                const onCommunityUpdate = () => communityUpdates++;
-                community.on("update", onCommunityUpdate);
-                const recordedCommentStates: string[] = [];
-                const onCommentStateChange = (newState: Comment["updatingState"]) => recordedCommentStates.push(newState);
-                comment.on("updatingstatechange", onCommentStateChange);
+            let communityUpdates = 0;
+            const onCommunityUpdate = () => communityUpdates++;
+            community.on("update", onCommunityUpdate);
 
-                try {
-                    // Drive community updates with activity UNRELATED to the post: filler posts
-                    // change the record (and the post's timestamp bucket) but never its
-                    // CommentUpdate. Wait for two community updates to land.
-                    const deadline = Date.now() + 120_000;
-                    while (communityUpdates < 2 && Date.now() < deadline) {
-                        await publishRandomPost({ communityAddress, pkc: publisherPkc });
-                        const target = Math.min(communityUpdates + 1, 2);
-                        while (communityUpdates < target && Date.now() < deadline) await sleep(500);
-                    }
-                    expect(communityUpdates, "the filler posts must produce community updates").to.be.greaterThanOrEqual(2);
-                    await sleep(3000); // give the per-update comment handlers time to finish their walks
-
-                    const postUpdatesWalksForThisPost = catPaths.filter((path) => path.includes(publishedPost.cid!));
-                    expect(
-                        postUpdatesWalksForThisPost.length,
-                        `community updates that did not change the post's CommentUpdate must not trigger network walks of its postUpdates path; saw ${postUpdatesWalksForThisPost.length} walks over ${communityUpdates} updates`
-                    ).to.equal(0);
-                    expect(
-                        recordedCommentStates.length,
-                        `an idle post must not churn updatingstatechange on unrelated community updates; saw [${recordedCommentStates.join(", ")}]`
-                    ).to.be.at.most(2);
-                } finally {
-                    clientFunctions.cat = originalCat;
-                    community.removeListener("update", onCommunityUpdate);
-                    comment.removeListener("updatingstatechange", onCommentStateChange);
+            try {
+                // Drive community updates with activity UNRELATED to the post: filler posts
+                // change the record (and the post's timestamp bucket) but never its
+                // CommentUpdate. Wait for two community updates to land.
+                const deadline = Date.now() + 120_000;
+                while (communityUpdates < 2 && Date.now() < deadline) {
+                    await publishRandomPost({ communityAddress, pkc: publisherPkc });
+                    const target = Math.min(communityUpdates + 1, 2);
+                    while (communityUpdates < target && Date.now() < deadline) await sleep(500);
                 }
-            },
-            300_000
-        );
+                // A loud setup precondition, not a swallowed one: with it.fails this throw
+                // would have counted as the expected failure and silently skipped the oracle.
+                expect(communityUpdates, "the filler posts must produce community updates").to.be.greaterThanOrEqual(2);
+                await sleep(3000); // give the per-update comment handlers time to finish their walks
+
+                const postUpdatesWalksForThisPost = catPaths.filter((path) => path.includes(publishedPost.cid!));
+                // INVERTED: the desired behavior is zero walks (plus no updatingstatechange
+                // churn on the idle post). This pins the measured #312 waste so the fix
+                // cannot land without flipping this assertion into its regression pin.
+                expect(
+                    postUpdatesWalksForThisPost.length,
+                    `issue #312 fixed? each community update used to trigger a postUpdates network walk for every idle updating post; saw ${postUpdatesWalksForThisPost.length} walks over ${communityUpdates} updates — flip this pin to .to.equal(0) and assert no state churn`
+                ).to.be.greaterThanOrEqual(1);
+            } finally {
+                clientFunctions.cat = originalCat;
+                community.removeListener("update", onCommunityUpdate);
+            }
+        }, 300_000);
 
         // Green today and must stay green after the #312 fix: deduping unchanged CommentUpdates
         // must never swallow a real change.
