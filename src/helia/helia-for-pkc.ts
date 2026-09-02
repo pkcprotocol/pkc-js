@@ -910,12 +910,12 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 throw Error("Helia 'add' is not supported at the moment in pkc-js API");
             },
             ipnsRecordArrivals: {
-                subscribe: (pubsubTopic: string, listener: IpnsRecordArrivalListener) => {
+                subscribe: ({ pubsubTopic, listener }: { pubsubTopic: string; listener: IpnsRecordArrivalListener }) => {
                     const listeners = ipnsRecordArrivalListeners.get(pubsubTopic) ?? new Set<IpnsRecordArrivalListener>();
                     listeners.add(listener);
                     ipnsRecordArrivalListeners.set(pubsubTopic, listeners);
                 },
-                unsubscribe: (pubsubTopic: string, listener: IpnsRecordArrivalListener) => {
+                unsubscribe: ({ pubsubTopic, listener }: { pubsubTopic: string; listener: IpnsRecordArrivalListener }) => {
                     const listeners = ipnsRecordArrivalListeners.get(pubsubTopic);
                     if (!listeners) return;
                     listeners.delete(listener);

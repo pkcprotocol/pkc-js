@@ -1,4 +1,4 @@
-import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import { describe, it, beforeAll, afterAll, expect, onTestFinished, vi } from "vitest";
 import {
     getAvailablePKCConfigsToTestAgainst,
     publishRandomPost,
@@ -83,7 +83,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             const clientFunctions = libp2pJsClient.heliaWithKuboRpcClientFunctions;
             const catCalls: { path: string; bytes: number }[] = [];
             const originalCat = clientFunctions.cat.bind(clientFunctions);
-            clientFunctions.cat = ((...args: Parameters<typeof originalCat>) => {
+            const catSpy = vi.spyOn(clientFunctions, "cat").mockImplementation((...args) => {
                 const call = { path: String(args[0]), bytes: 0 };
                 catCalls.push(call);
                 const iterable = originalCat(...args);
@@ -94,7 +94,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                         yield chunk;
                     }
                 })();
-            }) as typeof clientFunctions.cat;
+            });
+            onTestFinished(() => catSpy.mockRestore());
 
             // ---- setup: K posts, all set updating and settled ----
             const publishedPosts: Comment[] = [];

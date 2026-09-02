@@ -142,7 +142,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 const communityTopics = [...managerInternals._subscribedIpnsArrivalTopics];
                 for (const topic of communityTopics)
                     expect(
-                        subscribeSpy.mock.calls.some(([subscribedTopic]) => subscribedTopic === topic),
+                        subscribeSpy.mock.calls.some(([subscribed]) => subscribed.pubsubTopic === topic),
                         `subscribe must have been called for the community's topic ${topic}`
                     ).to.equal(true);
 
@@ -154,10 +154,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 ).to.equal(0);
                 // Every (topic, listener) pair this community subscribed must have been
                 // unsubscribed, so the shared client's listener map holds nothing of it.
-                for (const [topic, listener] of subscribeSpy.mock.calls) {
+                for (const [{ pubsubTopic: topic, listener }] of subscribeSpy.mock.calls) {
                     if (!communityTopics.includes(topic)) continue;
                     expect(
-                        unsubscribeSpy.mock.calls.some(([unsubTopic, unsubListener]) => unsubTopic === topic && unsubListener === listener),
+                        unsubscribeSpy.mock.calls.some(
+                            ([unsubscribed]) => unsubscribed.pubsubTopic === topic && unsubscribed.listener === listener
+                        ),
                         `stop() must unsubscribe the arrival listener it subscribed for topic ${topic}`
                     ).to.equal(true);
                 }
@@ -180,7 +182,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         describe("the park re-checks pending arrivals against post-update state", () => {
             type ManagerParkInternals = {
                 _onIpnsRecordArrival(arrival: { pubsubTopic: string; record: { value: string } }): void;
-                _sleepUntilIpnsArrivalOrTimeoutOrAbort(ms: number, signal?: AbortSignal): Promise<void>;
+                _sleepUntilIpnsArrivalOrTimeoutOrAbort(args: { ms: number; signal?: AbortSignal }): Promise<void>;
                 _updateCidsAlreadyLoaded: { add(cid: string): void };
             };
             const makeIdleManager = async () => {
@@ -200,7 +202,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 // updateOnce then finishes consuming exactly that record.
                 manager._updateCidsAlreadyLoaded.add(CID_A);
                 const parkStartedAt = Date.now();
-                await manager._sleepUntilIpnsArrivalOrTimeoutOrAbort(400);
+                await manager._sleepUntilIpnsArrivalOrTimeoutOrAbort({ ms: 400 });
                 expect(
                     Date.now() - parkStartedAt,
                     "the park must sleep its full period: its only pending arrival was consumed by the cycle that produced it"
@@ -212,7 +214,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 manager._onIpnsRecordArrival({ pubsubTopic: "/record/test", record: { value: `/ipfs/${CID_B}` } });
                 manager._updateCidsAlreadyLoaded.add(CID_A); // the cycle consumed something else
                 const parkStartedAt = Date.now();
-                await manager._sleepUntilIpnsArrivalOrTimeoutOrAbort(10_000);
+                await manager._sleepUntilIpnsArrivalOrTimeoutOrAbort({ ms: 10_000 });
                 expect(
                     Date.now() - parkStartedAt,
                     "a genuinely unconsumed arrival must skip the park so the loop reacts to the push"
@@ -223,7 +225,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 const { manager } = await makeIdleManager();
                 manager._onIpnsRecordArrival({ pubsubTopic: "/record/test", record: { value: "/ipns/someintermediatehopname" } });
                 const parkStartedAt = Date.now();
-                await manager._sleepUntilIpnsArrivalOrTimeoutOrAbort(10_000);
+                await manager._sleepUntilIpnsArrivalOrTimeoutOrAbort({ ms: 10_000 });
                 expect(
                     Date.now() - parkStartedAt,
                     "a hop record pointing outside any walked chain always warrants an immediate walk"
@@ -246,7 +248,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 // updateOnce then finishes having walked exactly that chain.
                 community.ipnsHops = ["anchorhopname", "minterhopname"];
                 const parkStartedAt = Date.now();
-                await manager._sleepUntilIpnsArrivalOrTimeoutOrAbort(400);
+                await manager._sleepUntilIpnsArrivalOrTimeoutOrAbort({ ms: 400 });
                 expect(
                     Date.now() - parkStartedAt,
                     "the park must sleep its full period: the pending hop arrival names a hop the cycle that produced it already walked (an anchor republish, not a delegation change)"
@@ -259,7 +261,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 // The anchor's record now delegates to a DIFFERENT minter: genuinely news.
                 manager._onIpnsRecordArrival({ pubsubTopic: "/record/anchor", record: { value: "/ipns/replacementminter" } });
                 const parkStartedAt = Date.now();
-                await manager._sleepUntilIpnsArrivalOrTimeoutOrAbort(10_000);
+                await manager._sleepUntilIpnsArrivalOrTimeoutOrAbort({ ms: 10_000 });
                 expect(
                     Date.now() - parkStartedAt,
                     "a delegation change must skip the park so the loop walks the new chain now"
@@ -454,7 +456,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                     _clearIpnsArrivalSubscriptions(): void;
                 };
                 let managerInternals: ManagerArrivalInternals | undefined;
-                let originalSync: ManagerArrivalInternals["_syncIpnsArrivalSubscriptions"] | undefined;
+                let syncSpy: { mockRestore(): void } | undefined;
                 try {
                     const staticRecord = await publishCommunityRecordWithExtraProp({ ttl: SHORT_RECORD_TTL });
                     staticRecordsToCleanUp.push(staticRecord);
@@ -480,8 +482,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                         "the loop must have registered an arrival subscription, otherwise this test is not suppressing anything"
                     ).to.be.greaterThan(0);
 
-                    originalSync = managerInternals._syncIpnsArrivalSubscriptions;
-                    managerInternals._syncIpnsArrivalSubscriptions = () => {};
+                    syncSpy = vi.spyOn(managerInternals, "_syncIpnsArrivalSubscriptions").mockImplementation(() => {});
                     managerInternals._clearIpnsArrivalSubscriptions();
                     expect(
                         managerInternals._subscribedIpnsArrivalTopics.size,
@@ -520,7 +521,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 } finally {
                     // Hand the loop its real sync back so the community resubscribes on its next
                     // iteration and afterAll's stop() unsubscribes a consistent set.
-                    if (managerInternals && originalSync) managerInternals._syncIpnsArrivalSubscriptions = originalSync;
+                    syncSpy?.mockRestore();
                 }
             },
             240_000

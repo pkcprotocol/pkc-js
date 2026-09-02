@@ -1,5 +1,5 @@
 import signers from "../../../../fixtures/signers.js";
-import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import {
     getAvailablePKCConfigsToTestAgainst,
     publishRandomPost,
@@ -112,10 +112,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             const clientFunctions = libp2pJsClient.heliaWithKuboRpcClientFunctions;
             const catPaths: string[] = [];
             const originalCat = clientFunctions.cat.bind(clientFunctions);
-            clientFunctions.cat = ((...args: Parameters<typeof originalCat>) => {
+            const catSpy = vi.spyOn(clientFunctions, "cat").mockImplementation((...args) => {
                 catPaths.push(String(args[0]));
                 return originalCat(...args);
-            }) as typeof clientFunctions.cat;
+            });
 
             let communityUpdates = 0;
             const onCommunityUpdate = () => communityUpdates++;
@@ -145,7 +145,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                     `issue #312 fixed? each community update used to trigger a postUpdates network walk for every idle updating post; saw ${postUpdatesWalksForThisPost.length} walks over ${communityUpdates} updates — flip this pin to .to.equal(0) and assert no state churn`
                 ).to.be.greaterThanOrEqual(1);
             } finally {
-                clientFunctions.cat = originalCat;
+                catSpy.mockRestore();
                 community.removeListener("update", onCommunityUpdate);
             }
         }, 300_000);

@@ -81,7 +81,7 @@ export function throwIfAbortSignalAborted(signal?: AbortSignal): void {
 // `wake` is idempotent and safe to call after the sleep already settled. Single implementation of
 // this settle pattern so hardening it reaches every caller (the event-driven update loop's park
 // included) instead of only one hand-rolled copy.
-export function interruptibleSleep(ms: number, signal?: AbortSignal): { promise: Promise<void>; wake: () => void } {
+export function interruptibleSleep({ ms, signal }: { ms: number; signal?: AbortSignal }): { promise: Promise<void>; wake: () => void } {
     let wake: () => void = () => undefined;
     const promise = new Promise<void>((resolve) => {
         if (signal?.aborted) return resolve();
@@ -100,7 +100,7 @@ export function interruptibleSleep(ms: number, signal?: AbortSignal): { promise:
 // Sleep for `ms`, resolving early if `signal` aborts. Used by the community update loops'
 // inter-iteration sleep and the comment parallel-connect timer.
 export function sleepUntilTimeoutOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
-    return interruptibleSleep(ms, signal).promise;
+    return interruptibleSleep({ ms, signal }).promise;
 }
 
 // Race `promise` against `signal` aborting, rejecting with an AbortError if the signal fires first.

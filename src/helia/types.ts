@@ -37,8 +37,8 @@ export interface HeliaWithKuboRpcClientFunctions extends Pick<NonNullable<KuboRp
     // of polling name.resolve every second. Listeners fire AFTER the record is validated and
     // persisted in the routing-layer cache, so a resolve issued from a listener observes it.
     ipnsRecordArrivals: {
-        subscribe(pubsubTopic: string, listener: IpnsRecordArrivalListener): void;
-        unsubscribe(pubsubTopic: string, listener: IpnsRecordArrivalListener): void;
+        subscribe(args: { pubsubTopic: string; listener: IpnsRecordArrivalListener }): void;
+        unsubscribe(args: { pubsubTopic: string; listener: IpnsRecordArrivalListener }): void;
     };
     // Test-only override of BITSWAP_SESSION_STALLED_GET_FAILOVER_MS, read by cat() at each block
     // get. The issue #189 guard test (at most one routing query per DAG) sets it beyond its own

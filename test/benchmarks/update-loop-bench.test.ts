@@ -1,4 +1,4 @@
-import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import { describe, it, beforeAll, afterAll, expect, onTestFinished, vi } from "vitest";
 import {
     getAvailablePKCConfigsToTestAgainst,
     publishCommunityRecordWithExtraProp,
@@ -68,10 +68,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         // Republish a community record under its IPNS key with an explicit ttl, so cached records
         // expire on the same schedule real community records do (publishInterval * 3 = 60s), which
         // is what makes the #307 lockstep expiry reproducible in the window.
-        const publishRecordWithTtl = async (
-            staticRecord: Awaited<ReturnType<typeof publishCommunityRecordWithExtraProp>>,
-            record: (typeof staticRecords)[number]["communityRecord"]
-        ) => {
+        const publishRecordWithTtl = async ({
+            staticRecord,
+            record
+        }: {
+            staticRecord: Awaited<ReturnType<typeof publishCommunityRecordWithExtraProp>>;
+            record: (typeof staticRecords)[number]["communityRecord"];
+        }) => {
             const cid = await addStringToIpfs(JSON.stringify(record));
             const kuboRpcClient = staticRecord.ipnsObj.pkc._clientsManager.getDefaultKuboRpcClient();
             await kuboRpcClient._client.name.publish(cid, {
@@ -88,7 +91,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 await Promise.all(
                     Array.from({ length: Math.min(setupBatchSize, COMMUNITY_COUNT - batchStart) }, async () => {
                         const staticRecord = await publishCommunityRecordWithExtraProp();
-                        await publishRecordWithTtl(staticRecord, staticRecord.communityRecord);
+                        await publishRecordWithTtl({ staticRecord, record: staticRecord.communityRecord });
                         staticRecords.push(staticRecord);
                     })
                 );
@@ -99,10 +102,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             const fetchService = libp2pJsClient._helia.libp2p.services.fetch;
             const fetchTimestamps: number[] = [];
             const originalFetch = fetchService.fetch.bind(fetchService);
-            fetchService.fetch = ((...args: Parameters<typeof originalFetch>) => {
+            const fetchSpy = vi.spyOn(fetchService, "fetch").mockImplementation((...args) => {
                 fetchTimestamps.push(Date.now());
                 return originalFetch(...args);
-            }) as typeof fetchService.fetch;
+            });
+            onTestFinished(() => fetchSpy.mockRestore());
 
             let pubsubMessagesReceived = 0;
             const onPubsubMessage = () => pubsubMessagesReceived++;
@@ -156,7 +160,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                     targetCommunity.on("update", onUpdate);
                 });
                 const publishedAt = Date.now();
-                await publishRecordWithTtl(target, newerRecord);
+                await publishRecordWithTtl({ staticRecord: target, record: newerRecord });
                 await delivered;
             })();
 

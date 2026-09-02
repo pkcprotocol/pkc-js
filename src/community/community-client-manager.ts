@@ -414,7 +414,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                     // Jittered per iteration so a directory of communities started together does
                     // not run its safety-net polls in lockstep (issue #307).
                     const safetyNetMs = this._pkc.updateInterval * (0.75 + Math.random() * 0.5);
-                    await this._sleepUntilIpnsArrivalOrTimeoutOrAbort(safetyNetMs, this._community._getStopAbortSignal());
+                    await this._sleepUntilIpnsArrivalOrTimeoutOrAbort({ ms: safetyNetMs, signal: this._community._getStopAbortSignal() });
                 } else {
                     const updateInterval = areWeConnectedToKuboOrHelia ? 1000 : this._pkc.updateInterval; // if we're on kubo we should resolve IPNS every second
                     await sleepUntilTimeoutOrAbort(updateInterval, this._community._getStopAbortSignal());
@@ -500,12 +500,18 @@ export class CommunityClientsManager extends PKCClientsManager {
         const desiredTopics = new Set(ipnsNamesToWatch.map(ipnsNameToIpnsOverPubsubTopic));
         for (const topic of this._subscribedIpnsArrivalTopics)
             if (!desiredTopics.has(topic)) {
-                client.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals.unsubscribe(topic, this._ipnsArrivalListener);
+                client.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals.unsubscribe({
+                    pubsubTopic: topic,
+                    listener: this._ipnsArrivalListener
+                });
                 this._subscribedIpnsArrivalTopics.delete(topic);
             }
         for (const topic of desiredTopics)
             if (!this._subscribedIpnsArrivalTopics.has(topic)) {
-                client.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals.subscribe(topic, this._ipnsArrivalListener);
+                client.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals.subscribe({
+                    pubsubTopic: topic,
+                    listener: this._ipnsArrivalListener
+                });
                 this._subscribedIpnsArrivalTopics.add(topic);
             }
     }
@@ -513,7 +519,10 @@ export class CommunityClientsManager extends PKCClientsManager {
     private _clearIpnsArrivalSubscriptions() {
         if (this._ipnsArrivalClient && this._ipnsArrivalListener)
             for (const topic of this._subscribedIpnsArrivalTopics)
-                this._ipnsArrivalClient.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals.unsubscribe(topic, this._ipnsArrivalListener);
+                this._ipnsArrivalClient.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals.unsubscribe({
+                    pubsubTopic: topic,
+                    listener: this._ipnsArrivalListener
+                });
         this._subscribedIpnsArrivalTopics.clear();
         this._ipnsArrivalClient = undefined;
         this._pendingIpnsArrivalCids.clear();
@@ -527,14 +536,14 @@ export class CommunityClientsManager extends PKCClientsManager {
     // consumed immediately instead of being lost — unless that very updateOnce consumed it (the
     // loop's own cache write reports the record it is fetching before recording it as loaded, so
     // only this post-updateOnce re-check can drop it; see _consumePendingIpnsArrivals).
-    private async _sleepUntilIpnsArrivalOrTimeoutOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
+    private async _sleepUntilIpnsArrivalOrTimeoutOrAbort({ ms, signal }: { ms: number; signal?: AbortSignal }): Promise<void> {
         if (this._consumePendingIpnsArrivals()) {
             // Arrival-driven cycle: the arrival IS the freshly cached record, so the resolve
             // that follows may serve it from the routing-layer cache.
             this._nextResolveRevalidatesNetwork = false;
             return;
         }
-        const { promise, wake } = interruptibleSleep(ms, signal);
+        const { promise, wake } = interruptibleSleep({ ms, signal });
         let wokenByArrival = false;
         const wakeForArrival = () => {
             wokenByArrival = true;

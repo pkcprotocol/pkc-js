@@ -82,10 +82,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
         // Mint and publish the next generation of a static community record: a strictly greater
         // updatedAt, re-signed, so it lands under a different CID (an unchanged CID is dropped by
         // the loop's _updateCidsAlreadyLoaded filter and would never produce an update event).
-        const publishNextGeneration = async (
-            staticRecord: Awaited<ReturnType<typeof publishCommunityRecordWithExtraProp>>,
-            previousUpdatedAt: number
-        ) => {
+        const publishNextGeneration = async ({
+            staticRecord,
+            previousUpdatedAt
+        }: {
+            staticRecord: Awaited<ReturnType<typeof publishCommunityRecordWithExtraProp>>;
+            previousUpdatedAt: number;
+        }) => {
             const nextRecord = JSON.parse(JSON.stringify(staticRecord.communityRecord)) as typeof staticRecord.communityRecord;
             nextRecord.updatedAt = Math.max(previousUpdatedAt + 1, timestamp());
             nextRecord.signature = await signCommunity({ community: nextRecord, signer: staticRecord.ipnsObj.signer });
@@ -96,7 +99,15 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
         // Resolve once the community reaches `targetUpdatedAt`, or after `budgetMs`. The losing
         // timer is always cleared so no long handle outlives the test, and the listener is always
         // detached (issue #145's pattern applied to the test side).
-        const awaitUpdatedAtWithin = async (community: RemoteCommunity, targetUpdatedAt: number, budgetMs: number) => {
+        const awaitUpdatedAtWithin = async ({
+            community,
+            targetUpdatedAt,
+            budgetMs
+        }: {
+            community: RemoteCommunity;
+            targetUpdatedAt: number;
+            budgetMs: number;
+        }) => {
             const startedAt = Date.now();
             let timer: ReturnType<typeof setTimeout> | undefined;
             let onUpdate!: () => void;
@@ -125,8 +136,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
             // was never given a chance. A record that lands before publishToIpns even returns
             // is caught by awaitUpdatedAtWithin's immediate updatedAt check, so nothing is
             // missed by starting late.
-            const newerRecord = await publishNextGeneration(staticRecord, previousUpdatedAt);
-            const { deliveredInTime, elapsedMs } = await awaitUpdatedAtWithin(community, newerRecord.updatedAt, DELIVERY_BUDGET_MS);
+            const newerRecord = await publishNextGeneration({ staticRecord, previousUpdatedAt });
+            const { deliveredInTime, elapsedMs } = await awaitUpdatedAtWithin({
+                community,
+                targetUpdatedAt: newerRecord.updatedAt,
+                budgetMs: DELIVERY_BUDGET_MS
+            });
 
             expect(
                 deliveredInTime,
@@ -151,8 +166,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
                 let previousUpdatedAt = community.updatedAt!;
                 const generations = 3;
                 for (let generation = 1; generation <= generations; generation++) {
-                    const nextRecord = await publishNextGeneration(staticRecord, previousUpdatedAt);
-                    const { deliveredInTime } = await awaitUpdatedAtWithin(community, nextRecord.updatedAt, DELIVERY_BUDGET_MS);
+                    const nextRecord = await publishNextGeneration({ staticRecord, previousUpdatedAt });
+                    const { deliveredInTime } = await awaitUpdatedAtWithin({
+                        community,
+                        targetUpdatedAt: nextRecord.updatedAt,
+                        budgetMs: DELIVERY_BUDGET_MS
+                    });
                     expect(
                         deliveredInTime,
                         `generation ${generation} of ${generations} must reach the updating community; a loop that delivers the first change and then stops waking is exactly the #308 regression this pins`
