@@ -70,6 +70,14 @@ import {
 
 const log = Logger("pkc-js:PKCRpcClient");
 
+// Captured at module load so the deferred attach-and-replay (attachSubscriptionHandlersDeferred)
+// keeps working when a downstream app enables fake timers: vitest/jest replace the GLOBAL
+// setTimeout after modules are imported, so this bound reference stays the real timer and
+// subscriptions never become silently inert under un-advanced fake timers. The deferral still
+// runs on a macrotask, so environments that throttle timers (e.g. hidden browser tabs) may delay
+// the attach and the buffered replay accordingly.
+const scheduleMacrotask: typeof setTimeout = setTimeout.bind(globalThis);
+
 export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     state: "stopped" | "connecting" | "failed" | "connected";
     communities: string[];
@@ -370,12 +378,22 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         // Return true if the caller no longer owns this subscription (stopped, restarted)
         isStale: () => boolean;
         attach: (subscription: EventEmitter) => void;
-        // Called when a handler throw escapes the replay; pre-deferral the throw rejected the
-        // subscribing call, post-deferral nothing awaits it, so the caller must contain it
-        // (typically log + stop) or it would escape the timer as an uncaughtException
-        onReplayError: (error: unknown) => void;
+        // Containment for a handler throw escaping the replay; pre-deferral the throw rejected
+        // the subscribing call, post-deferral nothing awaits it, so the helper owns the shared
+        // policy (log, surface via emitError, then stop) rather than each call site copying it.
+        // Without this the throw would escape the timer as an uncaughtException.
+        replayErrorContainment: {
+            // The noun used in the log lines, e.g. "community", "comment", "publication"
+            entityName: string;
+            log: ReturnType<typeof Logger>;
+            // Typically (error) => this.emit("error", error) on the subscribing instance
+            emitError: (error: Error) => void;
+            // The teardown matching the entity's blast radius (e.g. stopWithoutRpcCall for a
+            // started community, where full stop() would halt it node-wide over RPC)
+            stop: () => Promise<void>;
+        };
     }) {
-        setTimeout(() => {
+        scheduleMacrotask(() => {
             const ownsSubscription = () => !opts.isStale() && this.subscriptionActive(opts.subscriptionId);
             // The subscription may have been unsubscribed or the connection destroyed in the meantime
             if (!ownsSubscription()) return;
@@ -383,9 +401,26 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                 opts.attach(this.getSubscription(opts.subscriptionId));
                 this._emitPendingMessagesWhile(opts.subscriptionId, ownsSubscription);
             } catch (e) {
-                opts.onReplayError(e);
+                this._containReplayError(e, opts.replayErrorContainment);
             }
         }, 0);
+    }
+
+    private _containReplayError(
+        e: unknown,
+        containment: { entityName: string; log: ReturnType<typeof Logger>; emitError: (error: Error) => void; stop: () => Promise<void> }
+    ) {
+        const { entityName, log: siteLog, emitError, stop } = containment;
+        siteLog.error(`Error thrown while replaying buffered subscribe-time notifications, stopping the ${entityName}`, e);
+        // Surface the contained throw before stopping: without the emit the only signal is a
+        // debug-namespace log and a silent stop. The emit itself can throw (with no listeners
+        // anywhere the pkc bubbling re-throws), so it stays contained too.
+        try {
+            emitError(e instanceof Error ? e : new Error(String(e)));
+        } catch (emitFailure) {
+            siteLog.error("No listener received the replay error", emitFailure);
+        }
+        stop().catch((stopError) => siteLog.error(`Failed to stop the ${entityName} after a replay error`, stopError));
     }
 
     // Replay the buffered notifications one message at a time, re-checking ownership between

@@ -315,22 +315,16 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
                     .on("challengeanswer", this._handleRpcChallengeAnswerEvent.bind(this))
                     .on("challengeverification", this._handleRpcChallengeVerificationEvent.bind(this))
                     .on("error", this._handleRpcErrorEvent.bind(this)),
-            onReplayError: (e) => {
-                // Pre-deferral this throw rejected start(); contain it and tear down this client's
-                // subscription. Surface it as an "error" event first: post-deferral nothing awaits
-                // the replay, so without the emit the only signal is a debug-namespace log. The
-                // emit itself can throw (with no listeners anywhere the pkc bubbling re-throws),
-                // so it stays contained too.
-                log.error("Error thrown while replaying buffered subscribe-time notifications, stopping the community", e);
-                try {
-                    this.emit("error", e instanceof Error ? e : new Error(String(e)));
-                } catch (emitError) {
-                    log.error("No listener received the replay error", emitError);
-                }
+            // Pre-deferral a replay throw rejected start(); the helper contains it (log, surface
+            // as an "error" event, stop)
+            replayErrorContainment: {
+                entityName: "community",
+                log,
+                emitError: (error) => this.emit("error", error),
                 // Client-local teardown only: full stop() would issue a stopCommunity RPC and halt
                 // the community for every connected client, escalating a local replay throw
                 // node-wide (pre-deferral it was a catchable, client-local start() rejection)
-                this.stopWithoutRpcCall().catch((stopError) => log.error("Failed to stop the community after a replay error", stopError));
+                stop: () => this.stopWithoutRpcCall()
             }
         });
     }
