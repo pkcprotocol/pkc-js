@@ -52,6 +52,17 @@ import type { IpnsRecordArrival, IpnsRecordArrivalListener } from "../helia/type
 
 export const MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS = 1024 * 1024; // 1mb
 
+// Floor on how often a timer-fired safety-net tick may force a network revalidation of the
+// community's IPNS record. At the production updateInterval (60s) every tick revalidates, so
+// this changes nothing there; it only engages for sub-30s intervals (every test pkc runs 500ms),
+// where forcing the network on each tick would turn every idle community into a constant
+// multi-peer fetcher AND flip the loop's duty cycle from parked-in-waiting-retry to
+// mid-fetching-ipns — which is what tripped the browser CI legs' state-sampling assertions
+// (post.updatingState races against the community tick's phase). Worst-case staleness after a
+// missed push at an aggressive interval is therefore ~30s, still 10x under riding out kubo
+// 0.43's default 300s record ttl the way the pre-#311 cache-gated poll did.
+const FORCED_IPNS_NETWORK_REVALIDATION_MIN_INTERVAL_MS = 30_000;
+
 export class CommunityClientsManager extends PKCClientsManager {
     override clients!: {
         ipfsGateways: { [ipfsGatewayUrl: string]: CommunityIpfsGatewayClient };
@@ -85,6 +96,10 @@ export class CommunityClientsManager extends PKCClientsManager {
     // so the resolve that follows must revalidate against the network (nocache). An
     // arrival-woken cycle keeps the cache read — the arrival IS the newly cached record.
     private _nextResolveRevalidatesNetwork = false;
+    // Time of the last resolve that actually forced the network (plus the loop start, whose
+    // first updateOnce resolves against the network anyway — no subscription exists yet, so the
+    // cache gate is off). Feeds the FORCED_IPNS_NETWORK_REVALIDATION_MIN_INTERVAL_MS floor.
+    private _lastForcedIpnsNetworkRevalidationAtMs = 0;
     private _wakeUpdateLoopForIpnsArrival?: () => void;
 
     constructor(community: CommunityClientsManager["_community"]) {
@@ -377,6 +392,9 @@ export class CommunityClientsManager extends PKCClientsManager {
                     e
                 );
             }
+            // The first updateOnce always resolves against the network (no topic subscription
+            // exists yet, so the cache gate is off), so the revalidation floor counts from here.
+            this._lastForcedIpnsNetworkRevalidationAtMs = Date.now();
         }
 
         while (this._community.state === "updating" && !this._community._getStopAbortSignal()?.aborted) {
@@ -527,9 +545,12 @@ export class CommunityClientsManager extends PKCClientsManager {
         if (this._wakeUpdateLoopForIpnsArrival === wakeForArrival) this._wakeUpdateLoopForIpnsArrival = undefined;
         // A timer-fired park end is the safety net's tick: it exists precisely for pushes that
         // never arrived, which the cache gate cannot observe — the next resolve must go to the
-        // network (see _nextResolveRevalidatesNetwork). The abort outcome also lands here, but
-        // the loop exits before another resolve runs, so the flag value is moot.
-        this._nextResolveRevalidatesNetwork = !wokenByArrival;
+        // network (see _nextResolveRevalidatesNetwork), bounded by the revalidation floor so a
+        // sub-30s updateInterval does not force the network on every tick. The abort outcome
+        // also lands here, but the loop exits before another resolve runs, so the flag value is
+        // moot.
+        this._nextResolveRevalidatesNetwork =
+            !wokenByArrival && Date.now() - this._lastForcedIpnsNetworkRevalidationAtMs >= FORCED_IPNS_NETWORK_REVALIDATION_MIN_INTERVAL_MS;
     }
 
     // fetching community ipns here
@@ -784,15 +805,17 @@ export class CommunityClientsManager extends PKCClientsManager {
         if ("_helia" in kuboRpcOrHelia) {
             this.updateLibp2pJsClientState("fetching-ipns", kuboRpcOrHelia._libp2pJsClientsOptions.key);
         } else this.updateKuboRpcState("fetching-ipns", kuboRpcOrHelia.url);
+        // A cycle woken by the safety-net timer (not by an arrival) must revalidate on the
+        // network: the routing-layer cache gate cannot observe a push that never arrived, and
+        // would otherwise serve the stale record for its whole remaining ttl (300s at kubo
+        // 0.43's default) instead of the max(updateInterval, revalidation floor) the safety net
+        // promises. No-op for the kubo-RPC resolver, which always resolves with nocache: true.
+        const forceNetworkRevalidation = this._nextResolveRevalidatesNetwork;
+        if (forceNetworkRevalidation) this._lastForcedIpnsNetworkRevalidationAtMs = Date.now();
         const { cid: latestCommunityCid, ipnsHops } = await this.resolveIpnsToCidP2P(ipnsName, {
             timeoutMs: this._pkc._timeouts["community-ipns"],
             abortSignal: this._community._getStopAbortSignal(),
-            // A cycle woken by the safety-net timer (not by an arrival) must revalidate on the
-            // network: the routing-layer cache gate cannot observe a push that never arrived,
-            // and would otherwise serve the stale record for its whole remaining ttl (300s at
-            // kubo 0.43's default) instead of the one updateInterval the safety net promises.
-            // No-op for the kubo-RPC resolver, which always resolves with nocache: true.
-            ...(this._nextResolveRevalidatesNetwork ? { nocache: true } : {})
+            ...(forceNetworkRevalidation ? { nocache: true } : {})
         });
         // ipnsHops[0] is the anchor (== ipnsName), ipnsHops.at(-1) is the terminal name whose
         // record points at the CID, i.e. the key that signs the community content. For a

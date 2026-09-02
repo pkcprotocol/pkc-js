@@ -310,60 +310,75 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         // still holds the OLD record well inside its ttl (kubo 0.43 publishes 300s, jittered
         // down to no less than 225s, issue #307), so the tick does zero network work, serves
         // the stale cid, and parks again — a missed push then strands the community for the
-        // record's whole ttl instead of the one updateInterval the safety net promises (master's
-        // 1s poll was bounded by ~ttl too, but re-checked every second). A timer-fired (non-
-        // arrival) wake must therefore resolve with nocache: true. Oracle: spy the resolver's
-        // name.resolve options rather than racing a real 225s staleness window.
-        it("a safety-net tick revalidates against the network instead of riding the routing-layer cache", async () => {
-            const SAFETY_NET_INTERVAL_MS = 3000;
-            // Own pkc: the suite instance runs the production 60s interval, which would park
-            // this test for minutes per tick.
-            const shortIntervalPkc = await config.pkcInstancePromise({ pkcOptions: { updateInterval: SAFETY_NET_INTERVAL_MS } });
-            const libp2pJsClient = shortIntervalPkc.clients.libp2pJsClients[Object.keys(shortIntervalPkc.clients.libp2pJsClients)[0]];
-            const clientFunctions = libp2pJsClient.heliaWithKuboRpcClientFunctions;
-            const originalResolve = clientFunctions.name.resolve.bind(clientFunctions.name);
-            const safetyNetResolveNocacheValues: (boolean | undefined)[] = [];
-            let recording = false;
-            try {
-                const staticRecord = await publishCommunityRecordWithExtraProp();
-                staticRecordsToCleanUp.push(staticRecord);
-                const community = (await shortIntervalPkc.createCommunity({
-                    address: staticRecord.ipnsObj.signer.address
-                })) as RemoteCommunity;
-                const firstUpdate = new Promise<void>((resolve) => community.once("update", () => resolve()));
-                await community.update();
-                await firstUpdate;
+        // record's whole ttl instead of the bound the safety net promises (master's 1s poll was
+        // bounded by ~ttl too, but re-checked every second). Timer-fired (non-arrival) wakes
+        // must therefore resolve with nocache: true — bounded by the 30s revalidation floor, so
+        // a sub-30s updateInterval (every test pkc defaults to 500ms) does not force the
+        // network on each tick: unfloored, the loop's duty cycle flips from parked-in-
+        // waiting-retry to mid-fetching-ipns, which tripped the browser CI legs' state-sampling
+        // assertions. The promised staleness bound is max(updateInterval, floor). Oracle: spy
+        // the resolver's name.resolve options rather than racing a real 225s staleness window.
+        //
+        // Node only for the same load reason as the park test above: with the floor, observing
+        // two forced revalidations keeps an updating community live for ~65s on the shared
+        // browser page, and the logic has no browser-specific component.
+        itSkipIfBrowser(
+            "safety-net ticks revalidate against the network at the floored cadence instead of riding the cache",
+            async () => {
+                const SAFETY_NET_INTERVAL_MS = 3000;
+                // Own pkc: the suite instance runs the production 60s interval, which would park
+                // this test for minutes per tick.
+                const shortIntervalPkc = await config.pkcInstancePromise({ pkcOptions: { updateInterval: SAFETY_NET_INTERVAL_MS } });
+                const libp2pJsClient = shortIntervalPkc.clients.libp2pJsClients[Object.keys(shortIntervalPkc.clients.libp2pJsClients)[0]];
+                const clientFunctions = libp2pJsClient.heliaWithKuboRpcClientFunctions;
+                const originalResolve = clientFunctions.name.resolve.bind(clientFunctions.name);
+                const safetyNetResolveNocacheValues: (boolean | undefined)[] = [];
+                let recording = false;
+                try {
+                    const staticRecord = await publishCommunityRecordWithExtraProp();
+                    staticRecordsToCleanUp.push(staticRecord);
+                    const community = (await shortIntervalPkc.createCommunity({
+                        address: staticRecord.ipnsObj.signer.address
+                    })) as RemoteCommunity;
+                    const firstUpdate = new Promise<void>((resolve) => community.once("update", () => resolve()));
+                    await community.update();
+                    await firstUpdate;
 
-                // Record only resolves of THIS community's name from after the first update
-                // cycle: the record is static and nothing publishes to it, so every recorded
-                // resolve is a timer-fired safety-net tick, never an arrival-woken one. The
-                // client functions object is shared across pkc instances (test-util keys the
-                // helia client by a constant), hence the name filter.
-                clientFunctions.name.resolve = ((name, options) => {
-                    if (recording && String(name) === staticRecord.ipnsObj.signer.address)
-                        safetyNetResolveNocacheValues.push(options?.nocache);
-                    return originalResolve(name, options);
-                }) as typeof clientFunctions.name.resolve;
-                recording = true;
+                    // Record only resolves of THIS community's name from after the first update
+                    // cycle: the record is static and nothing publishes to it, so every recorded
+                    // resolve is a timer-fired safety-net tick, never an arrival-woken one. The
+                    // client functions object is shared across pkc instances (test-util keys the
+                    // helia client by a constant), hence the name filter.
+                    clientFunctions.name.resolve = ((name, options) => {
+                        if (recording && String(name) === staticRecord.ipnsObj.signer.address)
+                            safetyNetResolveNocacheValues.push(options?.nocache);
+                        return originalResolve(name, options);
+                    }) as typeof clientFunctions.name.resolve;
+                    recording = true;
 
-                const deadline = Date.now() + 30_000;
-                while (safetyNetResolveNocacheValues.length < 2 && Date.now() < deadline) await sleep(200);
-                await community.stop();
+                    // The floor counts from the loop start, so the two forced revalidations land
+                    // ~30s and ~60s in; the deadline leaves headroom for a loaded runner and the
+                    // tick jitter.
+                    const forcedCount = () => safetyNetResolveNocacheValues.filter((nocache) => nocache === true).length;
+                    const deadline = Date.now() + 90_000;
+                    while (forcedCount() < 2 && Date.now() < deadline) await sleep(500);
+                    await community.stop();
 
-                expect(
-                    safetyNetResolveNocacheValues.length,
-                    "the safety-net poll must have ticked at least twice inside the window"
-                ).to.be.greaterThanOrEqual(2);
-                for (const nocache of safetyNetResolveNocacheValues)
                     expect(
-                        nocache,
-                        "a timer-fired safety-net tick must resolve with nocache: true — through the cache gate it can never observe a push it missed, leaving the community stale for the record's whole ttl instead of one updateInterval"
-                    ).to.equal(true);
-            } finally {
-                clientFunctions.name.resolve = originalResolve;
-                await shortIntervalPkc.destroy();
-            }
-        }, 120_000);
+                        forcedCount(),
+                        "timer-fired safety-net ticks must force nocache revalidations at the floored cadence — through the cache gate the net can never observe a push it missed, leaving the community stale for the record's whole ttl instead of max(updateInterval, floor)"
+                    ).to.be.greaterThanOrEqual(2);
+                    expect(
+                        safetyNetResolveNocacheValues.filter((nocache) => nocache !== true).length,
+                        "ticks inside the 30s revalidation floor must keep riding the routing-layer cache: a sub-30s updateInterval must not force the network on every tick"
+                    ).to.be.greaterThanOrEqual(2);
+                } finally {
+                    clientFunctions.name.resolve = originalResolve;
+                    await shortIntervalPkc.destroy();
+                }
+            },
+            150_000
+        );
 
         it("a newer record published while updating is still delivered", async () => {
             const { community, staticRecord } = await startUpdatingStaticCommunityAndAwaitFirstUpdate();
