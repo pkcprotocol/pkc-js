@@ -316,17 +316,30 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
                     .on("challengeverification", this._handleRpcChallengeVerificationEvent.bind(this))
                     .on("error", this._handleRpcErrorEvent.bind(this)),
             onReplayError: (e) => {
-                // Pre-deferral this throw rejected start(); contain it and stop the community
+                // Pre-deferral this throw rejected start(); contain it and tear down this client's
+                // subscription. Surface it as an "error" event first: post-deferral nothing awaits
+                // the replay, so without the emit the only signal is a debug-namespace log. The
+                // emit itself can throw (with no listeners anywhere the pkc bubbling re-throws),
+                // so it stays contained too.
                 log.error("Error thrown while replaying buffered subscribe-time notifications, stopping the community", e);
-                this.stop().catch((stopError) => log.error("Failed to stop the community after a replay error", stopError));
+                try {
+                    this.emit("error", e instanceof Error ? e : new Error(String(e)));
+                } catch (emitError) {
+                    log.error("No listener received the replay error", emitError);
+                }
+                // Client-local teardown only: full stop() would issue a stopCommunity RPC and halt
+                // the community for every connected client, escalating a local replay throw
+                // node-wide (pre-deferral it was a catchable, client-local start() rejection)
+                this.stopWithoutRpcCall().catch((stopError) => log.error("Failed to stop the community after a replay error", stopError));
             }
         });
     }
 
-    private async _cleanUpRpcConnection(log: Logger) {
+    // stop() pre-captures the subscription id before its awaited stopCommunity round trip and
+    // passes it here; every other caller lets the default read it
+    private async _cleanUpRpcConnection(log: Logger, subscriptionId: number | undefined = this._startRpcSubscriptionId) {
         // Cleared synchronously before the awaited unsubscribe so the deferred attach-and-replay
         // timer from start() (#314) sees the teardown immediately
-        const subscriptionId = this._startRpcSubscriptionId;
         this._startRpcSubscriptionId = undefined;
         if (subscriptionId) {
             try {
@@ -377,12 +390,18 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         } else if (this.state === "started") {
             // Need to be careful not to stop an already running community
             const log = Logger("pkc-js:rpc-local-community:stop");
+            // Capture and clear the subscription id synchronously before the awaited stopCommunity
+            // round trip, so the deferred attach-and-replay timer from start() (#314) sees the stop
+            // immediately instead of replaying buffered start notifications into a stopping
+            // community mid-round-trip
+            const subscriptionId = this._startRpcSubscriptionId;
+            this._startRpcSubscriptionId = undefined;
             try {
                 await this._pkc._pkcRpcClient!.stopCommunity({ name: this.name, publicKey: this.publicKey });
             } catch (e) {
                 log.error("RPC client received an error when asking rpc server to stop community", e);
             }
-            await this._cleanUpRpcConnection(log);
+            await this._cleanUpRpcConnection(log, subscriptionId);
             untrackStartedCommunity(this._pkc, this);
         }
     }
