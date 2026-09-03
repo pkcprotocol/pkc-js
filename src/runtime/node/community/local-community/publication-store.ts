@@ -362,6 +362,10 @@ export async function storeVote(
     }
 
     community._dbHandler.insertVotes([voteTableRow]);
+    // Wake the publish loop now instead of at the next publishInterval tick. queryCommentsToBeUpdated
+    // does flag the comment on a fresh vote, but it only runs inside the sync, after the loop's sleep,
+    // and the sleep's own wake-up check never looks at votes (issue #226).
+    community._communityUpdateTrigger = true;
     log("Inserted vote", "of comment", voteTableRow.commentCid, "into db", "with props", voteTableRow);
     return undefined;
 }
