@@ -24,7 +24,11 @@ import type { RemoteCommunity } from "../../dist/node/community/remote-community
 // measures over a steady-state window:
 //   - updatingstatechange events (the #308 churn metric)
 //   - IPNS record network fetch operations via the libp2p fetch service, bucketed per second so
-//     the #307 expiry burst shape is visible (clustered before, spread after)
+//     the #307 expiry burst shape is visible (clustered before, spread after), plus per-call
+//     outcomes: completed vs errored/aborted, the count of calls started while an identical
+//     (same peer, same routing key) call was already in flight (the issue #329 duplicate: the
+//     subscriber and provider branches racing the same peer), and the busiest peers (the issue
+//     #330 fan-out metric: a hub peer serving many topics is asked once per name per ttl window)
 //   - gossipsub messages received (the push channel's traffic)
 //   - client process CPU time over the window
 //   - the serving kubo daemon's bandwidth delta (RPC stats.bw)
@@ -32,10 +36,11 @@ import type { RemoteCommunity } from "../../dist/node/community/remote-community
 //     churn for staleness)
 // Results are printed and written to .tmp/update-loop-bench-<timestamp>.json for the PR table.
 //
-// Tune with PKC_BENCH_COMMUNITIES (default 32) and PKC_BENCH_WINDOW_MS (default 150000; keep it
-// above 2 ttl windows so at least one expiry boundary lands inside the measurement).
+// Tune with PKC_BENCH_COMMUNITIES (default 32) and PKC_BENCH_WINDOW_MS (default 300000, i.e.
+// "how many fetch calls in 5 minutes", the issues #329/#330 headline number; keep it above 2
+// ttl windows so at least one expiry boundary lands inside the measurement).
 const COMMUNITY_COUNT = Number(process.env.PKC_BENCH_COMMUNITIES) > 0 ? Number(process.env.PKC_BENCH_COMMUNITIES) : 32;
-const WINDOW_MS = Number(process.env.PKC_BENCH_WINDOW_MS) > 0 ? Number(process.env.PKC_BENCH_WINDOW_MS) : 150_000;
+const WINDOW_MS = Number(process.env.PKC_BENCH_WINDOW_MS) > 0 ? Number(process.env.PKC_BENCH_WINDOW_MS) : 300_000;
 const RECORD_TTL = "60s";
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"] }).map((config) => {
@@ -100,11 +105,37 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             // ---- instrumentation on the single libp2p-js client ----
             const libp2pJsClient = pkc.clients.libp2pJsClients[Object.keys(pkc.clients.libp2pJsClients)[0]];
             const fetchService = libp2pJsClient._helia.libp2p.services.fetch;
-            const fetchTimestamps: number[] = [];
+            // Every fetch call is recorded with its target peer, whether an identical call (same
+            // peer, same routing key) was already in flight when it started (the issue #329
+            // duplicate signature), and how it settled. "error" folds real failures and aborts
+            // together because the loser of a duplicated race surfaces as an AbortError, which is
+            // exactly the noise issue #329 describes.
+            type FetchCallRecord = { ts: number; peer: string; startedWhileIdenticalCallInFlight: boolean; outcome?: "ok" | "error" };
+            const fetchCalls: FetchCallRecord[] = [];
+            const inFlightCountByPeerAndKey = new Map<string, number>();
             const originalFetch = fetchService.fetch.bind(fetchService);
             const fetchSpy = vi.spyOn(fetchService, "fetch").mockImplementation((...args) => {
-                fetchTimestamps.push(Date.now());
-                return originalFetch(...args);
+                const [peer, key] = args;
+                const inFlightKey = `${String(peer)}/${Buffer.from(key).toString("base64")}`;
+                const call: FetchCallRecord = {
+                    ts: Date.now(),
+                    peer: String(peer),
+                    startedWhileIdenticalCallInFlight: (inFlightCountByPeerAndKey.get(inFlightKey) ?? 0) > 0
+                };
+                fetchCalls.push(call);
+                inFlightCountByPeerAndKey.set(inFlightKey, (inFlightCountByPeerAndKey.get(inFlightKey) ?? 0) + 1);
+                const settle = (outcome: "ok" | "error") => {
+                    call.outcome = outcome;
+                    const remaining = (inFlightCountByPeerAndKey.get(inFlightKey) ?? 1) - 1;
+                    if (remaining <= 0) inFlightCountByPeerAndKey.delete(inFlightKey);
+                    else inFlightCountByPeerAndKey.set(inFlightKey, remaining);
+                };
+                const fetchPromise = originalFetch(...args);
+                fetchPromise.then(
+                    () => settle("ok"),
+                    () => settle("error")
+                );
+                return fetchPromise;
             });
             onTestFinished(() => fetchSpy.mockRestore());
 
@@ -135,7 +166,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             updatingStateChanges = 0;
             updateEvents = 0;
             pubsubMessagesReceived = 0;
-            fetchTimestamps.length = 0;
+            fetchCalls.length = 0;
             const cpuBefore = process.cpuUsage();
             const bwBefore = await readServingDaemonBandwidth();
             const windowStart = Date.now();
@@ -175,7 +206,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             const windowUpdatingStateChanges = updatingStateChanges;
             const windowUpdateEvents = updateEvents;
             const windowPubsubMessagesReceived = pubsubMessagesReceived;
-            const windowFetchTimestamps = fetchTimestamps.filter((ts) => ts <= windowEndedAt);
+            const windowFetchCalls = fetchCalls.filter((call) => call.ts <= windowEndedAt);
 
             // Give the mid-window delivery until the end of the run to land, then require it. The
             // losing timer is cleared so no 120s handle outlives the run.
@@ -195,14 +226,32 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             // ---- report ----
             const windowSec = (windowEndedAt - windowStart) / 1000;
             const fetchBuckets = new Map<number, number>();
-            for (const ts of windowFetchTimestamps) {
-                const second = Math.floor((ts - windowStart) / 1000);
+            for (const call of windowFetchCalls) {
+                const second = Math.floor((call.ts - windowStart) / 1000);
                 fetchBuckets.set(second, (fetchBuckets.get(second) ?? 0) + 1);
             }
             const busiestFetchSeconds = [...fetchBuckets.entries()]
                 .sort((a, b) => b[1] - a[1])
                 .slice(0, 5)
                 .map(([second, count]) => ({ atSecond: second, fetchOps: count }));
+
+            // Per-peer breakdown (issues #329/#330): a hub peer subscribed to many topics is
+            // asked once per name per ttl window, twice while the #329 duplicate exists, so the
+            // top rows are where the before/after difference of those fixes shows up.
+            const perPeer = new Map<string, { started: number; ok: number; errorOrAborted: number; pending: number; duplicateConcurrent: number }>();
+            for (const call of windowFetchCalls) {
+                const row = perPeer.get(call.peer) ?? { started: 0, ok: 0, errorOrAborted: 0, pending: 0, duplicateConcurrent: 0 };
+                row.started++;
+                if (call.outcome === "ok") row.ok++;
+                else if (call.outcome === "error") row.errorOrAborted++;
+                else row.pending++;
+                if (call.startedWhileIdenticalCallInFlight) row.duplicateConcurrent++;
+                perPeer.set(call.peer, row);
+            }
+            const busiestPeers = [...perPeer.entries()]
+                .sort((a, b) => b[1].started - a[1].started)
+                .slice(0, 5)
+                .map(([peer, row]) => ({ peer, ...row }));
 
             const report = {
                 communities: COMMUNITY_COUNT,
@@ -215,10 +264,15 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 },
                 updateEvents: windowUpdateEvents,
                 ipnsNetworkFetchOps: {
-                    total: windowFetchTimestamps.length,
-                    perSecond: Number((windowFetchTimestamps.length / windowSec).toFixed(2)),
+                    total: windowFetchCalls.length,
+                    perSecond: Number((windowFetchCalls.length / windowSec).toFixed(2)),
+                    completed: windowFetchCalls.filter((call) => call.outcome === "ok").length,
+                    erroredOrAborted: windowFetchCalls.filter((call) => call.outcome === "error").length,
+                    stillPendingAtReport: windowFetchCalls.filter((call) => call.outcome === undefined).length,
+                    duplicateConcurrentSamePeerSameKey: windowFetchCalls.filter((call) => call.startedWhileIdenticalCallInFlight).length,
                     maxInOneSecond: busiestFetchSeconds[0]?.fetchOps ?? 0,
-                    busiestSeconds: busiestFetchSeconds
+                    busiestSeconds: busiestFetchSeconds,
+                    busiestPeers
                 },
                 pubsubMessagesReceived: windowPubsubMessagesReceived,
                 clientCpu: {
