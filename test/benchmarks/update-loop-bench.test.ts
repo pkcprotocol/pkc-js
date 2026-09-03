@@ -36,10 +36,11 @@ import type { RemoteCommunity } from "../../dist/node/community/remote-community
 //     churn for staleness)
 // Results are printed and written to .tmp/update-loop-bench-<timestamp>.json for the PR table.
 //
-// Tune with PKC_BENCH_COMMUNITIES (default 32) and PKC_BENCH_WINDOW_MS (default 150000; keep it
-// above 2 ttl windows so at least one expiry boundary lands inside the measurement).
+// Tune with PKC_BENCH_COMMUNITIES (default 32) and PKC_BENCH_WINDOW_MS (default 300000, i.e.
+// "how many fetch calls in 5 minutes", the issues #329/#330 headline number; keep it above 2
+// ttl windows so at least one expiry boundary lands inside the measurement).
 const COMMUNITY_COUNT = Number(process.env.PKC_BENCH_COMMUNITIES) > 0 ? Number(process.env.PKC_BENCH_COMMUNITIES) : 32;
-const WINDOW_MS = Number(process.env.PKC_BENCH_WINDOW_MS) > 0 ? Number(process.env.PKC_BENCH_WINDOW_MS) : 150_000;
+const WINDOW_MS = Number(process.env.PKC_BENCH_WINDOW_MS) > 0 ? Number(process.env.PKC_BENCH_WINDOW_MS) : 300_000;
 const RECORD_TTL = "60s";
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"] }).map((config) => {
