@@ -8,7 +8,8 @@ import {
     resolveWhenConditionIsTrue,
     mockPostToReturnSpecificCommentUpdate,
     createStaticCommunityRecordForComment,
-    publishStaticCommunityWithPostInPages
+    publishStaticCommunityWithPostInPages,
+    updateIntervalForExactStateTests
 } from "../../../../../dist/node/test/test-util.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
@@ -67,8 +68,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             // suite publishes to signers[0]; since the update loop is arrival-driven (issue #308)
             // each of those publishes starts a fetch cycle at a random moment, inserting states
             // mid-assertion (the PR #311 CI flake class, issue #323).
+            // Dedicated PKC with a long updateInterval: gateways poll every updateInterval, and the
+            // suite-wide 500ms lets a poll cycle land mid-assertion on a slow runner (see
+            // updateIntervalForExactStateTests).
+            const exactStatePKC = await config.pkcInstancePromise({ pkcOptions: { updateInterval: updateIntervalForExactStateTests } });
             const staticCommunity = await publishStaticCommunityWithPostInPages();
-            const mockPost = await pkc.getComment({ cid: staticCommunity.commentCid });
+            const mockPost = await exactStatePKC.getComment({ cid: staticCommunity.commentCid });
 
             const expectedStates = ["fetching-community-ipns", "fetching-update-ipfs", "stopped"];
 
@@ -84,6 +89,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             await mockPost.stop();
 
             expect(actualStates).to.deep.equal(expectedStates);
+            await exactStatePKC.destroy();
             await staticCommunity.ipnsObj.pkc.destroy();
         });
 

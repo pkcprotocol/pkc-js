@@ -2004,6 +2004,16 @@ export async function createStaticCommunityRecordForComment(opts?: {
 //   this fresh key (see selfResolvingMockNameForAddress), returned as `communityName`, so the
 //   community can be loaded by domain name, including through an RPC server whose mock resolver
 //   records were fixed at startup.
+// updateInterval for the PKC instance an exact-state test attaches to a static community. The
+// static fixture removes arrival-driven cycles, but the community update loop also re-runs on a
+// timer: the libp2p-js path parks for updateInterval * (0.75..1.25) between cycles (the #311
+// safety net), gateways poll every updateInterval. The test-wide default of 500ms leaves a
+// 375-625ms window between the community record landing and the comment's CommentUpdate fetch
+// finishing; on a slow runner (Firefox CI) that fetch outlasted the window and the timer cycle's
+// fetching-ipns was mirrored into the comment's clients as an extra fetching-community-ipns.
+// A static community never needs a second cycle, so make the timer unreachable inside the test.
+export const updateIntervalForExactStateTests = 60_000;
+
 export async function publishStaticCommunityWithPostInPages(opts?: { withReplyInPostPages?: boolean; withSelfResolvingName?: boolean }) {
     const ipnsObj = await createNewIpns();
     const communityAddress = ipnsObj.signer.address;
