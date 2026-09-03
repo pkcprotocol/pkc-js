@@ -2007,7 +2007,13 @@ export async function createStaticCommunityRecordForComment(opts?: {
 export async function publishStaticCommunityWithPostInPages(opts?: { withReplyInPostPages?: boolean; withSelfResolvingName?: boolean }) {
     const ipnsObj = await createNewIpns();
     const communityAddress = ipnsObj.signer.address;
-    const commentPKC = await mockPKCNoDataPathWithOnlyKuboClient();
+    // ipnsObj.pkc is handed to the caller on success (it is the caller's to destroy). On any
+    // failure before that nobody else holds it, so destroy it here instead of leaking it.
+    const destroyIpnsPkcAndRethrow = async (e: unknown): Promise<never> => {
+        await ipnsObj.pkc.destroy();
+        throw e;
+    };
+    const commentPKC = await mockPKCNoDataPathWithOnlyKuboClient().catch(destroyIpnsPkcAndRethrow);
 
     // Author-sign a comment against the in-memory community identity (no network fetch of the
     // community record, same trick as createStaticCommunityRecordForComment), add the exact
@@ -2106,6 +2112,8 @@ export async function publishStaticCommunityWithPostInPages(opts?: { withReplyIn
         await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
 
         return { communityAddress, communityName, commentCid, replyCid, communityRecord, ipnsObj };
+    } catch (e) {
+        return destroyIpnsPkcAndRethrow(e);
     } finally {
         await commentPKC.destroy();
     }
