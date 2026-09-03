@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.95](https://github.com/pkcprotocol/pkc-js/compare/v0.0.94...v0.0.95) (2026-09-03)
+
+### Performance
+
+* **helia:** serve subscribed IPNS names from cache while the push channel is healthy ([#330](https://github.com/pkcprotocol/pkc-js/issues/330)) ([#331](https://github.com/pkcprotocol/pkc-js/issues/331)) ([0125580](https://github.com/pkcprotocol/pkc-js/commit/012558033e786d2d546ec7f5f5971e0474257a99)), closes [#329](https://github.com/pkcprotocol/pkc-js/issues/329) [#329](https://github.com/pkcprotocol/pkc-js/issues/329) [#329](https://github.com/pkcprotocol/pkc-js/issues/329) [301/#307](https://github.com/301/pkc-js/issues/307) [308/#311](https://github.com/308/pkc-js/issues/311) [#311](https://github.com/pkcprotocol/pkc-js/issues/311)
+
 ## [0.0.94](https://github.com/pkcprotocol/pkc-js/compare/v0.0.93...v0.0.94) (2026-09-03)
 
 ### Bug Fixes
