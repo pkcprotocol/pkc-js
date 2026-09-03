@@ -71,7 +71,13 @@ of communities does not tick in lockstep). Gateways poll at `pkc.updateInterval`
   and a dead stream is dropped before the next resolve and re-armed after it. The first cycle
   never runs twice to compensate for starting unarmed: a second cycle would emit a second
   `fetching-ipns` per community start, which comments and publications mirror into their own
-  state sequences. An RPC subscription that joins a record
+  state sequences. Instead, a cycle that armed a topic closes its pre-arming window (its
+  resolve returned before the RPC stream was up, so a record pushed in between woke no
+  listener) with one silent local-store resolve before parking — the daemon's namesys holds
+  such a record, since it subscribed when the resolve joined the name and the IPNS-pubsub
+  persistence layer (<https://specs.ipfs.tech/ipns/ipns-pubsub-router/>) converges its store
+  even across missed messages — and only an actually-newer record makes the loop skip its
+  park and run a real, state-emitting cycle. An RPC subscription that joins a record
   topic before kubo's namesys permanently blocks namesys from joining that name on that
   daemon (`name.resolve` fails until restart), so never subscribe to an IPNS record topic
   over the kubo RPC ahead of resolving the name. While any hop has no live stream (pubsub

@@ -105,6 +105,11 @@ export class CommunityClientsManager extends PKCClientsManager {
     // the dead-stream sweep leaves them alone. Keyed by topic so a rejected attempt can tell
     // whether it is still the current one for its topic before forgetting the topic.
     private _ipnsArrivalEstablishments = new Map<string, Promise<void>>();
+    // Set whenever a sync arms a topic; read (and cleared) by the loop before each park. A kubo
+    // cycle that armed a topic ran its resolve with no listener attached yet (the pre-arming
+    // window), so its park is preceded by one silent local-store freshness check — see
+    // _hasIpnsRecordArrivedInPreArmingWindow.
+    private _ipnsArrivalTopicArmedSinceLastPark = false;
     // Set when the park ends by its safety-net timer rather than an arrival wake: the tick
     // exists to catch pushes that never arrived, which the routing-layer cache gate by
     // definition cannot observe (the cache still holds the old record, fresh inside its ttl),
@@ -411,10 +416,11 @@ export class CommunityClientsManager extends PKCClientsManager {
         // INSIDE updateOnce, right after its resolve walked the name (namesys has joined by
         // then, see _fetchCommunityIpnsP2PAndVerify). Only the resolve round trip itself runs
         // without a listener; the community IPFS fetch, parsing and verification that follow
-        // are covered like any later cycle. A record pushed inside that ~ms window is the
-        // safety net's job, as a lost push is. No extra cycle runs after arming: one would
-        // emit a second fetching-ipns per community start, which every comment and
-        // publication mirrors into its own state sequence.
+        // are covered like any later cycle. A record pushed inside that pre-arming window is
+        // caught by one silent local-store check before the park
+        // (_hasIpnsRecordArrivedInPreArmingWindow) — never by an unconditional extra cycle,
+        // which would emit a second fetching-ipns per community start, mirrored by every
+        // comment and publication into its own state sequence.
         if (arrivalSource && isLibp2pJsResolver) {
             try {
                 this._syncIpnsArrivalSubscriptions(arrivalSource);
@@ -453,7 +459,19 @@ export class CommunityClientsManager extends PKCClientsManager {
                     } catch (e) {
                         log.trace(`Failed to arm IPNS record arrival subscriptions of community ${this._community.address}`, e);
                     }
-                    if (pushChannelLive) {
+                    const topicArmedSinceLastPark = this._ipnsArrivalTopicArmedSinceLastPark;
+                    this._ipnsArrivalTopicArmedSinceLastPark = false;
+                    if (
+                        pushChannelLive &&
+                        this._ipnsArrivalsRequireWalkedName &&
+                        topicArmedSinceLastPark &&
+                        (await this._hasIpnsRecordArrivedInPreArmingWindow())
+                    ) {
+                        // A record landed inside the pre-arming window: re-run now instead of
+                        // parking. It is already in the daemon's local store, so the next
+                        // cycle's nocache resolve serves it.
+                        this._nextResolveRevalidatesNetwork = false;
+                    } else if (pushChannelLive) {
                         // Jittered per iteration so a directory of communities started together
                         // does not run its safety-net polls in lockstep (issue #307).
                         const safetyNetMs = this._pkc.updateInterval * (0.75 + Math.random() * 0.5);
@@ -576,6 +594,7 @@ export class CommunityClientsManager extends PKCClientsManager {
             if (!this._subscribedIpnsArrivalTopics.has(topic)) {
                 const subscribed = source.subscribe({ pubsubTopic: topic, listener });
                 this._subscribedIpnsArrivalTopics.add(topic);
+                this._ipnsArrivalTopicArmedSinceLastPark = true;
                 if (!subscribed) continue;
                 const establishment: Promise<void> = subscribed
                     .catch((e) => {
@@ -605,6 +624,39 @@ export class CommunityClientsManager extends PKCClientsManager {
         if (!source.isSubscribed) return true;
         for (const topic of this._subscribedIpnsArrivalTopics) if (!source.isSubscribed({ pubsubTopic: topic })) return false;
         return true;
+    }
+
+    // The pre-arming window of a cycle that armed a topic: on kubo the topic may only be armed
+    // AFTER the cycle's resolve walked its name (the namesys join hazard), so a record pushed
+    // between that resolve and the RPC stream's establishment woke no listener — and gossipsub
+    // does not replay it to the stream once it attaches. The daemon has the record though: its
+    // namesys subscribed to the topic when the resolve joined the name, and the IPNS-pubsub
+    // persistence layer (libp2p Fetch on subscriber connect, see
+    // https://specs.ipfs.tech/ipns/ipns-pubsub-router/) converges the local store even across
+    // missed messages. So one nocache resolve — a local-store read on kubo, emitting no
+    // updatingstatechange and no client-state events — closes the window. Only an
+    // actually-newer outcome makes the loop skip its park and run a real (state-emitting)
+    // cycle, so the exact-state suites of issue #311 observe nothing when nothing arrived.
+    // Runs only after a cycle that armed a topic; steady-state cycles never pay for it.
+    private async _hasIpnsRecordArrivedInPreArmingWindow(): Promise<boolean> {
+        const ipnsName = this._community.ipnsName;
+        if (!ipnsName) return false;
+        try {
+            const { cid, ipnsHops } = await this.resolveIpnsToCidP2P(ipnsName, {
+                timeoutMs: this._pkc._timeouts["community-ipns"],
+                abortSignal: this._community._getStopAbortSignal()
+            });
+            if (!this._updateCidsAlreadyLoaded.has(cid) && this._community.updateCid !== cid) return true;
+            // Same wake rule as _onIpnsRecordArrival: a hop outside the walked chain is a
+            // delegation change and warrants a walk even when the terminal cid is unchanged.
+            return ipnsHops.some((hop) => !this._community.ipnsHops?.includes(hop));
+        } catch (e) {
+            Logger("pkc-js:remote-community:update").trace(
+                `The post-arming IPNS freshness check of community ${this._community.address} failed, leaving any missed record to the safety net`,
+                e
+            );
+            return false;
+        }
     }
 
     // Runs at the top of every loop iteration, BEFORE updateOnce: a subscription whose stream
@@ -650,6 +702,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                 this._ipnsArrivalSource.unsubscribe({ pubsubTopic: topic, listener: this._ipnsArrivalListener });
         this._subscribedIpnsArrivalTopics.clear();
         this._ipnsArrivalEstablishments.clear();
+        this._ipnsArrivalTopicArmedSinceLastPark = false;
         this._ipnsArrivalSource = undefined;
         this._ipnsNamesWalkedByResolver.clear();
         this._pendingIpnsArrivalCids.clear();
