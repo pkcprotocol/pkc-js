@@ -68,18 +68,19 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 const secondWrongKey = (await testPKC.createSigner()).address;
                 const second = await testPKC.createCommunity({ name: communityName, publicKey: secondWrongKey });
 
+                const migrationEvents: ("cleared-update" | "error")[] = [];
                 let migrationError: PKCError | undefined;
                 const secondMigrationObserved = new Promise<void>((resolve) => {
                     second.on("error", (err) => {
                         if ((err as PKCError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") {
                             migrationError = err as PKCError;
+                            migrationEvents.push("error");
                             resolve();
                         }
                     });
                 });
-                let clearedUpdateObserved = false;
                 second.on("update", () => {
-                    if (second.publicKey === recordlessKey && second.updatedAt === undefined) clearedUpdateObserved = true;
+                    if (second.publicKey === recordlessKey && second.updatedAt === undefined) migrationEvents.push("cleared-update");
                 });
 
                 await second.update();
@@ -97,7 +98,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
                 expect(migrationError!.details.previousPublicKey).to.equal(secondWrongKey);
                 expect(migrationError!.details.newPublicKey).to.equal(recordlessKey);
-                expect(clearedUpdateObserved).to.be.true;
+                // Same observable sequence as the first loader's background resolution: the
+                // cleared update first, then the migration error.
+                expect(migrationEvents).to.deep.equal(["cleared-update", "error"]);
                 expect(second.publicKey).to.equal(recordlessKey);
                 expect(second.address).to.equal(communityName); // address is immutable
                 expect(second.updatedAt).to.be.undefined; // cleared data, no record to load
