@@ -811,6 +811,20 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
                 .catch((err) => log.error("Failed to start update loop of community", err));
         }
 
+        // The construction-time warm start only sees a migration when the tracked instance holds a
+        // record, but a key migration clears the record and re-fetches, so a joiner attaching in
+        // that migrated-but-recordless window (or constructed before the instance existed at all)
+        // reaches this point still keyed to its stale publicKey with no announcement pending. The
+        // recordless instance emits nothing until the new key's record lands — silently adopted by
+        // the mirror, never announced — leaving the joiner without the migration error forever
+        // (issue #332, the remainder of #197/#289). Announce it here, the first point where the
+        // mismatch is visible on this path, with the same observable sequence as the first loader:
+        // cleared update, then the error, then the replayed record below if one already landed.
+        if (this.publicKey && communityInstance.publicKey && this.publicKey !== communityInstance.publicKey) {
+            this._pendingWarmStartKeyMigration = { previousPublicKey: this.publicKey, newPublicKey: communityInstance.publicKey };
+            this._announcePendingWarmStartKeyMigrationIfAny();
+        }
+
         // Replay the updating instance's current record through the mirror's own update handler.
         // Listener attach alone has a gap: an instance that already holds a newer record than ours
         // (e.g. it settled a key migration before we joined, #197) emits nothing until its NEXT
