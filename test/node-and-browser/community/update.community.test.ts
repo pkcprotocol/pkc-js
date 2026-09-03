@@ -85,9 +85,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                       }).length
                     : nameResolveSpy?.mock.calls.length;
 
-                expect(resolveCallsCount).to.equal(
-                    1,
-                    "Updating many community instances with the same address should only resolve IPNS once"
+                // The kubo update loop closes the pre-arming window of a cycle that armed its
+                // IPNS pubsub topic with one silent local-store name.resolve before parking
+                // (_hasIpnsRecordArrivedInPreArmingWindow in community-client-manager.ts).
+                // Whether that check runs before this assertion depends on when the loop parks,
+                // so the kubo-RPC config allows one extra resolve on top of the single deduped
+                // cycle resolve.
+                const allowedResolveCounts = Object.keys(localPKC.clients.kuboRpcClients).length > 0 ? [1, 2] : [1];
+                expect(resolveCallsCount).to.be.oneOf(
+                    allowedResolveCounts,
+                    "Updating many community instances with the same address should only resolve IPNS once (plus at most one kubo pre-arming freshness check)"
                 );
             } finally {
                 if (nameResolveSpy) nameResolveSpy.mockRestore();
