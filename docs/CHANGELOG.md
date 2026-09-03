@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.96](https://github.com/pkcprotocol/pkc-js/compare/v0.0.95...v0.0.96) (2026-09-03)
+
+### Bug Fixes
+
+* **community:** announce key migration to joiners attaching in the recordless window ([#323](https://github.com/pkcprotocol/pkc-js/issues/323) [#332](https://github.com/pkcprotocol/pkc-js/issues/332)) ([#327](https://github.com/pkcprotocol/pkc-js/issues/327)) ([6232a2f](https://github.com/pkcprotocol/pkc-js/commit/6232a2fe7f501c8b60e38b9495deaaf8a1ffca08))
+
 ## [0.0.95](https://github.com/pkcprotocol/pkc-js/compare/v0.0.94...v0.0.95) (2026-09-03)
 
 ### Performance
