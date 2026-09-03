@@ -25,10 +25,15 @@ export type IpnsRecordArrivalListener = (arrival: IpnsRecordArrival) => void;
 // `_ipnsPushChannel` so tests can shrink the watchdog window and inspect arrivals.
 export interface IpnsPushChannelState {
     watchdogMs: number;
-    // per-topic time of the last signature-valid record obtained from the network: a gossiped
-    // message (identical rebroadcast bytes included), an accepted-newer localStore write, or a
-    // validated fetch
+    // per-topic time of the last signature-valid, sequence-current record obtained from the
+    // network: a gossiped message (identical rebroadcast bytes included), an accepted-newer
+    // localStore write, or a validated fetch. "Sequence-current" means at least as new as
+    // `highestKnownSequenceByTopic` — a replay of an older record never advances this stamp.
     lastValidRecordArrivalMs: Map<string, number>;
+    // per-topic highest record sequence seen from any validated source; the heartbeat guard
+    // that keeps a stale replay (signature-valid but older, see ipns-push-channel-watchdog
+    // tests) from holding the watchdog window open
+    highestKnownSequenceByTopic: Map<string, bigint>;
     // topics registered by name.resolve, with the routing key the raw-message listener validates
     // gossiped records against before stamping an arrival
     routingKeyByTopic: Map<string, Uint8Array>;

@@ -53,7 +53,9 @@ describeSkipIfRpc("IPNS push-channel watchdog (issue #330)", () => {
 
     const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-    type ClientWithPushChannel = Libp2pJsClient & { _ipnsPushChannel?: { watchdogMs: number } };
+    type ClientWithPushChannel = Libp2pJsClient & {
+        _ipnsPushChannel?: { watchdogMs: number; lastValidRecordArrivalMs?: Map<string, number> };
+    };
 
     const createNode = async (opts: { listen?: boolean; routers?: string[] } = {}): Promise<Libp2pJsClient> => {
         const client = (await createLibp2pJsClientOrUseExistingOne({
@@ -277,6 +279,70 @@ describeSkipIfRpc("IPNS push-channel watchdog (issue #330)", () => {
             publisher.getFetchCount(),
             "silence past the watchdog must trip the resolver back to network revalidation"
         ).to.be.greaterThan(fetchesAfterFirstResolve);
+    });
+
+    // The stale-replay guard. `ipnsValidator` checks the signature and EOL but NOT sequence
+    // order, so without a sequence comparison a signature-valid but strictly OLDER (still
+    // unexpired) record gossiped on the topic would count as a heartbeat — a lagging peer
+    // rebroadcasting its stale best record, or an adversarial subscriber replaying an old one,
+    // could then hold the watchdog open indefinitely (up to the replayed record's validity,
+    // hours) and keep the node serving its cache without ever running the revalidation that
+    // would find the newer record. A heartbeat must attest that the channel delivers records at
+    // least as new as the best we hold: a replay of an older sequence must neither advance the
+    // arrival stamp nor extend cache serving past the window the last CURRENT arrival opened.
+    it("a replayed older record does not extend the watchdog window (issue #330 stale-replay guard)", async () => {
+        const TTL_MS = 2_000;
+        const WATCHDOG_MS = 4_000;
+        const identity = await makeIpnsIdentity();
+        const olderRecord = await makeMarshalledRecord(identity, VALUE_CID_SEQ1, 1n, TTL_MS);
+        const currentRecord = await makeMarshalledRecord(identity, VALUE_CID_SEQ2, 2n, TTL_MS);
+        const publisher = await startPublisherNode({
+            routingKey: identity.routingKey,
+            recordToServe: currentRecord,
+            topic: identity.topic
+        });
+        const routerUrl = await startRouterServing(identity.cid, publisher);
+        const node = await createNode({ routers: [routerUrl] });
+        const pushChannel = (node as ClientWithPushChannel)._ipnsPushChannel;
+        if (pushChannel) pushChannel.watchdogMs = WATCHDOG_MS;
+
+        const firstValue = await resolveOnce(node, identity.ipnsPeerId.toString());
+        expect(firstValue).to.contain(VALUE_CID_SEQ2);
+        await waitForMutualSubscription(node, publisher.client, identity.topic);
+
+        // Join-time activity (the fetch-on-join fast path, the direct fetch's cache write) may
+        // stamp arrivals for a second or so after the mesh forms; let it settle, then anchor on
+        // the ACTUAL last stamp so the window edges below are exact rather than estimated.
+        await sleep(1_500);
+        const anchorMs = pushChannel?.lastValidRecordArrivalMs?.get(identity.topic);
+        expect(anchorMs, "the cold resolve must have stamped a push-channel arrival").to.be.a("number");
+        const fetchesBeforeReplay = publisher.getFetchCount();
+        expect(fetchesBeforeReplay).to.be.greaterThan(0);
+
+        // Replay the OLDER (signature-valid, unexpired) record ~1s before the anchored window
+        // would close.
+        await sleep(anchorMs! + WATCHDOG_MS - 1_000 - Date.now());
+        const { receivedAtMs } = await publishUntilReceived({
+            from: publisher.client,
+            to: node,
+            topic: identity.topic,
+            data: olderRecord
+        });
+
+        // Past the window the last current arrival opened, but still well inside the window the
+        // replay would have opened if it (wrongly) counted as a heartbeat: the resolver must
+        // treat the channel as unhealthy and revalidate over the network. The selector still
+        // protects the cache itself, so the resolved value stays the current record's.
+        await sleep(anchorMs! + WATCHDOG_MS + 600 - Date.now());
+        expect(Date.now() - receivedAtMs, "the post-window resolve must land inside a replay-extended window").to.be.lessThan(
+            WATCHDOG_MS - 1_000
+        );
+        const postReplayValue = await resolveOnce(node, identity.ipnsPeerId.toString());
+        expect(postReplayValue).to.contain(VALUE_CID_SEQ2);
+        expect(
+            publisher.getFetchCount(),
+            "a replayed older record must NOT keep the push channel healthy: the resolver must revalidate once the last CURRENT arrival falls out of the watchdog window (issue #330 stale-replay guard)"
+        ).to.be.greaterThan(fetchesBeforeReplay);
     });
 
     // Fetch-on-join pin: the fix RELIES on @helia/ipns's PubSubIPNSRouting subscription-change
