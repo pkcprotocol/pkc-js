@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.94](https://github.com/pkcprotocol/pkc-js/compare/v0.0.93...v0.0.94) (2026-09-03)
+
+### Bug Fixes
+
+* **rpc:** make client and server destroy() wait for their websockets to close ([#326](https://github.com/pkcprotocol/pkc-js/issues/326)) ([8af4868](https://github.com/pkcprotocol/pkc-js/commit/8af4868e75ca84627291036dc2007fe9b3b97176)), closes [#325](https://github.com/pkcprotocol/pkc-js/issues/325)
+
+### Performance
+
+* **community:** drive kubo/helia updates from gossip pushes instead of a 1s poll ([#308](https://github.com/pkcprotocol/pkc-js/issues/308) [#307](https://github.com/pkcprotocol/pkc-js/issues/307)) ([#311](https://github.com/pkcprotocol/pkc-js/issues/311)) ([bf7aedb](https://github.com/pkcprotocol/pkc-js/commit/bf7aedbe6e4038d9f937f0ead66b186519551f55)), closes [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#145](https://github.com/pkcprotocol/pkc-js/issues/145) [#138](https://github.com/pkcprotocol/pkc-js/issues/138) [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#312](https://github.com/pkcprotocol/pkc-js/issues/312)
+
 ## [0.0.93](https://github.com/pkcprotocol/pkc-js/compare/v0.0.92...v0.0.93) (2026-09-02)
 
 ### Bug Fixes
