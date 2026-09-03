@@ -56,6 +56,11 @@ export interface HeliaWithKuboRpcClientFunctions extends Pick<NonNullable<KuboRp
         subscribe(args: { pubsubTopic: string; listener: IpnsRecordArrivalListener }): void;
         unsubscribe(args: { pubsubTopic: string; listener: IpnsRecordArrivalListener }): void;
     };
+    // Push-channel health probe (issue #330), pkc-only: true while the topic has gossipsub
+    // subscribers and a signature-valid record for it arrived within the watchdog window. The
+    // update loop uses it to skip its forced safety-net network revalidation — the watchdog
+    // directly observes the "push that never arrived" condition the force existed for.
+    isIpnsPushChannelHealthy(args: { pubsubTopic: string }): boolean;
     // Test-only override of BITSWAP_SESSION_STALLED_GET_FAILOVER_MS, read by cat() at each block
     // get. The issue #189 guard test (at most one routing query per DAG) sets it beyond its own
     // timeout: on slow CI runners a block can legitimately stall, and the failover's broadcast

@@ -987,6 +987,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     if (listeners.size === 0) ipnsRecordArrivalListeners.delete(pubsubTopic);
                 }
             },
+            isIpnsPushChannelHealthy: ({ pubsubTopic }: { pubsubTopic: string }) => isIpnsPushChannelHealthy(pubsubTopic),
             async stop(options) {
                 const clientFromMap = libp2pJsClients[pkcOptions.key];
                 if (!clientFromMap) return; // already been stopped
