@@ -230,9 +230,11 @@ export async function storeCommentEdit(
         if (isPending || isDisapproved) {
             log("Author deleted a pending/disapproved comment, purging immediately", commentEditRaw.commentCid);
             community._dbHandler.purgeComment(commentEditRaw.commentCid);
-            community._communityUpdateTrigger = true;
         }
     }
+    // Wake the publish loop on every edit, not only the purge above: the loop's wake-up check never looks
+    // at commentEdits, and queryCommentsToBeUpdated only runs after the sleep (issue #334).
+    community._communityUpdateTrigger = true;
 }
 
 export async function storeCommentModeration(
@@ -508,6 +510,10 @@ export async function storeComment(
         community._dbHandler.rollbackTransaction();
         throw e;
     }
+    // An approved comment wakes the publish loop through the lastPostCid/lastCommentCid change in
+    // calculateLatestUpdateTrigger, but those queries exclude pending rows, and the mod-queue check
+    // only runs after the loop's sleep. Wake it here so the queue page is published now (issue #335).
+    if (pendingApproval) community._communityUpdateTrigger = true;
     log("Inserted comment", commentRow.cid, "into db", "with props", commentRow);
 
     return { comment: commentIpfs, cid: commentCid };
