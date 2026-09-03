@@ -274,7 +274,8 @@ async function validateAndSignCommunityRecord(community: LocalCommunity, build: 
 async function publishCommunityRecordToIpns(
     community: LocalCommunity,
     build: CommunityRecordBuild,
-    newCommunityRecord: CommunityIpfsType
+    newCommunityRecord: CommunityIpfsType,
+    cycleStartedAtMs: number
 ): Promise<void> {
     const { log, newIpns, newModQueue, editIdsToIncludeInNextUpdate } = build;
     const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
@@ -322,7 +323,13 @@ async function publishCommunityRecordToIpns(
     addOldPageCidsToCidsToUnpin(community, community.raw.communityIpfs?.modQueue, newIpns.modQueue).catch((err) =>
         log.error("Failed to add old page cids of community.modQueue to _cidsToUnpin", err)
     );
-    await unpinStaleCids(community);
+    // Queue the record this publish just superseded BEFORE the flush below (issue #336): it was
+    // generated while any comment a pending purge just deleted was still in the DB, so the purge
+    // guarantee extends to it, and queueing it after unpinStaleCids would leave it to sit out the
+    // issue #305 grace period pinned. The new record is already added, pinned and IPNS-published
+    // at this point, so the old cid is safely superseded.
+    if (community.updateCid && community.updateCid !== file.path) community._cidsToUnPin.add(community.updateCid);
+    await unpinStaleCids(community, { cycleStartedAtMs });
     if (community._blocksToRm.length > 0) {
         const removedBlocks = await removeBlocksFromKuboNode({
             ipfsClient: community._clientsManager.getDefaultKuboRpcClient()._client,
@@ -333,7 +340,6 @@ async function publishCommunityRecordToIpns(
         log("Removed blocks", removedBlocks, "from kubo node");
         community._blocksToRm = community._blocksToRm.filter((blockCid) => !removedBlocks.includes(blockCid));
     }
-    if (community.updateCid) community._cidsToUnPin.add(community.updateCid); // add old cid of community to be unpinned
     const configuredPubsubTopic = community.pubsubTopic;
     // A pubsubTopic edit is applied to the instance through the published record, so while the exchange
     // is disabled it would be swallowed: the record omits the topic by design. Land it on the configured
@@ -402,9 +408,13 @@ export async function updateCommunityIpnsIfNeeded(
 
     if (!community._communityUpdateTrigger) return; // No reason to update
 
+    // Stamped before the record's DB snapshot below: a purge that lands after this point may
+    // reference the record this cycle publishes, and unpinStaleCids uses the stamp to keep the
+    // pending-purge flush armed for the next cycle in that case (issue #336).
+    const cycleStartedAtMs = Date.now();
     const build = await calculateNextCommunityRecord(community, commentUpdateRowsToPublishToIpfs, log);
     const newCommunityRecord = await validateAndSignCommunityRecord(community, build);
-    await publishCommunityRecordToIpns(community, build, newCommunityRecord);
+    await publishCommunityRecordToIpns(community, build, newCommunityRecord, cycleStartedAtMs);
 }
 
 export async function syncIpnsWithDb(community: LocalCommunity) {
