@@ -860,8 +860,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
         // which every comment and publication mirrors into its own state sequence (the PR #324
         // CI failures in libp2pjsClient.kuboRpc.clients and publishingstate.comment). Pins: the
         // topic is in the manager's set by the time the first `update` fires, and one second
-        // later (far inside the 45-75s safety net) the name was resolved exactly once and
-        // fetching-ipns was entered exactly once.
+        // later (far inside the 45-75s safety net) the name was resolved exactly TWICE — the
+        // cycle's own resolve plus the one silent post-arming local-store check that closes the
+        // pre-arming window (see the test below) — while fetching-ipns was entered exactly once
+        // (the silent check must not emit any state).
         itIfKuboResolver(
             "arms during the first cycle, right after its resolve, without running an extra cycle afterwards",
             async () => {
@@ -901,13 +903,86 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
                     ).to.deep.equal([topic]);
                     await sleep(1000);
                     expect(arrivalsOf(pkc).isSubscribed?.({ pubsubTopic: topic }), "the kubo RPC stream must be live").to.equal(true);
-                    expect(resolvesOfThisName, "the arming cycle must not be followed by an extra resolve").to.equal(1);
+                    expect(
+                        resolvesOfThisName,
+                        "the arming cycle must be followed by exactly one silent freshness resolve, not an extra cycle"
+                    ).to.equal(2);
                     expect(fetchingIpnsEntries, "a community start must enter fetching-ipns exactly once").to.equal(1);
                 } finally {
                     resolveSpy.mockRestore();
                 }
             },
             60_000
+        );
+
+        // The pre-arming window of a kubo first cycle (its resolve returned -> the RPC stream is
+        // up) has no listener: a record pushed inside it wakes nothing, and gossipsub does not
+        // replay it to the stream once it attaches. The daemon's namesys DID store it (it
+        // subscribed to the topic when the cycle's resolve joined the name, and the IPNS-pubsub
+        // persistence layer converges the store even across missed messages,
+        // https://specs.ipfs.tech/ipns/ipns-pubsub-router/), so the loop must close the window
+        // with one silent local-store check after the arming settles instead of leaving the
+        // record to the 45-75s safety net. The gate below holds the RPC stream's establishment
+        // open so the publish lands deterministically inside the window.
+        itIfKuboResolver(
+            "a record published inside the pre-arming window is fetched right after arming, not left to the safety net",
+            async () => {
+                // Own pkc: the gate below delays the push channel of every community on the client.
+                const gatedPkc = await config.pkcInstancePromise({ pkcOptions: { updateInterval: 60_000 } });
+                const kuboRpcClient = gatedPkc.clients.kuboRpcClients[Object.keys(gatedPkc.clients.kuboRpcClients)[0]];
+                const originalSubscribe = kuboRpcClient._client.pubsub.subscribe.bind(kuboRpcClient._client.pubsub);
+                let openGate!: () => void;
+                const gate = new Promise<void>((resolve) => (openGate = resolve));
+                const subscribeSpy = vi.spyOn(kuboRpcClient._client.pubsub, "subscribe").mockImplementation(async (...args) => {
+                    await gate;
+                    return originalSubscribe(...args);
+                });
+                try {
+                    const staticRecord = await publishCommunityRecordWithExtraProp();
+                    staticRecordsToCleanUp.push(staticRecord);
+                    const community = (await gatedPkc.createCommunity({
+                        address: staticRecord.ipnsObj.signer.address
+                    })) as RemoteCommunity;
+                    let fetchingIpnsEntries = 0;
+                    community.on("updatingstatechange", (newUpdatingState) => {
+                        if (newUpdatingState === "fetching-ipns") fetchingIpnsEntries++;
+                    });
+                    const firstUpdate = new Promise<void>((resolve) => community.once("update", () => resolve()));
+                    await community.update();
+                    await firstUpdate;
+
+                    // The first cycle is done but its stream establishment is parked on the gate:
+                    // this IS the pre-arming window. Publish now, so the record reaches the
+                    // daemon's namesys while no RPC stream listener exists to be woken by it.
+                    const newerRecord = JSON.parse(JSON.stringify(staticRecord.communityRecord)) as typeof staticRecord.communityRecord;
+                    newerRecord.updatedAt = Math.max(newerRecord.updatedAt + 1, timestamp());
+                    newerRecord.signature = await signCommunity({ community: newerRecord, signer: staticRecord.ipnsObj.signer });
+                    const delivered = new Promise<void>((resolve) => {
+                        const onUpdate = () => {
+                            if (community.updatedAt !== newerRecord.updatedAt) return;
+                            community.removeListener("update", onUpdate);
+                            resolve();
+                        };
+                        community.on("update", onUpdate);
+                    });
+                    await staticRecord.ipnsObj.publishToIpns(JSON.stringify(newerRecord));
+                    openGate();
+
+                    // Far below the safety net's 45s minimum: only the silent post-arming check
+                    // can deliver this fast, and only a genuinely newer record may cost a cycle.
+                    await Promise.race([delivered, sleep(15_000)]);
+                    expect(
+                        community.updatedAt,
+                        "a record published inside the pre-arming window must be fetched right after arming, not left to the safety net"
+                    ).to.equal(newerRecord.updatedAt);
+                    expect(fetchingIpnsEntries, "the pre-arming record must cost exactly one extra real cycle").to.equal(2);
+                    await community.stop();
+                } finally {
+                    subscribeSpy.mockRestore();
+                    await gatedPkc.destroy();
+                }
+            },
+            120_000
         );
 
         // The delivery test earlier in this suite would also pass under the old 1s poll (a poll tick lands within
