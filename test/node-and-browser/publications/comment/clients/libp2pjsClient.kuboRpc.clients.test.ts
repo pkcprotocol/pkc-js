@@ -89,9 +89,14 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
         it(`Correct order of ${clientFieldName} state when updating a reply that was created with pkc.createComment({cid}) and the post has a single preloaded page`, async () => {
             const pkc: PKC = await config.pkcInstancePromise();
-            const community = await pkc.getCommunity({ address: signers[0].address });
-            const replyCid = community.posts.pages.hot.comments.find((post) => post.replies).replies.pages.best.comments[0].cid;
-            const reply = await pkc.createComment({ cid: replyCid });
+            // A STATIC community (fresh key, published once) instead of the shared live signers[0]:
+            // this asserts the WHOLE state sequence with deep.equal, and every concurrently-running
+            // suite publishes to signers[0]; since the update loop is arrival-driven (issue #308)
+            // each of those publishes starts a fetch cycle at a random moment, inserting states
+            // mid-assertion (the PR #311 CI flake class, issue #323).
+            // The reply lives in the post CommentUpdate's single preloaded replies page (no pageCids).
+            const staticCommunity = await publishStaticCommunityWithPostInPages({ withReplyInPostPages: true });
+            const reply = await pkc.createComment({ cid: staticCommunity.replyCid });
 
             const expectedStates = [
                 "fetching-ipfs", // fetching comment ipfs of reply
@@ -118,6 +123,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
             expect(actualStates).to.deep.equal(expectedStates);
             await pkc.destroy();
+            await staticCommunity.ipnsObj.pkc.destroy();
         });
 
         it(

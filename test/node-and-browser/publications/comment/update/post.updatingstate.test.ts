@@ -406,10 +406,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 
         it(`updating states is in correct order upon updating a post with gateway using postUpdates`, async () => {
             const dedicatedPKC = await config.pkcInstancePromise();
+            // Same STATIC community as the IPFS-client sibling above: cleanupStateArray only collapses
+            // repeated ipns/ipfs pairs, so a real signers[0] arrival cycle (fetching-community-ipns,
+            // fetching-update-ipfs, succeeded) would survive the cleanup and break the equality.
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
             try {
-                const community = await dedicatedPKC.getCommunity({ address: communityAddress });
-                const postCid = community.posts.pages.hot.comments[0].cid;
-                const mockPost = await dedicatedPKC.createComment({ cid: postCid });
+                const mockPost = await dedicatedPKC.createComment({ cid: staticCommunity.commentCid });
                 const expectedStates = [
                     "fetching-ipfs",
                     "succeeded",
@@ -434,6 +436,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 expect(filteredRecordedStates).to.deep.equal(filteredExpectedStates);
             } finally {
                 await dedicatedPKC.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
             }
         });
     });

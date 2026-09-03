@@ -6,7 +6,8 @@ import {
     getAvailablePKCConfigsToTestAgainst,
     mockGatewayPKC,
     createStaticCommunityRecordForComment,
-    createMockedCommunityIpns
+    createMockedCommunityIpns,
+    publishStaticCommunityWithPostInPages
 } from "../../../dist/node/test/test-util.js";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
@@ -53,7 +54,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`Correct order of ${clientFieldName} state when updating a community that was created with pkc.createCommunity({address})`, async () => {
-            const community = await pkc.createCommunity({ address: signers[0].address });
+            // A STATIC community (fresh key, published once) instead of the shared live signers[0]:
+            // this asserts the WHOLE state sequence with deep.equal, and every concurrently-running
+            // suite publishes to signers[0]; since the update loop is arrival-driven (issue #308)
+            // each of those publishes starts a fetch cycle at a random moment, inserting states
+            // mid-assertion (the PR #311 CI flake class, issue #323).
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
+            const community = await pkc.createCommunity({ address: staticCommunity.communityAddress });
 
             const expectedStates = ["fetching-ipns", "fetching-ipfs", "stopped"];
 
@@ -74,6 +81,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             await community.stop();
 
             expect(actualStates).to.deep.equal(expectedStates);
+            await staticCommunity.ipnsObj.pkc.destroy();
         });
 
         it(`Correct order of ${clientFieldName} state when updating a community that was created with pkc.getCommunity({address: address})`, async () => {
