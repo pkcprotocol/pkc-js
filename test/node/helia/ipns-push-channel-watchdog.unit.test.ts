@@ -25,12 +25,11 @@ import type { PeerId } from "@libp2p/interface";
 // no subscribers, the resolver falls back to the exact per-ttl revalidation behavior of issues
 // #301/#307 (pinned by the fetch-call-count suite's zero-subscriber test).
 //
-// Expected on master (before the fix): the two "(issue #330)" watchdog tests FAIL, because the
-// cache gate serves only within the record ttl and refetches after it regardless of push-channel
-// health. The fetch-on-join pin and the nocache contract test pass before and after.
-//
-// The `_ipnsPushChannel` accesses are through a widening cast so this suite still RUNS (red)
-// against a dist built from master, where the field does not exist yet.
+// Written red-first: before the fix the two watchdog tests failed (the cache gate served only
+// within the record ttl and refetched after it regardless of push-channel health), while the
+// fetch-on-join pin and the nocache contract test passed before and after. The
+// `_ipnsPushChannel` accesses go through a widening cast so the suite also runs (red) against a
+// pre-fix dist where the field does not exist.
 //
 // Like the direct-fetch suite, this stands up a STARTED node-under-test plus real second libp2p
 // nodes that listen on /ws and serve records over the fetch protocol. Client-side libp2p only

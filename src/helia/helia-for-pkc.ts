@@ -23,7 +23,7 @@ import type { AddResult, NameResolveOptions as KuboNameResolveOptions } from "ku
 import type { IpfsHttpClientPubsubMessage, ParsedPKCOptions } from "../types.js";
 
 import { EventEmitter } from "events";
-import type { HeliaWithLibp2pPubsub, IpnsRecordArrivalListener } from "./types.js";
+import type { HeliaWithLibp2pPubsub, IpnsPushChannelState, IpnsRecordArrivalListener } from "./types.js";
 import { PKCError } from "../pkc-error.js";
 import { Libp2pJsClient } from "./libp2pjsClient.js";
 import {
@@ -118,6 +118,15 @@ export function ipnsRouterTag(router: unknown): string {
 export function isLocalStoreIpnsRouter(router: unknown): boolean {
     return ipnsRouterTag(router) === "LocalStoreRouting()";
 }
+
+// How long a name's push channel is trusted after the last signature-valid record was obtained
+// from the network (issue #330). kubo's go-libp2p-pubsub-router rebroadcasts its best record on
+// every subscribed topic every 10 minutes and fetches from every peer that joins a topic, so a
+// topic with a live mesh delivers a valid record at least once per rebroadcast interval even
+// when nothing changes. 1.5x that interval means one missed rebroadcast is tolerated; silence
+// beyond it can only mean the push channel is broken, and cache serving falls back to the
+// per-ttl revalidation of issues #301/#307 (which also re-warms the mesh via the network path).
+export const IPNS_PUSH_CHANNEL_WATCHDOG_MS = 15 * 60_000;
 
 export async function createLibp2pJsClientOrUseExistingOne(
     pkcOptions: Required<Pick<ParsedPKCOptions, "httpRoutersOptions">> &
@@ -425,6 +434,44 @@ export async function createLibp2pJsClientOrUseExistingOne(
         // of IPNS names this helia instance resolves (communities the app follows).
         const ipnsRecordNetworkValidatedAtMs = new Map<string, number>();
 
+        // Push-channel health state for IPNS resolution (issue #330). A topic's push channel is
+        // HEALTHY when it has at least one gossipsub subscriber AND a signature-valid record for
+        // it was obtained from the network within `watchdogMs` — via a gossiped message
+        // (identical rebroadcast bytes included, see the raw-message listener below), an
+        // accepted-newer localStore write from any path, or a validated fetch (direct fast path
+        // or fallback router.get()). While healthy, name.resolve serves the cached record PAST
+        // its ttl (the ipns-pubsub-router spec's model: pushes, rebroadcasts, and fetch-on-join
+        // keep a subscribed node current, so timer-driven revalidation buys nothing); while
+        // unhealthy it falls back to the exact per-ttl revalidation of issues #301/#307.
+        // `routingKeyByTopic` scopes the raw-message listener to IPNS topics this resolver
+        // registered and gives it the key to validate against. Exposed on the client as
+        // `_ipnsPushChannel` so tests can shrink the watchdog window and inspect arrivals; both
+        // maps are bounded by the set of IPNS names this helia instance resolves.
+        const ipnsPushChannel: IpnsPushChannelState = {
+            watchdogMs: IPNS_PUSH_CHANNEL_WATCHDOG_MS,
+            lastValidRecordArrivalMs: new Map<string, number>(),
+            routingKeyByTopic: new Map<string, Uint8Array>()
+        };
+        const isIpnsPushChannelHealthy = (pubsubTopic: string): boolean =>
+            helia.libp2p.services.pubsub.getSubscribers(pubsubTopic).length > 0 &&
+            Date.now() - (ipnsPushChannel.lastValidRecordArrivalMs.get(pubsubTopic) ?? 0) < ipnsPushChannel.watchdogMs;
+
+        // The watchdog's heartbeat source (issue #330): kubo rebroadcasts the CURRENT record
+        // every 10 minutes, and the pubsub router's #handleRecord returns before localStore.put
+        // when the gossiped bytes are identical to the cache — so the put wrap below never sees
+        // the very messages that prove the channel is alive. Listen to raw gossip instead, gated
+        // on the topics this resolver registered, and stamp an arrival only after the record
+        // validates against the topic's routing key (a garbage or forged message must not feed
+        // the watchdog). Validation failures are dropped quietly: gossip is an open channel and
+        // the router logs its own rejections.
+        helia.libp2p.services.pubsub.addEventListener("message", (evt) => {
+            const gossipRoutingKey = ipnsPushChannel.routingKeyByTopic.get(evt.detail.topic);
+            if (!gossipRoutingKey) return;
+            ipnsValidator(gossipRoutingKey, evt.detail.data)
+                .then(() => ipnsPushChannel.lastValidRecordArrivalMs.set(evt.detail.topic, Date.now()))
+                .catch((err) => log.trace("Ignoring an invalid record gossiped on IPNS topic", evt.detail.topic, err));
+        });
+
         // Push signal for IPNS names (issue #308): every accepted-newer record converges on the
         // pubsub router's localStore.put — gossipsub delivery (handleRecord), the direct-fetch
         // cache write (cacheIpnsRecordInPubsubLocalStore), and the fallback router.get() fetch
@@ -442,6 +489,8 @@ export async function createLibp2pJsClientOrUseExistingOne(
         ipnsPubsubLocalStore.put = async (routingKey, marshalledRecord, options) => {
             await originalLocalStorePut(routingKey, marshalledRecord, options);
             const pubsubTopic = binaryKeyToPubsubTopic(routingKey);
+            // Every accepted-newer record is also a push-channel heartbeat (issue #330).
+            ipnsPushChannel.lastValidRecordArrivalMs.set(pubsubTopic, Date.now());
             const listeners = ipnsRecordArrivalListeners.get(pubsubTopic);
             if (!listeners || listeners.size === 0) return;
             let record: IPNSRecord;
@@ -514,7 +563,13 @@ export async function createLibp2pJsClientOrUseExistingOne(
                         // cached record is inside its ttl window — not a fresh multi-peer fetch
                         // race per call. This is what turns the update loop's 1s cadence from
                         // ~150 fetch streams/s at 64 communities into pushes plus one
-                        // revalidation per name per ttl. Gated on the topic being subscribed
+                        // revalidation per name per ttl. And while the push channel is HEALTHY
+                        // (subscribers present, a valid record arrived within the watchdog
+                        // window), even the per-ttl revalidation is skipped (issue #330): the
+                        // ipns-pubsub-router spec keeps a subscribed node current via pushes,
+                        // rebroadcasts, and fetch-on-join, so the cached record serves for as
+                        // long as it stays signature-valid — the steady-state network cost of an
+                        // updating name drops to zero. Gated on the topic being subscribed
                         // because freshness relies on the push channel this resolver set up on a
                         // previous call; nocache: true bypasses the cache entirely (explicit
                         // refresh, kubo semantics). A cache read failure must never fail the
@@ -524,7 +579,8 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                 const cachedRecord = await readFreshCachedIpnsRecordFromPubsubLocalStore({
                                     localStore: ipnsPubsubLocalStore,
                                     routingKey,
-                                    lastNetworkValidatedAtMs: ipnsRecordNetworkValidatedAtMs.get(ipnsPubsubTopic)
+                                    lastNetworkValidatedAtMs: ipnsRecordNetworkValidatedAtMs.get(ipnsPubsubTopic),
+                                    pushChannelHealthy: isIpnsPushChannelHealthy(ipnsPubsubTopic)
                                 });
                                 if (cachedRecord) {
                                     log.trace("Serving IPNS record for", currentName, "from the routing-layer cache");
@@ -565,6 +621,10 @@ export async function createLibp2pJsClientOrUseExistingOne(
                             // router.get() (which since @helia/ipns 10 skips this add when the
                             // topic is already libp2p-subscribed).
                             ipnsPubsubRouterSubscriptions.add(ipnsPubsubTopic);
+                            // Arm the push-channel watchdog's raw-message listener for this
+                            // topic (issue #330) — it needs the routing key to validate gossiped
+                            // records before stamping arrivals.
+                            ipnsPushChannel.routingKeyByTopic.set(ipnsPubsubTopic, routingKey);
                             void warmupForTopic(ipnsPubsubTopic, options).catch((e) =>
                                 log.trace("Fire-and-forget warmup failed for", ipnsPubsubTopic, e)
                             );
@@ -597,6 +657,10 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                     // this stamp is what lets an idle name serve from cache for
                                     // another ttl window after a revalidation.
                                     ipnsRecordNetworkValidatedAtMs.set(ipnsPubsubTopic, Date.now());
+                                    // A validated fetch also opens the push-channel trust window
+                                    // (issue #330): staleness is zero right now, and the channel
+                                    // has watchdogMs to prove itself before the next refetch.
+                                    ipnsPushChannel.lastValidRecordArrivalMs.set(ipnsPubsubTopic, Date.now());
                                     // Direct fetch bypasses the pubsub router's handleRecord, which is
                                     // where gossipsub-delivered records get cached at the routing layer.
                                     // Persist the record there ourselves (newer-only, issue #210) so
@@ -729,8 +793,9 @@ export async function createLibp2pJsClientOrUseExistingOne(
                         // Validate the record's signature against its routing key before trusting its value.
                         await ipnsValidator(routingKey, recordBytes);
                         const record = unmarshalIPNSRecord(recordBytes);
-                        // Same freshness stamp as the direct-fetch hit above (issue #301).
+                        // Same freshness stamps as the direct-fetch hit above (issues #301/#330).
                         ipnsRecordNetworkValidatedAtMs.set(ipnsPubsubTopic, Date.now());
+                        ipnsPushChannel.lastValidRecordArrivalMs.set(ipnsPubsubTopic, Date.now());
                         yield record.value;
                     }
 
@@ -935,6 +1000,8 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     // Update loops unsubscribe their own arrival listeners on stop; clearing here
                     // covers loops torn down after the shared client's final release.
                     ipnsRecordArrivalListeners.clear();
+                    ipnsPushChannel.lastValidRecordArrivalMs.clear();
+                    ipnsPushChannel.routingKeyByTopic.clear();
 
                     // Tear down the IPNS pubsub router's internal subscription state.
                     // PubSubIPNSRouting (@helia/ipns) implements Startable and tracks its own
@@ -1008,7 +1075,8 @@ export async function createLibp2pJsClientOrUseExistingOne(
             mergedHeliaOptions: mergedHeliaInit,
             countOfUsesOfInstance: 1,
             libp2pJsClientsOptions: pkcOptions,
-            key: pkcOptions.key
+            key: pkcOptions.key,
+            ipnsPushChannel
         };
 
         const client = new Libp2pJsClient(fullInstanceWithOptions);

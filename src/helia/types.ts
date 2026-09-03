@@ -18,6 +18,22 @@ export interface IpnsRecordArrival {
 }
 export type IpnsRecordArrivalListener = (arrival: IpnsRecordArrival) => void;
 
+// Push-channel health state for IPNS resolution (issue #330), one per libp2p-js client. A
+// topic's push channel is healthy while it has gossipsub subscribers and a signature-valid
+// record arrived within `watchdogMs`; healthy names serve resolves from the cached record past
+// its ttl instead of revalidating over the network once per ttl window. Exposed on the client as
+// `_ipnsPushChannel` so tests can shrink the watchdog window and inspect arrivals.
+export interface IpnsPushChannelState {
+    watchdogMs: number;
+    // per-topic time of the last signature-valid record obtained from the network: a gossiped
+    // message (identical rebroadcast bytes included), an accepted-newer localStore write, or a
+    // validated fetch
+    lastValidRecordArrivalMs: Map<string, number>;
+    // topics registered by name.resolve, with the routing key the raw-message listener validates
+    // gossiped records against before stamping an arrival
+    routingKeyByTopic: Map<string, Uint8Array>;
+}
+
 export interface HeliaWithKuboRpcClientFunctions extends Pick<NonNullable<KuboRpcClient["_client"]>, "add" | "cat" | "pubsub" | "stop"> {
     add: KuboRpcClient["_client"]["add"];
     name: Pick<KuboRpcClient["_client"]["name"], "resolve">;

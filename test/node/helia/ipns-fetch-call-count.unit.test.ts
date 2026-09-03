@@ -24,10 +24,10 @@ import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js"
 // - a peer that is BOTH a topic subscriber and a router provider is asked at most twice per race
 //   (today exactly twice, one call per branch; the issue #329 fix must tighten this to once);
 // - the resolve path pays exactly ONE fetch round per name per record-ttl window and ZERO inside
-//   the window (the cache gate, issues #301/#307). Per issue #330 this once-per-window
-//   revalidation itself deviates from the ipns-pubsub-router spec (fetch-on-join + gossip, no
-//   timer refetch), so the spec-alignment fix should tighten the post-expiry bound from one round
-//   to zero for a subscribed name with a healthy mesh.
+//   the window (the cache gate, issues #301/#307) — for a name whose push channel is UNHEALTHY
+//   (here: a topic with zero subscribers). This is the issue #330 DEGRADED mode: a name with a
+//   healthy push channel (subscribers + a record arrival within the watchdog window) skips even
+//   the once-per-window revalidation and pays zero, pinned by the push-channel-watchdog suite.
 //
 // Like the direct-fetch suite, this stands up a STARTED node-under-test plus real second libp2p
 // nodes that listen on /ws and serve the record over the fetch protocol. Client-side libp2p only
@@ -224,17 +224,17 @@ describeSkipIfRpc("IPNS fetch-protocol call counts (issues #329/#330)", () => {
         return values[values.length - 1];
     };
 
-    // The steady-state cost pin for the update loop (issue #330). With the cache gate in place
-    // (issues #301/#307), a name's network cost must be exactly one fetch round per record-ttl
-    // window: the cold resolve fetches once, every resolve inside the (jittered, 0.75-1.0x ttl)
-    // window is a local cache read with ZERO fetch calls, the first resolve after expiry
-    // revalidates with exactly ONE more call, and the revalidation opens a fresh window. This is
-    // what bounds N updating communities to N fetch rounds per ttl window instead of the
-    // per-second churn of issue #301 or the 389-calls-per-peer volume of issue #329. Per issue
-    // #330 the post-expiry revalidation itself deviates from the ipns-pubsub-router spec
-    // (fetch-on-join + gossip, no timer refetch): the spec-alignment fix should tighten the
-    // post-expiry delta below from 1 to 0 for a subscribed name with a healthy mesh.
-    it("the resolve path pays exactly one fetch round per name per ttl window (issue #330)", async () => {
+    // The DEGRADED-mode cost pin for the update loop (issue #330). The publisher here is
+    // provider-only (never a topic subscriber), so the node's push channel for the name is
+    // unhealthy by construction and the issue #330 watchdog gate falls back to exact ttl
+    // semantics (issues #301/#307): the cold resolve fetches once, every resolve inside the
+    // (jittered, 0.75-1.0x ttl) window is a local cache read with ZERO fetch calls, the first
+    // resolve after expiry revalidates with exactly ONE more call, and the revalidation opens a
+    // fresh window. This bounds N updating communities to N fetch rounds per ttl window even
+    // when no push channel exists — instead of the per-second churn of issue #301 or the
+    // 389-calls-per-peer volume of issue #329. The HEALTHY-channel counterpart (zero fetch
+    // rounds past ttl expiry) is pinned by the push-channel-watchdog suite.
+    it("the resolve path pays exactly one fetch round per name per ttl window when the push channel is down (issue #330)", async () => {
         const TTL_MS = 5_000; // effective serve window after jitter: 3750-5000ms
         const { routingKey, marshalled, topic, cid, ipnsPeerId } = await makeRecord({ ttlMs: TTL_MS });
         const publisher = await startPublisherNode({ routingKey, recordToServe: marshalled });
