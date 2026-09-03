@@ -30,6 +30,27 @@ export interface IpnsRecordArrivals {
     isSubscribed?(args: { pubsubTopic: string }): boolean;
 }
 
+// Push-channel health state for IPNS resolution (issue #330), one per libp2p-js client. A
+// topic's push channel is healthy while it has gossipsub subscribers and a signature-valid
+// record arrived within `watchdogMs`; healthy names serve resolves from the cached record past
+// its ttl instead of revalidating over the network once per ttl window. Exposed on the client as
+// `_ipnsPushChannel` so tests can shrink the watchdog window and inspect arrivals.
+export interface IpnsPushChannelState {
+    watchdogMs: number;
+    // per-topic time of the last signature-valid, sequence-current record obtained from the
+    // network: a gossiped message (identical rebroadcast bytes included), an accepted-newer
+    // localStore write, or a validated fetch. "Sequence-current" means at least as new as
+    // `highestKnownSequenceByTopic` — a replay of an older record never advances this stamp.
+    lastValidRecordArrivalMs: Map<string, number>;
+    // per-topic highest record sequence seen from any validated source; the heartbeat guard
+    // that keeps a stale replay (signature-valid but older, see ipns-push-channel-watchdog
+    // tests) from holding the watchdog window open
+    highestKnownSequenceByTopic: Map<string, bigint>;
+    // topics registered by name.resolve, with the routing key the raw-message listener validates
+    // gossiped records against before stamping an arrival
+    routingKeyByTopic: Map<string, Uint8Array>;
+}
+
 export interface HeliaWithKuboRpcClientFunctions extends Pick<NonNullable<KuboRpcClient["_client"]>, "add" | "cat" | "pubsub" | "stop"> {
     add: KuboRpcClient["_client"]["add"];
     name: Pick<KuboRpcClient["_client"]["name"], "resolve">;
@@ -49,6 +70,11 @@ export interface HeliaWithKuboRpcClientFunctions extends Pick<NonNullable<KuboRp
     // of polling name.resolve every second. Listeners fire AFTER the record is validated and
     // persisted in the routing-layer cache, so a resolve issued from a listener observes it.
     ipnsRecordArrivals: IpnsRecordArrivals;
+    // Push-channel health probe (issue #330), pkc-only: true while the topic has gossipsub
+    // subscribers and a signature-valid record for it arrived within the watchdog window. The
+    // update loop uses it to skip its forced safety-net network revalidation — the watchdog
+    // directly observes the "push that never arrived" condition the force existed for.
+    isIpnsPushChannelHealthy(args: { pubsubTopic: string }): boolean;
     // Test-only override of BITSWAP_SESSION_STALLED_GET_FAILOVER_MS, read by cat() at each block
     // get. The issue #189 guard test (at most one routing query per DAG) sets it beyond its own
     // timeout: on slow CI runners a block can legitimately stall, and the failover's broadcast

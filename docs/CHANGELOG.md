@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.0.96](https://github.com/pkcprotocol/pkc-js/compare/v0.0.95...v0.0.96) (2026-09-03)
+
+### Bug Fixes
+
+* **community:** announce key migration to joiners attaching in the recordless window ([#323](https://github.com/pkcprotocol/pkc-js/issues/323) [#332](https://github.com/pkcprotocol/pkc-js/issues/332)) ([#327](https://github.com/pkcprotocol/pkc-js/issues/327)) ([6232a2f](https://github.com/pkcprotocol/pkc-js/commit/6232a2fe7f501c8b60e38b9495deaaf8a1ffca08))
+
+## [0.0.95](https://github.com/pkcprotocol/pkc-js/compare/v0.0.94...v0.0.95) (2026-09-03)
+
+### Performance
+
+* **helia:** serve subscribed IPNS names from cache while the push channel is healthy ([#330](https://github.com/pkcprotocol/pkc-js/issues/330)) ([#331](https://github.com/pkcprotocol/pkc-js/issues/331)) ([0125580](https://github.com/pkcprotocol/pkc-js/commit/012558033e786d2d546ec7f5f5971e0474257a99)), closes [#329](https://github.com/pkcprotocol/pkc-js/issues/329) [#329](https://github.com/pkcprotocol/pkc-js/issues/329) [#329](https://github.com/pkcprotocol/pkc-js/issues/329) [301/#307](https://github.com/301/pkc-js/issues/307) [308/#311](https://github.com/308/pkc-js/issues/311) [#311](https://github.com/pkcprotocol/pkc-js/issues/311)
+
+## [0.0.94](https://github.com/pkcprotocol/pkc-js/compare/v0.0.93...v0.0.94) (2026-09-03)
+
+### Bug Fixes
+
+* **rpc:** make client and server destroy() wait for their websockets to close ([#326](https://github.com/pkcprotocol/pkc-js/issues/326)) ([8af4868](https://github.com/pkcprotocol/pkc-js/commit/8af4868e75ca84627291036dc2007fe9b3b97176)), closes [#325](https://github.com/pkcprotocol/pkc-js/issues/325)
+
+### Performance
+
+* **community:** drive kubo/helia updates from gossip pushes instead of a 1s poll ([#308](https://github.com/pkcprotocol/pkc-js/issues/308) [#307](https://github.com/pkcprotocol/pkc-js/issues/307)) ([#311](https://github.com/pkcprotocol/pkc-js/issues/311)) ([bf7aedb](https://github.com/pkcprotocol/pkc-js/commit/bf7aedbe6e4038d9f937f0ead66b186519551f55)), closes [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#145](https://github.com/pkcprotocol/pkc-js/issues/145) [#138](https://github.com/pkcprotocol/pkc-js/issues/138) [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#312](https://github.com/pkcprotocol/pkc-js/issues/312)
+
 ## [0.0.93](https://github.com/pkcprotocol/pkc-js/compare/v0.0.92...v0.0.93) (2026-09-02)
 
 ### Bug Fixes

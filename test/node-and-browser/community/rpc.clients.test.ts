@@ -4,7 +4,8 @@ import {
     createNewIpns,
     resolveWhenConditionIsTrue,
     getAvailablePKCConfigsToTestAgainst,
-    encryptionForSigner
+    encryptionForSigner,
+    publishStaticCommunityWithPostInPages
 } from "../../../dist/node/test/test-util.js";
 
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
@@ -64,7 +65,15 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
         });
 
         it(`community.clients.pkcRpcClients states are correct if fetching a community with ENS address`, async () => {
-            const community = await pkc.createCommunity({ address: "plebbit.bso" });
+            // A STATIC community (fresh key, published once) rather than "plebbit.bso" (signers[3]),
+            // which other suites publish to: this asserts the WHOLE state sequence with deep.equal,
+            // and since the update loop is arrival-driven (issue #308) each concurrent publish
+            // starts a fetch cycle at a random moment, inserting states mid-assertion (issue #323).
+            // The RPC server's mock resolver records are fixed at startup, so the community carries
+            // a self-resolving mock name (its own IPNS name in base36 + ".bso") that the default
+            // mock resolver maps back to this key without a pre-registered record.
+            const staticCommunity = await publishStaticCommunityWithPostInPages({ withSelfResolvingName: true });
+            const community = await pkc.createCommunity({ address: staticCommunity.communityName });
             const rpcUrl = Object.keys(pkc.clients.pkcRpcClients)[0];
             const recordedStates: string[] = [];
             const expectedStates = ["fetching-ipns", "fetching-ipfs", "stopped"];
@@ -86,6 +95,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             expect(recordedStates).to.deep.equal(expectedStates);
             expect(community.clients.pkcRpcClients[rpcUrl].state).to.equal("stopped");
             expect(community.updatingState).to.equal("stopped");
+            await staticCommunity.ipnsObj.pkc.destroy();
         });
     });
 });

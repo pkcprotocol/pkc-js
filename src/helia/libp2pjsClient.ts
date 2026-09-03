@@ -1,5 +1,5 @@
 import type { createHelia } from "helia";
-import type { HeliaWithKuboRpcClientFunctions, HeliaWithLibp2pPubsub } from "./types.js";
+import type { HeliaWithKuboRpcClientFunctions, HeliaWithLibp2pPubsub, IpnsPushChannelState } from "./types.js";
 import type { unixfs } from "@helia/unixfs";
 import { hideClassPrivateProps } from "../util.js";
 import type { ipns } from "@helia/ipns";
@@ -14,6 +14,7 @@ type Libp2pJsClientInit = {
     mergedHeliaOptions: Parameters<typeof createHelia>[0]; // merged defaults with user input for helia and libp2p
     key: string;
     countOfUsesOfInstance: number;
+    ipnsPushChannel: IpnsPushChannelState;
 };
 
 export class Libp2pJsClient {
@@ -25,6 +26,9 @@ export class Libp2pJsClient {
     _mergedHeliaOptions: Omit<NonNullable<Parameters<typeof createHelia>[0]>, "http"> | undefined; // merged defaults with user input for helia and libp2p
     key: Libp2pJsClientInit["key"];
     countOfUsesOfInstance: number;
+    // Push-channel health state for IPNS resolution (issue #330); tests shrink its watchdog
+    // window and inspect arrivals through this handle.
+    _ipnsPushChannel: IpnsPushChannelState;
 
     /**
      * The running Helia node backing this libp2p-js client — the public, semver-covered way for
@@ -52,6 +56,7 @@ export class Libp2pJsClient {
         this._mergedHeliaOptions = libp2pJsClientOptions.mergedHeliaOptions;
         this.key = libp2pJsClientOptions.key;
         this.countOfUsesOfInstance = libp2pJsClientOptions.countOfUsesOfInstance;
+        this._ipnsPushChannel = libp2pJsClientOptions.ipnsPushChannel;
 
         hideClassPrivateProps(this);
     }

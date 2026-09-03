@@ -8,7 +8,8 @@ import {
     mockCommentToNotUsePagesForUpdates,
     resolveWhenConditionIsTrue,
     mockPostToReturnSpecificCommentUpdate,
-    publishStaticCommunityWithPostInPages
+    publishStaticCommunityWithPostInPages,
+    updateIntervalForExactStateTests
 } from "../../../../../dist/node/test/test-util.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
@@ -56,8 +57,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             // signers[0] record published by any concurrently-running suite mid-test inserts a
             // community fetch cycle anywhere in the array (arrival-driven update loop, issue
             // #308) and fails it — the PR #311 CI flake class.
+            // A dedicated PKC with a long updateInterval: the loop also re-runs on a timer, and the
+            // suite-wide 500ms interval let a timer cycle land between fetching-update-ipfs and the
+            // final stopped on a slow runner (see updateIntervalForExactStateTests).
+            const exactStatePKC = await config.pkcInstancePromise({ pkcOptions: { updateInterval: updateIntervalForExactStateTests } });
             const staticCommunity = await publishStaticCommunityWithPostInPages();
-            const mockPost = await pkc.createComment({ cid: staticCommunity.commentCid });
+            const mockPost = await exactStatePKC.createComment({ cid: staticCommunity.commentCid });
 
             const expectedStates = [
                 "fetching-ipfs",
@@ -84,14 +89,22 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             await mockPost.stop();
 
             expect(actualStates).to.deep.equal(expectedStates);
+            await exactStatePKC.destroy();
             await staticCommunity.ipnsObj.pkc.destroy();
         });
 
         it(`Correct order of ${clientFieldName} state when updating a reply that was created with pkc.createComment({cid}) and the post has a single preloaded page`, async () => {
-            const pkc: PKC = await config.pkcInstancePromise();
-            const community = await pkc.getCommunity({ address: signers[0].address });
-            const replyCid = community.posts.pages.hot.comments.find((post) => post.replies).replies.pages.best.comments[0].cid;
-            const reply = await pkc.createComment({ cid: replyCid });
+            // Long updateInterval so the loop's timer cannot insert a cycle mid-assertion (see
+            // updateIntervalForExactStateTests).
+            const pkc: PKC = await config.pkcInstancePromise({ pkcOptions: { updateInterval: updateIntervalForExactStateTests } });
+            // A STATIC community (fresh key, published once) instead of the shared live signers[0]:
+            // this asserts the WHOLE state sequence with deep.equal, and every concurrently-running
+            // suite publishes to signers[0]; since the update loop is arrival-driven (issue #308)
+            // each of those publishes starts a fetch cycle at a random moment, inserting states
+            // mid-assertion (the PR #311 CI flake class, issue #323).
+            // The reply lives in the post CommentUpdate's single preloaded replies page (no pageCids).
+            const staticCommunity = await publishStaticCommunityWithPostInPages({ withReplyInPostPages: true });
+            const reply = await pkc.createComment({ cid: staticCommunity.replyCid });
 
             const expectedStates = [
                 "fetching-ipfs", // fetching comment ipfs of reply
@@ -118,6 +131,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
             expect(actualStates).to.deep.equal(expectedStates);
             await pkc.destroy();
+            await staticCommunity.ipnsObj.pkc.destroy();
         });
 
         it(
@@ -125,9 +139,17 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         );
 
         it(`Correct order of ${clientFieldName} state when updating a post that was created with pkc.getComment({cid: cid})`, async () => {
-            const community = await pkc.getCommunity({ address: signers[0].address });
+            // A STATIC community (fresh key, published once) instead of the shared live
+            // signers[0]: this asserts the WHOLE state sequence with deep.equal, so a new
+            // signers[0] record published by any concurrently-running suite mid-test inserts a
+            // community fetch cycle anywhere in the array (arrival-driven update loop, issue
+            // #308) and fails it — the PR #311 CI flake class.
+            // Dedicated PKC with a long updateInterval so the loop's timer cannot insert a cycle
+            // mid-assertion (see updateIntervalForExactStateTests).
+            const exactStatePKC = await config.pkcInstancePromise({ pkcOptions: { updateInterval: updateIntervalForExactStateTests } });
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
 
-            const mockPost = await pkc.getComment({ cid: community.posts.pages.hot.comments[0].cid });
+            const mockPost = await exactStatePKC.getComment({ cid: staticCommunity.commentCid });
 
             const expectedStates = ["fetching-community-ipns", "fetching-community-ipfs", "stopped", "fetching-update-ipfs", "stopped"];
 
@@ -145,6 +167,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             await mockPost.stop();
 
             expect(actualStates).to.deep.equal(expectedStates);
+            await exactStatePKC.destroy();
+            await staticCommunity.ipnsObj.pkc.destroy();
         });
 
         it(`Correct order of ${clientFieldName} state when updating a reply that was created with pkc.getComment({cid: cid})`);

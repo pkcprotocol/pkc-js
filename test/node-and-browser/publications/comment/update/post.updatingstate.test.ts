@@ -8,7 +8,8 @@ import {
     getAvailablePKCConfigsToTestAgainst,
     addStringToIpfs,
     createStaticCommunityRecordForComment,
-    publishStaticCommunityWithPostInPages
+    publishStaticCommunityWithPostInPages,
+    updateIntervalForExactStateTests
 } from "../../../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../../../helpers/conditional-tests.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
@@ -120,7 +121,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`updating states is in correct order upon updating a post with IPFS client using postUpdates`, async () => {
-            const dedicatedPKC = await config.pkcInstancePromise();
+            // Long updateInterval so the loop's timer cannot insert a cycle mid-assertion (see
+            // updateIntervalForExactStateTests).
+            const dedicatedPKC = await config.pkcInstancePromise({ pkcOptions: { updateInterval: updateIntervalForExactStateTests } });
             // A STATIC community under its own fresh key rather than the shared live signers[0]:
             // concurrent suites publish to signers[0] constantly, and since the update loop reacts
             // to gossip arrivals (issue #308) each publish starts a community fetch cycle at a
@@ -405,11 +408,15 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         });
 
         it(`updating states is in correct order upon updating a post with gateway using postUpdates`, async () => {
-            const dedicatedPKC = await config.pkcInstancePromise();
+            // Long updateInterval so the loop's timer cannot insert a cycle mid-assertion (see
+            // updateIntervalForExactStateTests).
+            const dedicatedPKC = await config.pkcInstancePromise({ pkcOptions: { updateInterval: updateIntervalForExactStateTests } });
+            // Same STATIC community as the IPFS-client sibling above: cleanupStateArray only collapses
+            // repeated ipns/ipfs pairs, so a real signers[0] arrival cycle (fetching-community-ipns,
+            // fetching-update-ipfs, succeeded) would survive the cleanup and break the equality.
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
             try {
-                const community = await dedicatedPKC.getCommunity({ address: communityAddress });
-                const postCid = community.posts.pages.hot.comments[0].cid;
-                const mockPost = await dedicatedPKC.createComment({ cid: postCid });
+                const mockPost = await dedicatedPKC.createComment({ cid: staticCommunity.commentCid });
                 const expectedStates = [
                     "fetching-ipfs",
                     "succeeded",
@@ -434,6 +441,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 expect(filteredRecordedStates).to.deep.equal(filteredExpectedStates);
             } finally {
                 await dedicatedPKC.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
             }
         });
     });

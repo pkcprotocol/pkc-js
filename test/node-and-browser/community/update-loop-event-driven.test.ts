@@ -625,29 +625,31 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
             120_000
         );
 
-        // The safety net exists for pushes that never arrived — mesh partition, a record
-        // published while we had no subscribers, a regression in the arrival plumbing. A tick
-        // that goes through the routing-layer cache gate cannot see any of those: the cache
-        // still holds the OLD record well inside its ttl (kubo 0.43 publishes 300s, jittered
-        // down to no less than 225s, issue #307), so the tick does zero network work, serves
-        // the stale cid, and parks again — a missed push then strands the community for the
-        // record's whole ttl instead of the bound the safety net promises (master's 1s poll was
-        // bounded by ~ttl too, but re-checked every second). Timer-fired (non-arrival) wakes
-        // must therefore resolve with nocache: true — bounded by the 30s revalidation floor, so
-        // a sub-30s updateInterval (every test pkc defaults to 500ms) does not force the
-        // network on each tick: unfloored, the loop's duty cycle flips from parked-in-
-        // waiting-retry to mid-fetching-ipns, which tripped the browser CI legs' state-sampling
-        // assertions. The promised staleness bound is max(updateInterval, floor). Oracle: spy
-        // the resolver's name.resolve options rather than racing a real 225s staleness window.
+        // The DEGRADED-mode safety-net pin (issues #311/#330). The safety net exists for pushes
+        // that never arrived — mesh partition, a record published while we had no subscribers, a
+        // regression in the arrival plumbing. A tick that rides the routing-layer cache gate's
+        // ttl check alone cannot see any of those: the cache still holds the OLD record well
+        // inside its ttl (kubo 0.43 publishes 300s, jittered down to no less than 225s, issue
+        // #307), so a missed push would strand the community for the record's whole ttl instead
+        // of the bound the safety net promises. Timer-fired (non-arrival) wakes whose push
+        // channel is NOT healthy must therefore resolve with nocache: true — bounded by the 30s
+        // revalidation floor, so a sub-30s updateInterval (every test pkc defaults to 500ms)
+        // does not force the network on each tick. The promised degraded staleness bound is
+        // max(updateInterval, floor). Since issue #330 an armed tick first consults the
+        // push-channel watchdog and skips the force while the channel is healthy (the
+        // zero-fetch steady state is pinned by update-loop-fetch-quiescence.test.ts), so this
+        // test zeroes the client's watchdog window: every tick then sees an unhealthy channel
+        // and the pre-#330 forcing contract must hold unchanged. Oracle: spy the resolver's
+        // name.resolve options rather than racing a real 225s staleness window.
         //
         // Node only for the same load reason as the park test above: with the floor, observing
         // two forced revalidations keeps an updating community live for ~65s on the shared
         // browser page, and the logic has no browser-specific component.
         // kubo-RPC always resolves with nocache: true (its namesys store is a local read, there is
-        // no routing-layer cache gate to bypass), so the floored revalidation cadence is a
-        // libp2p-js-only property.
+        // no routing-layer cache gate to bypass), so the floored revalidation cadence and the
+        // push-channel watchdog it consults are libp2p-js-only properties.
         (isKuboResolver ? it.skip : itSkipIfBrowser)(
-            "safety-net ticks revalidate against the network at the floored cadence instead of riding the cache",
+            "safety-net ticks with an unhealthy push channel revalidate at the floored cadence instead of riding the cache",
             async () => {
                 const SAFETY_NET_INTERVAL_MS = 3000;
                 // Own pkc: the suite instance runs the production 60s interval, which would park
@@ -656,6 +658,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
                 const libp2pJsClient = shortIntervalPkc.clients.libp2pJsClients[Object.keys(shortIntervalPkc.clients.libp2pJsClients)[0]];
                 const clientFunctions = libp2pJsClient.heliaWithKuboRpcClientFunctions;
                 const originalResolve = clientFunctions.name.resolve.bind(clientFunctions.name);
+                // Zero watchdog = the push channel never counts as healthy, forcing the degraded
+                // mode this test pins. The helia client is SHARED across pkc instances
+                // (test-util keys it by a constant), so the original window is restored below.
+                const originalWatchdogMs = libp2pJsClient._ipnsPushChannel.watchdogMs;
+                libp2pJsClient._ipnsPushChannel.watchdogMs = 0;
                 const safetyNetResolveNocacheValues: (boolean | undefined)[] = [];
                 let recording = false;
                 try {
@@ -690,7 +697,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
 
                     expect(
                         forcedCount(),
-                        "timer-fired safety-net ticks must force nocache revalidations at the floored cadence — through the cache gate the net can never observe a push it missed, leaving the community stale for the record's whole ttl instead of max(updateInterval, floor)"
+                        "timer-fired safety-net ticks with an UNHEALTHY push channel must force nocache revalidations at the floored cadence — the ttl-only cache gate can never observe a push it missed, leaving the community stale for the record's whole ttl instead of max(updateInterval, floor) (issues #311/#330 degraded mode)"
                     ).to.be.greaterThanOrEqual(2);
                     expect(
                         safetyNetResolveNocacheValues.filter((nocache) => nocache !== true).length,
@@ -698,6 +705,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
                     ).to.be.greaterThanOrEqual(2);
                 } finally {
                     clientFunctions.name.resolve = originalResolve;
+                    libp2pJsClient._ipnsPushChannel.watchdogMs = originalWatchdogMs;
                     await shortIntervalPkc.destroy();
                 }
             },
@@ -769,6 +777,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
         // failure (which costs another whole jittered park) does not turn a slow CI runner into a
         // red build; the test still fails outright if the safety net never fires at all, which is
         // the property being pinned.
+        //
+        // Since issue #330 the client's push-channel watchdog is zeroed for the test's duration:
+        // with a healthy watchdog the tick would serve the cache past the 10s ttl, and on the
+        // gossip-warmed branch that cache already holds the newer record — delivery would then
+        // prove the push channel, not the safety net this test exists to exercise. An unhealthy
+        // channel restores the pre-#330 revalidation guarantee on both branches (the
+        // healthy-channel steady state is pinned by update-loop-fetch-quiescence.test.ts).
         itSkipIfBrowser(
             "a newer record still arrives via the safety-net poll when the push wake is lost",
             async () => {
@@ -779,6 +794,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
                 };
                 let managerInternals: ManagerArrivalInternals | undefined;
                 let syncSpy: { mockRestore(): void } | undefined;
+                // The watchdog zeroing is libp2p-js-only: the kubo resolver has no routing-layer
+                // cache gate (every resolve is nocache), so on the kubo config the pre-#330
+                // revalidation behavior this test relies on holds with nothing to zero.
+                const libp2pJsClient: PKCType["clients"]["libp2pJsClients"][string] | undefined =
+                    pkc.clients.libp2pJsClients[Object.keys(pkc.clients.libp2pJsClients)[0]];
+                const originalWatchdogMs = libp2pJsClient?._ipnsPushChannel.watchdogMs;
+                if (libp2pJsClient) libp2pJsClient._ipnsPushChannel.watchdogMs = 0; // see the comment above the test
                 try {
                     const staticRecord = await publishCommunityRecordWithExtraProp({ ttl: SHORT_RECORD_TTL });
                     staticRecordsToCleanUp.push(staticRecord);
@@ -847,8 +869,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
                     ).to.equal(true);
                 } finally {
                     // Hand the loop its real sync back so the community resubscribes on its next
-                    // iteration and afterAll's stop() unsubscribes a consistent set.
+                    // iteration and afterAll's stop() unsubscribes a consistent set. The shared
+                    // client gets its real watchdog window back for the same reason.
                     syncSpy?.mockRestore();
+                    if (libp2pJsClient && originalWatchdogMs !== undefined) libp2pJsClient._ipnsPushChannel.watchdogMs = originalWatchdogMs;
                 }
             },
             240_000

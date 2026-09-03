@@ -903,14 +903,25 @@ export function ipnsCacheTtlJitterFactor(routingKey: Uint8Array): number {
 // The record's signature and validity window are re-checked on every read (a cached record can
 // pass its EOL while sitting in the store); an invalid, expired, or stale record yields
 // undefined so the caller falls through to the network path.
+//
+// `pushChannelHealthy` (issue #330) widens the serve window past the record's ttl: when the
+// caller can attest that the name's push channel is demonstrably alive (the topic has gossipsub
+// subscribers and a signature-valid record arrived within the watchdog window), the
+// ipns-pubsub-router spec's model applies — the network keeps a subscribed node current via
+// pushes, rebroadcasts, and fetch-on-join, so a timer-driven revalidation buys nothing — and the
+// cached record is served for as long as it stays signature-valid and inside its EOL. The ttl
+// check below is the DEGRADED mode, exactly the pre-#330 behavior, for a name whose push channel
+// is unhealthy (no subscribers, or the watchdog tripped).
 export async function readFreshCachedIpnsRecordFromPubsubLocalStore({
     localStore,
     routingKey,
-    lastNetworkValidatedAtMs
+    lastNetworkValidatedAtMs,
+    pushChannelHealthy
 }: {
     localStore: IpnsPubsubLocalStore;
     routingKey: Uint8Array;
     lastNetworkValidatedAtMs?: number;
+    pushChannelHealthy?: boolean;
 }): Promise<IPNSRecord | undefined> {
     if (!(await localStore.has(routingKey))) return undefined;
     const { record: recordBytes, created } = await localStore.get(routingKey);
@@ -921,6 +932,7 @@ export async function readFreshCachedIpnsRecordFromPubsubLocalStore({
         return undefined;
     }
     const record = unmarshalIPNSRecord(recordBytes);
+    if (pushChannelHealthy === true) return record; // issue #330: freshness is the push channel's job
     const ttlMs = record.ttl !== undefined ? Number(record.ttl / 1_000_000n) : DEFAULT_CACHED_IPNS_RECORD_TTL_MS;
     // Effective ttl is jittered per name (issue #307) so names cached together don't all miss
     // the cache together; the factor only ever shortens the window, never extends it.

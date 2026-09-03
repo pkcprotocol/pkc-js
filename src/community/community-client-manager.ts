@@ -48,6 +48,7 @@ import { getAuthorNameFromRuntime } from "../publications/publication-author.js"
 
 import { type CommunityGatewayFetch, selectWinningGatewayCommunity } from "./community-gateway-selection.js";
 import type { IpnsRecordArrival, IpnsRecordArrivalListener, IpnsRecordArrivals } from "../helia/types.js";
+import type { Libp2pJsClient } from "../helia/libp2pjsClient.js";
 
 export const MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS = 1024 * 1024; // 1mb
 
@@ -1028,18 +1029,40 @@ export class CommunityClientsManager extends PKCClientsManager {
         });
     }
 
+    // True while the libp2p-js resolver's push-channel watchdog vouches for `ipnsName`'s topic
+    // (issue #330). A probe failure must never break the update cycle: on any error the answer
+    // is "unhealthy", which only costs a network revalidation.
+    private _isIpnsPushChannelHealthyForName(libp2pJsClient: Libp2pJsClient, ipnsName: string): boolean {
+        try {
+            return libp2pJsClient.heliaWithKuboRpcClientFunctions.isIpnsPushChannelHealthy({
+                pubsubTopic: ipnsNameToIpnsOverPubsubTopic(ipnsName)
+            });
+        } catch {
+            return false;
+        }
+    }
+
     private async _fetchCommunityIpnsP2PAndVerify(ipnsName: string): Promise<ResultOfFetchingCommunity> {
         const log = Logger("pkc-js:clients-manager:_fetchCommunityIpnsP2PAndVerify");
         const kuboRpcOrHelia = this.getDefaultKuboRpcClientOrHelia();
         if ("_helia" in kuboRpcOrHelia) {
             this.updateLibp2pJsClientState("fetching-ipns", kuboRpcOrHelia._libp2pJsClientsOptions.key);
         } else this.updateKuboRpcState("fetching-ipns", kuboRpcOrHelia.url);
-        // A cycle woken by the safety-net timer (not by an arrival) must revalidate on the
-        // network: the routing-layer cache gate cannot observe a push that never arrived, and
-        // would otherwise serve the stale record for its whole remaining ttl (300s at kubo
-        // 0.43's default) instead of the max(updateInterval, revalidation floor) the safety net
-        // promises. No-op for the kubo-RPC resolver, which always resolves with nocache: true.
-        const forceNetworkRevalidation = this._nextResolveRevalidatesNetwork;
+        // A cycle woken by the safety-net timer (not by an arrival) exists for pushes that
+        // never arrived, which the routing-layer cache gate's ttl check alone cannot observe —
+        // it would serve the stale record for its whole remaining ttl (300s at kubo 0.43's
+        // default) instead of the max(updateInterval, revalidation floor) the safety net
+        // promises. The push-channel watchdog (issue #330) observes exactly that condition
+        // though: while the anchor topic has gossipsub subscribers and a signature-valid record
+        // arrived within the watchdog window, rebroadcasts and fetch-on-join are demonstrably
+        // keeping the cache current, so the forced network revalidation is skipped and the
+        // resolve rides the cache gate (each hop of a delegated chain then consults its own
+        // topic's health, and the gate itself falls back to per-ttl revalidation the moment a
+        // channel degrades — the next armed tick after that forces the network again). No-op
+        // for the kubo-RPC resolver, which always resolves with nocache: true.
+        const forceNetworkRevalidation =
+            this._nextResolveRevalidatesNetwork &&
+            !("_helia" in kuboRpcOrHelia && this._isIpnsPushChannelHealthyForName(kuboRpcOrHelia, ipnsName));
         // Consumed by the cycle's FIRST attempt only: updateOnce retries this fetch (forever,
         // with backoff) on retriable errors such as a CID fetch timeout after a successful
         // resolve, and those attempts must ride the cache as the 1s poll's retries did instead
