@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.98](https://github.com/pkcprotocol/pkc-js/compare/v0.0.97...v0.0.98) (2026-09-04)
+
+### Bug Fixes
+
+* **community:** wake the publish loop on votes, comment edits and mod-queue comments ([#333](https://github.com/pkcprotocol/pkc-js/issues/333)) ([7963bfd](https://github.com/pkcprotocol/pkc-js/commit/7963bfd547e795e5e7df44b75177f05be74eb4dd)), closes [#226](https://github.com/pkcprotocol/pkc-js/issues/226) [#334](https://github.com/pkcprotocol/pkc-js/issues/334) [#335](https://github.com/pkcprotocol/pkc-js/issues/335) [#226](https://github.com/pkcprotocol/pkc-js/issues/226)
+
 ## [0.0.97](https://github.com/pkcprotocol/pkc-js/compare/v0.0.96...v0.0.97) (2026-09-04)
 
 ### Bug Fixes
