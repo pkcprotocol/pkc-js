@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.97](https://github.com/pkcprotocol/pkc-js/compare/v0.0.96...v0.0.97) (2026-09-04)
+
+### Bug Fixes
+
+* **community:** flush the pre-purge update cid even when the purge lands mid-publish-cycle ([#336](https://github.com/pkcprotocol/pkc-js/issues/336)) ([#337](https://github.com/pkcprotocol/pkc-js/issues/337)) ([60963d5](https://github.com/pkcprotocol/pkc-js/commit/60963d502ad5178c9615ba7ac5dbb060d9675713)), closes [#305](https://github.com/pkcprotocol/pkc-js/issues/305)
+
 ## [0.0.96](https://github.com/pkcprotocol/pkc-js/compare/v0.0.95...v0.0.96) (2026-09-03)
 
 ### Bug Fixes
