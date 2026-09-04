@@ -95,13 +95,26 @@ export const UNPIN_GRACE_PERIOD_MS = 30 * 60 * 1000;
 // direction. WeakMap so a stopped community's tracking dies with it.
 const cidsToUnpinFirstSeenAtMsByCommunity = new WeakMap<LocalCommunity, Map<string, number>>();
 
-// Communities with a purge whose unpin flush has not completed yet. A purge can land mid-sync, after
-// that cycle's unpinStaleCids already ran and before its block.rm drains _blocksToRm, so "is
-// _blocksToRm non-empty right now" alone can miss the flush; this survives until a flush pass
-// actually drains the unpin queue.
-const communitiesWithPendingPurgeFlush = new WeakSet<LocalCommunity>();
+// Communities with a purge whose unpin flush has not completed yet, mapped to when the purge
+// landed. A purge can land mid-sync, after that cycle's unpinStaleCids already ran and before its
+// block.rm drains _blocksToRm, so "is _blocksToRm non-empty right now" alone can miss the flush;
+// this survives until a flush pass drains the unpin queue in a cycle whose record was generated
+// AFTER the purge landed. The timestamp matters (issue #336): a purge landing while a publish
+// cycle is in flight can reference the record that cycle is publishing, whose cid only enters
+// _cidsToUnPin when the NEXT cycle supersedes it — so a flush in the in-flight cycle must not
+// disarm the flag, or that record sits pinned under the issue #305 grace with nothing left to
+// flush it.
+const communitiesWithPendingPurgeFlush = new WeakMap<LocalCommunity, number>();
 
-export async function unpinStaleCids(community: LocalCommunity, options: { bypassGracePeriod?: boolean } = {}) {
+export async function unpinStaleCids(
+    community: LocalCommunity,
+    // cycleStartedAtMs: when the calling publish cycle snapshotted the DB for the record it
+    // published. Used to decide whether a completed purge flush may disarm the pending-purge
+    // flag: only a cycle whose record was generated after the purge landed can have every
+    // pre-purge cid in its queue (issue #336). Callers outside the publish cycle leave it unset,
+    // which conservatively keeps the flag armed for the next publish cycle.
+    options: { bypassGracePeriod?: boolean; cycleStartedAtMs?: number } = {}
+) {
     const log = Logger("pkc-js:local-community:sync:unpinStaleCids");
 
     if (community._cidsToUnPin.size > 0) {
@@ -122,7 +135,8 @@ export async function unpinStaleCids(community: LocalCommunity, options: { bypas
         // outranks the reader grace of issue #305. The purged cids also could not wait anyway: their
         // blocks get force-removed right after this function in updateCommunityIpnsIfNeeded, and kubo
         // refuses to rm a pinned block.
-        const flushGraceForPendingPurge = communitiesWithPendingPurgeFlush.has(community) || community._blocksToRm.length > 0;
+        const purgeFlushArmedAtMs = communitiesWithPendingPurgeFlush.get(community);
+        const flushGraceForPendingPurge = purgeFlushArmedAtMs !== undefined || community._blocksToRm.length > 0;
         const cidsToUnpinNow = Array.from(community._cidsToUnPin.values()).filter(
             (cid) =>
                 options.bypassGracePeriod || flushGraceForPendingPurge || now - (firstSeenAtMs.get(cid) ?? now) >= UNPIN_GRACE_PERIOD_MS
@@ -160,8 +174,17 @@ export async function unpinStaleCids(community: LocalCommunity, options: { bypas
         );
 
         // In flush mode every queued cid was eligible, so an empty queue means the flush completed; a
-        // non-empty one means some pin.rm failed and the flag must survive for the next pass.
-        if (flushGraceForPendingPurge && community._cidsToUnPin.size === 0) communitiesWithPendingPurgeFlush.delete(community);
+        // non-empty one means some pin.rm failed and the flag must survive for the next pass. A
+        // completed flush disarms the flag only when this cycle's record was generated after the
+        // purge landed: a purge landing mid-cycle can reference the record the in-flight cycle
+        // published, which enters the queue only when the next cycle supersedes it, so that next
+        // cycle must still flush (issue #336).
+        if (flushGraceForPendingPurge && community._cidsToUnPin.size === 0) {
+            const cycleObservedPurge =
+                purgeFlushArmedAtMs === undefined ||
+                (options.cycleStartedAtMs !== undefined && options.cycleStartedAtMs > purgeFlushArmedAtMs);
+            if (cycleObservedPurge) communitiesWithPendingPurgeFlush.delete(community);
+        }
 
         log.trace(`unpinned ${sizeBefore - community._cidsToUnPin.size} stale cids from ipfs node for community (${community.address})`);
     }
@@ -359,7 +382,9 @@ export async function addAllCidsUnderPurgedCommentToBeRemoved(
 ) {
     // Every purge flow funnels through here, and the flag makes the next unpinStaleCids pass flush
     // the grace period for the whole queue even when the purge lands mid-sync (see unpinStaleCids).
-    communitiesWithPendingPurgeFlush.add(community);
+    // The timestamp lets the flush tell whether the cycle it ran in generated its record before or
+    // after this purge landed (issue #336).
+    communitiesWithPendingPurgeFlush.set(community, Date.now());
     community._cidsToUnPin.add(purgedCommentAndCommentUpdate.commentTableRow.cid);
     community._blocksToRm.push(purgedCommentAndCommentUpdate.commentTableRow.cid);
     if (typeof purgedCommentAndCommentUpdate.commentUpdateTableRow?.postUpdatesBucket === "number") {
