@@ -117,6 +117,58 @@ describeSkipIfRpc("Publications wake the community publish loop (issues #226, #3
         await post.stop();
         expect(elapsedMs, `author edit took ${elapsedMs}ms to propagate`).toBeLessThan(MAX_PROPAGATION_MS);
     });
+
+    // The wake-up trigger used to be cleared at the END of a publish cycle, after the record was
+    // built from the DB and pushed through kubo add + name.publish. A publication stored while that
+    // cycle was in flight is not in the record, sets the trigger, and then had it cleared, so it
+    // waited for the timer like before the fix. The cycle is held inside a wrapped name.publish
+    // while the vote runs to completion, which pins the interleaving instead of racing for it.
+    it("a vote stored while a publish cycle is in flight is published by the next cycle, not the next timer tick", async () => {
+        const post = await publishPostWithPublishedCommentUpdate();
+        expect(post.upvoteCount).to.equal(0);
+
+        const namesysApi = community._clientsManager.getDefaultKuboRpcClient()._client.name;
+        const originalPublish = namesysApi.publish.bind(namesysApi);
+        let cycleHeld = false;
+        let voteStoredDuringHeldCycle: Promise<unknown> | undefined;
+        const holdOneCycleWhileVoteLands = async (...args: Parameters<typeof originalPublish>): ReturnType<typeof originalPublish> => {
+            if (!cycleHeld) {
+                cycleHeld = true;
+                namesysApi.publish = originalPublish; // only this cycle is held
+                // The record under args[0] was built before this vote exists. The vote's
+                // challengeverification arrives while the cycle is still in flight.
+                voteStoredDuringHeldCycle = publishVote({ commentCid: post.cid, communityAddress: community.address, vote: 1, pkc });
+                await voteStoredDuringHeldCycle;
+            }
+            return originalPublish(...args);
+        };
+        namesysApi.publish = holdOneCycleWhileVoteLands as typeof namesysApi.publish;
+
+        try {
+            // Start a cycle through the wake-up path that already worked before this fix
+            const pinMod = await pkc.createCommentModeration({
+                communityAddress: community.address,
+                commentCid: post.cid,
+                commentModeration: { pinned: true, reason: "Start a publish cycle to hold" },
+                signer: moderatorSigner
+            });
+            await publishWithExpectedResult({ publication: pinMod, expectedChallengeSuccess: true });
+
+            const holdDeadline = Date.now() + MAX_PROPAGATION_MS;
+            while (!cycleHeld) {
+                if (Date.now() > holdDeadline) throw Error("Timed out waiting for the publish loop to reach name.publish");
+                await new Promise((resolve) => setTimeout(resolve, 50));
+            }
+            await voteStoredDuringHeldCycle;
+
+            const elapsedMs = await msUntil(post, () => post.upvoteCount === 1);
+            expect(post.pinned, "the held cycle's record should have been published too").to.be.true;
+            expect(elapsedMs, `vote stored mid-cycle took ${elapsedMs}ms to propagate`).toBeLessThan(MAX_PROPAGATION_MS);
+        } finally {
+            namesysApi.publish = originalPublish;
+            await post.stop();
+        }
+    });
 });
 
 describeSkipIfRpc("A comment sent to the mod queue wakes the community publish loop (issue #335)", () => {

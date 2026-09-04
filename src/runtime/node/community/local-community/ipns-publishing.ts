@@ -374,7 +374,8 @@ async function publishCommunityRecordToIpns(
         Object.assign(community, remainingEditProps);
     }
 
-    community._communityUpdateTrigger = false;
+    // The update trigger was consumed at the start of this cycle in updateCommunityIpnsIfNeeded, so a
+    // write that landed during the publish keeps it set for the next cycle.
     community._firstUpdateAfterStart = false;
 
     try {
@@ -408,13 +409,25 @@ export async function updateCommunityIpnsIfNeeded(
 
     if (!community._communityUpdateTrigger) return; // No reason to update
 
+    // Consume the trigger BEFORE the record's DB snapshot below, not after the publish. A write that
+    // lands while this cycle is in flight (a vote, a comment edit, a mod-queue comment, a moderation)
+    // is not in the record being built; it sets the trigger again and that must survive into the
+    // next cycle. Clearing at the end of the cycle swallowed it, and the loop's wake-up check does
+    // not look at votes or edits, so the write waited a full publishInterval. A failed cycle re-arms
+    // the trigger below so the loop retries on its next pass, as it did when the clear came last.
+    community._communityUpdateTrigger = false;
     // Stamped before the record's DB snapshot below: a purge that lands after this point may
     // reference the record this cycle publishes, and unpinStaleCids uses the stamp to keep the
     // pending-purge flush armed for the next cycle in that case (issue #336).
     const cycleStartedAtMs = Date.now();
-    const build = await calculateNextCommunityRecord(community, commentUpdateRowsToPublishToIpfs, log);
-    const newCommunityRecord = await validateAndSignCommunityRecord(community, build);
-    await publishCommunityRecordToIpns(community, build, newCommunityRecord, cycleStartedAtMs);
+    try {
+        const build = await calculateNextCommunityRecord(community, commentUpdateRowsToPublishToIpfs, log);
+        const newCommunityRecord = await validateAndSignCommunityRecord(community, build);
+        await publishCommunityRecordToIpns(community, build, newCommunityRecord, cycleStartedAtMs);
+    } catch (e) {
+        community._communityUpdateTrigger = true;
+        throw e;
+    }
 }
 
 export async function syncIpnsWithDb(community: LocalCommunity) {
