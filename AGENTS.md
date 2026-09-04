@@ -31,6 +31,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 | Writing a challenge package, `optionInputs`, `validateChallengeSettings` | `docs/protocol/challenge-authoring.md` |
 | Data storage, IPFS CIDs, IPNS, mutability questions | `docs/protocol/data-permanence.md` |
 | DB migration, `extraProps`, CID reconstruction, `deriveCommentIpfsFromCommentTableRow` | `docs/protocol/db-community-address-migration.md` |
+| Gateway fetching, `_fetchWithGateway`, `ETag`/`If-None-Match`, `Cache-Control`/`max-age`, gateway polling | The IPFS path-gateway spec: <https://specs.ipfs.tech/http-gateways/path-gateway/> (ETag/304 semantics, `max-age` = remaining IPNS record TTL, HEAD and `only-if-cached` probes, `?format=ipns-record`) |
 
 ## MUST Rules
 
