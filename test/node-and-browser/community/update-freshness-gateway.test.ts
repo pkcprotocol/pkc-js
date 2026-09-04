@@ -7,31 +7,24 @@ import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 
 // Gateway companion to update-freshness.test.ts, pinning the freshness contract that suite
-// deliberately excludes gateways from. Reproduction for issue #328: the ipfs-gateway resolver
-// is the last update path with no push signal at all, so a gateway-backed reader learns about
-// a new community record only on its next pkc.updateInterval tick (60s in production).
+// deliberately excludes gateways from. Regression pin for issue #328: gateway readers used to
+// learn about a new community record only on their next flat pkc.updateInterval tick (60s in
+// production; this suite measured 59994ms pre-fix). The fix paces the gateway poll on the
+// Cache-Control max-age countdown the gateway itself advertises (the remaining ttl of the
+// record in its cache, an exact countdown per the path-gateway spec: see
+// docs/protocol/README.md's external-specs link), with a working RFC 9110 If-None-Match so an
+// unchanged tick costs a bodyless 304.
 //
-// The mechanism is startUpdatingLoop in src/community/community-client-manager.ts:
+// Delivery for a gateway reader is therefore bounded by poll pacing + the gateway's own IPNS
+// cache window (Ipns.MaxCacheTTL is 10s in test/server/test-server.js), NOT by
+// pkc.updateInterval, which this suite pins at the production 60s precisely so a regression to
+// interval-paced polling fails loudly. Budget: ~10s pacing + ~10s gateway cache + loaded-CI
+// margin = 30s, still half the updateInterval poll it must never regress to.
 //
-//     const updateInterval = areWeConnectedToKuboOrHelia ? 1000 : this._pkc.updateInterval;
-//
-// where areWeConnectedToKuboOrHelia counts only clients.kuboRpcClients and
-// clients.libp2pJsClients. clients.pubsubKuboRpcClients is a separate map, so the normal
-// production browser shape (gateways for content, a pubsub kubo RPC provider to publish)
-// still lands in the slow branch even though the client holds a pubsub transport that could
-// carry the community's IPNS record topic as a wake signal. The suite asserts that shape
-// explicitly below so the pin describes the client issue #328 is about.
-//
-// The assertion mirrors update-freshness.test.ts: production updateInterval, and a delivery
-// bound that separates "a wake signal delivered this" from "the updateInterval poll delivered
-// this". The budget must sit far below the 60s poll and comfortably above what a push-driven
-// delivery can cost on a loaded runner, including the test daemons' gateway-side IPNS cache
-// (Ipns.MaxCacheTTL is 10s in test/server/test-server.js). 25s, the same bound the libp2p-js
-// and kubo-RPC paths are held to, satisfies both.
-//
-// Unlike the sibling suite, delivery is awaited well past the poll tick and the elapsed time
-// is asserted afterwards, so the failure reports the actual propagation delay (expected ~60s
-// today) instead of just "did not arrive within budget".
+// Unlike the sibling suite, delivery is awaited well past the old poll tick and the elapsed
+// time is asserted afterwards, so a failure reports the actual propagation delay (an
+// interval-paced regression shows up as ~60000ms) instead of just "did not arrive within
+// budget".
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
     describe(`community update freshness over gateways - ${config.name}`, () => {
         let pkc: PKCType;
@@ -39,14 +32,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         const staticRecordsToCleanUp: Awaited<ReturnType<typeof publishCommunityRecordWithExtraProp>>[] = [];
 
         // The production default. test-util's mockPKC defaults to updateInterval: 500, which
-        // makes the gateway poll fire twice a second and would mask the missing wake signal
-        // completely.
+        // (as the pacing ceiling) makes the gateway poll fire twice a second and would mask an
+        // interval-paced regression completely.
         const PRODUCTION_UPDATE_INTERVAL_MS = 60_000;
 
-        // See the header: below the 60s poll with margin, above worst-case push-driven
-        // delivery plus the 10s gateway IPNS cache, and equal to the bound the other two
-        // transports are pinned to in update-freshness.test.ts.
-        const DELIVERY_BUDGET_MS = 25_000;
+        // See the header: pacing + gateway cache + margin, and still far below the 60s
+        // interval-paced poll this must never regress to.
+        const DELIVERY_BUDGET_MS = 30_000;
 
         // How long to wait for the record to arrive at all before giving up on measuring: past
         // the poll tick at updateInterval plus the gateway cache and a loaded-runner margin, so
@@ -123,14 +115,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             return { deliveredInTime, elapsedMs: Date.now() - startedAt };
         };
 
-        it("gateway reader holds a pubsub provider that could carry a wake signal (the #328 shape)", async () => {
+        it("the suite runs against the gateway-only reader shape #328 is about", async () => {
             expect(Object.keys(pkc.clients.ipfsGateways).length).to.be.greaterThan(0);
             expect(Object.keys(pkc.clients.kuboRpcClients).length).to.equal(0);
             expect(Object.keys(pkc.clients.libp2pJsClients).length).to.equal(0);
-            expect(
-                Object.keys(pkc.clients.pubsubKuboRpcClients).length,
-                "the production gateway shape carries a pubsub provider for publishing; issue #328 is that it is not used as an update wake signal"
-            ).to.be.greaterThan(0);
         });
 
         it("a newer record reaches a gateway-backed updating community well inside the updateInterval poll period", async () => {
@@ -153,7 +141,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             ).to.equal(true);
             expect(
                 elapsedMs,
-                `a newer community record must reach a gateway-backed updating community within ${DELIVERY_BUDGET_MS}ms of being published, took ${elapsedMs}ms; a delay at ~updateInterval (${PRODUCTION_UPDATE_INTERVAL_MS}ms) means no wake signal exists for gateway readers and the poll is the only delivery mechanism (issue #328)`
+                `a newer community record must reach a gateway-backed updating community within ${DELIVERY_BUDGET_MS}ms of being published, took ${elapsedMs}ms; a delay at ~updateInterval (${PRODUCTION_UPDATE_INTERVAL_MS}ms) means the gateway poll regressed to interval pacing instead of the max-age countdown (issue #328)`
             ).to.be.at.most(DELIVERY_BUDGET_MS);
         }, 240_000);
     });

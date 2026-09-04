@@ -866,9 +866,10 @@ export async function cacheIpnsRecordInPubsubLocalStore({
 }
 
 // When a cached record carries no ttl field, fall back to pkc's own publish cadence: communities
-// publish their IPNS records with ttl = publishInterval * 3 (60s by default, see
-// ipns-publishing.ts), so this matches what a well-formed community record would have carried.
-const DEFAULT_CACHED_IPNS_RECORD_TTL_MS = 60_000;
+// publish their IPNS records with ttl = publishInterval * 1 (20s by default, see
+// ipns-publishing.ts and issue #328), so this matches what a well-formed community record would
+// have carried.
+const DEFAULT_CACHED_IPNS_RECORD_TTL_MS = 20_000;
 
 // Deterministic per-name jitter over the cached record's serve window (issue #307). A directory
 // app fetches all N of its community records in the same second and they all carry the same ttl,
