@@ -166,7 +166,12 @@ describeSkipIfRpc("IPNS fetch-protocol call counts (issues #329/#330)", () => {
     // re-fetching a peer that already answered) shows up as a count above 1.
     it("one direct-fetch race asks each distinct peer exactly once", async () => {
         const { routingKey, marshalled, topic, cid } = await makeRecord();
-        const subscriberPeer = await startPublisherNode({ routingKey, recordToServe: marshalled, subscribeTopic: topic, lookupDelayMs: 1_000 });
+        const subscriberPeer = await startPublisherNode({
+            routingKey,
+            recordToServe: marshalled,
+            subscribeTopic: topic,
+            lookupDelayMs: 1_000
+        });
         const providerPeer = await startPublisherNode({ routingKey, recordToServe: marshalled, lookupDelayMs: 1_000 });
         const routerUrl = await startRouterServing(cid, providerPeer);
         const node = await createNode({ routers: [routerUrl] });

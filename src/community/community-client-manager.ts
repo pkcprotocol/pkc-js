@@ -47,8 +47,8 @@ import { CID } from "multiformats/cid"; // re-sourced from kubo-rpc-client (iden
 import { getAuthorNameFromRuntime } from "../publications/publication-author.js";
 
 import { type CommunityGatewayFetch, selectWinningGatewayCommunity } from "./community-gateway-selection.js";
+import type { IpnsRecordArrival, IpnsRecordArrivalListener, IpnsRecordArrivals } from "../helia/types.js";
 import type { Libp2pJsClient } from "../helia/libp2pjsClient.js";
-import type { IpnsRecordArrival, IpnsRecordArrivalListener } from "../helia/types.js";
 
 export const MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS = 1024 * 1024; // 1mb
 
@@ -77,19 +77,40 @@ export class CommunityClientsManager extends PKCClientsManager {
     _ipnsLoadingOperation?: RetryOperation = undefined;
     _updateCidsAlreadyLoaded: LimitedSet<string> = new LimitedSet<string>(30); // we will keep track of the last 50 community update cids that we loaded
 
-    // Event-driven update loop plumbing (issue #308), used only when the default record resolver
-    // is a libp2p-js client. Pending arrivals survive an arrival that lands while updateOnce is
-    // mid-flight, so the loop re-runs immediately instead of parking for a full safety-net
-    // period and missing the record it was just told about. Pending CIDs / hop targets (not a
-    // boolean) because the loop's OWN direct-fetch cache writes fire the arrival listener
-    // mid-updateOnce, before the consumed cid (or walked hop) is recorded anywhere — only the
-    // park, running after updateOnce, can tell those self-arrivals apart from a genuinely
-    // unconsumed push (see _consumePendingIpnsArrivals).
+    // Event-driven update loop plumbing (issue #308 for the libp2p-js resolver, #322 for the
+    // kubo-RPC resolver), used when the default record resolver exposes ipnsRecordArrivals.
+    // Pending arrivals survive an arrival that lands while updateOnce is mid-flight, so the loop
+    // re-runs immediately instead of parking for a full safety-net period and missing the record
+    // it was just told about. Pending CIDs / hop targets (not a boolean) because the loop's OWN
+    // direct-fetch cache writes fire the arrival listener mid-updateOnce, before the consumed
+    // cid (or walked hop) is recorded anywhere — only the park, running after updateOnce, can
+    // tell those self-arrivals apart from a genuinely unconsumed push (see
+    // _consumePendingIpnsArrivals).
     private _subscribedIpnsArrivalTopics = new Set<string>();
     private _ipnsArrivalListener?: IpnsRecordArrivalListener;
-    private _ipnsArrivalClient?: Libp2pJsClient;
+    private _ipnsArrivalSource?: IpnsRecordArrivals;
     private _pendingIpnsArrivalCids = new Set<string>();
     private _pendingIpnsArrivalHopTargets = new Set<string>();
+    // kubo-RPC resolver only (issue #322): a record topic may be subscribed over the daemon's
+    // pubsub RPC only AFTER a resolve of this manager walked the name, because an RPC
+    // subscription that joins the topic first permanently blocks kubo's namesys from joining it
+    // (see src/clients/kubo-ipns-record-arrivals.ts). The set holds the names resolveIpnsToCidP2P
+    // walked since the loop started, minus any whose subscription has since died (the daemon
+    // restarted): those are re-walked by the next updateOnce before being re-armed. The
+    // libp2p-js resolver has no such constraint and leaves the gate off.
+    private _ipnsArrivalsRequireWalkedName = false;
+    private _ipnsNamesWalkedByResolver = new Set<string>();
+    // In-flight establishments of the kubo source's RPC streams, one per topic (the libp2p-js
+    // source is in-process and never has any). A topic here is neither live nor dead yet: the
+    // loop's park waits for these before deciding between the safety net and the 1s poll, and
+    // the dead-stream sweep leaves them alone. Keyed by topic so a rejected attempt can tell
+    // whether it is still the current one for its topic before forgetting the topic.
+    private _ipnsArrivalEstablishments = new Map<string, Promise<void>>();
+    // Set whenever a sync arms a topic; read (and cleared) by the loop before each park. A kubo
+    // cycle that armed a topic ran its resolve with no listener attached yet (the pre-arming
+    // window), so its park is preceded by one silent local-store freshness check — see
+    // _hasIpnsRecordArrivedInPreArmingWindow.
+    private _ipnsArrivalTopicArmedSinceLastPark = false;
     // Set when the park ends by its safety-net timer rather than an arrival wake: the tick
     // exists to catch pushes that never arrived, which the routing-layer cache gate by
     // definition cannot observe (the cache still holds the old record, fresh inside its ttl),
@@ -366,26 +387,44 @@ export class CommunityClientsManager extends PKCClientsManager {
         const areWeConnectedToKuboOrHelia =
             Object.keys(this._pkc.clients.kuboRpcClients).length > 0 || Object.keys(this._pkc.clients.libp2pJsClients).length > 0;
         const defaultIpfsClient = areWeConnectedToKuboOrHelia ? this.getDefaultKuboRpcClientOrHelia() : undefined;
-        // Push-driven only for the libp2p-js resolver (issue #308): its routing-layer cache is
+        // Push-driven for both P2P resolvers. libp2p-js (issue #308): its routing-layer cache is
         // fed by gossipsub (issue #301), so a localStore write IS the "new record arrived"
-        // signal, and the loop only needs a slow jittered safety-net poll for pushes it missed
-        // (mesh partition, record published while we had no subscribers). The kubo-RPC resolver
-        // keeps the 1s poll: kubo's namesys cache is not observable from here, so pkc has no
-        // push signal for it yet (issue #308 tracks giving it the same treatment); gateways
-        // already poll at pkc.updateInterval.
-        const defaultLibp2pJsClient = defaultIpfsClient && "_helia" in defaultIpfsClient ? defaultIpfsClient : undefined;
+        // signal. kubo-RPC (issue #322): the daemon streams the same IPNS-over-pubsub records
+        // over its pubsub RPC, and a nocache resolve issued on arrival reads them from namesys'
+        // store. Either way the loop only needs a slow jittered safety-net poll for pushes it
+        // missed (mesh partition, record published while we had no subscribers, a dead RPC
+        // stream). Gateways already poll at pkc.updateInterval.
+        const isLibp2pJsResolver = defaultIpfsClient !== undefined && "_helia" in defaultIpfsClient;
+        const arrivalSource: IpnsRecordArrivals | undefined =
+            defaultIpfsClient === undefined
+                ? undefined
+                : "_helia" in defaultIpfsClient
+                  ? defaultIpfsClient.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals
+                  : defaultIpfsClient.ipnsRecordArrivals;
+        this._ipnsArrivalsRequireWalkedName = arrivalSource !== undefined && !isLibp2pJsResolver;
+        this._ipnsNamesWalkedByResolver.clear();
 
-        // Arm the arrival subscription BEFORE the first updateOnce: the first cycle spans the
-        // resolve, the community IPFS fetch, parsing and signature verification — seconds on a
-        // cold client — and a record pushed while it is mid-flight would otherwise fire no
-        // listener and be recorded nowhere, waiting for the first safety-net tick (45-75s at
-        // the production interval) where the old 1s poll picked it up in a second. The topic is
-        // derivable pre-resolve for every non-domain address (ipnsName === address, see
+        // libp2p-js: arm the arrival subscription BEFORE the first updateOnce. The first cycle
+        // spans the resolve, the community IPFS fetch, parsing and signature verification —
+        // seconds on a cold client — and a record pushed while it is mid-flight would otherwise
+        // fire no listener and be recorded nowhere, waiting for the first safety-net tick (45-75s
+        // at the production interval) where the old 1s poll picked it up in a second. The topic
+        // is derivable pre-resolve for every non-domain address (ipnsName === address, see
         // _syncIpnsArrivalSubscriptions' fallback); a never-resolved domain address arms right
         // after its first updateOnce in the finally below, as before.
-        if (defaultLibp2pJsClient) {
+        // kubo-RPC: arming before the first resolve is exactly the namesys join hazard (see
+        // _ipnsArrivalsRequireWalkedName), so the first cycle starts unarmed and arms from
+        // INSIDE updateOnce, right after its resolve walked the name (namesys has joined by
+        // then, see _fetchCommunityIpnsP2PAndVerify). Only the resolve round trip itself runs
+        // without a listener; the community IPFS fetch, parsing and verification that follow
+        // are covered like any later cycle. A record pushed inside that pre-arming window is
+        // caught by one silent local-store check before the park
+        // (_hasIpnsRecordArrivedInPreArmingWindow) — never by an unconditional extra cycle,
+        // which would emit a second fetching-ipns per community start, mirrored by every
+        // comment and publication into its own state sequence.
+        if (arrivalSource && isLibp2pJsResolver) {
             try {
-                this._syncIpnsArrivalSubscriptions(defaultLibp2pJsClient);
+                this._syncIpnsArrivalSubscriptions(arrivalSource);
             } catch (e) {
                 log.error(
                     `Failed to arm IPNS record arrival subscriptions of community ${this._community.address} before its first update`,
@@ -395,30 +434,60 @@ export class CommunityClientsManager extends PKCClientsManager {
             // The first updateOnce always resolves against the network (no topic subscription
             // exists yet, so the cache gate is off), so the revalidation floor counts from here.
             this._lastForcedIpnsNetworkRevalidationAtMs = Date.now();
+        } else if (arrivalSource) {
+            // Nothing to subscribe yet, but the in-cycle arm (_resyncIpnsArrivalSubscriptionsIfArmed)
+            // only acts while a loop owns a source, so hand it over before the first cycle.
+            this._ipnsArrivalSource = arrivalSource;
         }
 
         while (this._community.state === "updating" && !this._community._getStopAbortSignal()?.aborted) {
             try {
+                if (arrivalSource) this._dropDeadIpnsArrivalSubscriptions(arrivalSource);
                 await this.updateOnce();
             } catch (e) {
                 log.error(`Failed to update community ${this._community.address} for this iteration, will retry later`, e);
             } finally {
                 // Re-read the stop signal each iteration; both waits detach their listeners on
                 // every outcome so nothing leaks on the long-lived signal (see issue #145).
-                if (defaultLibp2pJsClient) {
+                if (arrivalSource) {
+                    let pushChannelLive = false;
                     try {
-                        this._syncIpnsArrivalSubscriptions(defaultLibp2pJsClient);
+                        // Usually a no-op on kubo (the cycle armed its hops itself); still the
+                        // place a hop dropped by a delegation change is unsubscribed, and where
+                        // every establishment started during the cycle is waited for.
+                        await this._syncIpnsArrivalSubscriptions(arrivalSource).established;
+                        pushChannelLive = this._areAllIpnsArrivalSubscriptionsLive(arrivalSource);
                     } catch (e) {
-                        log.error(`Failed to sync IPNS record arrival subscriptions of community ${this._community.address}`, e);
+                        log.trace(`Failed to arm IPNS record arrival subscriptions of community ${this._community.address}`, e);
                     }
-                    // Jittered per iteration so a directory of communities started together does
-                    // not run its safety-net polls in lockstep (issue #307).
-                    const safetyNetMs = this._pkc.updateInterval * (0.75 + Math.random() * 0.5);
-                    await this._sleepUntilIpnsArrivalOrTimeoutOrAbort({ ms: safetyNetMs, signal: this._community._getStopAbortSignal() });
-                } else {
-                    const updateInterval = areWeConnectedToKuboOrHelia ? 1000 : this._pkc.updateInterval; // if we're on kubo we should resolve IPNS every second
-                    await sleepUntilTimeoutOrAbort(updateInterval, this._community._getStopAbortSignal());
-                }
+                    const topicArmedSinceLastPark = this._ipnsArrivalTopicArmedSinceLastPark;
+                    this._ipnsArrivalTopicArmedSinceLastPark = false;
+                    if (
+                        pushChannelLive &&
+                        this._ipnsArrivalsRequireWalkedName &&
+                        topicArmedSinceLastPark &&
+                        (await this._hasIpnsRecordArrivedInPreArmingWindow())
+                    ) {
+                        // A record landed inside the pre-arming window: re-run now instead of
+                        // parking. It is already in the daemon's local store, so the next
+                        // cycle's nocache resolve serves it.
+                        this._nextResolveRevalidatesNetwork = false;
+                    } else if (pushChannelLive) {
+                        // Jittered per iteration so a directory of communities started together
+                        // does not run its safety-net polls in lockstep (issue #307).
+                        const safetyNetMs = this._pkc.updateInterval * (0.75 + Math.random() * 0.5);
+                        await this._sleepUntilIpnsArrivalOrTimeoutOrAbort({
+                            ms: safetyNetMs,
+                            signal: this._community._getStopAbortSignal()
+                        });
+                    } else {
+                        // No live push channel for at least one hop (kubo pubsub disabled, the
+                        // daemon restarting, a resolve that failed before walking the name):
+                        // the pre-#322 1s poll is the only way not to miss a record, so keep it
+                        // until the channel comes up.
+                        await sleepUntilTimeoutOrAbort(1000, this._community._getStopAbortSignal());
+                    }
+                } else await sleepUntilTimeoutOrAbort(this._pkc.updateInterval, this._community._getStopAbortSignal());
             }
         }
 
@@ -482,50 +551,144 @@ export class CommunityClientsManager extends PKCClientsManager {
 
     // Keep the arrival subscriptions in sync with the hops the last resolve walked: one topic
     // per IPNS name in the chain, so a delegated community wakes on a push to ANY hop. Runs
-    // before the FIRST updateOnce (so a record pushed mid-first-fetch is not missed) and after
-    // every updateOnce, because a key migration or delegation change swaps the hops, and from
-    // wherever else the identity is decided (_resyncIpnsArrivalSubscriptionsIfArmed). Before
-    // anything resolved, the name the first resolve will walk is derivable for every instance
-    // but a never-resolved domain: the pinned publicKey (_pinnedIpnsName) or, failing that, a
-    // non-domain address verbatim, exactly as fetchNewUpdateForCommunity seeds ipnsName.
-    private _syncIpnsArrivalSubscriptions(client: Libp2pJsClient) {
+    // before the FIRST updateOnce on libp2p-js (so a record pushed mid-first-fetch is not
+    // missed) and after every updateOnce, because a key migration or delegation change swaps
+    // the hops, and from wherever else the identity is decided
+    // (_resyncIpnsArrivalSubscriptionsIfArmed). Before anything resolved, the name the first
+    // resolve will walk is derivable for every instance but a never-resolved domain: the pinned
+    // publicKey (_pinnedIpnsName) or, failing that, a non-domain address verbatim, exactly as
+    // fetchNewUpdateForCommunity seeds ipnsName. On the kubo-RPC resolver every name is
+    // additionally gated on having been walked (_ipnsArrivalsRequireWalkedName), so the
+    // pre-resolve fallback, a mirror-restored hop list and a key migration's not-yet-fetched
+    // new key all wait for the resolve that joins them in namesys first.
+    //
+    // Returns a promise for every establishment still in flight, this call's and earlier ones'
+    // (already resolved for the in-process libp2p-js source; the kubo source resolves once its
+    // RPC streams are up and rejects if one cannot be, in which case that topic is dropped from
+    // the set so a later sync retries it).
+    private _syncIpnsArrivalSubscriptions(source: IpnsRecordArrivals): { established: Promise<void> } {
         if (!this._ipnsArrivalListener) this._ipnsArrivalListener = (arrival) => this._onIpnsRecordArrival(arrival);
-        this._ipnsArrivalClient = client;
+        this._ipnsArrivalSource = source;
+        const listener = this._ipnsArrivalListener;
         const preResolveIpnsName =
             this._community.ipnsName ??
             this._pinnedIpnsName() ??
             (!isStringDomain(this._community.address) ? this._community.address : undefined);
-        const ipnsNamesToWatch = this._community.ipnsHops?.length
+        const candidateIpnsNames = this._community.ipnsHops?.length
             ? this._community.ipnsHops
             : preResolveIpnsName
               ? [preResolveIpnsName]
               : [];
+        const ipnsNamesToWatch = this._ipnsArrivalsRequireWalkedName
+            ? candidateIpnsNames.filter((ipnsName) => this._ipnsNamesWalkedByResolver.has(ipnsName))
+            : candidateIpnsNames;
         const desiredTopics = new Set(ipnsNamesToWatch.map(ipnsNameToIpnsOverPubsubTopic));
         for (const topic of this._subscribedIpnsArrivalTopics)
             if (!desiredTopics.has(topic)) {
-                client.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals.unsubscribe({
-                    pubsubTopic: topic,
-                    listener: this._ipnsArrivalListener
-                });
+                source.unsubscribe({ pubsubTopic: topic, listener });
                 this._subscribedIpnsArrivalTopics.delete(topic);
+                // An attempt still in flight for it is now stale: its rejection must not touch
+                // whatever a later sync arms under the same topic.
+                this._ipnsArrivalEstablishments.delete(topic);
             }
         for (const topic of desiredTopics)
             if (!this._subscribedIpnsArrivalTopics.has(topic)) {
-                client.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals.subscribe({
-                    pubsubTopic: topic,
-                    listener: this._ipnsArrivalListener
-                });
+                const subscribed = source.subscribe({ pubsubTopic: topic, listener });
                 this._subscribedIpnsArrivalTopics.add(topic);
+                this._ipnsArrivalTopicArmedSinceLastPark = true;
+                if (!subscribed) continue;
+                const establishment: Promise<void> = subscribed
+                    .catch((e) => {
+                        // Only forget the topic if this attempt is still the current one for it:
+                        // a re-sync in between may have dropped and re-armed the same topic.
+                        if (this._ipnsArrivalEstablishments.get(topic) === establishment) {
+                            source.unsubscribe({ pubsubTopic: topic, listener });
+                            this._subscribedIpnsArrivalTopics.delete(topic);
+                        }
+                        throw e;
+                    })
+                    .finally(() => {
+                        if (this._ipnsArrivalEstablishments.get(topic) === establishment) this._ipnsArrivalEstablishments.delete(topic);
+                    });
+                this._ipnsArrivalEstablishments.set(topic, establishment);
             }
+        return { established: Promise.all(this._ipnsArrivalEstablishments.values()).then(() => undefined) };
+    }
+
+    // Whether every armed topic's push channel is live: always for a source without
+    // isSubscribed (in-process), and per RPC stream for the kubo source. On kubo, nothing armed
+    // at all also counts as not live (the cycle's resolve failed before walking the name, so no
+    // topic could be armed yet): the loop then keeps polling instead of parking a whole
+    // safety-net period with no push channel to wake it.
+    private _areAllIpnsArrivalSubscriptionsLive(source: IpnsRecordArrivals): boolean {
+        if (this._ipnsArrivalsRequireWalkedName && this._subscribedIpnsArrivalTopics.size === 0) return false;
+        if (!source.isSubscribed) return true;
+        for (const topic of this._subscribedIpnsArrivalTopics) if (!source.isSubscribed({ pubsubTopic: topic })) return false;
+        return true;
+    }
+
+    // The pre-arming window of a cycle that armed a topic: on kubo the topic may only be armed
+    // AFTER the cycle's resolve walked its name (the namesys join hazard), so a record pushed
+    // between that resolve and the RPC stream's establishment woke no listener — and gossipsub
+    // does not replay it to the stream once it attaches. The daemon has the record though: its
+    // namesys subscribed to the topic when the resolve joined the name, and the IPNS-pubsub
+    // persistence layer (libp2p Fetch on subscriber connect, see
+    // https://specs.ipfs.tech/ipns/ipns-pubsub-router/) converges the local store even across
+    // missed messages. So one nocache resolve — a local-store read on kubo, emitting no
+    // updatingstatechange and no client-state events — closes the window. Only an
+    // actually-newer outcome makes the loop skip its park and run a real (state-emitting)
+    // cycle, so the exact-state suites of issue #311 observe nothing when nothing arrived.
+    // Runs only after a cycle that armed a topic; steady-state cycles never pay for it.
+    private async _hasIpnsRecordArrivedInPreArmingWindow(): Promise<boolean> {
+        const ipnsName = this._community.ipnsName;
+        if (!ipnsName) return false;
+        try {
+            const { cid, ipnsHops } = await this.resolveIpnsToCidP2P(ipnsName, {
+                timeoutMs: this._pkc._timeouts["community-ipns"],
+                abortSignal: this._community._getStopAbortSignal()
+            });
+            if (!this._updateCidsAlreadyLoaded.has(cid) && this._community.updateCid !== cid) return true;
+            // Same wake rule as _onIpnsRecordArrival: a hop outside the walked chain is a
+            // delegation change and warrants a walk even when the terminal cid is unchanged.
+            return ipnsHops.some((hop) => !this._community.ipnsHops?.includes(hop));
+        } catch (e) {
+            Logger("pkc-js:remote-community:update").trace(
+                `The post-arming IPNS freshness check of community ${this._community.address} failed, leaving any missed record to the safety net`,
+                e
+            );
+            return false;
+        }
+    }
+
+    // Runs at the top of every loop iteration, BEFORE updateOnce: a subscription whose stream
+    // died since the last cycle (the daemon restarted) is forgotten together with the walked
+    // mark of its name, so this cycle's resolve re-walks the name (namesys joins the topic
+    // again) and the sync that follows re-arms it — never the other way round (see
+    // _ipnsArrivalsRequireWalkedName).
+    private _dropDeadIpnsArrivalSubscriptions(source: IpnsRecordArrivals) {
+        if (!source.isSubscribed || !this._ipnsArrivalListener) return;
+        for (const topic of this._subscribedIpnsArrivalTopics) {
+            if (source.isSubscribed({ pubsubTopic: topic })) continue;
+            // Not live because it is still being established (armed mid-cycle by the walk, or
+            // by a key migration), not because it died: leave it to finish.
+            if (this._ipnsArrivalEstablishments.has(topic)) continue;
+            source.unsubscribe({ pubsubTopic: topic, listener: this._ipnsArrivalListener });
+            this._subscribedIpnsArrivalTopics.delete(topic);
+            for (const ipnsName of this._ipnsNamesWalkedByResolver)
+                if (ipnsNameToIpnsOverPubsubTopic(ipnsName) === topic) this._ipnsNamesWalkedByResolver.delete(ipnsName);
+        }
     }
 
     // Re-derive the arrival subscriptions from the community's current identity, if the update
-    // loop armed them. The loop owns their lifetime (armed before its first cycle, cleared when
-    // it ends), so a one-shot fetch outside a loop must never create any.
+    // loop owns them. The loop owns their lifetime (source handed over before its first cycle,
+    // cleared when it ends), so a one-shot fetch outside a loop must never create any. On kubo
+    // this is also how a cycle arms the hops its resolve just walked.
     private _resyncIpnsArrivalSubscriptionsIfArmed() {
-        if (!this._ipnsArrivalClient) return;
+        if (!this._ipnsArrivalSource) return;
         try {
-            this._syncIpnsArrivalSubscriptions(this._ipnsArrivalClient);
+            this._syncIpnsArrivalSubscriptions(this._ipnsArrivalSource).established.catch(() => {
+                // A failed establishment already dropped its topic; the loop's own sync retries.
+            });
         } catch (e) {
             Logger("pkc-js:remote-community:update").error(
                 `Failed to sync IPNS record arrival subscriptions of community ${this._community.address}`,
@@ -535,14 +698,14 @@ export class CommunityClientsManager extends PKCClientsManager {
     }
 
     private _clearIpnsArrivalSubscriptions() {
-        if (this._ipnsArrivalClient && this._ipnsArrivalListener)
+        if (this._ipnsArrivalSource && this._ipnsArrivalListener)
             for (const topic of this._subscribedIpnsArrivalTopics)
-                this._ipnsArrivalClient.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals.unsubscribe({
-                    pubsubTopic: topic,
-                    listener: this._ipnsArrivalListener
-                });
+                this._ipnsArrivalSource.unsubscribe({ pubsubTopic: topic, listener: this._ipnsArrivalListener });
         this._subscribedIpnsArrivalTopics.clear();
-        this._ipnsArrivalClient = undefined;
+        this._ipnsArrivalEstablishments.clear();
+        this._ipnsArrivalTopicArmedSinceLastPark = false;
+        this._ipnsArrivalSource = undefined;
+        this._ipnsNamesWalkedByResolver.clear();
         this._pendingIpnsArrivalCids.clear();
         this._pendingIpnsArrivalHopTargets.clear();
         this._nextResolveRevalidatesNetwork = false;
@@ -915,6 +1078,13 @@ export class CommunityClientsManager extends PKCClientsManager {
         // record points at the CID, i.e. the key that signs the community content. For a
         // non-delegated community the chain has a single element so terminal === anchor.
         this._community.ipnsHops = ipnsHops;
+        // Every hop the resolver walked is a name kubo's namesys has now joined, which is what
+        // permits arming its record topic over the pubsub RPC (issue #322). Arm right here, not
+        // after the cycle: the community IPFS fetch and verification below can take seconds on
+        // a cold client, and a record pushed meanwhile must reach a listener. (No-op outside a
+        // loop, and for hops already armed.)
+        for (const walkedIpnsName of ipnsHops) this._ipnsNamesWalkedByResolver.add(walkedIpnsName);
+        this._resyncIpnsArrivalSubscriptionsIfArmed();
         const terminalIpnsName = ipnsHops[ipnsHops.length - 1];
         log.trace(`Resolved community IPNS`, ipnsName, `to CID`, latestCommunityCid, `via hops`, ipnsHops);
         if (this._updateCidsAlreadyLoaded.has(latestCommunityCid)) {

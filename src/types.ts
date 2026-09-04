@@ -1,3 +1,4 @@
+import type { IpnsRecordArrivals } from "./helia/types.js";
 import type { create as CreateIpfsClient, Options as IpfsHttpClientOptions } from "kubo-rpc-client";
 import type Publication from "./publications/publication.js";
 import type { PKCError } from "./pkc-error.js";
@@ -144,6 +145,10 @@ export interface KuboRpcClient {
     _client: ReturnType<typeof CreateIpfsClient>; // Private API, shouldn't be used by consumers
     url: string;
     _clientOptions: IpfsHttpClientOptions;
+    // Push signal for IPNS names (issue #322): pubsub RPC subscriptions to IPNS record topics,
+    // the kubo counterpart of the libp2p-js client's ipnsRecordArrivals. See
+    // src/clients/kubo-ipns-record-arrivals.ts for the lifecycle rules the update loop follows.
+    ipnsRecordArrivals: IpnsRecordArrivals;
     destroy: () => Promise<void>;
 }
 

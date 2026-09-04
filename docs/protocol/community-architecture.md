@@ -51,6 +51,38 @@ During `"fetching-ipns"` the IPNS name may resolve through a **delegated chain**
 verified against the terminal/minter name (`ipnsHops.at(-1)`). See
 [delegated-ipns.md](delegated-ipns.md).
 
+#### The update loop is push-driven on both P2P resolvers
+
+`startUpdatingLoop` (`src/community/community-client-manager.ts`) does not poll every second.
+When the default record resolver exposes `ipnsRecordArrivals` (the libp2p-js client since
+issue #308, the kubo-RPC client since issue #322) the loop subscribes to the IPNS-over-pubsub
+record topic of every hop in `ipnsHops`, parks until a pushed record arrives, and otherwise
+runs one jittered safety-net cycle per `pkc.updateInterval` (0.75x to 1.25x, so a directory
+of communities does not tick in lockstep). Gateways poll at `pkc.updateInterval`.
+
+- **libp2p-js**: arrivals are observed at the pubsub router's `localStore.put`, so an
+  arrival-woken cycle reads the routing-layer cache; a timer-fired cycle forces a network
+  revalidation, floored at 30s.
+- **kubo-RPC**: arrivals are one `pubsub.subscribe` RPC stream per record topic on the
+  resolver daemon (`src/clients/kubo-ipns-record-arrivals.ts`); every resolve stays
+  `nocache: true`, which on kubo is a local namesys-store read. **Ordering rule**: a topic is
+  armed only after a resolve of this manager walked its name (from inside the same cycle,
+  right after the resolve, so the community IPFS fetch that follows already has a listener),
+  and a dead stream is dropped before the next resolve and re-armed after it. The first cycle
+  never runs twice to compensate for starting unarmed: a second cycle would emit a second
+  `fetching-ipns` per community start, which comments and publications mirror into their own
+  state sequences. Instead, a cycle that armed a topic closes its pre-arming window (its
+  resolve returned before the RPC stream was up, so a record pushed in between woke no
+  listener) with one silent local-store resolve before parking — the daemon's namesys holds
+  such a record, since it subscribed when the resolve joined the name and the IPNS-pubsub
+  persistence layer (<https://specs.ipfs.tech/ipns/ipns-pubsub-router/>) converges its store
+  even across missed messages — and only an actually-newer record makes the loop skip its
+  park and run a real, state-emitting cycle. An RPC subscription that joins a record
+  topic before kubo's namesys permanently blocks namesys from joining that name on that
+  daemon (`name.resolve` fails until restart), so never subscribe to an IPNS record topic
+  over the kubo RPC ahead of resolving the name. While any hop has no live stream (pubsub
+  disabled on the daemon, daemon restarting) the loop falls back to the pre-#322 1s poll.
+
 ### CommunityStartedState (during `start()`, `LocalCommunity` only)
 `"stopped"` → `"publishing-ipns"` → `"succeeded"` / `"failed"`
 

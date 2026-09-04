@@ -6,6 +6,9 @@ import {
 } from "../../../dist/node/test/test-util.js";
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
 import { ipnsNameToIpnsOverPubsubTopic, timestamp } from "../../../dist/node/util.js";
+import { createKuboIpnsRecordArrivals } from "../../../dist/node/clients/kubo-ipns-record-arrivals.js";
+import { createIPNSRecord, marshalIPNSRecord } from "ipns";
+import { generateKeyPair } from "@libp2p/crypto/keys";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
@@ -23,13 +26,25 @@ import type { RemoteCommunity } from "../../../dist/node/community/remote-commun
 // observation window); the delivery test passes (polling delivers the new record) and must stay
 // green after the fix, where gossip push replaces polling as the delivery mechanism.
 //
-// remote-libp2pjs only: the event-driven path applies when the default record resolver is a
-// libp2p-js client. The kubo-RPC path keeps its polling loop for now (its push channel needs
-// kubo-side pubsub plumbing, tracked separately in issue #308) and gateways already poll at
-// pkc.updateInterval.
-getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"] }).map((config) => {
-    describe(`community update loop is event-driven, not 1s polling (issue #308) - ${config.name}`, () => {
+// Both P2P resolvers: libp2p-js (issue #308, PR #311) and kubo-RPC (issue #322, whose push
+// channel is a pubsub RPC stream per IPNS record topic on the resolver daemon). Gateways keep
+// polling at pkc.updateInterval. Where the two differ — the kubo resolver may only arm a topic
+// AFTER a resolve walked its name (kubo's namesys cannot join a topic the RPC subscription
+// joined first, see src/clients/kubo-ipns-record-arrivals.ts), and it always resolves with
+// nocache — the tests below branch per resolver and say why.
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs", "remote-kubo-rpc"] }).map((config) => {
+    describe(`community update loop is event-driven, not 1s polling (issues #308, #322) - ${config.name}`, () => {
         let pkc: PKCType;
+        const isKuboResolver = config.testConfigCode === "remote-kubo-rpc";
+        const itIfKuboResolver = isKuboResolver ? it : it.skip;
+        const itIfLibp2pJsResolver = isKuboResolver ? it.skip : it;
+        // The arrival registry of the resolver the update loop is push-driven on.
+        const arrivalsOf = (instance: PKCType) => {
+            const kuboRpcClient = instance.clients.kuboRpcClients[Object.keys(instance.clients.kuboRpcClients)[0]];
+            if (kuboRpcClient) return kuboRpcClient.ipnsRecordArrivals;
+            return instance.clients.libp2pJsClients[Object.keys(instance.clients.libp2pJsClients)[0]].heliaWithKuboRpcClientFunctions
+                .ipnsRecordArrivals;
+        };
         const communitiesToStop: RemoteCommunity[] = [];
         const staticRecordsToCleanUp: Awaited<ReturnType<typeof publishCommunityRecordWithExtraProp>>[] = [];
 
@@ -110,11 +125,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
 
         it("stop() unsubscribes every gossip arrival listener the update loop registered", async () => {
             // Spy BEFORE the loop starts so every subscribe the loop makes is captured. The
-            // arrival listener map lives on the SHARED libp2p-js client and outlives any one
+            // arrival listener map lives on the SHARED resolver client and outlives any one
             // community, so a listener stop() fails to remove would retain the stopped
             // community's whole manager graph for the life of the client.
-            const libp2pJsClient = pkc.clients.libp2pJsClients[Object.keys(pkc.clients.libp2pJsClients)[0]];
-            const arrivals = libp2pJsClient.heliaWithKuboRpcClientFunctions.ipnsRecordArrivals;
+            const arrivals = arrivalsOf(pkc);
             const subscribeSpy = vi.spyOn(arrivals, "subscribe");
             const unsubscribeSpy = vi.spyOn(arrivals, "unsubscribe");
             try {
@@ -279,7 +293,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 _subscribedIpnsArrivalTopics: Set<string>;
                 _pendingIpnsArrivalHopTargets: Set<string>;
                 _nextResolveRevalidatesNetwork: boolean;
-                _syncIpnsArrivalSubscriptions(client: unknown): void;
+                _ipnsArrivalsRequireWalkedName: boolean;
+                _ipnsNamesWalkedByResolver: Set<string>;
+                _syncIpnsArrivalSubscriptions(source: unknown): { established: Promise<void> };
+                _dropDeadIpnsArrivalSubscriptions(source: unknown): void;
                 _clearIpnsArrivalSubscriptions(): void;
                 _applyKeyMigration(args: { communityName: string; newPublicKey: string }): void;
                 _onIpnsRecordArrival(arrival: { pubsubTopic: string; record: { value: string } }): void;
@@ -287,23 +304,113 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 resolveIpnsToCidP2P(ipnsName: string, opts: { nocache?: boolean }): Promise<unknown>;
                 fetchNewUpdateForCommunity(communityAddress: string): Promise<unknown>;
             };
-            const libp2pJsClientOf = (instance: PKCType) =>
-                instance.clients.libp2pJsClients[Object.keys(instance.clients.libp2pJsClients)[0]];
+            // An idle manager configured the way startUpdatingLoop configures it for this
+            // resolver (the walked-name gate is a loop-start decision, not a constructor one).
+            const idleManagerOf = (community: RemoteCommunity) => {
+                const manager = community._clientsManager as unknown as ManagerIdentityInternals;
+                manager._ipnsArrivalsRequireWalkedName = isKuboResolver;
+                return manager;
+            };
+            // A subscribe + establishment that must succeed: on kubo the RPC stream has to come
+            // up (the pkc under test and the daemon are both local), on libp2p-js it is sync.
+            const syncAndAwait = async (manager: ManagerIdentityInternals) => {
+                await manager._syncIpnsArrivalSubscriptions(arrivalsOf(pkc)).established;
+            };
 
-            it("a domain community created with a known publicKey arms that key's topic before its first update", async () => {
-                // createCommunity({ address: domain, publicKey }) skips name resolution: the first
-                // fetch pins to publicKey (fetchNewUpdateForCommunity). The pre-loop arm must derive
-                // the same name, otherwise the first cycle runs with no listener and a record
-                // pushed mid-first-fetch is dropped at the source until the first safety-net tick.
+            itIfLibp2pJsResolver(
+                "a domain community created with a known publicKey arms that key's topic before its first update",
+                async () => {
+                    // createCommunity({ address: domain, publicKey }) skips name resolution: the first
+                    // fetch pins to publicKey (fetchNewUpdateForCommunity). The pre-loop arm must derive
+                    // the same name, otherwise the first cycle runs with no listener and a record
+                    // pushed mid-first-fetch is dropped at the source until the first safety-net tick.
+                    const signer = await pkc.createSigner();
+                    const community = (await pkc.createCommunity({ address: "plebbit.bso", publicKey: signer.address })) as RemoteCommunity;
+                    const manager = idleManagerOf(community);
+                    try {
+                        await syncAndAwait(manager);
+                        expect(
+                            [...manager._subscribedIpnsArrivalTopics],
+                            "the pre-loop arm must watch the pinned publicKey's topic for a domain+publicKey community"
+                        ).to.deep.equal([ipnsNameToIpnsOverPubsubTopic(signer.address)]);
+                    } finally {
+                        manager._clearIpnsArrivalSubscriptions();
+                    }
+                }
+            );
+
+            // kubo's namesys joins a record topic on the first resolve of its name. If the RPC
+            // subscription joins the topic first, namesys can never join it on that daemon and
+            // every later name.resolve of the name fails until the daemon restarts (verified on
+            // kubo 0.43; the RPC subscription being cancelled again does not repair it). So on
+            // kubo the pre-resolve name derivation (pinned publicKey / non-domain address) must
+            // NOT arm anything, and neither must a mirror-restored hop list: only names this
+            // manager's resolver walked are armed.
+            itIfKuboResolver("never arms a record topic before the resolver walked its name (kubo namesys join hazard)", async () => {
                 const signer = await pkc.createSigner();
                 const community = (await pkc.createCommunity({ address: "plebbit.bso", publicKey: signer.address })) as RemoteCommunity;
-                const manager = community._clientsManager as unknown as ManagerIdentityInternals;
+                const manager = idleManagerOf(community);
                 try {
-                    manager._syncIpnsArrivalSubscriptions(libp2pJsClientOf(pkc));
+                    await syncAndAwait(manager);
                     expect(
                         [...manager._subscribedIpnsArrivalTopics],
-                        "the pre-loop arm must watch the pinned publicKey's topic for a domain+publicKey community"
-                    ).to.deep.equal([ipnsNameToIpnsOverPubsubTopic(signer.address)]);
+                        "a pinned publicKey that no resolve walked yet must not be armed on kubo"
+                    ).to.deep.equal([]);
+                    // A hop list restored from a mirror / persisted state is not proof of a walk either.
+                    community.ipnsHops = [signer.address];
+                    await syncAndAwait(manager);
+                    expect([...manager._subscribedIpnsArrivalTopics], "a restored hop list must not be armed on kubo").to.deep.equal([]);
+                    // The resolve walked the name: now, and only now, the topic is armed.
+                    manager._ipnsNamesWalkedByResolver.add(signer.address);
+                    await syncAndAwait(manager);
+                    expect([...manager._subscribedIpnsArrivalTopics]).to.deep.equal([ipnsNameToIpnsOverPubsubTopic(signer.address)]);
+                    expect(
+                        arrivalsOf(pkc).isSubscribed?.({ pubsubTopic: ipnsNameToIpnsOverPubsubTopic(signer.address) }),
+                        "the kubo RPC stream must be live once established"
+                    ).to.equal(true);
+                } finally {
+                    manager._clearIpnsArrivalSubscriptions();
+                }
+            });
+
+            // The daemon restarted (or the RPC stream died for any reason): the topic must be
+            // forgotten BEFORE the next resolve, together with the walked mark of its name, so
+            // the resolve re-joins namesys first and the post-update sync re-arms afterwards.
+            it("a dead arrival subscription is dropped with its walked mark so the next resolve re-walks before re-arming", async () => {
+                const signer = await pkc.createSigner();
+                const community = (await pkc.createCommunity({ address: signer.address })) as RemoteCommunity;
+                const manager = idleManagerOf(community);
+                manager._ipnsArrivalsRequireWalkedName = true;
+                const topic = ipnsNameToIpnsOverPubsubTopic(signer.address);
+                let live = true;
+                const unsubscribed: string[] = [];
+                const fakeSource = {
+                    subscribe: () => {},
+                    unsubscribe: ({ pubsubTopic }: { pubsubTopic: string }) => unsubscribed.push(pubsubTopic),
+                    isSubscribed: () => live
+                };
+                try {
+                    manager._ipnsNamesWalkedByResolver.add(signer.address);
+                    community.ipnsHops = [signer.address];
+                    await manager._syncIpnsArrivalSubscriptions(fakeSource).established;
+                    expect([...manager._subscribedIpnsArrivalTopics]).to.deep.equal([topic]);
+
+                    live = false;
+                    manager._dropDeadIpnsArrivalSubscriptions(fakeSource);
+                    expect([...manager._subscribedIpnsArrivalTopics], "the dead topic must be forgotten").to.deep.equal([]);
+                    expect(unsubscribed, "the dead topic's listener must be released at the source").to.deep.equal([topic]);
+                    expect(
+                        manager._ipnsNamesWalkedByResolver.has(signer.address),
+                        "the walked mark must go with it, otherwise the next sync re-arms before the resolve re-joined namesys"
+                    ).to.equal(false);
+                    // Without a fresh walk the sync must stay unarmed...
+                    live = true;
+                    await manager._syncIpnsArrivalSubscriptions(fakeSource).established;
+                    expect([...manager._subscribedIpnsArrivalTopics]).to.deep.equal([]);
+                    // ...and re-arm once the name was walked again.
+                    manager._ipnsNamesWalkedByResolver.add(signer.address);
+                    await manager._syncIpnsArrivalSubscriptions(fakeSource).established;
+                    expect([...manager._subscribedIpnsArrivalTopics]).to.deep.equal([topic]);
                 } finally {
                     manager._clearIpnsArrivalSubscriptions();
                 }
@@ -316,9 +423,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                     address: "migrating.bso",
                     publicKey: oldSigner.address
                 })) as RemoteCommunity;
-                const manager = community._clientsManager as unknown as ManagerIdentityInternals;
+                const manager = idleManagerOf(community);
                 try {
-                    manager._syncIpnsArrivalSubscriptions(libp2pJsClientOf(pkc));
+                    // On kubo the old key counts as walked (the loop only ever arms walked names).
+                    manager._ipnsNamesWalkedByResolver.add(oldSigner.address);
+                    await syncAndAwait(manager);
                     expect([...manager._subscribedIpnsArrivalTopics]).to.deep.equal([ipnsNameToIpnsOverPubsubTopic(oldSigner.address)]);
                     // An old-key arrival queued before the migration fires: with updateCid and the
                     // loaded set cleared by the migration nothing filters it, so unless the
@@ -331,9 +440,20 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                     manager._applyKeyMigration({ communityName: "migrating.bso", newPublicKey: newSigner.address });
 
                     expect(community.publicKey).to.equal(newSigner.address);
+                    if (isKuboResolver) {
+                        // The new key's name has not been resolved yet, so namesys has not joined
+                        // its topic: arming it now would be the join hazard. The old key's topic
+                        // must still be gone immediately; the new one follows the first resolve.
+                        expect(
+                            [...manager._subscribedIpnsArrivalTopics],
+                            "after a key migration on kubo the old key's topic is dropped at once and the new key's waits for its first resolve"
+                        ).to.deep.equal([]);
+                        manager._ipnsNamesWalkedByResolver.add(newSigner.address);
+                        await syncAndAwait(manager);
+                    }
                     expect(
                         [...manager._subscribedIpnsArrivalTopics],
-                        "after a key migration the loop must watch ONLY the new key's topic, immediately, not after the new key's record is fetched"
+                        "after a key migration the loop must watch ONLY the new key's topic, immediately on libp2p-js, and right after the new key's first resolve on kubo"
                     ).to.deep.equal([ipnsNameToIpnsOverPubsubTopic(newSigner.address)]);
                     const parkStartedAt = Date.now();
                     await manager._sleepUntilIpnsArrivalOrTimeoutOrAbort({ ms: 400 });
@@ -417,31 +537,93 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         // fetching-ipns emission — that state fires inside fetchNewUpdateForCommunity before
         // the resolve begins, strictly before the post-updateOnce sync could ever run, so the
         // reading is deterministic (no sleep racing the first cycle's duration).
-        it("the arrival subscription is armed before the first updateOnce so a record pushed mid-first-fetch is not missed", async () => {
-            const staticRecord = await publishCommunityRecordWithExtraProp();
-            staticRecordsToCleanUp.push(staticRecord);
-            const community = (await pkc.createCommunity({ address: staticRecord.ipnsObj.signer.address })) as RemoteCommunity;
-            communitiesToStop.push(community);
-            let topicsAtFirstFetchingIpns: number | undefined;
-            const onStateChange = (newUpdatingState: RemoteCommunity["updatingState"]) => {
-                if (newUpdatingState !== "fetching-ipns" || topicsAtFirstFetchingIpns !== undefined) return;
-                // The loop runs on the TRACKED updating instance (this instance may be a mirror
-                // attached to it); by the time any state event flows, the mirror link is set.
+        itIfLibp2pJsResolver(
+            "the arrival subscription is armed before the first updateOnce so a record pushed mid-first-fetch is not missed",
+            async () => {
+                const staticRecord = await publishCommunityRecordWithExtraProp();
+                staticRecordsToCleanUp.push(staticRecord);
+                const community = (await pkc.createCommunity({ address: staticRecord.ipnsObj.signer.address })) as RemoteCommunity;
+                communitiesToStop.push(community);
+                let topicsAtFirstFetchingIpns: number | undefined;
+                const onStateChange = (newUpdatingState: RemoteCommunity["updatingState"]) => {
+                    if (newUpdatingState !== "fetching-ipns" || topicsAtFirstFetchingIpns !== undefined) return;
+                    // The loop runs on the TRACKED updating instance (this instance may be a mirror
+                    // attached to it); by the time any state event flows, the mirror link is set.
+                    const updatingInstance = community._updatingCommunityInstanceWithListeners?.community ?? community;
+                    topicsAtFirstFetchingIpns = (
+                        updatingInstance._clientsManager as unknown as { _subscribedIpnsArrivalTopics: Set<string> }
+                    )._subscribedIpnsArrivalTopics.size;
+                };
+                community.on("updatingstatechange", onStateChange);
+                const firstUpdate = new Promise<void>((resolve) => community.once("update", () => resolve()));
+                await community.update();
+                await firstUpdate;
+                community.removeListener("updatingstatechange", onStateChange);
+                expect(topicsAtFirstFetchingIpns, "the first update cycle must have emitted fetching-ipns").to.be.a("number");
+                expect(
+                    topicsAtFirstFetchingIpns,
+                    "the arrival subscription must be armed before the first updateOnce; unarmed, a record pushed during the initial fetch waits for the first safety-net tick instead of waking the loop"
+                ).to.be.greaterThan(0);
+            },
+            120_000
+        );
+
+        // The kubo mirror image of the test above: the first cycle must run UNARMED (arming
+        // first is the namesys join hazard), the loop arms right after it, and — the property
+        // that actually matters — the daemon must still resolve the name afterwards, i.e. the
+        // RPC subscription did not lock namesys out of the topic. Also pins that the loop's
+        // own kubo pubsub subscription shows up on the daemon.
+        itIfKuboResolver(
+            "arms the record topic only after the first resolve, and kubo's namesys still resolves the name afterwards",
+            async () => {
+                const staticRecord = await publishCommunityRecordWithExtraProp();
+                staticRecordsToCleanUp.push(staticRecord);
+                const community = (await pkc.createCommunity({ address: staticRecord.ipnsObj.signer.address })) as RemoteCommunity;
+                communitiesToStop.push(community);
+                const topic = ipnsNameToIpnsOverPubsubTopic(staticRecord.ipnsObj.signer.address);
+                let topicsAtFirstFetchingIpns: number | undefined;
+                const onStateChange = (newUpdatingState: RemoteCommunity["updatingState"]) => {
+                    if (newUpdatingState !== "fetching-ipns" || topicsAtFirstFetchingIpns !== undefined) return;
+                    const updatingInstance = community._updatingCommunityInstanceWithListeners?.community ?? community;
+                    topicsAtFirstFetchingIpns = (
+                        updatingInstance._clientsManager as unknown as { _subscribedIpnsArrivalTopics: Set<string> }
+                    )._subscribedIpnsArrivalTopics.size;
+                };
+                community.on("updatingstatechange", onStateChange);
+                const firstUpdate = new Promise<void>((resolve) => community.once("update", () => resolve()));
+                await community.update();
+                await firstUpdate;
+                community.removeListener("updatingstatechange", onStateChange);
+                expect(topicsAtFirstFetchingIpns, "the first cycle must run with no armed topic on kubo").to.equal(0);
+
                 const updatingInstance = community._updatingCommunityInstanceWithListeners?.community ?? community;
-                topicsAtFirstFetchingIpns = (updatingInstance._clientsManager as unknown as { _subscribedIpnsArrivalTopics: Set<string> })
-                    ._subscribedIpnsArrivalTopics.size;
-            };
-            community.on("updatingstatechange", onStateChange);
-            const firstUpdate = new Promise<void>((resolve) => community.once("update", () => resolve()));
-            await community.update();
-            await firstUpdate;
-            community.removeListener("updatingstatechange", onStateChange);
-            expect(topicsAtFirstFetchingIpns, "the first update cycle must have emitted fetching-ipns").to.be.a("number");
-            expect(
-                topicsAtFirstFetchingIpns,
-                "the arrival subscription must be armed before the first updateOnce; unarmed, a record pushed during the initial fetch waits for the first safety-net tick instead of waking the loop"
-            ).to.be.greaterThan(0);
-        }, 120_000);
+                const managerInternals = updatingInstance._clientsManager as unknown as { _subscribedIpnsArrivalTopics: Set<string> };
+                const deadline = Date.now() + 10_000;
+                while (Date.now() < deadline && !arrivalsOf(pkc).isSubscribed?.({ pubsubTopic: topic })) await sleep(100);
+                expect(
+                    [...managerInternals._subscribedIpnsArrivalTopics],
+                    "the loop must arm the walked name right after its first cycle"
+                ).to.deep.equal([topic]);
+                expect(arrivalsOf(pkc).isSubscribed?.({ pubsubTopic: topic }), "the kubo RPC stream must be live").to.equal(true);
+
+                const kuboRpcClient = pkc.clients.kuboRpcClients[Object.keys(pkc.clients.kuboRpcClients)[0]];
+                const namesysSubscriptions = await kuboRpcClient._client.name.pubsub.subs();
+                expect(
+                    namesysSubscriptions.map((ipnsPath) => ipnsNameToIpnsOverPubsubTopic(ipnsPath.replace("/ipns/", ""))),
+                    "kubo's namesys must hold its own subscription to the name after the loop armed the RPC one"
+                ).to.include(topic);
+                let resolved: string | undefined;
+                for await (const value of kuboRpcClient._client.name.resolve(staticRecord.ipnsObj.signer.address, {
+                    nocache: true,
+                    recursive: false
+                }))
+                    resolved = value;
+                expect(resolved, "name.resolve must keep working on the daemon after the RPC subscription joined the topic").to.match(
+                    /^\/ipfs\//
+                );
+            },
+            120_000
+        );
 
         // The DEGRADED-mode safety-net pin (issues #311/#330). The safety net exists for pushes
         // that never arrived — mesh partition, a record published while we had no subscribers, a
@@ -463,7 +645,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         // Node only for the same load reason as the park test above: with the floor, observing
         // two forced revalidations keeps an updating community live for ~65s on the shared
         // browser page, and the logic has no browser-specific component.
-        itSkipIfBrowser(
+        // kubo-RPC always resolves with nocache: true (its namesys store is a local read, there is
+        // no routing-layer cache gate to bypass), so the floored revalidation cadence and the
+        // push-channel watchdog it consults are libp2p-js-only properties.
+        (isKuboResolver ? it.skip : itSkipIfBrowser)(
             "safety-net ticks with an unhealthy push channel revalidate at the floored cadence instead of riding the cache",
             async () => {
                 const SAFETY_NET_INTERVAL_MS = 3000;
@@ -604,14 +789,18 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             async () => {
                 type ManagerArrivalInternals = {
                     _subscribedIpnsArrivalTopics: Set<string>;
-                    _syncIpnsArrivalSubscriptions(client: unknown): void;
+                    _syncIpnsArrivalSubscriptions(source: unknown): { established: Promise<void> };
                     _clearIpnsArrivalSubscriptions(): void;
                 };
                 let managerInternals: ManagerArrivalInternals | undefined;
                 let syncSpy: { mockRestore(): void } | undefined;
-                const libp2pJsClient = pkc.clients.libp2pJsClients[Object.keys(pkc.clients.libp2pJsClients)[0]];
-                const originalWatchdogMs = libp2pJsClient._ipnsPushChannel.watchdogMs;
-                libp2pJsClient._ipnsPushChannel.watchdogMs = 0; // see the comment above the test
+                // The watchdog zeroing is libp2p-js-only: the kubo resolver has no routing-layer
+                // cache gate (every resolve is nocache), so on the kubo config the pre-#330
+                // revalidation behavior this test relies on holds with nothing to zero.
+                const libp2pJsClient: PKCType["clients"]["libp2pJsClients"][string] | undefined =
+                    pkc.clients.libp2pJsClients[Object.keys(pkc.clients.libp2pJsClients)[0]];
+                const originalWatchdogMs = libp2pJsClient?._ipnsPushChannel.watchdogMs;
+                if (libp2pJsClient) libp2pJsClient._ipnsPushChannel.watchdogMs = 0; // see the comment above the test
                 try {
                     const staticRecord = await publishCommunityRecordWithExtraProp({ ttl: SHORT_RECORD_TTL });
                     staticRecordsToCleanUp.push(staticRecord);
@@ -637,7 +826,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                         "the loop must have registered an arrival subscription, otherwise this test is not suppressing anything"
                     ).to.be.greaterThan(0);
 
-                    syncSpy = vi.spyOn(managerInternals, "_syncIpnsArrivalSubscriptions").mockImplementation(() => {});
+                    // The stub must look like a sync that armed nothing new and has nothing to
+                    // establish; a thrown/undefined result would make the loop treat the push
+                    // channel as down and fall back to its 1s poll, which is not the safety net.
+                    syncSpy = vi
+                        .spyOn(managerInternals, "_syncIpnsArrivalSubscriptions")
+                        .mockImplementation(() => ({ established: Promise.resolve() }));
                     managerInternals._clearIpnsArrivalSubscriptions();
                     expect(
                         managerInternals._subscribedIpnsArrivalTopics.size,
@@ -678,10 +872,385 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                     // iteration and afterAll's stop() unsubscribes a consistent set. The shared
                     // client gets its real watchdog window back for the same reason.
                     syncSpy?.mockRestore();
-                    libp2pJsClient._ipnsPushChannel.watchdogMs = originalWatchdogMs;
+                    if (libp2pJsClient && originalWatchdogMs !== undefined) libp2pJsClient._ipnsPushChannel.watchdogMs = originalWatchdogMs;
                 }
             },
             240_000
         );
+
+        // On kubo the first cycle must arm its topic from INSIDE updateOnce, right after the
+        // resolve walked the name, and must not run a second cycle to compensate for having
+        // started unarmed: that extra cycle emitted a second fetching-ipns per community start,
+        // which every comment and publication mirrors into its own state sequence (the PR #324
+        // CI failures in libp2pjsClient.kuboRpc.clients and publishingstate.comment). Pins: the
+        // topic is in the manager's set by the time the first `update` fires, and one second
+        // later (far inside the 45-75s safety net) the name was resolved exactly TWICE — the
+        // cycle's own resolve plus the one silent post-arming local-store check that closes the
+        // pre-arming window (see the test below) — while fetching-ipns was entered exactly once
+        // (the silent check must not emit any state).
+        itIfKuboResolver(
+            "arms during the first cycle, right after its resolve, without running an extra cycle afterwards",
+            async () => {
+                const staticRecord = await publishCommunityRecordWithExtraProp();
+                staticRecordsToCleanUp.push(staticRecord);
+                const topic = ipnsNameToIpnsOverPubsubTopic(staticRecord.ipnsObj.signer.address);
+                const kuboRpcClient = pkc.clients.kuboRpcClients[Object.keys(pkc.clients.kuboRpcClients)[0]];
+                const originalResolve = kuboRpcClient._client.name.resolve;
+                let resolvesOfThisName = 0;
+                const resolveSpy = vi.spyOn(kuboRpcClient._client.name, "resolve").mockImplementation((name, options) => {
+                    if (String(name) === staticRecord.ipnsObj.signer.address) resolvesOfThisName++;
+                    return originalResolve(name, options);
+                });
+                try {
+                    const community = (await pkc.createCommunity({ address: staticRecord.ipnsObj.signer.address })) as RemoteCommunity;
+                    communitiesToStop.push(community);
+                    let fetchingIpnsEntries = 0;
+                    community.on("updatingstatechange", (newUpdatingState) => {
+                        if (newUpdatingState === "fetching-ipns") fetchingIpnsEntries++;
+                    });
+                    let topicsArmedAtFirstUpdate: string[] | undefined;
+                    const firstUpdate = new Promise<void>((resolve) =>
+                        community.once("update", () => {
+                            const updatingInstance = community._updatingCommunityInstanceWithListeners?.community ?? community;
+                            topicsArmedAtFirstUpdate = [
+                                ...(updatingInstance._clientsManager as unknown as { _subscribedIpnsArrivalTopics: Set<string> })
+                                    ._subscribedIpnsArrivalTopics
+                            ];
+                            resolve();
+                        })
+                    );
+                    await community.update();
+                    await firstUpdate;
+                    expect(
+                        topicsArmedAtFirstUpdate,
+                        "the walked name's topic must be armed inside the first cycle, before its update event"
+                    ).to.deep.equal([topic]);
+                    await sleep(1000);
+                    expect(arrivalsOf(pkc).isSubscribed?.({ pubsubTopic: topic }), "the kubo RPC stream must be live").to.equal(true);
+                    expect(
+                        resolvesOfThisName,
+                        "the arming cycle must be followed by exactly one silent freshness resolve, not an extra cycle"
+                    ).to.equal(2);
+                    expect(fetchingIpnsEntries, "a community start must enter fetching-ipns exactly once").to.equal(1);
+                } finally {
+                    resolveSpy.mockRestore();
+                }
+            },
+            60_000
+        );
+
+        // The pre-arming window of a kubo first cycle (its resolve returned -> the RPC stream is
+        // up) has no listener: a record pushed inside it wakes nothing, and gossipsub does not
+        // replay it to the stream once it attaches. The daemon's namesys DID store it (it
+        // subscribed to the topic when the cycle's resolve joined the name, and the IPNS-pubsub
+        // persistence layer converges the store even across missed messages,
+        // https://specs.ipfs.tech/ipns/ipns-pubsub-router/), so the loop must close the window
+        // with one silent local-store check after the arming settles instead of leaving the
+        // record to the 45-75s safety net. The gate below holds the RPC stream's establishment
+        // open so the publish lands deterministically inside the window.
+        itIfKuboResolver(
+            "a record published inside the pre-arming window is fetched right after arming, not left to the safety net",
+            async () => {
+                // Own pkc: the gate below delays the push channel of every community on the client.
+                const gatedPkc = await config.pkcInstancePromise({ pkcOptions: { updateInterval: 60_000 } });
+                const kuboRpcClient = gatedPkc.clients.kuboRpcClients[Object.keys(gatedPkc.clients.kuboRpcClients)[0]];
+                const originalSubscribe = kuboRpcClient._client.pubsub.subscribe.bind(kuboRpcClient._client.pubsub);
+                let openGate!: () => void;
+                const gate = new Promise<void>((resolve) => (openGate = resolve));
+                const subscribeSpy = vi.spyOn(kuboRpcClient._client.pubsub, "subscribe").mockImplementation(async (...args) => {
+                    await gate;
+                    return originalSubscribe(...args);
+                });
+                try {
+                    const staticRecord = await publishCommunityRecordWithExtraProp();
+                    staticRecordsToCleanUp.push(staticRecord);
+                    const community = (await gatedPkc.createCommunity({
+                        address: staticRecord.ipnsObj.signer.address
+                    })) as RemoteCommunity;
+                    let fetchingIpnsEntries = 0;
+                    community.on("updatingstatechange", (newUpdatingState) => {
+                        if (newUpdatingState === "fetching-ipns") fetchingIpnsEntries++;
+                    });
+                    const firstUpdate = new Promise<void>((resolve) => community.once("update", () => resolve()));
+                    await community.update();
+                    await firstUpdate;
+
+                    // The first cycle is done but its stream establishment is parked on the gate:
+                    // this IS the pre-arming window. Publish now, so the record reaches the
+                    // daemon's namesys while no RPC stream listener exists to be woken by it.
+                    const newerRecord = JSON.parse(JSON.stringify(staticRecord.communityRecord)) as typeof staticRecord.communityRecord;
+                    newerRecord.updatedAt = Math.max(newerRecord.updatedAt + 1, timestamp());
+                    newerRecord.signature = await signCommunity({ community: newerRecord, signer: staticRecord.ipnsObj.signer });
+                    const delivered = new Promise<void>((resolve) => {
+                        const onUpdate = () => {
+                            if (community.updatedAt !== newerRecord.updatedAt) return;
+                            community.removeListener("update", onUpdate);
+                            resolve();
+                        };
+                        community.on("update", onUpdate);
+                    });
+                    await staticRecord.ipnsObj.publishToIpns(JSON.stringify(newerRecord));
+                    openGate();
+
+                    // Far below the safety net's 45s minimum: only the silent post-arming check
+                    // can deliver this fast, and only a genuinely newer record may cost a cycle.
+                    await Promise.race([delivered, sleep(15_000)]);
+                    expect(
+                        community.updatedAt,
+                        "a record published inside the pre-arming window must be fetched right after arming, not left to the safety net"
+                    ).to.equal(newerRecord.updatedAt);
+                    expect(fetchingIpnsEntries, "the pre-arming record must cost exactly one extra real cycle").to.equal(2);
+                    await community.stop();
+                } finally {
+                    subscribeSpy.mockRestore();
+                    await gatedPkc.destroy();
+                }
+            },
+            120_000
+        );
+
+        // The delivery test earlier in this suite would also pass under the old 1s poll (a poll tick lands within
+        // a second). This pins the mechanism: once the topic is armed, a newer record must reach
+        // the community through the push channel, i.e. with exactly ONE name.resolve after the
+        // publish (the arrival-woken cycle's), not through a poll cadence.
+        itIfKuboResolver(
+            "a newer record is delivered by the push channel with a single resolve, not by polling",
+            async () => {
+                const { community, staticRecord } = await startUpdatingStaticCommunityAndAwaitFirstUpdate();
+                const topic = ipnsNameToIpnsOverPubsubTopic(staticRecord.ipnsObj.signer.address);
+                const deadline = Date.now() + 10_000;
+                while (Date.now() < deadline && !arrivalsOf(pkc).isSubscribed?.({ pubsubTopic: topic })) await sleep(100);
+                expect(arrivalsOf(pkc).isSubscribed?.({ pubsubTopic: topic }), "the topic must be armed before measuring").to.equal(true);
+                // Let the first cycle's establishment settle before counting.
+                await sleep(2000);
+
+                const kuboRpcClient = pkc.clients.kuboRpcClients[Object.keys(pkc.clients.kuboRpcClients)[0]];
+                const originalResolve = kuboRpcClient._client.name.resolve;
+                let resolvesOfThisName = 0;
+                const resolveSpy = vi.spyOn(kuboRpcClient._client.name, "resolve").mockImplementation((name, options) => {
+                    if (String(name) === staticRecord.ipnsObj.signer.address) resolvesOfThisName++;
+                    return originalResolve(name, options);
+                });
+                try {
+                    const newerRecord = JSON.parse(JSON.stringify(staticRecord.communityRecord)) as typeof staticRecord.communityRecord;
+                    newerRecord.updatedAt = Math.max(newerRecord.updatedAt + 1, timestamp());
+                    newerRecord.signature = await signCommunity({ community: newerRecord, signer: staticRecord.ipnsObj.signer });
+                    const delivered = new Promise<void>((resolve) => {
+                        const onUpdate = () => {
+                            if (community.updatedAt !== newerRecord.updatedAt) return;
+                            community.removeListener("update", onUpdate);
+                            resolve();
+                        };
+                        community.on("update", onUpdate);
+                    });
+                    await staticRecord.ipnsObj.publishToIpns(JSON.stringify(newerRecord));
+                    await Promise.race([delivered, sleep(20_000)]);
+                    expect(community.updatedAt, "the pushed record must be delivered").to.equal(newerRecord.updatedAt);
+                    // The post-publish resolve count: the helper's own post-publish sanity resolve goes
+                    // through the PUBLISHER's client, not this one, so every call here is the loop's.
+                    expect(
+                        resolvesOfThisName,
+                        "delivery must ride the push channel: one arrival-woken resolve, not a 1s poll cadence"
+                    ).to.equal(1);
+                } finally {
+                    resolveSpy.mockRestore();
+                }
+            },
+            120_000
+        );
+
+        // The push channel can be unavailable (pubsub disabled on the daemon, the daemon mid-
+        // restart). Then the loop must not park a whole safety-net period with nothing to wake it:
+        // it drops the topic it could not arm and keeps the pre-#322 1s poll until a later sync
+        // succeeds, so delivery is as prompt as before this change.
+        itIfKuboResolver(
+            "falls back to the 1s poll while the kubo push channel cannot be established",
+            async () => {
+                // Own pkc: the stub below disables the push channel for every community on the client.
+                const noPushPkc = await config.pkcInstancePromise({ pkcOptions: { updateInterval: 60_000 } });
+                const kuboRpcClient = noPushPkc.clients.kuboRpcClients[Object.keys(noPushPkc.clients.kuboRpcClients)[0]];
+                const subscribeSpy = vi
+                    .spyOn(kuboRpcClient._client.pubsub, "subscribe")
+                    .mockImplementation(() => Promise.reject(new Error("simulated: pubsub is disabled on this daemon")));
+                const originalResolve = kuboRpcClient._client.name.resolve;
+                let resolvesOfThisName = 0;
+                let resolveSpy: { mockRestore(): void } | undefined;
+                try {
+                    const staticRecord = await publishCommunityRecordWithExtraProp();
+                    staticRecordsToCleanUp.push(staticRecord);
+                    const community = (await noPushPkc.createCommunity({
+                        address: staticRecord.ipnsObj.signer.address
+                    })) as RemoteCommunity;
+                    const firstUpdate = new Promise<void>((resolve) => community.once("update", () => resolve()));
+                    await community.update();
+                    await firstUpdate;
+                    await sleep(1500); // past the first cycle's failed arming attempt
+
+                    const updatingInstance = community._updatingCommunityInstanceWithListeners?.community ?? community;
+                    const managerInternals = updatingInstance._clientsManager as unknown as { _subscribedIpnsArrivalTopics: Set<string> };
+                    expect(subscribeSpy.mock.calls.length, "the loop must have tried to arm the topic").to.be.greaterThan(0);
+                    expect(
+                        managerInternals._subscribedIpnsArrivalTopics.size,
+                        "a topic whose stream could not be established must not be kept as armed"
+                    ).to.equal(0);
+
+                    resolveSpy = vi.spyOn(kuboRpcClient._client.name, "resolve").mockImplementation((name, options) => {
+                        if (String(name) === staticRecord.ipnsObj.signer.address) resolvesOfThisName++;
+                        return originalResolve(name, options);
+                    });
+                    await sleep(5000);
+                    expect(
+                        resolvesOfThisName,
+                        "with no push channel the loop must keep the 1s poll, not park at the safety-net interval"
+                    ).to.be.within(3, 8);
+
+                    const newerRecord = JSON.parse(JSON.stringify(staticRecord.communityRecord)) as typeof staticRecord.communityRecord;
+                    newerRecord.updatedAt = Math.max(newerRecord.updatedAt + 1, timestamp());
+                    newerRecord.signature = await signCommunity({ community: newerRecord, signer: staticRecord.ipnsObj.signer });
+                    const delivered = new Promise<void>((resolve) => {
+                        const onUpdate = () => {
+                            if (community.updatedAt !== newerRecord.updatedAt) return;
+                            community.removeListener("update", onUpdate);
+                            resolve();
+                        };
+                        community.on("update", onUpdate);
+                    });
+                    await staticRecord.ipnsObj.publishToIpns(JSON.stringify(newerRecord));
+                    await Promise.race([delivered, sleep(15_000)]);
+                    expect(community.updatedAt, "the 1s poll must still deliver a newer record promptly").to.equal(newerRecord.updatedAt);
+                    await community.stop();
+                } finally {
+                    resolveSpy?.mockRestore();
+                    subscribeSpy.mockRestore();
+                    await noPushPkc.destroy();
+                }
+            },
+            120_000
+        );
+
+        // The adapter behind KuboRpcClient.ipnsRecordArrivals, driven by a fake kubo-rpc-client
+        // pubsub so its lifecycle is deterministic: one RPC stream per topic shared by every
+        // listener, delivery parsed and fanned out, a dead stream reported (never silently
+        // re-subscribed — the namesys join hazard), a failed establishment surfaced, destroy.
+        (isKuboResolver ? describe : describe.skip)("kubo ipnsRecordArrivals adapter", () => {
+            type FakeHandler = (message: { data: Uint8Array; topic: string }) => void;
+            const makeFakeKuboPubsub = () => {
+                const streams = new Map<string, { handler: FakeHandler; onError: (err: Error) => void }>();
+                const subscribe = vi.fn(
+                    async (topic: string, handler: FakeHandler, options?: { onError?: (err: Error) => void }): Promise<void> => {
+                        streams.set(topic, { handler, onError: options?.onError ?? (() => {}) });
+                    }
+                );
+                const unsubscribe = vi.fn(async (topic: string): Promise<void> => {
+                    streams.delete(topic);
+                });
+                const client = { pubsub: { subscribe, unsubscribe } } as unknown as Parameters<
+                    typeof createKuboIpnsRecordArrivals
+                >[0]["kuboRpcClient"];
+                return { client, streams, subscribe, unsubscribe };
+            };
+            const TOPIC = "/record/fake-topic";
+            const flush = () => sleep(50); // delivery parses through a lazily imported module
+
+            it("shares one RPC stream per topic across listeners and cancels it with the last one", async () => {
+                const { client, subscribe, unsubscribe } = makeFakeKuboPubsub();
+                const arrivals = createKuboIpnsRecordArrivals({ kuboRpcClient: client, kuboRpcClientUrl: "fake" });
+                const listenerA = vi.fn();
+                const listenerB = vi.fn();
+                await arrivals.subscribe({ pubsubTopic: TOPIC, listener: listenerA });
+                await arrivals.subscribe({ pubsubTopic: TOPIC, listener: listenerB });
+                expect(subscribe.mock.calls.length, "two listeners on one topic must share one RPC stream").to.equal(1);
+                expect(arrivals.isSubscribed?.({ pubsubTopic: TOPIC })).to.equal(true);
+                arrivals.unsubscribe({ pubsubTopic: TOPIC, listener: listenerA });
+                await flush();
+                expect(unsubscribe.mock.calls.length, "the stream must survive while a listener remains").to.equal(0);
+                expect(arrivals.isSubscribed?.({ pubsubTopic: TOPIC })).to.equal(true);
+                arrivals.unsubscribe({ pubsubTopic: TOPIC, listener: listenerB });
+                await flush();
+                expect(unsubscribe.mock.calls.length, "the last listener leaving must cancel the RPC stream").to.equal(1);
+                expect(arrivals.isSubscribed?.({ pubsubTopic: TOPIC })).to.equal(false);
+            });
+
+            it("parses a delivered record and fans it out to every listener, ignoring unparsable messages", async () => {
+                const { client, streams } = makeFakeKuboPubsub();
+                const arrivals = createKuboIpnsRecordArrivals({ kuboRpcClient: client, kuboRpcClientUrl: "fake" });
+                const listenerA = vi.fn();
+                const listenerB = vi.fn();
+                await arrivals.subscribe({ pubsubTopic: TOPIC, listener: listenerA });
+                await arrivals.subscribe({ pubsubTopic: TOPIC, listener: listenerB });
+                const stream = streams.get(TOPIC)!;
+                stream.handler({ data: new TextEncoder().encode("not an ipns record"), topic: TOPIC });
+                await flush();
+                expect(listenerA.mock.calls.length, "garbage on the topic must not reach listeners").to.equal(0);
+
+                const value = "/ipfs/bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
+                const record = await createIPNSRecord(await generateKeyPair("Ed25519"), value, 1n, 60_000);
+                stream.handler({ data: marshalIPNSRecord(record), topic: TOPIC });
+                await flush();
+                expect(listenerA.mock.calls.length).to.equal(1);
+                expect(listenerB.mock.calls.length).to.equal(1);
+                expect(listenerA.mock.calls[0][0].pubsubTopic).to.equal(TOPIC);
+                expect(listenerA.mock.calls[0][0].record.value).to.equal(value);
+            });
+
+            it("a throwing listener does not starve the other listeners of the shared topic", async () => {
+                const { client, streams } = makeFakeKuboPubsub();
+                const arrivals = createKuboIpnsRecordArrivals({ kuboRpcClient: client, kuboRpcClientUrl: "fake" });
+                const throwingListener = vi.fn(() => {
+                    throw new Error("simulated listener failure");
+                });
+                const listenerB = vi.fn();
+                await arrivals.subscribe({ pubsubTopic: TOPIC, listener: throwingListener });
+                await arrivals.subscribe({ pubsubTopic: TOPIC, listener: listenerB });
+                const value = "/ipfs/bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
+                const record = await createIPNSRecord(await generateKeyPair("Ed25519"), value, 1n, 60_000);
+                streams.get(TOPIC)!.handler({ data: marshalIPNSRecord(record), topic: TOPIC });
+                await flush();
+                expect(throwingListener.mock.calls.length).to.equal(1);
+                expect(listenerB.mock.calls.length, "the listener after the throwing one must still get the record").to.equal(1);
+                expect(listenerB.mock.calls[0][0].record.value).to.equal(value);
+            });
+
+            it("reports a dead stream through isSubscribed and never re-subscribes on its own (namesys join hazard)", async () => {
+                const { client, streams, subscribe, unsubscribe } = makeFakeKuboPubsub();
+                const arrivals = createKuboIpnsRecordArrivals({ kuboRpcClient: client, kuboRpcClientUrl: "fake" });
+                const listener = vi.fn();
+                await arrivals.subscribe({ pubsubTopic: TOPIC, listener });
+                streams.get(TOPIC)!.onError(new Error("simulated: daemon restarted"));
+                await flush();
+                expect(arrivals.isSubscribed?.({ pubsubTopic: TOPIC }), "a dead stream must read as not subscribed").to.equal(false);
+                expect(unsubscribe.mock.calls.length, "the dead stream's client-side subscription must be released").to.equal(1);
+                expect(
+                    subscribe.mock.calls.length,
+                    "the adapter must NOT re-subscribe by itself: only the update loop may, after a resolve re-joined namesys"
+                ).to.equal(1);
+                // The loop re-arms after re-walking the name: a new subscribe establishes a new stream.
+                await arrivals.subscribe({ pubsubTopic: TOPIC, listener });
+                expect(subscribe.mock.calls.length).to.equal(2);
+                expect(arrivals.isSubscribed?.({ pubsubTopic: TOPIC })).to.equal(true);
+            });
+
+            it("surfaces a failed establishment to the caller and stays unsubscribed, retrying on the next subscribe", async () => {
+                const { client, subscribe } = makeFakeKuboPubsub();
+                subscribe.mockRejectedValueOnce(new Error("simulated: pubsub disabled"));
+                const arrivals = createKuboIpnsRecordArrivals({ kuboRpcClient: client, kuboRpcClientUrl: "fake" });
+                const listener = vi.fn();
+                await expect(arrivals.subscribe({ pubsubTopic: TOPIC, listener })).rejects.toThrow("pubsub disabled");
+                expect(arrivals.isSubscribed?.({ pubsubTopic: TOPIC })).to.equal(false);
+                await arrivals.subscribe({ pubsubTopic: TOPIC, listener });
+                expect(subscribe.mock.calls.length, "a later subscribe must try to establish again").to.equal(2);
+                expect(arrivals.isSubscribed?.({ pubsubTopic: TOPIC })).to.equal(true);
+            });
+
+            it("destroy cancels every stream", async () => {
+                const { client, unsubscribe } = makeFakeKuboPubsub();
+                const arrivals = createKuboIpnsRecordArrivals({ kuboRpcClient: client, kuboRpcClientUrl: "fake" });
+                await arrivals.subscribe({ pubsubTopic: TOPIC, listener: vi.fn() });
+                await arrivals.subscribe({ pubsubTopic: `${TOPIC}-2`, listener: vi.fn() });
+                await arrivals.destroy();
+                expect(unsubscribe.mock.calls.map(([topic]) => topic).sort()).to.deep.equal([TOPIC, `${TOPIC}-2`].sort());
+                expect(arrivals.isSubscribed?.({ pubsubTopic: TOPIC })).to.equal(false);
+            });
+        });
     });
 });
