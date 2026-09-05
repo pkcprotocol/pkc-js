@@ -137,13 +137,17 @@ while (Date.now() - windowStart < windowSeconds * 1000) {
     deliveryWatch(generation);
 }
 
-// grace: let the last generation(s) arrive (pre-fix needs up to a full 60s poll + cache)
+// snapshot cost metrics before the grace period: the reader keeps polling during grace, but
+// that publish-free traffic is not part of the active window being measured
+const cpu = process.cpuUsage(cpuBaseline);
+const measuredSeconds = (Date.now() - windowStart) / 1000;
+const windowCounters = { ...counters, statuses: { ...counters.statuses } };
+
+// grace: let the last generation(s) arrive (pre-fix needs up to a full 60s poll + cache),
+// used only to collect delivery latencies
 const graceMs = 90_000;
 const graceStart = Date.now();
 while (generations.some((g) => !g.deliveredAt) && Date.now() - graceStart < graceMs) await sleep(1000);
-
-const cpu = process.cpuUsage(cpuBaseline);
-const measuredSeconds = (Date.now() - windowStart) / 1000;
 
 await community.stop();
 await staticRecord.ipnsObj.pkc.destroy();
@@ -164,16 +168,16 @@ console.log(
         generationsDelivered: delivered.length,
         deliveryLatenciesMs: latencies,
         medianDeliveryMs: median(latencies),
-        requests: counters.requests,
-        statuses: counters.statuses,
-        toGatewayBytes: counters.toGatewayBytes,
-        fromGatewayBytes: counters.fromGatewayBytes,
-        totalBytes: counters.toGatewayBytes + counters.fromGatewayBytes,
+        requests: windowCounters.requests,
+        statuses: windowCounters.statuses,
+        toGatewayBytes: windowCounters.toGatewayBytes,
+        fromGatewayBytes: windowCounters.fromGatewayBytes,
+        totalBytes: windowCounters.toGatewayBytes + windowCounters.fromGatewayBytes,
         cpuUserMs: Math.round(cpu.user / 1000),
         cpuSystemMs: Math.round(cpu.system / 1000),
         perHour: {
-            requests: Math.round((counters.requests / measuredSeconds) * 3600),
-            totalMB: Number((((counters.toGatewayBytes + counters.fromGatewayBytes) / measuredSeconds) * 3600 / 1e6).toFixed(2)),
+            requests: Math.round((windowCounters.requests / measuredSeconds) * 3600),
+            totalMB: Number((((windowCounters.toGatewayBytes + windowCounters.fromGatewayBytes) / measuredSeconds) * 3600 / 1e6).toFixed(2)),
             cpuMs: Math.round(((cpu.user + cpu.system) / 1000 / measuredSeconds) * 3600)
         }
     })

@@ -14,6 +14,13 @@ const [repoRoot, samplesArg] = process.argv.slice(2);
 if (!repoRoot) throw new Error("usage: node bench-gateway-loading.mjs <repoRoot> [samples]");
 const samples = Number(samplesArg ?? 3);
 
+// same hard-exit watchdog as the cost benches, so a stalled gateway fails loudly instead of hanging
+let stage = "imports";
+setTimeout(() => {
+    console.error("bench HARD EXIT: stage never completed:", stage);
+    process.exit(2);
+}, samples * 300_000);
+
 const { mockGatewayPKC, publishCommunityRecordWithExtraProp } = await import(`${repoRoot}/dist/node/test/test-util.js`);
 const { signCommunity } = await import(`${repoRoot}/dist/node/signer/signatures.js`);
 const { timestamp } = await import(`${repoRoot}/dist/node/util.js`);
@@ -28,6 +35,7 @@ for (let i = 0; i < samples; i++) {
     const community = await pkc.createCommunity({ address: staticRecord.ipnsObj.signer.address });
     let t0 = Date.now();
     const firstUpdate = new Promise((resolve) => community.once("update", resolve));
+    stage = `sample ${i + 1} initial-load`;
     await community.update();
     await firstUpdate;
     initialLoadMs.push(Date.now() - t0);
@@ -44,11 +52,13 @@ for (let i = 0; i < samples; i++) {
         };
         community.on("update", onUpdate);
     });
+    stage = `sample ${i + 1} propagation`;
     await staticRecord.ipnsObj.publishToIpns(JSON.stringify(next));
     t0 = Date.now();
     await delivered;
     propagationMs.push(Date.now() - t0);
 
+    stage = `sample ${i + 1} teardown`;
     await community.stop();
     await staticRecord.ipnsObj.pkc.destroy();
     await pkc.destroy();

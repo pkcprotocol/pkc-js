@@ -486,7 +486,7 @@ export class CommunityClientsManager extends PKCClientsManager {
     // Remaining ttl in seconds from a gateway response's Cache-Control header, undefined when
     // the gateway sent none (the spec says it SHOULD be omitted when the ttl is unknown).
     private _parseMaxAgeSeconds(cacheControl: string | null | undefined): number | undefined {
-        const maxAgeMatch = cacheControl?.match(/max-age=(\d+)/);
+        const maxAgeMatch = cacheControl?.match(/max-age=(\d+)/i);
         if (!maxAgeMatch?.[1]) return undefined;
         const maxAgeSeconds = parseInt(maxAgeMatch[1]);
         return Number.isFinite(maxAgeSeconds) ? maxAgeSeconds : undefined;
