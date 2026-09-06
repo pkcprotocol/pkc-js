@@ -777,8 +777,17 @@ export class BaseClientsManager {
                 "_helia" in kuboRpcOrHelia && loadOpts.bitswapSessionSeedScopeIpnsPubsubTopic
                     ? { bitswapSessionSeedScopeIpnsPubsubTopic: loadOpts.bitswapSessionSeedScopeIpnsPubsubTopic }
                     : undefined;
+            // The caller's signal goes to cat() as well as to the pTimeout below: pTimeout only
+            // abandons the promise on abort, and a helia cat left running would keep opening bitswap
+            // sessions and retrying "no providers" until its own timeout fired, long after the
+            // comment/community/pkc that asked for it was stopped (issue #345).
             const rawData = await all(
-                ipfsClient.cat(cidV0, { length: loadOpts.maxFileSizeBytes, timeout: `${loadOpts.timeoutMs}ms`, ...seedScopeOptions })
+                ipfsClient.cat(cidV0, {
+                    length: loadOpts.maxFileSizeBytes,
+                    timeout: `${loadOpts.timeoutMs}ms`,
+                    signal: loadOpts.abortSignal,
+                    ...seedScopeOptions
+                })
             );
             const data = uint8ArrayConcat(rawData);
             const fileContent = uint8ArrayToString(data);

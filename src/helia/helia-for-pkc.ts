@@ -91,13 +91,17 @@ function getDelegatedRoutingFields(routers: string[]) {
             // underlying client already swallows NotFoundError; this additionally covers connection
             // and transport errors. We do not re-throw on abort either — when findProviders is
             // aborted (subscriber found / maxPeers reached / caller signal), ending the iterator is
-            // the correct outcome and the caller handles the abort separately.
+            // the correct outcome and the caller handles the abort separately. An abort is also not
+            // worth a trace line: it is the caller ending its own query (a bitswap session closing,
+            // the pkc being destroyed), and logging it after the caller already moved on is what
+            // put a late debug line into vitest's worker teardown (issue #345).
             const routerUrl = routers[i];
             const originalFindProviders = routing.findProviders.bind(routing);
             routing.findProviders = async function* (cid: CID, options?: AbortOptions) {
                 try {
                     yield* originalFindProviders(cid, options);
                 } catch (e) {
+                    if (options?.signal?.aborted) return;
                     log.trace("Content router", routerUrl, "errored during findProviders; treating it as returning no providers", e);
                 }
             };
@@ -570,6 +574,19 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 });
         };
 
+        // Issue #345: every in-flight cat() also listens on this controller, and registers a promise
+        // that settles once its generator has unwound. The final stop() aborts the controller and
+        // waits for those promises before stopping helia, so no fetch (with or without a caller
+        // signal) keeps creating bitswap sessions, querying routers, and logging after stop()
+        // resolved. Under --per-test-logs such a late debug line lands while vitest is closing the
+        // worker and fails an all-green run (EnvironmentTeardownError, CI run 34019332586).
+        const catStopController = new AbortController();
+        const inFlightCats = new Set<Promise<void>>();
+        // Bound on waiting for in-flight cats to unwind. They only need to observe the abort and
+        // run their finally blocks, so this is never expected to be reached; it just keeps stop()
+        // from hanging on a generator whose consumer stopped pulling without calling return().
+        const IN_FLIGHT_CATS_UNWIND_TIMEOUT_MS = 5_000;
+
         const heliaWithKuboRpcClientShape: Libp2pJsClient["heliaWithKuboRpcClientFunctions"] = {
             name: {
                 resolve: (ipnsName: string, options?: KuboNameResolveOptions) => {
@@ -858,6 +875,20 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     const abortFromCallerSignal = () => controller.abort(callerSignal?.reason);
                     if (callerSignal?.aborted) abortFromCallerSignal();
                     else callerSignal?.addEventListener("abort", abortFromCallerSignal, { once: true });
+                    // The final stop() aborts this one (issue #345), see catStopController above.
+                    const abortFromStop = () =>
+                        controller.abort(
+                            new PKCError("ERR_HELIAS_STOPPING_OR_STOPPED", {
+                                heliaKey: pkcOptions.key,
+                                ipfsPath,
+                                ...getHeliaDebugContext(helia)
+                            })
+                        );
+                    if (catStopController.signal.aborted) abortFromStop();
+                    else catStopController.signal.addEventListener("abort", abortFromStop, { once: true });
+                    let markUnwound!: () => void;
+                    const unwound = new Promise<void>((resolve) => (markUnwound = resolve));
+                    inFlightCats.add(unwound);
                     const timeoutTimer =
                         timeoutMs !== undefined
                             ? setTimeout(
@@ -940,6 +971,9 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     } finally {
                         if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
                         callerSignal?.removeEventListener("abort", abortFromCallerSignal);
+                        catStopController.signal.removeEventListener("abort", abortFromStop);
+                        inFlightCats.delete(unwound);
+                        markUnwound();
                     }
                 })();
             },
@@ -1048,6 +1082,26 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     }
 
                     for (const topic of helia.libp2p.services.pubsub.getTopics()) helia.libp2p.services.pubsub.unsubscribe(topic);
+
+                    // End every in-flight cat() and let it unwind (close its bitswap session, run
+                    // its finally) before helia goes down, so nothing fetch-related runs or logs
+                    // after stop() resolves (issue #345).
+                    catStopController.abort();
+                    if (inFlightCats.size > 0) {
+                        const unwindTimeout = new AbortController();
+                        const allUnwound = Promise.all([...inFlightCats]).then(() => "unwound" as const);
+                        const timedOut = delayAbortable(IN_FLIGHT_CATS_UNWIND_TIMEOUT_MS, unwindTimeout.signal).then(
+                            () => "timed out" as const
+                        );
+                        const outcome = await Promise.race([allUnwound, timedOut]);
+                        unwindTimeout.abort();
+                        if (outcome === "timed out")
+                            log.error(
+                                "Timed out waiting for",
+                                inFlightCats.size,
+                                "in-flight cat() call(s) to unwind before stopping helia"
+                            );
+                    }
 
                     // Force-reset open transport connections before stopping helia. helia.stop()
                     // closes them gracefully (the TCP transport calls socket.destroySoon(), which waits
