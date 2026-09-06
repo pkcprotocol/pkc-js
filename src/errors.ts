@@ -438,5 +438,6 @@ export enum messages {
     ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED = "The page sort's validatePageSortSettings hook rejected settings.pages[]",
     ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED_FOR_PAGE_SORTS = "One or more entries of settings.pages failed validation",
     ERR_PAGE_SORT_FAILED_TO_GENERATE = "A configured page sort threw while generating its pages; it was skipped for this cycle and the remaining sorts were published",
-    ERR_PAGE_SORT_DB_WRITE_REJECTED = "A page sort attempted to prepare a statement that would write to the community database"
+    ERR_PAGE_SORT_DB_WRITE_REJECTED = "A page sort attempted to prepare a statement that would write to the community database",
+    ERR_RPC_CLIENT_PAGE_SORT_NAME_NOT_AVAILABLE_ON_SERVER = "settings.pages names a page sort that is not registered on the RPC server"
 }

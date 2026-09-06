@@ -25,6 +25,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 | `src/community/`, RemoteCommunity, LocalCommunity, RPC variants | `docs/protocol/community-architecture.md` |
 | `src/signer/signatures.ts`, verification, `signedPropertyNames` | `docs/protocol/signing.md` |
 | `src/pages/`, pagination, sort types, `pageCids` | `docs/protocol/pages.md` |
+| `settings.pages`, `src/runtime/node/community/page-sorts/`, `PageSortFile`, `community.pageSorts`, the page generator | `docs/protocol/page-sorts.md` |
 | `comment.crosspost`, embedded records, `features.noCrossposts` | `docs/protocol/crossposts.md` |
 | Challenge/response, `src/pubsub-messages/`, encryption | `docs/protocol/challenge-flow.md` |
 | `settings.challenges`, challenge options, sensitive config | `docs/protocol/challenge-settings.md` |

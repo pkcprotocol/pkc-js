@@ -548,6 +548,7 @@ An object which may have the following keys:
 | validatePages | `boolean` or `undefined` | `true` | If `false`, pages returned in `commentUpdate` / `Community` / `getPage` are not validated. Use only when you trust the source. |
 | userAgent | `string` or `undefined` | `/pkc-js:<version>/` | User-agent string sent on outgoing HTTP requests. |
 | challenges | `Record<string, ChallengeFileFactory>` or `undefined` | `undefined` | Instance-level challenge registry; keys shadow built-in challenges with the same name. See [docs/protocol/challenge-flow.md](docs/protocol/challenge-flow.md). |
+| pageSorts | `Record<string, PageSortFileFactory>` or `undefined` | `undefined` | Instance-level page sort registry (`PKC.pageSorts`); keys shadow built-in sorts with the same name and are referenced by `settings.pages[].name`. See [docs/protocol/page-sorts.md](docs/protocol/page-sorts.md). |
 
 #### Returns
 
@@ -1305,6 +1306,7 @@ An object which may have the following keys:
 | suggested | `CommunitySuggested` or `undefined` | The suggested client settings for the community |
 | flairs | `{[key: 'post' or 'author']: Flair[]}` or `undefined` | The list of flairs (colored labels for comments or authors) authors or mods can choose from |
 | settings | `CommunitySettings` or `undefined` | The private community.settings property of the community, not shared in the community IPNS |
+| pageSorts | `CommunityPageSorts` or `undefined` | What the community publishes about its configured page sorts (`settings.pages`), keyed by sort name per scope: `{ posts?: {[sortName]: { name?, description?, publicOptions? }}, replies?: ... }`. Absent when `settings.pages` is unset |
 
 ##### CommunitySettings
 
@@ -1315,6 +1317,19 @@ An object which may have the following keys:
 | fetchThumbnailUrls | `boolean` or `undefined` | Fetch the thumbnail URLs of comments `comment.link` property, could reveal the IP address of the community node |
 | fetchThumbnailUrlsProxyUrl | `string` or `undefined` | The HTTP proxy URL used to fetch thumbnail URLs |
 | disablePubsubChallengeExchange | `boolean` or `undefined` | Make the community read-only over the network. The node stops subscribing to the challenge/publication pubsub topic and the published record omits `pubsubTopic`, so clients know not to attempt a challenge exchange and fail fast with `ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED`. The owner can still publish through the local shortcut (same process or through the RPC server running the community). The configured `community.pubsubTopic` is kept while the setting is on, including across a restart, and is published again as-is when the setting is turned off |
+| pages | `CommunityPagesSettings` or `undefined` | Which page sorts to generate and which to embed in the record, per scope: `{ posts?: CommunityPageSortSetting[], replies?: CommunityPageSortSetting[] }`. Unset generates today's default sorts. Any change regenerates every CommentUpdate. See [docs/protocol/page-sorts.md](docs/protocol/page-sorts.md) |
+
+##### CommunityPageSortSetting
+
+One entry of `settings.pages.posts` / `settings.pages.replies`, mirroring `CommunityChallengeSetting`:
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| name | `string` or `undefined` | (only if path is undefined) The key in `PKC.pageSorts`: a built-in (`hot`, `new`, `old`, `best`, `top`, `topHour`, `topDay`, `topWeek`, `topMonth`, `topYear`, `topAll`, `active`, `controversial`, `newFlat`, `oldFlat`) or a registered package |
+| path | `string` or `undefined` | (only if name is undefined) The path to the page sort js file |
+| options | `{[optionName: string]: string}` or `undefined` | Options passed to the file. `maxAge` (`"7d"`, `"2w"`), `pinnedFirst` (`"true"`/`"false"`) and the `exclude*` moderation flags are reserved options every sort accepts |
+| preloaded | `boolean` or `undefined` | Embed this sort's first page in the record (`posts.pages` / `commentUpdate.replies.pages`). Default `false`; the first preloaded entry is the client's default sort |
+| privateOptions | `string[]` or `undefined` | Option names withheld from the public `community.pageSorts`; everything else set in `options` is published |
 
 #### Example
 

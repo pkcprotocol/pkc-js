@@ -370,8 +370,8 @@ export async function loadPageSortsForStartedCommunity(community: LocalCommunity
 // "Configured but not producing": every cycle that generates pages and finds a sort that threw emits on the community's
 // error event. The operator's config is not being honoured, so it is reported every time rather than deduped; a
 // legitimate settings edit never looks like this, unlike the key-set change below.
-export function reportFailedPageSorts(community: LocalCommunity, failedSorts: FailedPageSorts, log: Logger): void {
-    for (const error of Object.values(failedSorts)) {
+export function reportFailedPageSorts(community: LocalCommunity, failedSorts: FailedPageSorts | undefined, log: Logger): void {
+    for (const error of Object.values(failedSorts ?? {})) {
         error.details = { ...error.details, communityAddress: community.address };
         log.error("A configured page sort failed to generate and was skipped for this cycle", community.address, error);
         community.emit("error", error);

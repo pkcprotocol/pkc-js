@@ -11,6 +11,7 @@ Concise protocol reference for AI agents and contributors. Each doc covers one d
 | [community-architecture.md](community-architecture.md) | Local vs Remote vs RPC variants, state machines |
 | [signing.md](signing.md) | Ed25519 signatures, signedPropertyNames, CBORG encoding |
 | [pages.md](pages.md) | Pagination, sort types, ephemeral nature of pages |
+| [page-sorts.md](page-sorts.md) | `settings.pages`: choosing and preloading sorts, reserved options, `community.pageSorts`, writing a page sort file or package |
 | [crossposts.md](crossposts.md) | `comment.crosspost`, the embedded record, tier-1 vs tier-2 verification, `features.noCrossposts` |
 | [challenge-flow.md](challenge-flow.md) | 4-message encrypted challenge exchange |
 | [challenge-settings.md](challenge-settings.md) | Private (`settings.challenges`) vs public (`challenges`) boundary, sensitive options |
