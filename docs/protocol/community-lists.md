@@ -17,6 +17,7 @@ The name replaces "multisub", a fossil of the "subplebbit" vocabulary this repo 
 CommunityList /* (IPNS-published IPFS file) */ {
   title?: string
   description?: string
+  author?: Author // the list owner's self-set profile, same schema as publication.author
   communities: CommunityListEntry[]
   createdAt: number // seconds
   updatedAt: number // seconds, bumped on every edit
@@ -35,8 +36,8 @@ CommunityListEntry { // metadata set by the list owner, NOT the community owner
 }
 ```
 
-- `CommunityListSignedPropertyNames = ["title", "description", "communities", "createdAt",
-  "updatedAt", "protocolVersion"]`: every wire field except the signature itself, per the
+- `CommunityListSignedPropertyNames = ["title", "description", "author", "communities",
+  "createdAt", "updatedAt", "protocolVersion"]`: every wire field except the signature itself, per the
   conventions in [signing.md](signing.md). Future fields must go through the reserved-field
   check like every other record.
 - All array-valued fields are plural (`communities`, `languages`, `locations`, `features`,
@@ -50,7 +51,9 @@ CommunityListEntry { // metadata set by the list owner, NOT the community owner
   props ride along into the runtime instance and JSON round-trips untouched.
 - The runtime-only conveniences (`address`, `shortAddress`) go on reserved-field lists
   (`CommunityListReservedFields` and the entry equivalent), so looseness never lets a wire
-  record smuggle in runtime-only names; same rule as every other record type.
+  record smuggle in runtime-only names; same rule as every other record type. The author
+  object reuses the publication author reserved list (`address`, `publicKey`, `shortAddress`,
+  `community`, `nameResolved`, see below).
 
 ## Identity and addressing
 
@@ -64,6 +67,33 @@ CommunityListEntry { // metadata set by the list owner, NOT the community owner
   directory, not an authority: entry metadata is the list owner's claim.
 - The list itself is referenced by `{publicKey, name?}`, same as communities. The record has
   no `names[]` field and there are no magnet URIs.
+
+## Author
+
+The optional `author` field is the list owner's self-set profile, shown by clients next to
+the list the way a publication's author is shown next to a comment. It reuses the publication
+author schema verbatim, wire and runtime:
+
+- **Wire**: same shape as `publication.author` (`AuthorPubsubSchema`): `name?`,
+  `displayName?`, `previousCommentCid?`, `wallets?`, `avatar?`, `flairs?`. Strict on create,
+  loose on load, like the rest of the record. There is no identity field on the wire author;
+  identity always comes from the signature, per the publication convention.
+- **Runtime**: instances derive `author.publicKey`, `author.address`, and
+  `author.shortAddress` from `signature.publicKey` with the same helpers publications use
+  (`buildRuntimeAuthor` in `src/publications/publication-author.ts`), and a domain in
+  `author.name` reports resolution through `author.nameResolved`, never by overriding
+  `author.address`. Those names are the publication author reserved list, so a wire record
+  cannot smuggle them in.
+- A consequence of reusing the machinery unchanged: the record is signed by the list's IPNS
+  key, so the derived `author.publicKey`/`author.address` are the list's own identity, not a
+  separate personal author key. Everything in `author` (display name, wallets, avatar NFT) is
+  the owner's claim, verified no further than a publication author's claims are.
+- **No community-assigned author state.** A `CommunityList` is never published to a
+  community: there is no challenge flow and no `CommentUpdate` analog, so `author.community`
+  (community-assigned flair, ban state, karma) does not exist on a list author, on the wire
+  or at runtime.
+- `edit(props)` can change `author` like any other owner-set field (bumps `updatedAt`,
+  re-signs, republishes).
 
 ## Ownership and custody
 
