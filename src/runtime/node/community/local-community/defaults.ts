@@ -16,6 +16,12 @@ export const DUPLICATE_PUBLICATION_ERRORS = new Set<string>([
     messages.ERR_DUPLICATE_COMMENT_MODERATION
 ]);
 
+// How long a challenge exchange may stay open before the community stops tracking it: the ttl
+// of every per-exchange cache (ongoing exchanges, answer promises, replay budget) and the bound on
+// waiting for an author's challenge answer, so a request parked behind an in-flight exchange for
+// the same signed publication (issue #228) is never parked forever.
+export const CHALLENGE_EXCHANGE_TTL_MS = 10 * 60 * 1000;
+
 export const defaultChallengeQuestionText =
     "What is the answer to this community's challenge? (check community.settings.challenges to see the answer, or set your own challenge)";
 

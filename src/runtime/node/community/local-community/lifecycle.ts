@@ -84,7 +84,7 @@ export async function initBeforeStarting(community: LocalCommunity) {
     if (!community._challengeAnswerPromises)
         community._challengeAnswerPromises = new LRUCache<string, Promise<DecryptedChallengeAnswer["challengeAnswers"]>>({
             max: 1000,
-            ttl: 600000
+            ttl: community._challengeExchangeTtlMs
         });
     if (!community._challengeAnswerResolveReject)
         community._challengeAnswerResolveReject = new LRUCache<
@@ -92,17 +92,17 @@ export async function initBeforeStarting(community: LocalCommunity) {
             { resolve: (answers: DecryptedChallengeAnswer["challengeAnswers"]) => void; reject: (error: Error) => void }
         >({
             max: 1000,
-            ttl: 600000
+            ttl: community._challengeExchangeTtlMs
         });
     if (!community._ongoingChallengeExchanges)
         community._ongoingChallengeExchanges = new LRUCache<string, boolean>({
             max: 1000,
-            ttl: 600000
+            ttl: community._challengeExchangeTtlMs
         });
     if (!community._duplicatePublicationAttempts)
         community._duplicatePublicationAttempts = new LRUCache<string, number>({
             max: 1000,
-            ttl: 600000
+            ttl: community._challengeExchangeTtlMs
         });
     await community._dbHandler.initDbIfNeeded();
 }

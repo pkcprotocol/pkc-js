@@ -251,6 +251,7 @@ export enum messages {
 
     // Community rejections of pubsub messages
     ERR_CHALLENGE_ANSWER_WITH_NO_CHALLENGE_REQUEST = "Received a challenge answer without a prior challenge request",
+    ERR_COMMUNITY_TIMED_OUT_WAITING_FOR_CHALLENGE_ANSWER = "The community did not receive a challenge answer within the challenge exchange ttl",
     ERR_REUSED_PUBSUB_MSG_SIGNER = "Reusing a pubsub message signer is forbidden",
     ERR_PUBSUB_MSG_TIMESTAMP_IS_OUTDATED = "The timestamp of the pubsub message is outdated",
 

@@ -1,6 +1,7 @@
 import Logger from "../../../../logger.js";
 import { clone, keys, omit, pick } from "remeda";
 import * as cborg from "cborg";
+import pTimeout from "p-timeout";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { derivePublicationFromChallengeRequest, getErrorCodeFromMessage, timestamp } from "../../../../util.js";
 import { deriveCommentIpfsFromCommentTableRow } from "../../util.js";
@@ -193,6 +194,9 @@ export async function publishIdempotentDuplicateVerification(
             author: { community: authorCommunity },
             cid: existingComment.cid,
             protocolVersion: env.PROTOCOL_VERSION,
+            // A row stored pending approval is not live yet; the author must learn that here exactly
+            // as they would from the verification of the exchange that stored it.
+            pendingApproval: existingComment.pendingApproval ? true : undefined,
             ...commentNumberPostNumber
         });
         const commentUpdate = <DecryptedChallengeVerification["commentUpdate"]>{
@@ -453,7 +457,14 @@ export function buildRuntimeChallengeRequest({
     return runtimeRequest;
 }
 
-// Result type for the parse/validate phase of handleChallengeRequest.
+// Result of the parse phase of handleChallengeRequest: the decrypted request and the publication
+// it carries, checked for shape and signature but not yet against the database.
+type ParsedChallengeRequestBeforeValidation = {
+    decryptedRequestMsg: DecryptedChallengeRequestMessageType;
+    publication: PublicationFromDecryptedChallengeRequest;
+};
+
+// Result type for the validate phase of handleChallengeRequest.
 type ParsedChallengeRequest = {
     decryptedRequestMsg: DecryptedChallengeRequestMessageType;
     decryptedRequestWithCommunityAuthor: DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
@@ -461,13 +472,15 @@ type ParsedChallengeRequest = {
     communityAuthor: ReturnType<LocalCommunity["_dbHandler"]["queryCommunityAuthor"]>;
 };
 
-// Decrypt, parse, derive the publication, and validate signatures/duplicate fields.
-// Returns the parsed structures, or `undefined` if a failure verification was published and processing should stop.
-async function parseAndValidateChallengeRequest(
+// Decrypt, parse, derive the publication, and verify its signature. Database validation is a
+// separate step (validatePublicationOrRespondWithFailure) so the caller can run it under the
+// per-signature exchange lock. Returns `undefined` if a failure verification was published and
+// processing should stop.
+async function parseChallengeRequest(
     community: LocalCommunity,
     request: ChallengeRequestMessageType,
     log: Logger
-): Promise<ParsedChallengeRequest | undefined> {
+): Promise<ParsedChallengeRequestBeforeValidation | undefined> {
     const decryptedRawString = await decryptOrRespondWithFailure(community, request);
 
     const decryptedRequest = await parseChallengeRequestPublicationOrRespondWithFailure(community, request, decryptedRawString);
@@ -539,18 +552,17 @@ async function parseAndValidateChallengeRequest(
 
     community.emit("challengerequest", decryptedRequestWithCommunityAuthor);
 
-    return validatePublicationOrRespondWithFailure({ community, decryptedRequestMsg, publication, countDuplicateAttempt: true });
+    return { decryptedRequestMsg, publication };
 }
 
 // Validates the publication against the current database state and publishes a failure (or an
 // idempotent success for a duplicate) when it is rejected. Returns the structures the challenge
 // exchange needs, or `undefined` when a verification was published and processing should stop.
 //
-// Runs once on arrival, and again for a request that waited on an in-flight exchange for the same
-// signed publication (issue #228): the database may have changed while it waited. A duplicate found
-// on that second pass is the publication the author already got accepted through the overlapping
-// exchange, not a replay of a stored row, so the caller passes `countDuplicateAttempt: false` and
-// the author keeps their single post-storage idempotent retry.
+// Runs under the per-signature exchange lock (issue #228). A duplicate found by a request that
+// waited on an in-flight exchange for the same signed publication is the publication the author
+// already got accepted through that exchange, not a replay of a stored row, so the caller passes
+// `countDuplicateAttempt: false` and the author keeps their single post-storage idempotent retry.
 async function validatePublicationOrRespondWithFailure({
     community,
     decryptedRequestMsg,
@@ -618,7 +630,18 @@ async function runChallengeExchangeIfNeeded(
             community._challengeAnswerResolveReject.set(answerPromiseKey, { resolve, reject })
         );
         community._challengeAnswerPromises.set(answerPromiseKey, challengeAnswerPromise);
-        const challengeAnswers = await community._challengeAnswerPromises.get(answerPromiseKey);
+        // Bounded by the exchange ttl: an author who walks away from an interactive challenge must
+        // not park this handler (and, through _inFlightPublicationExchanges, every later request
+        // for the same signed publication) forever.
+        const challengeAnswers = await pTimeout(challengeAnswerPromise, {
+            milliseconds: community._challengeExchangeTtlMs,
+            fallback: () => {
+                throw new PKCError("ERR_COMMUNITY_TIMED_OUT_WAITING_FOR_CHALLENGE_ANSWER", {
+                    challengeRequestId: answerPromiseKey,
+                    challengeExchangeTtlMs: community._challengeExchangeTtlMs
+                });
+            }
+        });
         if (!challengeAnswers) throw Error("Failed to retrieve challenge answers from promise. This is a critical error");
         cleanUpChallengeAnswerPromise(community, answerPromiseKey);
         return challengeAnswers;
@@ -633,6 +656,14 @@ async function runChallengeExchangeIfNeeded(
             getChallengeAnswers
         });
     } catch (e) {
+        if (e instanceof PKCError && e.code === "ERR_COMMUNITY_TIMED_OUT_WAITING_FOR_CHALLENGE_ANSWER") {
+            // The author never answered. Not a challenge bug, so no error event: fail the exchange so
+            // its state is released and a request waiting on it can run its own.
+            log("Timed out waiting for the challenge answer, failing the exchange", answerPromiseKey);
+            cleanUpChallengeAnswerPromise(community, answerPromiseKey);
+            challengeVerification = { challengeSuccess: false, reason: messages.ERR_COMMUNITY_TIMED_OUT_WAITING_FOR_CHALLENGE_ANSWER };
+            return challengeVerification;
+        }
         // getChallengeVerification will throw if one of the getChallenge function throws, which indicates a bug with the challenge script
         // notify the community owner that that one of his challenge is misconfigured via an error event
         log.error("getChallenge failed, the community owner needs to check the challenge code. The error is: ", e);
@@ -693,18 +724,21 @@ export async function handleChallengeRequest(community: LocalCommunity, request:
             challengeRequest: omit(request, ["encrypted"])
         });
 
-    let parsed = await parseAndValidateChallengeRequest(community, request, log);
-    if (!parsed) return;
+    const decrypted = await parseChallengeRequest(community, request, log);
+    if (!decrypted) return;
 
     // One challenge exchange at a time per signed publication (issue #228). A client that gets no
     // response within its provider-switch threshold re-sends the same signed publication under a new
-    // challengeRequestId while a slow automatic challenge is still deciding the first request. Both
-    // pass the duplicate check above because nothing is stored yet; without this, the second would
+    // challengeRequestId while a slow automatic challenge is still deciding the first request.
+    // Without this, both would pass the duplicate check (nothing is stored yet), and the second would
     // run the (expensive) challenge again and then fail at storage with ERR_DUPLICATE_COMMENT for a
-    // publication that was just accepted. Instead it waits for the first exchange to settle and then
-    // re-validates: stored now means an idempotent success, not stored (the first exchange failed)
-    // means it runs its own exchange as a fresh attempt.
-    const publicationSignature = parsed.publication.signature.signature;
+    // publication that was just accepted. Instead the second waits for the first exchange to settle
+    // and only then validates: stored now means an idempotent success, not stored (the first
+    // exchange failed) means it runs its own exchange as a fresh attempt. The lock is taken before
+    // validation so the duplicate check can never observe a row the overlapping exchange stored
+    // while this request was still being validated; that would count the request as a replay of a
+    // stored row and spend the author's single post-storage idempotent retry.
+    const publicationSignature = decrypted.publication.signature.signature;
     let waitedForInFlightExchange = false;
     while (community._inFlightPublicationExchanges.has(publicationSignature)) {
         waitedForInFlightExchange = true;
@@ -712,7 +746,19 @@ export async function handleChallengeRequest(community: LocalCommunity, request:
             "Received a challenge request for a signed publication whose challenge exchange is in flight, waiting for it to settle",
             request.challengeRequestId.toString()
         );
-        await community._inFlightPublicationExchanges.get(publicationSignature);
+        // The in-flight exchange bounds its own answer wait by the same ttl; this is the backstop
+        // for a challenge script that never returns, so no signature can be parked forever.
+        const settled = await pTimeout(community._inFlightPublicationExchanges.get(publicationSignature)!, {
+            milliseconds: community._challengeExchangeTtlMs,
+            fallback: () => false as const
+        }).then((result) => result !== false);
+        if (!settled) {
+            log(
+                "The in-flight challenge exchange did not settle within the challenge exchange ttl, proceeding with this request",
+                request.challengeRequestId.toString()
+            );
+            break;
+        }
     }
     // Registered synchronously after the wait so two waiters woken by the same settle cannot both
     // proceed: the second one sees this entry on its next loop check.
@@ -720,15 +766,13 @@ export async function handleChallengeRequest(community: LocalCommunity, request:
     const inFlightExchange = new Promise<void>((resolve) => (settleInFlightExchange = resolve));
     community._inFlightPublicationExchanges.set(publicationSignature, inFlightExchange);
     try {
-        if (waitedForInFlightExchange) {
-            parsed = await validatePublicationOrRespondWithFailure({
-                community,
-                decryptedRequestMsg: parsed.decryptedRequestMsg,
-                publication: parsed.publication,
-                countDuplicateAttempt: false
-            });
-            if (!parsed) return;
-        }
+        const parsed = await validatePublicationOrRespondWithFailure({
+            community,
+            decryptedRequestMsg: decrypted.decryptedRequestMsg,
+            publication: decrypted.publication,
+            countDuplicateAttempt: !waitedForInFlightExchange
+        });
+        if (!parsed) return;
 
         const challengeVerification = await runChallengeExchangeIfNeeded(community, parsed, log);
         if (!challengeVerification) return;
