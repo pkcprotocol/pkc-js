@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.99](https://github.com/pkcprotocol/pkc-js/compare/v0.0.98...v0.0.99) (2026-09-06)
+
+### Bug Fixes
+
+* answer overlapping challenge requests once and keep a challenged exchange alive ([#228](https://github.com/pkcprotocol/pkc-js/issues/228) [#340](https://github.com/pkcprotocol/pkc-js/issues/340)) ([#341](https://github.com/pkcprotocol/pkc-js/issues/341)) ([5556ae3](https://github.com/pkcprotocol/pkc-js/commit/5556ae34a6dfac473fe13597386e43ad5942d240))
+* **helia:** end in-flight block fetches on caller abort and pkc.destroy() ([#345](https://github.com/pkcprotocol/pkc-js/issues/345)) ([77d0e5a](https://github.com/pkcprotocol/pkc-js/commit/77d0e5abe42fb192e721df2f8e9f1b346e7c953b)), closes [#325](https://github.com/pkcprotocol/pkc-js/issues/325)
+
 ## [0.0.98](https://github.com/pkcprotocol/pkc-js/compare/v0.0.97...v0.0.98) (2026-09-04)
 
 ### Bug Fixes
