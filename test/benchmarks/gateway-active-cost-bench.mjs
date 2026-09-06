@@ -28,18 +28,41 @@ const { timestamp } = await import(`${repoRoot}/dist/node/util.js`);
 const signLog = { error: (...args) => console.error("signJson error:", ...args) };
 
 // ---- byte/request counting TCP proxy in front of the gateway ----
+// Requests and statuses are counted on HTTP/1.1 message framing, not per TCP chunk: a chunk can
+// carry several messages or split a request/status line, so each direction keeps a per-socket
+// line buffer and only counts complete lines. Bodies are JSON/protobuf and never start a line
+// with "GET /" or "HTTP/1.", so scanning every complete line is safe here.
 const counters = { toGatewayBytes: 0, fromGatewayBytes: 0, requests: 0, statuses: {} };
+const REQUEST_LINE = /^(?:GET|HEAD|POST|OPTIONS) \S+ HTTP\/1\.[01]$/;
+const STATUS_LINE = /^HTTP\/1\.[01] (\d{3})\b/;
+const MAX_PENDING_LINE_BYTES = 64 * 1024; // request/status lines are short; drop a longer partial (a body run)
+const lineCounter = (onLine) => {
+    let pending = "";
+    return (chunk) => {
+        pending += chunk.toString("latin1");
+        const lines = pending.split("\r\n");
+        pending = lines.pop();
+        if (pending.length > MAX_PENDING_LINE_BYTES) pending = "";
+        for (const line of lines) onLine(line);
+    };
+};
 const proxy = net.createServer((clientSocket) => {
     const gatewaySocket = net.connect(18080, "127.0.0.1");
+    const countRequestLines = lineCounter((line) => {
+        if (REQUEST_LINE.test(line)) counters.requests += 1;
+    });
+    const countStatusLines = lineCounter((line) => {
+        const statusMatch = line.match(STATUS_LINE);
+        if (statusMatch) counters.statuses[statusMatch[1]] = (counters.statuses[statusMatch[1]] || 0) + 1;
+    });
     clientSocket.on("data", (chunk) => {
         counters.toGatewayBytes += chunk.length;
-        if (chunk.subarray(0, 4).toString() === "GET " || chunk.subarray(0, 5).toString() === "HEAD ") counters.requests += 1;
+        countRequestLines(chunk);
         gatewaySocket.write(chunk);
     });
     gatewaySocket.on("data", (chunk) => {
         counters.fromGatewayBytes += chunk.length;
-        const statusMatch = chunk.subarray(0, 12).toString().match(/^HTTP\/1\.1 (\d{3})/);
-        if (statusMatch) counters.statuses[statusMatch[1]] = (counters.statuses[statusMatch[1]] || 0) + 1;
+        countStatusLines(chunk);
         clientSocket.write(chunk);
     });
     const closeBoth = () => {

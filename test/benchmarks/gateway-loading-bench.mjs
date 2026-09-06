@@ -6,9 +6,12 @@
 //
 // Metrics, per sample, all through a gateway-only PKC at the production updateInterval (60s):
 //   initialLoadMs: createCommunity + update() -> first "update" event (fresh static record)
-//   propagationMs: publish a newer record generation -> "update" event delivering it,
-//                  clock started after publishToIpns returns (same convention as
-//                  test/node-and-browser/community/update-freshness-gateway.test.ts)
+//   propagationMs: publish a newer record generation -> "update" event delivering it. The
+//                  clock starts BEFORE publishToIpns so a reader that delivers while the publish
+//                  call is still returning (it includes a verify-resolve poll) can never record
+//                  0ms; publishMs is reported alongside so the post-publish figure that
+//                  test/node-and-browser/community/update-freshness-gateway.test.ts uses stays
+//                  derivable as propagationMs - publishMs.
 
 const [repoRoot, samplesArg] = process.argv.slice(2);
 if (!repoRoot) throw new Error("usage: node bench-gateway-loading.mjs <repoRoot> [samples]");
@@ -27,6 +30,7 @@ const { timestamp } = await import(`${repoRoot}/dist/node/util.js`);
 
 const initialLoadMs = [];
 const propagationMs = [];
+const publishMs = [];
 
 for (let i = 0; i < samples; i++) {
     const pkc = await mockGatewayPKC({ pkcOptions: { updateInterval: 60_000 } });
@@ -53,8 +57,9 @@ for (let i = 0; i < samples; i++) {
         community.on("update", onUpdate);
     });
     stage = `sample ${i + 1} propagation`;
-    await staticRecord.ipnsObj.publishToIpns(JSON.stringify(next));
     t0 = Date.now();
+    await staticRecord.ipnsObj.publishToIpns(JSON.stringify(next));
+    publishMs.push(Date.now() - t0);
     await delivered;
     propagationMs.push(Date.now() - t0);
 
@@ -62,7 +67,7 @@ for (let i = 0; i < samples; i++) {
     await community.stop();
     await staticRecord.ipnsObj.pkc.destroy();
     await pkc.destroy();
-    console.error(`sample ${i + 1}/${samples}: initialLoad=${initialLoadMs[i]}ms propagation=${propagationMs[i]}ms`);
+    console.error(`sample ${i + 1}/${samples}: initialLoad=${initialLoadMs[i]}ms propagation=${propagationMs[i]}ms (publish ${publishMs[i]}ms)`);
 }
 
 const median = (xs) => {
@@ -75,8 +80,10 @@ console.log(
         samples,
         initialLoadMs,
         propagationMs,
+        publishMs,
         medianInitialLoadMs: median(initialLoadMs),
-        medianPropagationMs: median(propagationMs)
+        medianPropagationMs: median(propagationMs),
+        medianPublishMs: median(publishMs)
     })
 );
 process.exit(0);
