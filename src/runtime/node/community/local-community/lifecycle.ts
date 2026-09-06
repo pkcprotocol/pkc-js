@@ -202,6 +202,10 @@ export async function start(community: LocalCommunity) {
         // on every start until the owner fixes it, because a suppressed error is how a misconfiguration
         // gets forgotten.
         await emitChallengeSettingsValidationErrors(community, log);
+        // Resolve settings.pages against the sort files now, once, so page generation reuses the instances; each
+        // invalid entry is its own error event and is skipped, the rest of the config still publishes (issue #73)
+        community._lastGeneratedPageSortKeys = {};
+        await community._loadPageSorts();
     } catch (e) {
         await community.stop(); // Make sure to reset the community state
         //@ts-expect-error

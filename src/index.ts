@@ -9,6 +9,7 @@ import browserNativeFunctions from "./runtime/browser/native-functions.js";
 import { shortifyAddress, shortifyCid } from "./util.js";
 import { createAnchorIpnsRecord as signerCreateAnchorIpnsRecord } from "./signer/ipns-record.js";
 import { pkcJsChallenges } from "./runtime/node/community/challenges/index.js";
+import { pkcJsPageSorts } from "./runtime/node/community/page-sorts/index.js";
 import { PKCWithRpcClient } from "./pkc/pkc-with-rpc-client.js";
 import type { AuthorNameRpcParam, CidRpcParam } from "./clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam } from "./clients/rpc-client/rpc-schema-util.js";
@@ -33,6 +34,9 @@ PKC.nativeFunctions = { node: nodeNativeFunctions, browser: browserNativeFunctio
 PKC.getShortCid = getShortCidValue;
 PKC.getShortAddress = getShortAddressValue;
 PKC.challenges = pkcJsChallenges;
+// The built-in page sorts (issue #73), keyed by the name settings.pages[].name refers to. A consumer may add or
+// shadow entries here or pass `pageSorts` in the PKC options; packages installed by bitsocial-cli register the same way.
+PKC.pageSorts = pkcJsPageSorts;
 // Delegation setup (#234): the anchor record An -> Mn is signed with As, the one key that by design
 // never reaches the node, so this is the single step of the flow that has to run in the consumer's
 // process. Nothing in src/ calls it and nothing ever can, which is exactly why it belongs on the
@@ -45,6 +49,7 @@ export const nativeFunctions = PKC.nativeFunctions;
 export const getShortCid = PKC.getShortCid;
 export const getShortAddress = PKC.getShortAddress;
 export const challenges = PKC.challenges;
+export const pageSorts = PKC.pageSorts;
 export const createAnchorIpnsRecord = PKC.createAnchorIpnsRecord;
 
 // Public re-exports: name-resolver contract — let third-party resolver

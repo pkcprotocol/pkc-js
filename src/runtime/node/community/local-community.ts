@@ -73,6 +73,7 @@ import {
     publishChallengeVerification,
     publishIdempotentDuplicateVerification
 } from "./local-community/challenges.js";
+import { loadPageSortsForStartedCommunity, type ResolvedPageSorts } from "./page-sorts/index.js";
 import { checkPublicationValidity } from "./local-community/publication-validation.js";
 import { calculateLocalMfsPathForCommentUpdate, updateCommentsThatNeedToBeUpdated } from "./local-community/comment-updates.js";
 import { purgeDisapprovedCommentsOlderThan } from "./local-community/cleanup.js";
@@ -129,6 +130,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _combinedHashOfPendingCommentsCids: string = sha256("");
 
     _pageGenerator!: PageGenerator;
+    // settings.pages resolved against the loaded sort files (issue #73); set at start and on every settings edit.
+    // Initialized (not just declared) so hideClassPrivateProps sees it and keeps it out of JSON.
+    _pageSorts: ResolvedPageSorts | undefined = undefined;
+    _lastGeneratedPageSortKeys: { posts?: string[]; replies?: string[] } = {};
     _dbHandler!: DbHandler;
     _stopHasBeenCalled: boolean; // we use this to track if community.stop() has been called after community.start() or community.update()
     _publishLoopPromise?: Promise<void> = undefined;
@@ -565,6 +570,16 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // invoke directly on the instance via `(ctx.community as LocalCommunity)._foo(...)`.
     async _updateCommentsThatNeedToBeUpdated() {
         return updateCommentsThatNeedToBeUpdated(this);
+    }
+
+    // Resolve settings.pages into this._pageSorts, reporting every invalid entry on the error event and keeping the
+    // valid ones, so a broken third-party sort never stops the community from publishing. Needs an open DB.
+    async _loadPageSorts() {
+        return loadPageSortsForStartedCommunity(this);
+    }
+
+    async _ensurePageSortsLoaded(): Promise<ResolvedPageSorts> {
+        return this._pageSorts ?? this._loadPageSorts();
     }
 
     async _purgeDisapprovedCommentsOlderThan() {

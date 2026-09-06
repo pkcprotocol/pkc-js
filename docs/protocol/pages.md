@@ -39,23 +39,33 @@ All schemas defined in `src/pages/schema.ts`.
 
 ## Sort Types
 
+Which sorts a community generates is the operator's choice through `settings.pages` (see [page-sorts.md](page-sorts.md)). The names below are what an unconfigured community generates; a configured one publishes any subset, plus sorts installed from packages under whatever `sortName` those declare.
+
 ### Posts (`PostSortNameSchema`)
 
 `"hot"` | `"new"` | `"topHour"` | `"topDay"` | `"topWeek"` | `"topMonth"` | `"topYear"` | `"topAll"` | `"active"`
+
+`hot` is the preloaded (embedded) sort by default. `controversial` and the generic `top` (with a `maxAge` option) exist as built-ins but are opt-in.
 
 ### Replies (`ReplySortNameSchema`)
 
 `"best"` | `"new"` | `"old"` | `"newFlat"` | `"oldFlat"`
 
-Both schemas also accept `z.string().min(1)` for forward compatibility with custom sort types.
+`best` is the preloaded sort by default. `newFlat` / `oldFlat` sort the flattened descendant subtree and are generated for a post's replies only, never for a reply's replies.
+
+Both schemas also accept `z.string().min(1)`: a custom sort name parses on every client.
+
+Clients discover which sorts a community actually has from the keys of `pages` and `pageCids`, and what each one is (built-in or package, with which public options) from `community.pageSorts`.
 
 ## How Pages Work
 
-1. Community generates pages from its comment database (see `src/runtime/node/community/page-generator.ts`)
-2. First page of each sort is embedded directly in `pages` (pre-loaded, no extra fetch needed)
-3. If more pages exist, `pageCids` provides the CID to fetch the next page
-4. Each subsequent page has its own `nextCid` for further pagination
-5. `pageCids` may be omitted if all items fit in the pre-loaded first page
+1. Community generates pages from its comment database (see `src/runtime/node/community/page-generator.ts`), one set per sort in `settings.pages`
+2. Every sort marked `preloaded` embeds its first page directly in `pages` (pre-loaded, no extra fetch needed). Preloaded sorts share one size budget equally; a sort whose first page does not fit its share is generated as if it were not preloaded
+3. The keys of `pages` follow the configured order, so the first key is the sort a client should open by default
+4. Sorts that are not embedded are reachable through `pageCids`, which carries the CID of their first page. A preloaded sort's continuation is `pages[sort].nextCid`, not `pageCids`
+5. Each subsequent page has its own `nextCid` for further pagination
+6. **Single-chunk shortcut:** when every preloaded sort fits in a single page, only those pages are published and the other sorts are not generated at all; clients re-sort the embedded comments locally. A custom sort that is not preloaded is therefore unavailable on a board that fits in one chunk (the reason `active-page-sort` style boards preload their custom sort). With no preloaded sort there is no shortcut and every sort is in `pageCids` with `pages: {}`
+7. A `maxAge` window on a **post** sort is re-evaluated at least every 15 minutes (the community record is rebuilt on that heartbeat even when nothing changed). A window on a **reply** sort is re-evaluated when a reply crosses the boundary: `queryCommentsToBeUpdated` flags the parent only then, so a quiet thread costs nothing
 
 ## Moderation Visibility
 
@@ -71,11 +81,11 @@ Reply pages deliberately include removed and deleted comments so clients can ren
 
 The `active` sort applies the same exclusions to a post's **descendants** when computing its bump score, so a removed reply does not bump its post (`activeScoresCte` in `src/runtime/node/community/db-handler.ts`).
 
-> **This guarantee is scheduled to become configurable.** Under [#73](https://github.com/pkcprotocol/pkc-js/issues/73) these exclusions become per-sort operator options, defaulting to the values above. A community will be able to publish a feed that includes removed or deleted posts, for example an archive or mod-review sort. Frontends must not assume removed content is absent from a feed; check `commentUpdate.removed` / `deleted` and render accordingly.
+> **These are defaults, not guarantees.** Every exclusion is a per-sort option (`excludeRemovedComments`, `excludeDeletedComments`, `excludeCommentPendingApproval`, `excludeCommentWithApprovedFalse`, `excludeCommentsWithDifferentCommunityAddress` in `settings.pages[].options`), defaulting per scope to the table above ([#73](https://github.com/pkcprotocol/pkc-js/issues/73)). A community can publish a feed that includes removed or deleted posts, for example an archive or mod-review sort. Frontends must not assume removed content is absent from a feed; check `commentUpdate.removed` / `deleted` and render accordingly.
 
 ## Pinned Comments
 
-Pinned comments are sorted separately from the rest and prepended to the page, and the timeframe filter on `top*` sorts is applied **only to unpinned comments**, so a pinned post never ages out of a windowed index. This is currently a consequence of statement order in `sortAndChunkComments` rather than an explicit rule. Under [#73](https://github.com/pkcprotocol/pkc-js/issues/73) it becomes an explicit per-sort option, defaulting to the behaviour described here.
+Pinned comments are sorted separately from the rest and prepended to the page, and both the `maxAge` window and a sort file's own `filter` apply **only to unpinned comments**, so a pinned post never ages out of a windowed index. This is the `pinnedFirst` option of every sort (`"true"` by default); with `pinnedFirst: "false"` pinned comments are ordinary comments, subject to the filters and normal ordering.
 
 ## Runtime Types
 
@@ -105,13 +115,14 @@ In the `Comment` class at runtime, pages contain `CommentWithinRepliesPostsPageJ
 - ModQueuePages use `CommentUpdateForChallengeVerification` instead of full `CommentUpdate`.
 - Page verification: every comment in a page must belong to the correct community and have valid signatures.
 - Reply pages include removed and deleted comments; the community posts feed does not. See [Moderation Visibility](#moderation-visibility).
-- `pages` currently carries exactly one preloaded sort per record, but that is an implementation detail, not a protocol guarantee. Do not index it positionally.
+- `pages` carries one entry per preloaded sort, in configured order: one by default, several or none under `settings.pages`. Do not index it positionally; the first key is the default sort.
+- `community.pageSorts` is present exactly when `settings.pages` is set. An unconfigured community publishes the same record it always has.
 
 ## Common Mistakes
 
 - Treating page CIDs as permanent, pages are regenerated when state changes.
 - Fetching pages without verifying signatures, use `verifyPage()` from `src/signer/signatures.ts`.
-- Assuming a comment in a page is not removed or deleted. Reply pages include both by design, and the posts feed will be able to include them once [#73](https://github.com/pkcprotocol/pkc-js/issues/73) lands.
+- Assuming a comment in a page is not removed or deleted. Reply pages include both by design, and a posts feed can include them when its sort's exclusion options say so.
 - Assuming every community generates the same sorts. Discover them from the keys of `pages` and `pageCids` on the record, not from a hardcoded list.
 
 ## Future Work

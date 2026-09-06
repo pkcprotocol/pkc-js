@@ -5,7 +5,7 @@ import version from "./version.js";
 import type { libp2pDefaults } from "@helia/libp2p";
 import { createHelia } from "helia";
 import type { KuboRpcClientCreateOption } from "./util.js";
-import type { ChallengeFileFactoryInput } from "./community/types.js";
+import type { ChallengeFileFactoryInput, PageSortFileFactoryInput } from "./community/types.js";
 
 // This file will have misc schemas, as well as PKC class schema
 
@@ -130,7 +130,8 @@ export const PKCUserOptionBaseSchema = z.object({
     publishInterval: z.number().positive(), // in ms, the time to wait for community instances to publish updates. Default is 20s
     updateInterval: z.number().positive(), // in ms, the time to wait for comment/community instances to check for updates. Default is 1min
     noData: z.boolean(), // if true, dataPath is ignored, all database and cache data is saved in memory
-    challenges: z.record(z.string(), z.custom<ChallengeFileFactoryInput>()).optional() // instance-level challenge registry, shadows built-in challenges by name
+    challenges: z.record(z.string(), z.custom<ChallengeFileFactoryInput>()).optional(), // instance-level challenge registry, shadows built-in challenges by name
+    pageSorts: z.record(z.string(), z.custom<PageSortFileFactoryInput>()).optional() // instance-level page sort registry (PKC.pageSorts), shadows built-in sorts by name (issue #73)
 });
 
 const defaultPubsubKuboRpcClientsOptions = [

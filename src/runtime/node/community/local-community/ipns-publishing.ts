@@ -30,6 +30,8 @@ import {
 } from "./comment-updates.js";
 import { cleanUpIpfsRepoIfDue, purgeDisapprovedCommentsOlderThan, unpinStaleCids } from "./cleanup.js";
 import { providePubsubTopicRoutingCidsIfNeeded } from "./pubsub.js";
+import { wirePagesFromGeneration } from "../page-generator.js";
+import { reportFailedPageSorts, warnIfGeneratedSortKeysChanged } from "../page-sorts/index.js";
 
 export async function calculateNewPostUpdates(community: LocalCommunity): Promise<CommunityIpfsType["postUpdates"]> {
     const postUpdates: CommunityIpfsType["postUpdates"] = {};
@@ -211,7 +213,6 @@ async function calculateNextCommunityRecord(
         })
     };
 
-    const preloadedPostsPages = "hot";
     // Calculate size taken by community without posts and signature
     const communityWithoutPostsSignatureSize = Buffer.byteLength(JSON.stringify(newIpns), "utf8");
 
@@ -221,7 +222,14 @@ async function calculateNextCommunityRecord(
     // Calculate remaining space for posts
     const availablePostsSize = MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS - communityWithoutPostsSignatureSize - expectedSignatureSize - 1000;
 
-    const generatedPosts = await community._pageGenerator.generateCommunityPosts(preloadedPostsPages, availablePostsSize);
+    // Which sorts are generated and which embed is settings.pages' call (issue #73); the preloaded ones share availablePostsSize
+    const generatedPosts = await community._pageGenerator.generateCommunityPosts({ preloadedPageSizeBytes: availablePostsSize });
+    if (generatedPosts) {
+        reportFailedPageSorts(community, generatedPosts.failedSorts, log);
+        const generatedKeys =
+            "singlePreloadedPage" in generatedPosts ? keys(generatedPosts.singlePreloadedPage) : keys(generatedPosts.allPageCids);
+        warnIfGeneratedSortKeysChanged({ community, scope: "posts", generatedKeys, log });
+    }
 
     // posts should not be cleaned up because we want to make sure not to modify authors' posts
 
@@ -229,14 +237,7 @@ async function calculateNextCommunityRecord(
     const newPostsAllPageCids = generatedPosts && !("singlePreloadedPage" in generatedPosts) ? generatedPosts.allPageCids : undefined;
 
     if (generatedPosts) {
-        if ("singlePreloadedPage" in generatedPosts) newIpns.posts = { pages: generatedPosts.singlePreloadedPage };
-        else if (generatedPosts.pageCids) {
-            // multiple pages
-            newIpns.posts = {
-                pageCids: generatedPosts.pageCids,
-                pages: pick(generatedPosts.pages, [preloadedPostsPages])
-            };
-        }
+        newIpns.posts = wirePagesFromGeneration(generatedPosts);
     } else {
         await community._updateDbInternalState({ posts: undefined }); // make sure db resets posts as well
     }

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { NameResolverSerializedSchema, PKCParsedOptionsSchema, PKCUserOptionBaseSchema } from "../../schema.js";
 import type { Server as HTTPServer } from "http";
 import type { Server as HTTPSServer } from "https";
-import { ChallengeFileSchema } from "../../community/schema.js";
+import { ChallengeFileSchema, PageSortFileSchema } from "../../community/schema.js";
 import type { InputPKCOptions } from "../../types.js";
 
 // Setting up WS
@@ -51,5 +51,9 @@ export const PKCWsServerSettingsSerializedSchema = z.object({
         // getChallenge is omitted to avoid throwing because of a recursive dependency; validateChallengeSettings
         // is omitted because it is a function that cannot cross the wire and only ever runs community-side.
         ChallengeFileSchema.omit({ getChallenge: true, validateChallengeSettings: true })
-    )
+    ),
+    // The page sorts the server can resolve settings.pages[].name against (issue #73), minus their functions, so
+    // a client can render a picker and reject an unknown name before the round trip. Optional: an older server
+    // does not send it.
+    pageSorts: z.record(z.string(), PageSortFileSchema.omit({ filter: true, scoreAll: true, validatePageSortSettings: true })).optional()
 });

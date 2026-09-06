@@ -414,6 +414,19 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
                 }
             }
         }
+        const serverPageSorts = this._pkc._pkcRpcClient!.settings?.pageSorts;
+        if (newCommunityOptions.settings?.pages && serverPageSorts) {
+            for (const entry of [
+                ...(newCommunityOptions.settings.pages.posts ?? []),
+                ...(newCommunityOptions.settings.pages.replies ?? [])
+            ]) {
+                if (entry.name && !entry.path && !(entry.name in serverPageSorts))
+                    throw new PKCError("ERR_RPC_CLIENT_PAGE_SORT_NAME_NOT_AVAILABLE_ON_SERVER", {
+                        pageSortName: entry.name,
+                        availablePageSorts: Object.keys(serverPageSorts)
+                    });
+            }
+        }
         const subPropsAfterEdit = await this._pkc._pkcRpcClient!.editCommunity({
             name: this.name,
             publicKey: this.publicKey,

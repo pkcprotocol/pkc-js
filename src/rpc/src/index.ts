@@ -76,7 +76,7 @@ import type { CommunityEditChallengeRequestToEncryptType } from "../../publicati
 import { PublicationRpcErrorToTransmit } from "../../publications/types.js";
 import { TypedEmitter } from "tiny-typed-emitter";
 import { sanitizeRpcNotificationResult } from "./json-rpc-util.js";
-import type { ModQueuePageIpfs, PageIpfs } from "../../pages/types.js";
+import type { ModQueuePageIpfs, PageIpfs, PageSortDb } from "../../pages/types.js";
 import { buildPageRuntimeFields, buildPagesRuntimeFields } from "../../pages/util.js";
 import { extractCrosspostRuntimeFields } from "../../publications/comment/crosspost-runtime.js";
 import {
@@ -969,7 +969,32 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             omit(challengeFactory({ challengeSettings: {} }), ["getChallenge", "validateChallengeSettings"])
         );
 
-        return <PKCWsServerSettingsSerialized>{ pkcOptions, challenges };
+        // Page sorts (issue #73): the same projection. A factory is invoked with no settings and a db facade that
+        // refuses every query, since there is no community here; one that needs the database at construction time
+        // is left out of the listing rather than failing the whole settings payload.
+        const allPageSortFactories = { ...(PKCJs.PKC.pageSorts || {}), ...(pkc.settings?.pageSorts || {}) };
+        const noDb: PageSortDb = {
+            prepare: () => {
+                throw Error("The db facade is not available while listing page sorts for RPC settings");
+            },
+            exclusionClauses: () => {
+                throw Error("The db facade is not available while listing page sorts for RPC settings");
+            }
+        };
+        const pageSorts: PKCWsServerSettingsSerialized["pageSorts"] = {};
+        for (const [name, pageSortFactory] of Object.entries(allPageSortFactories)) {
+            try {
+                pageSorts[name] = omit(pageSortFactory({ pageSortSettings: { name }, db: noDb }), [
+                    "filter",
+                    "scoreAll",
+                    "validatePageSortSettings"
+                ]);
+            } catch (e) {
+                log.error(`Page sort "${name}" could not be listed in the RPC settings because its factory threw`, e);
+            }
+        }
+
+        return <PKCWsServerSettingsSerialized>{ pkcOptions, challenges, pageSorts };
     }
 
     async settingsSubscribe(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {
