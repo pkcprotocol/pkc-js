@@ -849,6 +849,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
         if (Object.keys(this._challengeExchanges).length !== maxNumOfChallengeExchanges) return false;
 
         return Object.values(this._challengeExchanges).every((exchange) => {
+            // An exchange that received a challenge or a verification is alive: the community is
+            // talking to us on it, however old its request is. Request age only measures silence
+            // (issue #340).
+            if (exchange.challenge || exchange.challengeVerification) return false;
             if (exchange.challengeRequestPublishError || exchange.challengeAnswerPublishError) return true;
             const doneWaitingForChallenge =
                 typeof exchange.challengeRequestPublishTimestamp === "number" &&
@@ -1245,9 +1249,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         currentPubsubProviderIndex += 1;
                     }
                     const decryptedRequest = this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequest;
-                    this._updatePubsubState("waiting-challenge", providerUrl);
-
-                    this._updatePublishingStateWithEmission("waiting-challenge");
+                    // The first request's challenge can land while the retry's publish call is still
+                    // in flight; the publication is then already waiting for answers (or verified) and
+                    // must not be moved back to "waiting-challenge" (issue #340).
+                    if (!this._didWeReceiveChallengeOrChallengeVerification()) {
+                        this._updatePubsubState("waiting-challenge", providerUrl);
+                        this._updatePublishingStateWithEmission("waiting-challenge");
+                    }
 
                     log(`Published a challenge request of publication`, this.getType(), "with provider", providerUrl);
                     this.emit("challengerequest", decryptedRequest);
@@ -1266,6 +1274,14 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 // The enclosing `else` narrowed `this.state` to exclude "stopped", but stop() during the
                 // awaited wait above can have set it since, so widen back to the field's declared type.
                 if ((this.state as Publication["state"]) === "stopped") return;
+                // A challenge (or the verification itself) can arrive during the wait above. That
+                // exchange is live and the no-response watchdog has nothing left to decide: the
+                // publication stays subscribed for its verification, exactly like a publication whose
+                // challenge arrived before any retry (issue #340).
+                if (this._didWeReceiveChallengeOrChallengeVerification()) {
+                    log(`Received a challenge or challenge verification while waiting for retried providers, will keep the exchange alive`);
+                    return;
+                }
                 if (this._isAllAttemptsExhausted(providers.length)) {
                     await this._postSucessOrFailurePublishing();
                     const allAttemptsFailedError = new PKCError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {

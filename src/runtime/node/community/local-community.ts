@@ -51,7 +51,7 @@ import { CommunityIpfsSchema } from "../../../community/schema.js";
 import { MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS } from "../../../community/community-client-manager.js";
 import { sha256 } from "js-sha256";
 import { AllPageCids } from "../../../pages/types.js";
-import { generateDefaultChallenges } from "./local-community/defaults.js";
+import { CHALLENGE_EXCHANGE_TTL_MS, generateDefaultChallenges } from "./local-community/defaults.js";
 import {
     createNewLocalCommunityDb,
     getDbInternalState,
@@ -115,6 +115,13 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _ongoingChallengeExchanges!: LRUCache<string, boolean>;
     _duplicatePublicationAttempts!: LRUCache<string, number>;
     _challengeExchangesFromLocalPublishers: Record<string, boolean> = {}; // key is stringified challengeRequestId and value is true if the challenge exchange is ongoing
+    // One entry per signed publication whose challenge exchange is running, keyed by publication
+    // signature. A second request for the same signed publication (a client retry under a new
+    // challengeRequestId, issue #228) waits on this promise instead of running its own exchange.
+    _inFlightPublicationExchanges: Map<string, Promise<void>> = new Map();
+    // Lifetime of one challenge exchange (see CHALLENGE_EXCHANGE_TTL_MS). Read when the caches
+    // above are created at start; an instance field so a test can lower it.
+    _challengeExchangeTtlMs: number = CHALLENGE_EXCHANGE_TTL_MS;
 
     _cidsToUnPin: Set<string> = new Set<string>();
     _mfsPathsToRemove: Set<string> = new Set<string>();
