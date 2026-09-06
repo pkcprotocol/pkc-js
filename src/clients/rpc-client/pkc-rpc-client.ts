@@ -25,6 +25,8 @@ import type {
     CommunityIdentifierRpcParam,
     CidRpcParam,
     FetchCidRpcParam,
+    FetchCommunityListRpcParam,
+    PublishCommunityListRpcParam,
     CommentPageRpcParam,
     CommunityPageRpcParam,
     EditCommunityRpcParam,
@@ -44,7 +46,9 @@ import type {
     RpcExportCommunityModLogsResult,
     PublishAnchorRecordRpcParam,
     AnchorPublishPreparation,
-    PublishedAnchorRecord
+    PublishedAnchorRecord,
+    RpcPublishCommunityListResult,
+    RpcFetchCommunityListResult
 } from "./types.js";
 import {
     parseRpcCommunityIdentifierParam,
@@ -65,7 +69,11 @@ import {
     parseRpcExportCommunityModLogsResult,
     parseRpcPublishAnchorRecordParam,
     parseRpcAnchorPublishPreparationResult,
-    parseRpcPublishedAnchorRecordResult
+    parseRpcPublishedAnchorRecordResult,
+    parseRpcPublishCommunityListParam,
+    parseRpcPublishCommunityListResult,
+    parseRpcFetchCommunityListParam,
+    parseRpcFetchCommunityListResult
 } from "./rpc-schema-util.js";
 
 const log = Logger("pkc-js:PKCRpcClient");
@@ -509,6 +517,19 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     async fetchCid(args: FetchCidRpcParam): Promise<RpcFetchCidResult> {
         const parsedFetchCidArgs = parseRpcFetchCidParam(args);
         return parseRpcFetchCidResult(await this._webSocketClient.call("fetchCid", [parsedFetchCidArgs]));
+    }
+
+    // CommunityList (docs/protocol/community-lists.md). The client signs locally; the server only
+    // adds the signed JSON to IPFS and returns the cid. The fetch result is the raw record string so
+    // the caller can check the bytes against the cid and verify the signature locally.
+    async publishCommunityList(args: PublishCommunityListRpcParam): Promise<RpcPublishCommunityListResult> {
+        const parsedArgs = parseRpcPublishCommunityListParam(args);
+        return parseRpcPublishCommunityListResult(await this._webSocketClient.call("publishCommunityList", [parsedArgs]));
+    }
+
+    async fetchCommunityList(args: FetchCommunityListRpcParam): Promise<RpcFetchCommunityListResult> {
+        const parsedArgs = parseRpcFetchCommunityListParam(args);
+        return parseRpcFetchCommunityListResult(await this._webSocketClient.call("fetchCommunityList", [parsedArgs]));
     }
 
     async setSettings(settings: z.input<typeof SetNewSettingsPKCWsServerSchema>): Promise<RpcSuccessResult> {

@@ -58,3 +58,13 @@ export type { NameResolver } from "./types.js";
 // the root entry instead of reaching through private fields or deep-importing internals.
 export type { Libp2pJsClient } from "./helia/libp2pjsClient.js";
 export type { HeliaWithLibp2pPubsub } from "./helia/types.js";
+
+// Public re-exports: CommunityList (docs/protocol/community-lists.md)
+export type { CommunityList } from "./community-list/community-list.js";
+export type {
+    CommunityListIpfsType,
+    CommunityListEntryType,
+    CreateCommunityListOptions,
+    CreateNewCommunityListOptions,
+    CreateCommunityListWithCidOptions
+} from "./community-list/types.js";

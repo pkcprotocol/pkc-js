@@ -18,7 +18,11 @@ import {
     RpcExportschangeResultSchema,
     RpcExportCommunityModLogsParamSchema,
     RpcExportCommunityModLogsResultSchema,
-    RpcPublishAnchorRecordParamSchema
+    RpcPublishAnchorRecordParamSchema,
+    RpcPublishCommunityListParamSchema,
+    RpcPublishCommunityListResultSchema,
+    RpcFetchCommunityListParamSchema,
+    RpcFetchCommunityListResultSchema
 } from "./schema.js";
 import type { PageIpfs, ModQueuePageIpfs } from "../../pages/types.js";
 import type { PageRuntimeFields } from "../../pages/util.js";
@@ -36,6 +40,8 @@ export type ExportCommunityRpcParam = z.infer<typeof RpcExportCommunityParamSche
 export type CancelExportRpcParam = z.infer<typeof RpcCancelExportParamSchema>;
 export type ExportCommunityModLogsRpcParam = z.infer<typeof RpcExportCommunityModLogsParamSchema>;
 export type PublishAnchorRecordRpcParam = z.infer<typeof RpcPublishAnchorRecordParamSchema>;
+export type PublishCommunityListRpcParam = z.infer<typeof RpcPublishCommunityListParamSchema>;
+export type FetchCommunityListRpcParam = z.infer<typeof RpcFetchCommunityListParamSchema>;
 
 // Result types (shared between RPC client and server)
 export type RpcResolveAuthorNameResult = z.infer<typeof RpcResolveAuthorNameResultSchema>;
@@ -45,6 +51,8 @@ export type RpcSubscriptionIdResult = z.infer<typeof RpcSubscriptionIdResultSche
 export type RpcExportCommunityResult = z.infer<typeof RpcExportCommunityResultSchema>;
 export type RpcExportschangeResult = z.infer<typeof RpcExportschangeResultSchema>;
 export type RpcExportCommunityModLogsResult = z.infer<typeof RpcExportCommunityModLogsResultSchema>;
+export type RpcPublishCommunityListResult = z.infer<typeof RpcPublishCommunityListResultSchema>;
+export type RpcFetchCommunityListResult = z.infer<typeof RpcFetchCommunityListResultSchema>;
 
 // Re-export existing complex types used as RPC return values
 export type {

@@ -1,9 +1,9 @@
 # Community lists (`CommunityList`, formerly "multisub")
 
-> **Status: design settled, implementation in progress.** Tracked in issue #21 (original
-> design) and issue #342 (`author` field). The original design published lists over IPNS;
-> that was reversed on 2026-09-06 in favor of immutable records (see
-> [Why immutable](#why-immutable)). This doc is the spec the implementation must follow.
+> **Status: implemented** (`src/community-list/`). Tracked in issue #21 (original design) and
+> issue #342 (`author` field). The original design published lists over IPNS; that was
+> reversed on 2026-09-06 in favor of immutable records (see [Why immutable](#why-immutable)).
+> This doc is the spec the implementation follows.
 
 A `CommunityList` is a signed, **immutable** IPFS file, addressed by CID like a comment: a
 list of communities with curator-set metadata. It is what clients load to render a default
@@ -135,7 +135,10 @@ schema verbatim, wire and runtime:
   with the previous record's props (obtained from a loaded instance) and publishing a new
   CID.
 - Publishing is isomorphic (Node and browser). There is no Node-only dependency: no
-  sqlite, no MFS, no pubsub.
+  sqlite, no MFS, no pubsub. It does require a node that can `ipfs add`: a kubo RPC client
+  or a PKC RPC server. Gateway-only and libp2p-js-only instances can load lists but not
+  publish them (helia exposes no add in pkc-js today, and a browser cannot reliably provide
+  blocks anyway).
 
 ## Consumer API
 
@@ -148,9 +151,10 @@ schema verbatim, wire and runtime:
     `pkc.resolveAuthorNames` is on, `update()` keeps driving the background resolution
     until the verdict is **definitive**, emits `update` again with `author.nameResolved`
     set, then stops itself. Definitive means: resolved to `signature.publicKey` (true),
-    resolved to a different key (false), or a permanent failure such as no resolver for the
-    TLD or no TXT record (false). Transient resolver failures keep retrying until the
-    caller's `stop()`.
+    resolved to a different key (false), or no resolver in this PKC instance handles the TLD
+    (false). A resolution that returns nothing is indistinguishable from a resolver outage
+    today, so it retries rather than failing shut, the same policy as publication authors.
+    Transient resolver failures keep retrying until the caller's `stop()`.
   - When there is nothing to settle (no `author`, `author.name` absent or not a domain, or
     `resolveAuthorNames: false`), the instance stops itself right after the first `update`.
 - One-shot `pkc.getCommunityList({cid})`: resolves after fetch + verify, without waiting

@@ -38,7 +38,9 @@ import Publication from "../../publications/publication.js";
 import { PKCError } from "../../pkc-error.js";
 import { LocalCommunity } from "../../runtime/node/community/local-community.js";
 import { RemoteCommunity } from "../../community/remote-community.js";
-import { hideClassPrivateProps, replaceXWithY } from "../../util.js";
+import { calculateStringSizeSameAsIpfsAddCidV0, hideClassPrivateProps, replaceXWithY, retryKuboIpfsAddAndProvide } from "../../util.js";
+import { MAX_COMMUNITY_LIST_SIZE_BYTES } from "../../community-list/schema.js";
+import { verifyCommunityList } from "../../signer/signatures.js";
 import { keys, mapValues, omit } from "remeda";
 import type { IncomingMessage } from "http";
 import type {
@@ -64,7 +66,9 @@ import {
     parseSetNewSettingsPKCWsServerSchemaWithPKCErrorIfItFails,
     parseCommunityEditChallengeRequestToEncryptSchemaWithPKCErrorIfItFails,
     parseCommunityEditOptionsSchemaWithPKCErrorIfItFails,
-    parseVoteChallengeRequestToEncryptSchemaWithPKCErrorIfItFails
+    parseVoteChallengeRequestToEncryptSchemaWithPKCErrorIfItFails,
+    parseCommunityListSchemaWithPKCErrorIfItFails,
+    parseJsonWithPKCErrorIfFails
 } from "../../schema/schema-util.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import type { VoteChallengeRequestToEncryptType } from "../../publications/vote/types.js";
@@ -90,7 +94,9 @@ import {
     parseRpcExportCommunityParam,
     parseRpcCancelExportParam,
     parseRpcExportCommunityModLogsParam,
-    parseRpcPublishAnchorRecordParam
+    parseRpcPublishAnchorRecordParam,
+    parseRpcPublishCommunityListParam,
+    parseRpcFetchCommunityListParam
 } from "../../clients/rpc-client/rpc-schema-util.js";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import type {
@@ -105,7 +111,9 @@ import type {
     RpcCommunityPageResult,
     RpcLocalCommunityUpdateResultType,
     RpcExportCommunityResult,
-    RpcExportCommunityModLogsResult
+    RpcExportCommunityModLogsResult,
+    RpcPublishCommunityListResult,
+    RpcFetchCommunityListResult
 } from "../../clients/rpc-client/types.js";
 import type { CommunityExportRecord } from "../../community/types.js";
 import { findStartedCommunity } from "../../pkc/tracked-instance-registry-util.js";
@@ -308,6 +316,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         this.rpcWebsocketsRegister("settingsSubscribe", this.settingsSubscribe.bind(this));
 
         this.rpcWebsocketsRegister("fetchCid", this.fetchCid.bind(this));
+        this.rpcWebsocketsRegister("publishCommunityList", this.publishCommunityList.bind(this));
+        this.rpcWebsocketsRegister("fetchCommunityList", this.fetchCommunityList.bind(this));
         this.rpcWebsocketsRegister("resolveAuthorName", this.resolveAuthorName.bind(this));
         this.rpcWebsocketsRegister("setSettings", this.setSettings.bind(this));
         // JSON RPC pubsub methods
@@ -957,6 +967,45 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const parsedArgs = parseRpcCidParam(params[0]);
         const pkc = await this._getPKCInstance();
         return pkc.fetchCid(parsedArgs);
+    }
+
+    // CommunityList (docs/protocol/community-lists.md). The client signs locally; the server only
+    // adds the exact signed bytes to IPFS and returns the cid. The record is validated before
+    // pinning so the server cannot be used to pin arbitrary or unsigned JSON
+    async publishCommunityList(params: any): Promise<RpcPublishCommunityListResult> {
+        const log = Logger("pkc-js-rpc:publishCommunityList");
+        const parsedArgs = parseRpcPublishCommunityListParam(params[0]);
+        const pkc = await this._getPKCInstance();
+        const recordString = parsedArgs.communityListRawString;
+        const sizeBytes = await calculateStringSizeSameAsIpfsAddCidV0(recordString);
+        if (sizeBytes > MAX_COMMUNITY_LIST_SIZE_BYTES)
+            throw new PKCError("ERR_COMMUNITY_LIST_OVER_ALLOWED_SIZE", {
+                sizeBytes,
+                maxSizeBytes: MAX_COMMUNITY_LIST_SIZE_BYTES
+            });
+        const record = parseCommunityListSchemaWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(recordString));
+        const validity = await verifyCommunityList({ communityList: record });
+        if (!validity.valid) throw new PKCError("ERR_COMMUNITY_LIST_SIGNATURE_IS_INVALID", { validity });
+        const kuboRpcClient = pkc._clientsManager.getDefaultKuboRpcClient();
+        const addRes = await retryKuboIpfsAddAndProvide({
+            ipfsClient: kuboRpcClient._client,
+            log,
+            content: recordString,
+            addOptions: { pin: true },
+            provideInBackground: true
+        });
+        return { cid: String(addRes.cid) };
+    }
+
+    // Returns the raw record string so the client can check the bytes against the cid and verify
+    // the signature locally: the server is not trusted with record validity
+    async fetchCommunityList(params: any): Promise<RpcFetchCommunityListResult> {
+        const parsedArgs = parseRpcFetchCommunityListParam(params[0]);
+        const pkc = await this._getPKCInstance();
+        const communityListRawString = await pkc._clientsManager.fetchCid(parsedArgs.cid, {
+            maxFileSizeBytes: MAX_COMMUNITY_LIST_SIZE_BYTES
+        });
+        return { communityListRawString };
     }
 
     private _serializeSettingsFromPKC(pkc: PKC): PKCWsServerSettingsSerialized {
