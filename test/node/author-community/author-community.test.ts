@@ -272,6 +272,28 @@ describe.sequential("author community: a community configured as a profile", () 
         });
     });
 
+    // The record declares itself a profile through suggested.uiType, set through the same edit() as the
+    // rest of the configuration. It is a rendering hint clients may ignore, spoofable like `title`, and
+    // nothing in pkc-js branches on it. See "Declaring the profile to UIs" in the protocol doc.
+    describe("declaring the profile to UIs", () => {
+        it("edit({ suggested: { uiType } }) lands in the published signed record", async () => {
+            expect(community.raw.communityIpfs!.suggested?.uiType).to.be.undefined;
+            await community.edit({ suggested: { uiType: "author" } });
+            // edit() patches raw.communityIpfs from internal state immediately, old signature and all,
+            // so the record carrying the hint is not proof it was re-signed. Wait for the signature that
+            // covers it: signedPropertyNames lists only the fields present at signing time.
+            await resolveWhenConditionIsTrue({
+                toUpdate: community,
+                predicate: async () => community.raw.communityIpfs?.signature.signedPropertyNames.includes("suggested") === true
+            });
+            expect(community.raw.communityIpfs!.suggested?.uiType).to.equal("author");
+        });
+
+        it("exposes the hint on the community instance", () => {
+            expect(community.suggested?.uiType).to.equal("author");
+        });
+    });
+
     describe("the feed is the owner's crossposts", () => {
         let originCommunity: ProfileCommunity;
         let crosspostingPost: Comment;

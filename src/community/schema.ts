@@ -39,7 +39,9 @@ export const CommunitySuggestedSchema = z.looseObject({
     avatarUrl: z.string().min(1).optional(),
     bannerUrl: z.string().min(1).optional(),
     backgroundUrl: z.string().min(1).optional(),
-    language: z.string().optional()
+    language: z.string().optional(),
+    uiType: z.string().optional() // how the owner suggests clients render this community, e.g. "author" for a profile; never affects validation or loading
+
     // TODO: menu links, wiki pages, sidebar widgets
 });
 
