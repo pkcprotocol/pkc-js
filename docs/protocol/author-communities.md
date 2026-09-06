@@ -16,14 +16,23 @@ Three things, none of which is a new mechanism:
 1. **The address is the author's identity key.** The community is published delegated, anchor to
    minter, where the anchor `An` is the same key the author signs comments with. See
    [delegated-ipns.md](delegated-ipns.md) for the chain, the setup calls and rotation.
-2. **Only the owner may post.** Enforced by challenge configuration, not by a feature flag. See below.
+2. **Only the owner may post.** Enforced by disabling the pubsub challenge exchange, backed by
+   challenge configuration, not by a feature flag. See below.
 3. **The feed is the owner's crossposts.** Ordinary comments carrying `comment.crosspost`, published
    by the owner's own client. See [crossposts.md](crossposts.md).
 
 ## Only the owner may post
 
-The built-in `fail` challenge exists to be paired with `exclude`: it always fails, so the only way past
-it is to be excluded. Two challenges express "the owner posts, anyone may reply":
+The default profile is **feed-only**: `settings.disablePubsubChallengeExchange` is set, so the pubsub
+challenge exchange is off and the remote publishing path does not exist. The record omits
+`pubsubTopic`, the node never subscribes to the exchange topic, and a remote publisher fails fast with
+`ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED` before anything reaches the community. The owner publishes
+over RPC to the node running the community, the one path that remains, see "How the owner publishes".
+
+A `fail` challenge excluding the owner alone backs the setting up, because the remaining path is a
+real one: the local shortcut only suppresses the pubsub echo and the challenge pipeline still runs. On
+a multi-tenant minter the challenge is what rejects the other tenants, and if the exchange is ever
+re-enabled the configuration fails closed rather than open.
 
 ```js
 await community.edit({
@@ -31,14 +40,39 @@ await community.edit({
         [An]: { role: "owner" }          // An is the anchor publicKey, see "The roles key" below
     },
     settings: {
+        disablePubsubChallengeExchange: true, // feed-only: nobody can publish over pubsub
         challenges: [
             {
                 name: "fail",
                 options: { error: "Only the owner can post to this profile." },
                 publicOptions: ["error"], // publish the rejection text, see "What a reader can actually tell"
+                exclude: [{ role: ["owner"] }]
+            }
+        ]
+    }
+})
+```
+
+### The reply-able flavor
+
+To let strangers reply, leave the exchange enabled and make the challenge configuration carry the
+whole restriction. The built-in `fail` challenge exists to be paired with `exclude`: it always fails,
+so the only way past it is to be excluded. Two challenges express "the owner posts, anyone may reply":
+
+```js
+await community.edit({
+    roles: {
+        [An]: { role: "owner" }
+    },
+    settings: {
+        challenges: [
+            {
+                name: "fail",
+                options: { error: "Only the owner can post to this profile." },
+                publicOptions: ["error"],
                 exclude: [
                     { role: ["owner"] },
-                    // no `vote`: votes are rejected by default, see below
+                    // no `vote`: votes stay rejected in this flavor too, see below
                     { publicationType: { reply: true, commentEdit: true, commentModeration: true, communityEdit: true } }
                 ]
             },
@@ -66,22 +100,29 @@ only if **all** of its conditions hold:
 A failing challenge drops any challenge still pending, so the rejected stranger is never asked the
 question: they get one immediate failed verification rather than a challenge round trip.
 
-**Votes are rejected by default.** `vote` is deliberately absent from the `publicationType` exclude,
-so a stranger's vote hits the `fail` challenge exactly like a stranger's post, while the owner's own
-votes stay excluded by `role`. The reason is the karma model in [crossposts.md](crossposts.md): karma
-over a profile is read at tier 2 from each entry's origin community, so a vote published to the
-profile lands on the crosspost copy, is tallied by the owner's own delegate, and counts toward
-nothing a client should trust. It would only accumulate a misleading second score on the copy, and it
-does not drive ranking either, since `new` is the only sort a profile feed has a reason to serve. A
-profile that wants vote-driven reply sorting can opt back in by adding `vote: true` to the exclude.
+**Votes stay rejected.** In the feed-only default nobody can send one in the first place; in this
+flavor `vote` is deliberately absent from the `publicationType` exclude, so a stranger's vote hits the
+`fail` challenge exactly like a stranger's post, while the owner's own votes stay excluded by `role`.
+The reason is the karma model in [crossposts.md](crossposts.md): karma over a profile is read at
+tier 2 from each entry's origin community, so a vote published to the profile lands on the crosspost
+copy, is tallied by the owner's own delegate, and counts toward nothing a client should trust. It
+would only accumulate a misleading second score on the copy, and it does not drive ranking either,
+since `new` is the only sort a profile feed has a reason to serve. A profile that wants vote-driven
+reply sorting can opt back in by adding `vote: true` to the exclude.
 
-Set the `error` option. It is what the rejected publisher actually sees: a `fail` challenge reports
-through `challengeErrors`, not through the verification `reason`, and its default text is the generic
-`"You're not allowed to publish."`. Naming it in `publicOptions` publishes that sentence in the record
-too, which is worth doing here: a reader then sees the intent without publishing anything. It is still
-a hint rather than an attestation, for the reason below.
+Set the `error` option, in either flavor. It is what the rejected publisher actually sees: a `fail`
+challenge reports through `challengeErrors`, not through the verification `reason`, and its default
+text is the generic `"You're not allowed to publish."`. Naming it in `publicOptions` publishes that
+sentence in the record too, which is worth doing here: a reader then sees the intent without
+publishing anything. It is still a hint rather than an attestation, for the reason below.
 
 ### What a reader can actually tell
+
+The feed-only default is legible through an absence: a record with no `pubsubTopic` tells a reader
+the challenge exchange is off, so no publisher can even open one, and honest clients fail fast rather
+than try. That is the strongest owner-only signal a profile can carry, because there is no challenge
+whose passability is left to guess at. The rest of this section is about the reply-able flavor, where
+the restriction lives in the challenge configuration and legibility gets subtler.
 
 `exclude` is copied verbatim from the private `settings.challenges` into the public signed `challenges`
 array, while `path` and `name` are stripped. `options` are private by default and leave only by name:
@@ -214,15 +255,19 @@ one community is legitimate, so idempotency belongs to whatever does the mirrori
 
 ## Two flavors
 
-**Reply-able**, the default. The challenge exchange runs, the record carries a `pubsubTopic`, and
-strangers can reply over pubsub. This needs the second challenge in the config above, or replies are
-unguarded. Strangers still cannot vote: the recommended config rejects votes regardless of flavor,
-see "Votes are rejected by default" above.
+**Feed-only**, the default. `settings.disablePubsubChallengeExchange` is set, the record omits
+`pubsubTopic`, and nobody can publish over pubsub, replies and votes included. The owner publishes
+over RPC, because that is the only remaining path, and the `fail` challenge is belt and braces rather
+than the mechanism. A profile is a broadcast of one author's activity, so this is the shape most
+profiles want, and it is also the cheapest: the node runs no exchange topic at all.
 
-**Feed-only.** Set `settings.disablePubsubChallengeExchange`. The record omits `pubsubTopic`, the node
-unsubscribes, and remote publishers fail fast with `ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED`. Nobody
-can reply, and the owner must publish over RPC, because that is the only remaining path. The `fail`
-challenge is then belt and braces rather than the mechanism.
+**Reply-able**, the opt-in. Leave the exchange enabled, so the record carries a `pubsubTopic` and
+strangers can reply over pubsub. The restriction then lives entirely in the challenge configuration
+above, which needs the second challenge or replies are unguarded. Strangers still cannot vote, see
+"Votes stay rejected" above. An owner who can only publish over pubsub themselves, such as a
+browser-only author with no RPC access to their minter, must also leave the exchange enabled; if they
+still want no replies, they drop the `publicationType` exclude and the second challenge, so the `fail`
+challenge rejects everything the owner does not sign.
 
 ## How the owner publishes
 
@@ -233,8 +278,8 @@ ephemeral key it generates covers only the outer challenge-request envelope. The
 published through a hosted service is the author, not the service.
 
 A browser-only author with no RPC access to their minter can only publish over pubsub, which is why
-the feed-only flavor is for self-hosted or RPC-reachable profiles. Multi-tenant authentication for a
-hosted minter is a service-layer concern and lives outside this repo.
+the feed-only default assumes a self-hosted or RPC-reachable profile. Multi-tenant authentication for
+a hosted minter is a service-layer concern and lives outside this repo.
 
 ## Key lifetime
 

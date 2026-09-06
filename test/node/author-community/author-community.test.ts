@@ -3,9 +3,10 @@
 // docs/protocol/author-communities.md.
 //
 // The point of this file is that none of that needs new machinery: the delegated community comes from
-// #237, owner-only posting is the built-in `fail` challenge paired with an `exclude`, and the feed is
-// ordinary comments carrying `comment.crosspost` from #32. If any of those seams stop composing, these
-// tests fail even though nothing named "author community" exists in src/.
+// #237, owner-only posting is settings.disablePubsubChallengeExchange (#229) backed by the built-in
+// `fail` challenge paired with an `exclude`, and the feed is ordinary comments carrying
+// `comment.crosspost` from #32. If any of those seams stop composing, these tests fail even though
+// nothing named "author community" exists in src/.
 //
 // These run under RPC too. The owner's role is matched against a domain in one case, and name
 // resolution happens wherever the community lives, so under RPC this file stands up its own RPC server
@@ -117,19 +118,30 @@ async function createHarness(): Promise<{ pkc: PKCType; teardown: () => Promise<
     };
 }
 
-// The two excludes that express "the owner posts, anyone may reply". An exclude array matches if ANY
-// item matches, and an item matches only if ALL of its conditions hold, so the `fail` challenge runs
-// for exactly two cases: a non-owner publishing a post, and a non-owner publishing a vote. `vote` is
-// deliberately absent from the publicationType exclude: profile karma is read from each entry's origin
-// community at tier 2, so a vote on the copy would be tallied by the owner's own delegate and count
-// toward nothing. See "Votes are rejected by default" in the protocol doc.
-function ownerOnlyPostingChallenge(): CommunityChallengeSetting {
+// The default (feed-only) config's challenge: `fail` excluding the owner alone, backing up
+// settings.disablePubsubChallengeExchange. The setting removes the remote publishing path, but the
+// challenge pipeline still runs on the local/RPC shortcut, so this is what rejects everyone but the
+// owner on the one path that remains.
+function ownerOnlyChallenge(): CommunityChallengeSetting {
     return {
         name: "fail",
         options: { error: OWNER_ONLY_ERROR },
         // Options are private by default. Naming `error` here publishes that one value, so a reader sees
         // the rejection text without publishing anything. It is a hint, not proof: see the wire test below.
         publicOptions: ["error"],
+        exclude: [{ role: ["owner"] }]
+    };
+}
+
+// The reply-able flavor keeps the exchange on and narrows the `fail` challenge instead. An exclude
+// array matches if ANY item matches, and an item matches only if ALL of its conditions hold, so the
+// challenge runs for exactly two cases: a non-owner publishing a post, and a non-owner publishing a
+// vote. `vote` is deliberately absent from the publicationType exclude: profile karma is read from
+// each entry's origin community at tier 2, so a vote on the copy would be tallied by the owner's own
+// delegate and count toward nothing. See "Votes stay rejected" in the protocol doc.
+function replyAbleChallenge(): CommunityChallengeSetting {
+    return {
+        ...ownerOnlyChallenge(),
         exclude: [
             { role: ["owner"] },
             { publicationType: { reply: true, commentEdit: true, commentModeration: true, communityEdit: true } }
@@ -173,11 +185,13 @@ describe.sequential("author community: a community configured as a profile", () 
         community = await createSubWithNoChallenge({ anchor: { publicKey: anchorSigner.address } }, pkc);
         minterAddress = community.signer.address;
 
-        // Both roles keys, because exclude.role matches community.roles[author.address] and
-        // author.address is `name || publicKey`. See "The roles key" in the protocol doc.
+        // The default feed-only config from the protocol doc: the exchange is disabled, so every
+        // publish in this suite goes through the local/RPC shortcut, where the challenge pipeline
+        // still runs. Both roles keys, because exclude.role matches community.roles[author.address]
+        // and author.address is `name || publicKey`. See "The roles key" in the protocol doc.
         await community.edit({
             roles: { [anchorSigner.address]: { role: "owner" }, [OWNER_DOMAIN]: { role: "owner" } },
-            settings: { ...community.settings, challenges: [ownerOnlyPostingChallenge()] }
+            settings: { ...community.settings, disablePubsubChallengeExchange: true, challenges: [ownerOnlyChallenge()] }
         });
         await startProfile(community, anchorSigner);
     });
@@ -231,22 +245,24 @@ describe.sequential("author community: a community configured as a profile", () 
             expect(verification.challengeErrors?.["0"]).to.equal(OWNER_ONLY_ERROR);
         });
 
-        // The second exclude is what keeps the profile reply-able: only posts are owner-only.
-        it("accepts a stranger's reply", async () => {
+        // The role exclude is the only exclude, so the feed-only default is owner-only for every
+        // publication type, replies included. Replying is the reply-able flavor's opt-in, below.
+        it("rejects a stranger's reply with the same error", async () => {
             const ownerPost = await publishRandomPost({
                 communityAddress: community.address,
                 pkc,
                 postProps: { signer: anchorSigner }
             });
             const reply = await generateMockComment(ownerPost as CommentIpfsWithCidDefined, pkc, false);
-            await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
+            const verification = await publishAndCaptureVerification(reply);
+            expect(verification.challengeSuccess).to.be.false;
+            expect(verification.challengeErrors?.["0"]).to.equal(OWNER_ONLY_ERROR);
         });
     });
 
-    // Votes are rejected by default: `vote` is deliberately absent from the publicationType exclude, so
-    // a stranger's vote hits the `fail` challenge exactly like a stranger's post, while the owner stays
-    // excluded by role. See "Votes are rejected by default" in the protocol doc for why a vote on a
-    // profile copy counts toward nothing.
+    // Votes stay rejected: under the default config a stranger's vote hits the `fail` challenge
+    // exactly like a stranger's post, while the owner stays excluded by role. See "Votes stay
+    // rejected" in the protocol doc for why a vote on a profile copy counts toward nothing.
     describe("votes are rejected by default", () => {
         let ownerPost: Comment;
 
@@ -271,15 +287,73 @@ describe.sequential("author community: a community configured as a profile", () 
         });
     });
 
+    // The reply-able opt-in: the exchange stays on and the publicationType exclude is what keeps
+    // replies open while posts and votes stay owner-only. See "The reply-able flavor" in the doc.
+    describe("the reply-able flavor", () => {
+        let replyAbleCommunity: ProfileCommunity;
+        let replyAbleAnchor: SignerType;
+        let ownerPost: Comment;
+
+        beforeAll(async () => {
+            replyAbleAnchor = await createSigner();
+            replyAbleCommunity = await createSubWithNoChallenge({ anchor: { publicKey: replyAbleAnchor.address } }, pkc);
+            await replyAbleCommunity.edit({
+                roles: { [replyAbleAnchor.address]: { role: "owner" } },
+                settings: { ...replyAbleCommunity.settings, challenges: [replyAbleChallenge()] }
+            });
+            await startProfile(replyAbleCommunity, replyAbleAnchor);
+            ownerPost = await publishRandomPost({
+                communityAddress: replyAbleCommunity.address,
+                pkc,
+                postProps: { signer: replyAbleAnchor }
+            });
+        });
+
+        afterAll(async () => {
+            await replyAbleCommunity.delete();
+        });
+
+        it("carries a pubsubTopic, since the exchange stays enabled", () => {
+            expect(replyAbleCommunity.raw.communityIpfs!.pubsubTopic).to.be.a("string");
+        });
+
+        // The second exclude is what keeps this flavor reply-able: only posts and votes are owner-only.
+        it("accepts a stranger's reply", async () => {
+            const reply = await generateMockComment(ownerPost as CommentIpfsWithCidDefined, pkc, false);
+            await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
+        });
+
+        it("rejects a stranger's post with the configured error", async () => {
+            const post = await generateMockPost({ communityAddress: replyAbleCommunity.address, pkc });
+            const verification = await publishAndCaptureVerification(post);
+            expect(verification.challengeSuccess).to.be.false;
+            expect(verification.challengeErrors?.["0"]).to.equal(OWNER_ONLY_ERROR);
+        });
+
+        it("still rejects a stranger's vote", async () => {
+            const vote = await generateMockVote(ownerPost as CommentIpfsWithCidDefined, 1, pkc);
+            const verification = await publishAndCaptureVerification(vote);
+            expect(verification.challengeSuccess).to.be.false;
+            expect(verification.challengeErrors?.["0"]).to.equal(OWNER_ONLY_ERROR);
+        });
+    });
+
     // This is the assertion the whole design rests on. Owner-only posting has no feature flag and no
     // read-side check, so a client can only know a community is a profile by reading the exclude rules
     // off the record. If exclude ever stops being copied into the public challenges array, the
     // restriction becomes invisible and nothing else in the suite would catch it.
     describe("the restriction is legible on the wire", () => {
+        // The feed-only default's strongest signal: a record with no pubsubTopic tells a reader the
+        // exchange is off, so no publisher can even open one. See "What a reader can actually tell".
+        it("publishes no pubsubTopic, which is what tells a reader the exchange is disabled", () => {
+            expect(community.raw.communityIpfs!.pubsubTopic).to.be.undefined;
+            expect("pubsubTopic" in community.raw.communityIpfs!).to.be.false;
+        });
+
         it("publishes the exclude rules verbatim in the signed record", () => {
             const published = community.raw.communityIpfs!.challenges;
             expect(published).to.have.lengthOf(1);
-            expect(published[0].exclude).to.deep.equal(ownerOnlyPostingChallenge().exclude);
+            expect(published[0].exclude).to.deep.equal(ownerOnlyChallenge().exclude);
         });
 
         it("publishes the roles map, which is what exclude.role is matched against", () => {
@@ -397,7 +471,7 @@ describe.sequential("author community: a community configured as a profile", () 
             // isPublicationAuthorPartOfRoles, so publishing under a domain misses this entirely.
             await peerIdOnlyCommunity.edit({
                 roles: { [otherAnchor.address]: { role: "owner" } },
-                settings: { ...peerIdOnlyCommunity.settings, challenges: [ownerOnlyPostingChallenge()] }
+                settings: { ...peerIdOnlyCommunity.settings, challenges: [ownerOnlyChallenge()] }
             });
             await startProfile(peerIdOnlyCommunity, otherAnchor);
         });
