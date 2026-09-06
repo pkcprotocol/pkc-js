@@ -57,6 +57,26 @@ Both schemas also accept `z.string().min(1)` for forward compatibility with cust
 4. Each subsequent page has its own `nextCid` for further pagination
 5. `pageCids` may be omitted if all items fit in the pre-loaded first page
 
+## Moderation Visibility
+
+Which moderated comments reach a page depends on **which page is being generated**, and the rules differ. They are currently hardcoded in the `PageOptions` each generator passes (`src/runtime/node/community/page-generator.ts`).
+
+| Page | Removed | Deleted | Pending approval | Approved `false` |
+|------|---------|---------|------------------|------------------|
+| Community posts (`generateCommunityPosts`) | excluded | excluded | excluded | excluded |
+| Post replies (`generatePostPages`) | **included** | **included** | excluded | **included** |
+| Reply replies (`generateReplyPages`) | **included** | **included** | excluded | **included** |
+
+Reply pages deliberately include removed and deleted comments so clients can render a tombstone in place, preserving thread structure. The community posts feed excludes them outright. Comments pending approval never appear in either; they live in the mod queue pages.
+
+The `active` sort applies the same exclusions to a post's **descendants** when computing its bump score, so a removed reply does not bump its post (`activeScoresCte` in `src/runtime/node/community/db-handler.ts`).
+
+> **This guarantee is scheduled to become configurable.** Under [#73](https://github.com/pkcprotocol/pkc-js/issues/73) these exclusions become per-sort operator options, defaulting to the values above. A community will be able to publish a feed that includes removed or deleted posts, for example an archive or mod-review sort. Frontends must not assume removed content is absent from a feed; check `commentUpdate.removed` / `deleted` and render accordingly.
+
+## Pinned Comments
+
+Pinned comments are sorted separately from the rest and prepended to the page, and the timeframe filter on `top*` sorts is applied **only to unpinned comments**, so a pinned post never ages out of a windowed index. This is currently a consequence of statement order in `sortAndChunkComments` rather than an explicit rule. Under [#73](https://github.com/pkcprotocol/pkc-js/issues/73) it becomes an explicit per-sort option, defaulting to the behaviour described here.
+
 ## Runtime Types
 
 In the `Comment` class at runtime, pages contain `CommentWithinRepliesPostsPageJson` objects which add runtime fields:
@@ -84,9 +104,17 @@ In the `Comment` class at runtime, pages contain `CommentWithinRepliesPostsPageJ
 - `pageCids` is optional, if all items fit in one page, it may be omitted.
 - ModQueuePages use `CommentUpdateForChallengeVerification` instead of full `CommentUpdate`.
 - Page verification: every comment in a page must belong to the correct community and have valid signatures.
+- Reply pages include removed and deleted comments; the community posts feed does not. See [Moderation Visibility](#moderation-visibility).
+- `pages` currently carries exactly one preloaded sort per record, but that is an implementation detail, not a protocol guarantee. Do not index it positionally.
 
 ## Common Mistakes
 
 - Treating page CIDs as permanent, pages are regenerated when state changes.
 - Fetching pages without verifying signatures, use `verifyPage()` from `src/signer/signatures.ts`.
+- Assuming a comment in a page is not removed or deleted. Reply pages include both by design, and the posts feed will be able to include them once [#73](https://github.com/pkcprotocol/pkc-js/issues/73) lands.
+- Assuming every community generates the same sorts. Discover them from the keys of `pages` and `pageCids` on the record, not from a hardcoded list.
+
+## Future Work
+
+- **Per-depth reply sorts.** Reply sorts are configured as a single list. Keying them by parent depth (`{ "0": [...], "*": [...] }`), plus a cutoff that stops generating reply pages below a given depth, would help deeply nested boards. Low priority: no current consumer needs it, and it is additive, so a flat list can widen to a depth-keyed map without breaking stored settings. Tracked under [#73](https://github.com/pkcprotocol/pkc-js/issues/73).
 - Confusing `pages` (pre-loaded first page) with `pageCids` (CIDs to fetch more pages).
