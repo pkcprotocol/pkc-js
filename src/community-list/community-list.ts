@@ -215,8 +215,11 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
     // Deterministic record errors: the record is content-addressed, so refetching the same cid can
     // never fix these. Everything else (transport) is retried forever
     private _isNonRetriableError(e: unknown): boolean {
+        // Classified by code, not instanceof: an error rejected by an RPC call crosses the wire as a
+        // plain object carrying the server-side PKCError's code, never as a PKCError instance
+        const code = (<{ code?: unknown }>e)?.code;
         return (
-            e instanceof PKCError &&
+            typeof code === "string" &&
             (
                 [
                     "ERR_INVALID_JSON",
@@ -225,7 +228,7 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
                     "ERR_OVER_DOWNLOAD_LIMIT",
                     "ERR_CALCULATED_CID_DOES_NOT_MATCH"
                 ] as const
-            ).includes(<never>e.code)
+            ).includes(<never>code)
         );
     }
 
@@ -312,8 +315,9 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
             cache.set(cacheKey, verdict);
             return verdict;
         } catch (e) {
-            if (e instanceof PKCError && e.code === "ERR_NO_RESOLVER_FOR_NAME") {
-                // Definitive: no resolver in this PKC instance handles this TLD
+            // Classified by code, not instanceof: over RPC the rejection is a plain object carrying the code
+            if ((<{ code?: unknown }>e)?.code === "ERR_NO_RESOLVER_FOR_NAME") {
+                // Definitive: no resolver in this PKC instance (or its RPC server) handles this TLD
                 cache.set(cacheKey, false);
                 return false;
             }
