@@ -27,32 +27,32 @@ Author                              Community
 
 All in `src/pubsub-messages/schema.ts`:
 
-| Message | Schema | Encrypted Payload |
-|---------|--------|-------------------|
-| `ChallengeRequestMessage` | `ChallengeRequestMessageSchema` | `DecryptedChallengeRequestSchema`: contains the publication + challenge options |
-| `ChallengeMessage` | `ChallengeMessageSchema` | `DecryptedChallengeSchema`: contains `challenges[]` to solve |
-| `ChallengeAnswerMessage` | `ChallengeAnswerMessageSchema` | `DecryptedChallengeAnswerSchema`: contains `challengeAnswers[]` |
+| Message                        | Schema                               | Encrypted Payload                                                                       |
+| ------------------------------ | ------------------------------------ | --------------------------------------------------------------------------------------- |
+| `ChallengeRequestMessage`      | `ChallengeRequestMessageSchema`      | `DecryptedChallengeRequestSchema`: contains the publication + challenge options         |
+| `ChallengeMessage`             | `ChallengeMessageSchema`             | `DecryptedChallengeSchema`: contains `challenges[]` to solve                            |
+| `ChallengeAnswerMessage`       | `ChallengeAnswerMessageSchema`       | `DecryptedChallengeAnswerSchema`: contains `challengeAnswers[]`                         |
 | `ChallengeVerificationMessage` | `ChallengeVerificationMessageSchema` | `DecryptedChallengeVerificationSchema`: contains `comment` + `commentUpdate` on success |
 
 ## Encryption
 
-- Uses **AES-GCM** with a shared secret derived from Ed25519 key exchange
-- `ChallengeRequestMessage.encrypted`: encrypted with community's `encryption.publicKey`
-- Each request uses a **new keypair**, `challengeRequestId` = multihash of the request's `signature.publicKey`
-- See `docs/encryption.md` for low-level details
+-   Uses **AES-GCM** with a shared secret derived from Ed25519 key exchange
+-   `ChallengeRequestMessage.encrypted`: encrypted with community's `encryption.publicKey`
+-   Each request uses a **new keypair**, `challengeRequestId` = multihash of the request's `signature.publicKey`
+-   See `docs/encryption.md` for low-level details
 
 ## Challenge Types
 
 Built-in challenges defined in `src/runtime/node/community/challenges/`:
 
-| Type | Description |
-|------|-------------|
-| `text-math` | Math problems (e.g., "2+3=?") |
-| `question` | Q&A challenges |
+| Type                | Description                                 |
+| ------------------- | ------------------------------------------- |
+| `text-math`         | Math problems (e.g., "2+3=?")               |
+| `question`          | Q&A challenges                              |
 | `publication-match` | Reject if publication doesn't match pattern |
-| `blacklist` | Reject based on lists |
-| `whitelist` | Allow only from lists |
-| `fail` | Always fails (for testing) |
+| `blacklist`         | Reject based on lists                       |
+| `whitelist`         | Allow only from lists                       |
+| `fail`              | Always fails (for testing)                  |
 
 External challenges can be registered via `PKC.challenges` static object.
 
@@ -60,25 +60,39 @@ External challenges can be registered via `PKC.challenges` static object.
 
 Each challenge in `CommunityIpfsType.challenges[]` can have `exclude` rules that skip the challenge for certain authors:
 
-- Author karma thresholds (postScore, replyScore)
-- Account age
-- Author role (admin, moderator)
-- Whether previous challenges in the array were already passed
-- Rate limiting
+-   Author karma thresholds (postScore, replyScore)
+-   Account age
+-   Author identity: `publicKeys` (key-derived addresses, the runtime `author.publicKey`) or `names` (domains). All exclude array fields are plural; `address` and `role` were the pre-v42 names
+-   Author role (`roles`: admin, moderator)
+-   Whether previous challenges in the array were already passed
+-   Rate limiting
 
 Exclude logic: `src/runtime/node/community/challenges/exclude/exclude.ts`
+
+### Author identity in excludes, roles and address lists
+
+`author.address` at runtime is `name || signerAddress`, built from the unresolved wire `author.name`. It is publisher-controlled and never used to decide identity on the community side. Every matcher goes through `createAuthorIdentityMatcher` (`src/runtime/node/community/local-community/author-identity.ts`):
+
+| Configured identity                                                                            | Matches when                                                                                                                                                                                                                     |
+| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| key-derived address (`exclude.publicKeys`, a raw `roles` key, a raw blacklist/whitelist entry) | it equals the address derived from `signature.publicKey`                                                                                                                                                                         |
+| domain (`exclude.names`, a domain `roles` key, a domain blacklist/whitelist entry)             | it equals the wire `author.name` **and** resolves to the signer address. Resolution happens at match time with `cache: { maxAge: 0 }`, regardless of `pkc.resolveAuthorNames`. A resolver failure is a non-match, never an error |
+
+There is no `exclude.address`; the schema rejects it. Private settings written before DB version 42 are migrated by `DbHandler._migrateOldSettings`, which splits the old `address` array by kind into `publicKeys` and `names`. See issue #267.
 
 ## ChallengeVerification Result
 
 On **success**:
-- `challengeSuccess: true`
-- Encrypted payload contains `{ comment: CommentIpfs, commentUpdate: CommentUpdateForChallengeVerification }`
-- The `commentUpdate` includes the assigned `cid`, `number`, `postNumber`
+
+-   `challengeSuccess: true`
+-   Encrypted payload contains `{ comment: CommentIpfs, commentUpdate: CommentUpdateForChallengeVerification }`
+-   The `commentUpdate` includes the assigned `cid`, `number`, `postNumber`
 
 On **failure**:
-- `challengeSuccess: false`
-- `challengeErrors`: `{ [challengeIndex]: errorMessage }`
-- `reason`: human-readable failure reason
+
+-   `challengeSuccess: false`
+-   `challengeErrors`: `{ [challengeIndex]: errorMessage }`
+-   `reason`: human-readable failure reason
 
 ## Duplicate and Overlapping Requests
 
@@ -98,16 +112,16 @@ The community owner configures challenges privately via `community.settings.chal
 
 ## Key Files
 
-| File | Purpose |
-|------|---------|
-| `src/pubsub-messages/schema.ts` | All message schemas |
-| `src/pubsub-messages/types.ts` | Message type definitions |
-| `src/runtime/node/community/challenges/index.ts` | Challenge processing logic (Node-only) |
-| `src/runtime/node/community/challenges/exclude/exclude.ts` | Exclude rule evaluation |
-| `src/publications/publication.ts` | Author-side publish flow |
+| File                                                       | Purpose                                |
+| ---------------------------------------------------------- | -------------------------------------- |
+| `src/pubsub-messages/schema.ts`                            | All message schemas                    |
+| `src/pubsub-messages/types.ts`                             | Message type definitions               |
+| `src/runtime/node/community/challenges/index.ts`           | Challenge processing logic (Node-only) |
+| `src/runtime/node/community/challenges/exclude/exclude.ts` | Exclude rule evaluation                |
+| `src/publications/publication.ts`                          | Author-side publish flow               |
 
 ## Common Mistakes
 
-- Forgetting that challenge messages are encrypted, you can't read them without the shared secret.
-- Confusing `CommunityIpfsType.challenges[]` (configuration) with `ChallengeMessage.challenges[]` (actual challenges to solve).
-- Not handling `pendingApproval`, even on challenge success, the comment may go to mod queue.
+-   Forgetting that challenge messages are encrypted, you can't read them without the shared secret.
+-   Confusing `CommunityIpfsType.challenges[]` (configuration) with `ChallengeMessage.challenges[]` (actual challenges to solve).
+-   Not handling `pendingApproval`, even on challenge success, the comment may go to mod queue.

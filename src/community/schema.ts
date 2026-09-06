@@ -18,6 +18,7 @@ import type { LocalCommunity } from "../runtime/node/community/local-community.j
 import { difference, isEmpty, keys, omit } from "remeda";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../pubsub-messages/types.js";
 import { messages } from "../errors.js";
+import { isStringDomain } from "../domain-util.js";
 
 // Other props of Community Ipfs here
 export const CommunityEncryptionSchema = z.looseObject({
@@ -126,7 +127,7 @@ export const ResultOfGetChallengeSchema = ChallengeFromGetChallengeSchema.or(Cha
 
 export const ChallengeExcludeCommunitySchema = z
     .object({
-        addresses: CommunityAddressSchema.array().nonempty(), // list of community addresses that can be used to exclude, plural because not a condition field like 'role'
+        addresses: CommunityAddressSchema.array().nonempty(), // list of community addresses that can be used to exclude
         maxCommentCids: z.number().nonnegative().int(), // maximum amount of comment cids that will be fetched to check
         postScore: z.number().int().optional(),
         replyScore: z.number().int().optional(),
@@ -150,20 +151,36 @@ export const ChallengeExcludePublicationTypeSchema = z
         messages.ERR_CAN_NOT_SET_EXCLUDE_PUBLICATION_TO_EMPTY_OBJECT
     );
 
-export const ChallengeExcludeSchema = z.looseObject({
-    community: ChallengeExcludeCommunitySchema.optional(),
-    postScore: z.number().int().optional(),
-    replyScore: z.number().int().optional(),
-    postCount: z.number().nonnegative().int().optional(),
-    replyCount: z.number().nonnegative().int().optional(),
-    firstCommentTimestamp: PKCTimestampSchema.optional(),
-    challenges: z.number().nonnegative().int().array().optional(),
-    role: CommunityRoleSchema.shape.role.array().optional(),
-    address: AuthorAddressSchema.array().optional(),
-    rateLimit: z.number().nonnegative().int().optional(),
-    rateLimitChallengeSuccess: z.boolean().optional(),
-    publicationType: ChallengeExcludePublicationTypeSchema.optional()
-});
+// An exclude names the author identity it means explicitly (issue #267):
+// - publicKeys: key-derived author addresses (the runtime author.publicKey), matched against the publication signature
+// - names: domains, resolved at match time (regardless of pkc.resolveAuthorNames) and required to resolve to the signer
+// The former conflated `exclude.address` (matched lexically against `name || signerAddress`) is rejected outright.
+export const ChallengeExcludePublicKeySchema = AuthorAddressSchema.refine(
+    (address) => !isStringDomain(address),
+    messages.ERR_CHALLENGE_EXCLUDE_PUBLIC_KEYS_MUST_NOT_BE_DOMAIN
+);
+export const ChallengeExcludeNameSchema = AuthorAddressSchema.refine(
+    (name) => isStringDomain(name),
+    messages.ERR_CHALLENGE_EXCLUDE_NAMES_MUST_BE_DOMAIN
+);
+
+export const ChallengeExcludeSchema = z
+    .looseObject({
+        community: ChallengeExcludeCommunitySchema.optional(),
+        postScore: z.number().int().optional(),
+        replyScore: z.number().int().optional(),
+        postCount: z.number().nonnegative().int().optional(),
+        replyCount: z.number().nonnegative().int().optional(),
+        firstCommentTimestamp: PKCTimestampSchema.optional(),
+        challenges: z.number().nonnegative().int().array().optional(),
+        roles: CommunityRoleSchema.shape.role.array().nonempty().optional(),
+        publicKeys: ChallengeExcludePublicKeySchema.array().nonempty().optional(),
+        names: ChallengeExcludeNameSchema.array().nonempty().optional(),
+        rateLimit: z.number().nonnegative().int().optional(),
+        rateLimitChallengeSuccess: z.boolean().optional(),
+        publicationType: ChallengeExcludePublicationTypeSchema.optional()
+    })
+    .refine((exclude) => !("address" in exclude), messages.ERR_CHALLENGE_EXCLUDE_ADDRESS_FIELD_REMOVED);
 
 export const CommunityChallengeSettingSchema = z
     .object({

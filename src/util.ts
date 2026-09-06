@@ -34,6 +34,7 @@ import { DecryptedChallengeRequestPublicationSchema } from "./pubsub-messages/sc
 import EventEmitter from "events";
 import { RemoteCommunity } from "./community/remote-community.js";
 import pTimeout from "p-timeout";
+import { isEthAliasDomain, normalizeEthAliasDomain } from "./domain-util.js";
 import { of as calculateIpfsCidV0Lib } from "typestub-ipfs-only-hash";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { sha256 } from "js-sha256";
@@ -435,18 +436,9 @@ export async function genToArray<T>(gen: AsyncIterable<T>): Promise<T[]> {
     return out;
 }
 
-export function isStringDomain(x: string | undefined) {
-    return typeof x === "string" && x.includes(".");
-}
-
-export function isEthAliasDomain(address: string): boolean {
-    const lower = address.toLowerCase();
-    return lower.endsWith(".eth") || lower.endsWith(".bso");
-}
-
-export function normalizeEthAliasDomain(address: string): string {
-    return address.endsWith(".bso") ? address.slice(0, -4) + ".eth" : address;
-}
+// Re-exported from the dependency-free leaf module so schema files can import them without
+// pulling in this module (see src/domain-util.ts).
+export { isStringDomain, isEthAliasDomain, normalizeEthAliasDomain } from "./domain-util.js";
 
 export function areEquivalentCommunityAddresses(addressA: string, addressB: string): boolean {
     if (addressA === addressB) return true;

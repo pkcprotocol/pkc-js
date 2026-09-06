@@ -8,13 +8,13 @@ The one exception is opt-in and owner-driven: the owner names individual options
 
 ## The Two Schemas
 
-| Aspect | Private (`CommunityChallengeSetting`) | Public (`CommunityChallenge`) |
-|--------|---------------------------------------|-------------------------------|
-| Access path | `community.settings.challenges[i]` | `community.challenges[i]` |
-| Schema | `CommunityChallengeSettingSchema` | `CommunityChallengeSchema` |
-| Defined in | `src/community/schema.ts` | `src/community/schema.ts` |
-| Storage | SQLite (local) / RPC (remote owner) | IPNS (public) |
-| Part of `CommunityIpfsSchema`? | No | Yes |
+| Aspect                         | Private (`CommunityChallengeSetting`) | Public (`CommunityChallenge`) |
+| ------------------------------ | ------------------------------------- | ----------------------------- |
+| Access path                    | `community.settings.challenges[i]`    | `community.challenges[i]`     |
+| Schema                         | `CommunityChallengeSettingSchema`     | `CommunityChallengeSchema`    |
+| Defined in                     | `src/community/schema.ts`             | `src/community/schema.ts`     |
+| Storage                        | SQLite (local) / RPC (remote owner)   | IPNS (public)                 |
+| Part of `CommunityIpfsSchema`? | No                                    | Yes                           |
 
 ### Private: `CommunityChallengeSettingSchema`
 
@@ -61,9 +61,9 @@ The one exception is opt-in and owner-driven: the owner names individual options
 
 `derivePublicOptions()` builds the public record from the two private fields:
 
-- An option is published only if the owner named it in `publicOptions` **and** actually set it in `options`. A named option that was never set is skipped.
-- The field is omitted entirely, not emitted as `{}`, when nothing qualifies. A record from an owner who opted into nothing is byte-identical to one produced before `publicOptions` existed.
-- Values stay `string`, matching the `options` contract. A structured ruleset ships as a JSON string, exactly as `publication-match` already does with its `matches` option.
+-   An option is published only if the owner named it in `publicOptions` **and** actually set it in `options`. A named option that was never set is skipped.
+-   The field is omitted entirely, not emitted as `{}`, when nothing qualifies. A record from an owner who opted into nothing is byte-identical to one produced before `publicOptions` existed.
+-   Values stay `string`, matching the `options` contract. A structured ruleset ships as a JSON string, exactly as `publication-match` already does with its `matches` option.
 
 Publication is the owner's decision, not the challenge developer's. A challenge package that must forbid or require publication of one of its options enforces that in its `validateChallengeSettings` hook rather than by owning the switch. See [challenge-authoring.md](challenge-authoring.md).
 
@@ -75,36 +75,42 @@ Two different things get called "sensitive", and `publicOptions` forces them apa
 
 The challenge's own `validateChallengeSettings` hook must forbid publication of these.
 
-| Challenge | Option | Why publishing breaks it |
-|-----------|--------|--------------------------|
+| Challenge  | Option   | Why publishing breaks it                                                             |
+| ---------- | -------- | ------------------------------------------------------------------------------------ |
 | `question` | `answer` | Anyone reading the record could answer the challenge, so it stops filtering anything |
 
 ### Private by default: publishing is a legitimate owner choice
 
 Not published unless the owner names the option, but naming it is a policy decision rather than a leak, so the challenge's hook stays silent about them.
 
-| Challenge | Option | What publishing it means |
-|-----------|--------|--------------------------|
-| `blacklist` | `addresses`, `urls` | Publishing the moderation policy is transparency; keeping it private stops a spammer reading the list |
-| `whitelist` | `addresses`, `urls` | Same tradeoff as `blacklist` |
-| `publication-match` | `matches` | Publishing lets a UI validate before the author burns a challenge attempt; keeping it private stops a spammer reading the patterns |
-| `text-math` | `difficulty` | Only affects generation, harmless either way |
+| Challenge           | Option              | What publishing it means                                                                                                           |
+| ------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `blacklist`         | `addresses`, `urls` | Publishing the moderation policy is transparency; keeping it private stops a spammer reading the list                              |
+| `whitelist`         | `addresses`, `urls` | Same tradeoff as `blacklist`                                                                                                       |
+| `publication-match` | `matches`           | Publishing lets a UI validate before the author burns a challenge attempt; keeping it private stops a spammer reading the patterns |
+| `text-math`         | `difficulty`        | Only affects generation, harmless either way                                                                                       |
 
 All built-in challenges also accept an `error` option (custom error message), not sensitive and private by default like everything else.
 
+## Exclude identity fields
+
+`exclude.publicKeys` lists key-derived author addresses, matched against the publication signature. `exclude.names` lists author domains, resolved at match time and required to resolve to the signer. `exclude.address` was removed (issue #267): it matched the conflated runtime `author.address`, which a publisher controls. Old private settings are migrated at DB version 42, see `docs/protocol/challenge-flow.md`.
+
 ## Common Mistakes
 
-- Logging or serializing `community.settings` in a context visible to users — `options` contains secrets, including the ones not named in `publicOptions`.
-- Assuming `publicOptions` on the public record is the owner's `publicOptions` array — the public one is a `Record<string, string>` of resolved values, the private one is a `string[]` of names.
-- Confusing `community.settings.challenges[]` (private config with `options`) with `community.challenges[]` (public, no `options`).
-- Assuming `options` is available on a `RemoteCommunity` without RPC — it is only available to the community owner (locally or via RPC).
+-   Putting a domain in `exclude.publicKeys` or an address in `exclude.names` - the schema rejects both. Pick the field by what the string is.
+
+-   Logging or serializing `community.settings` in a context visible to users — `options` contains secrets, including the ones not named in `publicOptions`.
+-   Assuming `publicOptions` on the public record is the owner's `publicOptions` array — the public one is a `Record<string, string>` of resolved values, the private one is a `string[]` of names.
+-   Confusing `community.settings.challenges[]` (private config with `options`) with `community.challenges[]` (public, no `options`).
+-   Assuming `options` is available on a `RemoteCommunity` without RPC — it is only available to the community owner (locally or via RPC).
 
 ## Key Files
 
-| File | Purpose |
-|------|---------|
-| `src/community/schema.ts` | Both `CommunityChallengeSettingSchema` and `CommunityChallengeSchema` |
-| `src/runtime/node/community/challenges/index.ts` | `getCommunityChallengeFromCommunityChallengeSettings()` transformation and `derivePublicOptions()` |
+| File                                                                   | Purpose                                                                                                         |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `src/community/schema.ts`                                              | Both `CommunityChallengeSettingSchema` and `CommunityChallengeSchema`                                           |
+| `src/runtime/node/community/challenges/index.ts`                       | `getCommunityChallengeFromCommunityChallengeSettings()` transformation and `derivePublicOptions()`              |
 | `src/runtime/node/community/challenges/validate-challenge-settings.ts` | Validation of a settings entry against the challenge file, see [challenge-authoring.md](challenge-authoring.md) |
-| `src/runtime/node/community/challenges/pkc-js-challenges/` | Built-in challenge implementations with their `optionInputs` |
-| `src/runtime/node/community/local-community.ts` | Where `this.challenges` is populated from `this.settings.challenges` |
+| `src/runtime/node/community/challenges/pkc-js-challenges/`             | Built-in challenge implementations with their `optionInputs`                                                    |
+| `src/runtime/node/community/local-community.ts`                        | Where `this.challenges` is populated from `this.settings.challenges`                                            |
