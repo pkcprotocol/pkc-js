@@ -626,6 +626,12 @@ async function runChallengeExchangeIfNeeded(
         // step 1. community publishes challenge pubsub message with `challenges` provided in argument of `getChallengeAnswers`
         // step 2. community waits for challenge answer pubsub message with `challengeAnswers` and then returns `challengeAnswers`
         await publishChallenges(community, challenges, decryptedRequestWithCommunityAuthor);
+        // The ongoing-exchange entry was created when the request arrived and expires one ttl
+        // later, but a request that waited on an in-flight exchange for the same signed
+        // publication (issue #228) can have spent that whole ttl waiting. Refresh it now so the
+        // author has the full ttl to answer this challenge; handleChallengeAnswer rejects an answer
+        // whose entry is gone as having no prior request.
+        community._ongoingChallengeExchanges.set(answerPromiseKey, true);
         const challengeAnswerPromise = new Promise<DecryptedChallengeAnswer["challengeAnswers"]>((resolve, reject) =>
             community._challengeAnswerResolveReject.set(answerPromiseKey, { resolve, reject })
         );
