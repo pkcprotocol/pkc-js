@@ -73,6 +73,10 @@ import { ZodError } from "zod";
 import { messages } from "../../../errors.js";
 import type { PseudonymityAliasRow, PurgedCommentTableRows } from "./db-handler-types.js";
 import { getAuthorNameFromWire } from "../../../publications/publication-author.js";
+import { PageSortDbFacade } from "./page-sorts/db-facade.js";
+import { parseBooleanOption } from "./page-sorts/reserved-options.js";
+import activePageSort from "./page-sorts/pkc-js-page-sorts/active.js";
+import type { PageSortDb } from "../../../pages/types.js";
 
 const TABLES = Object.freeze({
     COMMENTS: "comments",
@@ -91,6 +95,7 @@ export class DbHandler {
     private _keyv!: KeyvBetterSqlite3;
     private _createdTables: boolean;
     private _columnNamesByTable: Record<string, string[]>;
+    private _pageSortDb?: PageSortDbFacade; // the read-only facade page sort files query through (issue #73)
 
     constructor(community: DbHandler["_community"]) {
         this._community = community;
@@ -239,6 +244,7 @@ export class DbHandler {
             this._db.close();
         }
         if (this._keyv) this._keyv.disconnect();
+        this._pageSortDb?.close(); // the facade itself stays, page sort instances hold it; it reopens on demand
 
         //@ts-expect-error
         this._db = this._keyv = undefined;
@@ -1261,6 +1267,49 @@ export class DbHandler {
         }
     }
 
+    // The handle page sort files query through. File-backed communities get a second connection opened read-only;
+    // `noData` (`:memory:`) communities share this handle and rely on the facade's per-statement readonly check.
+    // Cached for the life of the connection and closed with it, so a file may prepare statements once.
+    createPageSortDb(): PageSortDb {
+        if (this._pageSortDb) return this._pageSortDb;
+        assert(this._dbConfig, "DbHandler.createPageSortDb needs the db config; call initDbConfigIfNeeded first");
+        const exclusionClauses: PageSortDb["exclusionClauses"] = (options, aliases) => this.exclusionClausesForPageSort(options, aliases);
+        const isInMemory = this._dbConfig.filename === ":memory:";
+        this._pageSortDb = new PageSortDbFacade({
+            exclusionClauses,
+            ...(isInMemory
+                ? {
+                      sharedHandle: () => {
+                          assert(this._db?.open, "The community db connection is not open");
+                          return this._db;
+                      }
+                  }
+                : { openReadOnlyConnection: () => new Database(this._dbConfig.filename, { readonly: true, fileMustExist: true }) })
+        });
+        return this._pageSortDb;
+    }
+
+    // The single definition of what the exclude* page sort options mean in SQL, for a page sort file to splice into
+    // its own query: `WHERE ${sql}` with the returned named params. A file that runs the same exclusions twice in one
+    // statement (the active sort does, for the root and the descendants) passes distinct paramPrefix values.
+    exclusionClausesForPageSort(
+        options: Record<string, string | undefined>,
+        aliases: { comment: string; update: string; paramPrefix?: string }
+    ): { sql: string; params: Record<string, string> } {
+        const clauses: string[] = [];
+        const params: Record<string, string> = {};
+        if (parseBooleanOption(options.excludeCommentsWithDifferentCommunityAddress)) {
+            const { clause, params: addrParams } = this._communityAddressClauseNamed(aliases.comment, aliases.paramPrefix ?? "pageSort");
+            clauses.push(clause);
+            Object.assign(params, addrParams);
+        }
+        if (parseBooleanOption(options.excludeCommentPendingApproval)) clauses.push(this._pendingApprovalClause(aliases.comment));
+        if (parseBooleanOption(options.excludeRemovedComments)) clauses.push(this._removedClause(aliases.update));
+        if (parseBooleanOption(options.excludeDeletedComments)) clauses.push(this._deletedFromUpdatesClause(aliases.update));
+        if (parseBooleanOption(options.excludeCommentWithApprovedFalse)) clauses.push(this._approvedClause(aliases.update));
+        return { sql: clauses.join(" AND "), params };
+    }
+
     private _buildPageQueryParts(options: Omit<PageOptions, "pageSize" | "preloadedPage" | "baseTimestamp" | "firstPageSizeBytes">): {
         whereClauses: string[];
         params: any[];
@@ -1338,7 +1387,8 @@ export class DbHandler {
     queryPageCommentsWithResolvedReplies(options: Omit<PageOptions, "firstPageSizeBytes">): PageIpfs["comments"] {
         // Fetch ALL descendants by following CID-ref lists stored in the DB `replies` column.
         // Base case: direct children of parentCid.
-        // Recursive case: follow $.best.commentCids from each node's replies JSON.
+        // Recursive case: follow every preloaded sort's commentCids from each node's replies JSON (a child listed under
+        // two preloaded sorts comes back twice and is deduped below).
         // Returns flat rows with tree_parent for JS tree assembly.
 
         const commentUpdateCols = keys(CommentUpdateSchema.shape);
@@ -1386,14 +1436,13 @@ export class DbHandler {
                 SELECT ${recCommentIpfsSelects.join(", ")}, ${recCommentUpdateSelects.join(", ")},
                        rt.commentUpdate_cid AS tree_parent
                 FROM reply_tree rt
-                CROSS JOIN json_each(
-                    json_extract(rt.commentUpdate_replies, '$.best.commentCids')
-                ) child_ref
+                CROSS JOIN json_each(rt.commentUpdate_replies) sort_entry
+                CROSS JOIN json_each(json_extract(sort_entry.value, '$.commentCids')) child_ref
                 JOIN ${TABLES.COMMENTS} c2 ON c2.cid = child_ref.value
                 JOIN ${TABLES.COMMENT_UPDATES} cu2 ON c2.cid = cu2.cid
                 ${deletedLookupJoin}
                 WHERE rt.commentUpdate_replies IS NOT NULL
-                  AND json_type(rt.commentUpdate_replies, '$.best.commentCids') = 'array'
+                  AND json_type(sort_entry.value, '$.commentCids') = 'array'
                   ${recursiveWhereExtra}
             )
             SELECT * FROM reply_tree
@@ -1406,6 +1455,7 @@ export class DbHandler {
         const childrenByParent = new Map<string, { comment: CommentIpfsType; commentUpdate: CommentUpdateType }[]>();
         for (const row of rowsRaw) {
             const { comment, commentUpdate } = this._parsePrefixedComment(row);
+            if (parsedByCid.has(commentUpdate.cid)) continue; // listed under more than one preloaded sort of the same parent
             parsedByCid.set(commentUpdate.cid, { comment, commentUpdate });
             const parent = row.tree_parent;
             if (!childrenByParent.has(parent)) childrenByParent.set(parent, []);
@@ -1436,26 +1486,26 @@ export class DbHandler {
             const children = childrenByParent.get(cid);
             if (!children?.length) return undefined;
 
-            // Sort children by the parent's commentCids order.
+            // Rebuild one page per preloaded sort of the parent, each in its own commentCids order.
             // SQLite's recursive CTE does not guarantee row order matches json_each array order
             // when additional JOINs are involved, so we must explicitly reorder.
             const parent = parsedByCid.get(cid);
             const parentDbReplies = parent?.commentUpdate?.replies as Record<string, DbRepliesSortEntry> | undefined;
-            const cidOrder = parentDbReplies?.best?.commentCids;
-            const orderedChildren = cidOrder
-                ? (cidOrder.map((childCid) => children.find((c) => c.commentUpdate.cid === childCid)).filter(Boolean) as typeof children)
-                : children;
-
-            return {
-                pages: {
-                    best: {
-                        comments: orderedChildren.map((child) => ({
-                            comment: child.comment,
-                            commentUpdate: buildWireCommentUpdate(child.commentUpdate, attachReplies(child.commentUpdate.cid))
-                        }))
-                    }
-                }
-            };
+            const pages: Record<string, PageIpfs> = {};
+            for (const [sortName, sortEntry] of Object.entries(parentDbReplies ?? {})) {
+                if (!sortEntry?.commentCids) continue;
+                const orderedChildren = sortEntry.commentCids
+                    .map((childCid) => children.find((c) => c.commentUpdate.cid === childCid))
+                    .filter((child): child is (typeof children)[number] => child !== undefined);
+                pages[sortName] = {
+                    comments: orderedChildren.map((child) => ({
+                        comment: child.comment,
+                        commentUpdate: buildWireCommentUpdate(child.commentUpdate, attachReplies(child.commentUpdate.cid))
+                    }))
+                };
+            }
+            if (Object.keys(pages).length === 0) return undefined;
+            return { pages };
         };
 
         // Direct children with nested replies attached
@@ -1507,13 +1557,12 @@ export class DbHandler {
                     SELECT ${recCommentIpfsSelects.join(", ")}, ${recCommentUpdateSelects.join(", ")},
                            rt.commentUpdate_cid AS tree_parent
                     FROM reply_tree rt
-                    CROSS JOIN json_each(
-                        json_extract(rt.commentUpdate_replies, '$.best.commentCids')
-                    ) child_ref
+                    CROSS JOIN json_each(rt.commentUpdate_replies) sort_entry
+                    CROSS JOIN json_each(json_extract(sort_entry.value, '$.commentCids')) child_ref
                     JOIN ${TABLES.COMMENTS} c2 ON c2.cid = child_ref.value
                     JOIN ${TABLES.COMMENT_UPDATES} cu2 ON c2.cid = cu2.cid
                     WHERE rt.commentUpdate_replies IS NOT NULL
-                      AND json_type(rt.commentUpdate_replies, '$.best.commentCids') = 'array'
+                      AND json_type(sort_entry.value, '$.commentCids') = 'array'
                 )
                 SELECT * FROM reply_tree
             `;
@@ -1523,6 +1572,7 @@ export class DbHandler {
             // Build lookup: cid -> parsed entry
             for (const row of rowsRaw) {
                 const { comment, commentUpdate } = this._parsePrefixedComment(row);
+                if (parsedByCid.has(commentUpdate.cid)) continue; // listed under more than one preloaded sort of the same parent
                 parsedByCid.set(commentUpdate.cid, { comment, commentUpdate });
                 const parent = row.tree_parent;
                 if (!childrenByParent.has(parent)) childrenByParent.set(parent, []);
@@ -1553,26 +1603,26 @@ export class DbHandler {
             const children = childrenByParent.get(cid);
             if (!children?.length) return undefined;
 
-            // Sort children by the parent's commentCids order.
+            // Rebuild one page per preloaded sort of the parent, each in its own commentCids order.
             // SQLite's recursive CTE does not guarantee row order matches json_each array order
             // when additional JOINs are involved, so we must explicitly reorder.
             const parent = parsedByCid.get(cid);
             const parentDbReplies = parent?.commentUpdate?.replies as Record<string, DbRepliesSortEntry> | undefined;
-            const cidOrder = parentDbReplies?.best?.commentCids;
-            const orderedChildren = cidOrder
-                ? (cidOrder.map((childCid) => children.find((c) => c.commentUpdate.cid === childCid)).filter(Boolean) as typeof children)
-                : children;
-
-            return {
-                pages: {
-                    best: {
-                        comments: orderedChildren.map((child) => ({
-                            comment: child.comment,
-                            commentUpdate: buildWireCommentUpdate(child.commentUpdate, attachReplies(child.commentUpdate.cid))
-                        }))
-                    }
-                }
-            };
+            const pages: Record<string, PageIpfs> = {};
+            for (const [sortName, sortEntry] of Object.entries(parentDbReplies ?? {})) {
+                if (!sortEntry?.commentCids) continue;
+                const orderedChildren = sortEntry.commentCids
+                    .map((childCid) => children.find((c) => c.commentUpdate.cid === childCid))
+                    .filter((child): child is (typeof children)[number] => child !== undefined);
+                pages[sortName] = {
+                    comments: orderedChildren.map((child) => ({
+                        comment: child.comment,
+                        commentUpdate: buildWireCommentUpdate(child.commentUpdate, attachReplies(child.commentUpdate.cid))
+                    }))
+                };
+            }
+            if (Object.keys(pages).length === 0) return undefined;
+            return { pages };
         };
 
         // Resolve each entry's CID-ref replies into full nested data
@@ -1818,9 +1868,62 @@ export class DbHandler {
         return results.map((r) => this._parseCommentsTableRow(r));
     }
 
+    // Windowed reply sorts (settings.pages.replies[].options.maxAge) need a time-based trigger that nothing else
+    // provides: a page's membership changes when a reply crosses the window boundary even though no row changed.
+    // One arm per distinct window flags a parent only when a reply was inside the window at the parent's last
+    // generation (cu.updatedAt) and is outside it now, so a quiet thread costs a range scan and nothing else.
+    // Flat sorts filter the whole flattened subtree and are generated for posts only, so their arm walks
+    // descendants up to the depth-0 ancestor. Pinned replies bypass the filter when pinnedFirst is true. Omitted
+    // entirely (empty strings) when no reply sort is windowed, so the default config pays nothing.
+    private _buildWindowedReplySortArms(now: number): { ctes: string; unions: string; params: Record<string, number> } {
+        const windowedSorts = (this._community._pageSorts?.replies ?? []).filter((sort) => typeof sort.maxAgeSeconds === "number");
+        if (windowedSorts.length === 0) return { ctes: "", unions: "", params: {} };
+        const ctes: string[] = [];
+        const unions: string[] = [];
+        const params: Record<string, number> = { windowNow: now };
+        const seen = new Set<string>();
+        for (const sort of windowedSorts) {
+            const key = `${sort.maxAgeSeconds}:${sort.flat}:${sort.pinnedFirst}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const i = ctes.length;
+            params[`windowMaxAge${i}`] = sort.maxAgeSeconds!;
+            const pinnedClause = sort.pinnedFirst ? `AND (rcu.pinned IS NULL OR rcu.pinned != 1)` : "";
+            const crossingClause = `r_ts >= cu_anc.updatedAt - :windowMaxAge${i} AND r_ts < :windowNow - :windowMaxAge${i}`;
+            if (sort.flat)
+                ctes.push(`
+            windowed_flat_${i}_ancestors AS (
+                SELECT r.cid AS reply_cid, r.timestamp AS r_ts, r.parentCid AS anc_cid FROM ${TABLES.COMMENTS} r WHERE r.parentCid IS NOT NULL
+                UNION ALL
+                SELECT wa.reply_cid, wa.r_ts, p.parentCid FROM windowed_flat_${i}_ancestors wa
+                JOIN ${TABLES.COMMENTS} p ON p.cid = wa.anc_cid WHERE p.parentCid IS NOT NULL
+            ),
+            windowed_${i} AS (
+                SELECT DISTINCT wa.anc_cid AS cid
+                FROM windowed_flat_${i}_ancestors wa
+                JOIN ${TABLES.COMMENTS} anc ON anc.cid = wa.anc_cid AND anc.depth = 0
+                JOIN ${TABLES.COMMENT_UPDATES} cu_anc ON cu_anc.cid = wa.anc_cid
+                LEFT JOIN ${TABLES.COMMENT_UPDATES} rcu ON rcu.cid = wa.reply_cid
+                WHERE ${crossingClause} ${pinnedClause}
+            ),`);
+            else
+                ctes.push(`
+            windowed_${i} AS (
+                SELECT DISTINCT r.parentCid AS cid
+                FROM (SELECT cid, parentCid, timestamp AS r_ts FROM ${TABLES.COMMENTS} WHERE parentCid IS NOT NULL) r
+                JOIN ${TABLES.COMMENT_UPDATES} cu_anc ON cu_anc.cid = r.parentCid
+                LEFT JOIN ${TABLES.COMMENT_UPDATES} rcu ON rcu.cid = r.cid
+                WHERE ${crossingClause} ${pinnedClause}
+            ),`);
+            unions.push(`UNION SELECT c.* FROM ${TABLES.COMMENTS} c JOIN windowed_${i} w${i} ON c.cid = w${i}.cid`);
+        }
+        return { ctes: ctes.join(""), unions: unions.join("\n                "), params };
+    }
+
     queryCommentsToBeUpdated(): CommentsTableRow[] {
         // TODO optimize this query in the future
         // Make sure tests in commentsToUpdate.db.community.test.js are passing
+        const windowed = this._buildWindowedReplySortArms(timestamp());
         const query = `
             WITH RECURSIVE 
             direct_updates AS (
@@ -1892,12 +1995,11 @@ export class DbHandler {
             stale_replies AS (
                 SELECT DISTINCT cu_parent.cid
                 FROM ${TABLES.COMMENT_UPDATES} cu_parent
-                CROSS JOIN json_each(
-                    json_extract(cu_parent.replies, '$.best.commentCids')
-                ) child_ref
+                CROSS JOIN json_each(cu_parent.replies) sort_entry
+                CROSS JOIN json_each(json_extract(sort_entry.value, '$.commentCids')) child_ref
                 JOIN ${TABLES.COMMENT_UPDATES} cu_child ON cu_child.cid = child_ref.value
                 WHERE cu_parent.replies IS NOT NULL
-                  AND json_type(cu_parent.replies, '$.best.commentCids') = 'array'
+                  AND json_type(sort_entry.value, '$.commentCids') = 'array'
                   -- Compare against the parent's updatedAt, not its insertedAt (issue #230). insertedAt is
                   -- the batch's start timestamp, shared by every row the batch writes (issue #209/#211),
                   -- while updatedAt is stamped when that row is actually calculated. A batch walks a post
@@ -1908,11 +2010,12 @@ export class DbHandler {
                   -- generated, which is the point the child's data could have gone stale relative to.
                   AND cu_child.updatedAt > cu_parent.updatedAt
             ),
-            base_updates AS (
+            ${windowed.ctes}base_updates AS (
                 SELECT * FROM direct_updates
                 UNION SELECT c.* FROM ${TABLES.COMMENTS} c JOIN stale_child_counts scc ON c.cid = scc.cid
                 UNION SELECT c.* FROM ${TABLES.COMMENTS} c JOIN stale_last_child_cids slc ON c.cid = slc.cid
                 UNION SELECT c.* FROM ${TABLES.COMMENTS} c JOIN stale_replies sr ON c.cid = sr.cid
+                ${windowed.unions}
             ),
             authors_to_update AS (SELECT DISTINCT authorSignerAddress FROM base_updates),
             author_comments AS (
@@ -1937,7 +2040,7 @@ export class DbHandler {
             WHERE (c.pendingApproval IS NULL OR c.pendingApproval != 1)
             ORDER BY c.rowid
         `;
-        const results = this._db.prepare(query).all() as CommentsTableRow[];
+        const results = this._db.prepare(query).all(windowed.params) as CommentsTableRow[];
         return results.map((r) => this._parseCommentsTableRow(r));
     }
 
@@ -3213,44 +3316,11 @@ export class DbHandler {
         });
     }
 
-    queryPostsWithActiveScore(
+    // Every post (depth 0) that survives the exclusion options, with its DB-format replies (CID refs) still attached;
+    // callers resolve those with resolveRepliesCidRefsForEntries. Scoring is the page sort's job (issue #73).
+    queryPosts(
         pageOptions: Omit<PageOptions, "pageSize" | "preloadedPage" | "baseTimestamp" | "firstPageSizeBytes">
-    ): (PageIpfs["comments"][0] & { activeScore: number })[] {
-        const { clause: rootAddrClause, params: rootAddrParams } = this._communityAddressClauseNamed("p", "asRoot");
-        const { clause: descAddrClause, params: descAddrParams } = this._communityAddressClauseNamed("c", "asDesc");
-        const { clause: postsAddrClause, params: postsAddrParams } = this._communityAddressClauseNamed("c", "asPosts");
-
-        const activeScoreRootConditions = ["p.depth = 0"];
-        if (pageOptions.excludeCommentsWithDifferentCommunityAddress) activeScoreRootConditions.push(rootAddrClause);
-        if (pageOptions.excludeCommentPendingApproval) activeScoreRootConditions.push(this._pendingApprovalClause("p"));
-        if (pageOptions.excludeRemovedComments) activeScoreRootConditions.push(this._removedClause("cu_root"));
-        if (pageOptions.excludeDeletedComments) activeScoreRootConditions.push(this._deletedFromUpdatesClause("cu_root"));
-        if (pageOptions.excludeCommentWithApprovedFalse) activeScoreRootConditions.push(this._approvedClause("cu_root"));
-        const activeScoreRootWhere = `WHERE ${activeScoreRootConditions.join(" AND ")}`;
-
-        const activeScoreDescendantConditions: string[] = [];
-        if (pageOptions.excludeCommentsWithDifferentCommunityAddress) activeScoreDescendantConditions.push(descAddrClause);
-        if (pageOptions.excludeCommentPendingApproval) activeScoreDescendantConditions.push(this._pendingApprovalClause("c"));
-        if (pageOptions.excludeRemovedComments) activeScoreDescendantConditions.push(this._removedClause("cu"));
-        if (pageOptions.excludeDeletedComments) activeScoreDescendantConditions.push(this._deletedFromLookupClause("deleted_lookup"));
-        if (pageOptions.excludeCommentWithApprovedFalse) activeScoreDescendantConditions.push(this._approvedClause("cu"));
-        const activeScoreDescendantWhere =
-            activeScoreDescendantConditions.length > 0 ? `WHERE ${activeScoreDescendantConditions.join(" AND ")}` : "";
-
-        const activeScoresCte = `
-            WITH RECURSIVE descendants AS (
-                SELECT p.cid AS post_cid, p.cid AS current_cid, p.timestamp
-                FROM ${TABLES.COMMENTS} p
-                INNER JOIN ${TABLES.COMMENT_UPDATES} cu_root ON p.cid = cu_root.cid
-                ${activeScoreRootWhere}
-                UNION ALL
-                SELECT desc_tree.post_cid, c.cid AS current_cid, c.timestamp FROM ${TABLES.COMMENTS} c
-                INNER JOIN ${TABLES.COMMENT_UPDATES} cu ON c.cid = cu.cid
-                LEFT JOIN (SELECT cid, json_extract(edit, '$.deleted') AS deleted_flag FROM ${TABLES.COMMENT_UPDATES}) AS deleted_lookup ON c.cid = deleted_lookup.cid
-                JOIN descendants desc_tree ON c.parentCid = desc_tree.current_cid
-                ${activeScoreDescendantWhere}
-            ) SELECT post_cid, MAX(timestamp) as active_score FROM descendants GROUP BY post_cid
-        `;
+    ): PageIpfs["comments"] {
         const commentUpdateCols = keys(
             pageOptions.commentUpdateFieldsToExclude
                 ? omit(CommentUpdateSchema.shape, pageOptions.commentUpdateFieldsToExclude)
@@ -3260,35 +3330,53 @@ export class DbHandler {
         const commentIpfsCols = [...keys(CommentIpfsSchema.shape), "extraProps"];
         const commentIpfsSelects = commentIpfsCols.map((col) => `c.${col} AS commentIpfs_${col}`);
 
-        let postsQueryStr = `
-            SELECT ${commentIpfsSelects.join(", ")}, ${commentUpdateSelects.join(", ")}, asc_scores.active_score
-            FROM ${TABLES.COMMENTS} c INNER JOIN ${TABLES.COMMENT_UPDATES} cu ON c.cid = cu.cid
-            INNER JOIN (${activeScoresCte}) AS asc_scores ON c.cid = asc_scores.post_cid
-        `;
-        const params: Record<string, any> = { ...rootAddrParams, ...descAddrParams };
-
+        const params: Record<string, string> = {};
         const postsWhereClauses = ["c.depth = 0"];
-
         if (pageOptions.excludeCommentsWithDifferentCommunityAddress) {
-            postsWhereClauses.push(postsAddrClause);
-            Object.assign(params, postsAddrParams);
+            const { clause, params: addrParams } = this._communityAddressClauseNamed("c", "asPosts");
+            postsWhereClauses.push(clause);
+            Object.assign(params, addrParams);
         }
         if (pageOptions.excludeRemovedComments) postsWhereClauses.push(this._removedClause("cu"));
         if (pageOptions.excludeDeletedComments) postsWhereClauses.push(this._deletedFromUpdatesClause("cu"));
         if (pageOptions.excludeCommentPendingApproval) postsWhereClauses.push(this._pendingApprovalClause("c"));
         if (pageOptions.excludeCommentWithApprovedFalse) postsWhereClauses.push(this._approvedClause("cu"));
 
-        postsQueryStr += ` WHERE ${postsWhereClauses.join(" AND ")}`;
-
-        const postsRaw = this._db.prepare(postsQueryStr).all(params) as (PrefixedCommentRow & { active_score: number })[];
+        const postsQueryStr = `
+            SELECT ${commentIpfsSelects.join(", ")}, ${commentUpdateSelects.join(", ")}
+            FROM ${TABLES.COMMENTS} c INNER JOIN ${TABLES.COMMENT_UPDATES} cu ON c.cid = cu.cid
+            WHERE ${postsWhereClauses.join(" AND ")}
+        `;
+        const postsRaw = this._db.prepare(postsQueryStr).all(params) as PrefixedCommentRow[];
         return postsRaw.map((postRaw) => {
             const { comment, commentUpdate } = this._parsePrefixedComment(postRaw);
-            return {
-                comment,
-                commentUpdate,
-                activeScore: postRaw.active_score
-            };
+            return { comment, commentUpdate };
         });
+    }
+
+    // queryPosts plus the built-in active score, computed by the active page sort file through the read-only facade.
+    // The SQL lives in page-sorts/pkc-js-page-sorts/active.ts now; this stays so the page generator's callers and
+    // the migration tests keep one entry point for "posts with their bump score".
+    queryPostsWithActiveScore(
+        pageOptions: Omit<PageOptions, "pageSize" | "preloadedPage" | "baseTimestamp" | "firstPageSizeBytes">
+    ): (PageIpfs["comments"][0] & { activeScore: number })[] {
+        const posts = this.queryPosts(pageOptions);
+        if (posts.length === 0) return [];
+        const db = this.createPageSortDb();
+        const options: Record<string, string> = {
+            excludeRemovedComments: String(pageOptions.excludeRemovedComments),
+            excludeDeletedComments: String(pageOptions.excludeDeletedComments),
+            excludeCommentPendingApproval: String(pageOptions.excludeCommentPendingApproval),
+            excludeCommentWithApprovedFalse: String(pageOptions.excludeCommentWithApprovedFalse),
+            excludeCommentsWithDifferentCommunityAddress: String(pageOptions.excludeCommentsWithDifferentCommunityAddress)
+        };
+        const scores = activePageSort({ pageSortSettings: { name: "active" }, db }).scoreAll({
+            comments: posts,
+            db,
+            options,
+            baseTimestamp: timestamp()
+        });
+        return posts.map((post) => ({ ...post, activeScore: scores.get(post.commentUpdate.cid) ?? post.comment.timestamp }));
     }
 
     private _processRecordsForDbBeforeInsert<T extends Record<string, any>>(records: T[]): T[] {

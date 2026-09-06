@@ -15,6 +15,7 @@ import {
 } from "../schema/schema.js";
 import { ModQueuePagesIpfsSchema, PostsPagesIpfsSchema } from "../pages/schema.js";
 import type { LocalCommunity } from "../runtime/node/community/local-community.js";
+import type { PageIpfs, PageSortDb } from "../pages/types.js";
 import { difference, isEmpty, keys, omit } from "remeda";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../pubsub-messages/types.js";
 import { messages } from "../errors.js";
@@ -233,6 +234,101 @@ export const ChallengeFileFactoryArgsSchema = z.object({
 
 export const ChallengeFileFactorySchema = z.function({ input: [ChallengeFileFactoryArgsSchema], output: ChallengeFileSchema });
 
+// Local community page sorts here (settings.pages, issue #73)
+
+// One entry of settings.pages.posts / settings.pages.replies. Mirrors CommunityChallengeSettingSchema: the file
+// (by registry name or path) supplies the wire key (its sortName); options are strings only, like challenge
+// options, so a config UI can reuse the same renderer and lists are comma-separated by package convention.
+export const CommunityPageSortSettingSchema = z
+    .object({
+        path: z.string().optional(), // (only if name is undefined) the path to the page sort js file
+        name: z.string().optional(), // (only if path is undefined) the key in PKC.pageSorts (built-ins plus installed packages)
+        options: z.record(z.string(), z.string()).optional(), // passed to the file unstripped; maxAge, pinnedFirst and exclude* are reserved keys pkc-js also reads
+        preloaded: z.boolean().optional(), // embed this sort's first page in the record (community.posts.pages / commentUpdate.replies.pages). Default false
+        privateOptions: z.string().array().optional() // option names withheld from community.pageSorts; everything else set in `options` is published
+    })
+    .strict()
+    .refine((pageSortSetting) => pageSortSetting.path || pageSortSetting.name, "Path or name of page sort has to be defined");
+
+export const CommunityPagesSettingsSchema = z
+    .object({
+        posts: CommunityPageSortSettingSchema.array().optional(), // unset = today's nine post sorts with hot preloaded; [] = no posts feed
+        replies: CommunityPageSortSettingSchema.array().optional() // unset = today's five reply sorts with best preloaded; [] = no reply pages
+    })
+    .strict();
+
+export const PageSortFileFactoryArgsSchema = z.object({
+    pageSortSettings: CommunityPageSortSettingSchema,
+    db: z.custom<PageSortDb>()
+});
+
+// Typed rather than parsed: the entries are pkc-js's own already-parsed rows, and a zod parse per comment per
+// cycle would be pure overhead in the community's hot loop.
+const PageSortCommentEntrySchema = z.custom<PageIpfs["comments"][number]>();
+
+export const PageSortScopeSchema = z.enum(["posts", "replies"]);
+
+export const PageSortFileSchema = z.looseObject({
+    // the result of the function exported by the page sort file
+    sortName: z.string().min(1), // the key under posts.pages / posts.pageCids (or replies.*); public API of the package
+    description: z.string().optional(), // describe what the sort does, published in community.pageSorts
+    optionInputs: ChallengeOptionInputSchema.array().optional(), // same shape as challenges: string options only
+    scope: PageSortScopeSchema.optional(), // undefined = usable under both posts and replies
+    flat: z.boolean().optional(), // reply sorts only: sort the flattened descendant subtree instead of the direct replies
+    defaultOptions: z.record(z.string(), z.string()).optional(), // merged under settings.pages[].options (the entry wins); how topWeek fixes its own maxAge
+    // Per comment, before scoreAll, sync. Return false to drop the comment from this sort's pages.
+    filter: z
+        .function({
+            input: [
+                z.object({
+                    comment: z.custom<PageIpfs["comments"][number]["comment"]>(),
+                    commentUpdate: z.custom<PageIpfs["comments"][number]["commentUpdate"]>(),
+                    options: z.record(z.string(), z.string()),
+                    baseTimestamp: z.number()
+                })
+            ],
+            output: z.boolean()
+        })
+        .optional(),
+    // Whole-set scorer, sync, called once per generation with every surviving comment. Higher scores sort first.
+    // Receives the read-only db facade so a sort can score from SQL (the active sort is MAX(timestamp) over a
+    // post's descendants, which no per-comment function can express).
+    scoreAll: z.function({
+        input: [
+            z.object({
+                comments: PageSortCommentEntrySchema.array(),
+                db: z.custom<PageSortDb>(),
+                options: z.record(z.string(), z.string()),
+                baseTimestamp: z.number()
+            })
+        ],
+        output: z.map(z.string(), z.number())
+    }),
+    // Sync semantic validation of the entry, same contract as ChallengeFile.validateChallengeSettings
+    validatePageSortSettings: z
+        .function({ input: [z.object({ pageSortSettings: CommunityPageSortSettingSchema })], output: z.void() })
+        .optional()
+});
+
+export const PageSortFileFactorySchema = z.function({ input: [PageSortFileFactoryArgsSchema], output: PageSortFileSchema });
+
+// What a community publishes about each configured sort (community.pageSorts), keyed by sortName. Mirrors
+// community.challenges[i]: enough for a client to tell the built-in `active` from a package that reuses the
+// name, and to re-sort locally with the same package when the board fits in one chunk.
+export const CommunityPageSortSchema = z.looseObject({
+    name: z.string().optional(), // the PKC.pageSorts key for name: entries; omitted for path: entries
+    description: PageSortFileSchema.shape.description,
+    // Every option set in settings.pages[].options, minus the names listed in privateOptions. Omitted when nothing is left.
+    publicOptions: z.record(z.string(), z.string()).optional()
+});
+
+export const CommunityPageSortsSchema = z
+    .object({
+        posts: z.record(z.string().min(1), CommunityPageSortSchema).optional(),
+        replies: z.record(z.string().min(1), CommunityPageSortSchema).optional()
+    })
+    .strict();
+
 // Community actual schemas here
 
 // The anchor (An) of a delegated community: the identity keypair whose private half (As) never
@@ -274,7 +370,9 @@ export const CommunityIpfsSchema = z
         lastCommentCid: CidStringSchema.optional(),
         features: CommunityFeaturesSchema.optional(),
         suggested: CommunitySuggestedSchema.optional(),
-        flairs: z.record(z.string(), FlairSchema.array()).optional()
+        flairs: z.record(z.string(), FlairSchema.array()).optional(),
+        // Present exactly when settings.pages is set (issue #73). Older clients parse records loosely and ignore it.
+        pageSorts: CommunityPageSortsSchema.optional()
     })
     .strict();
 
@@ -318,7 +416,10 @@ export const CommunitySettingsSchema = z
         purgeDisapprovedCommentsOlderThan: z.number().int().nonnegative().optional(),
         // Read-only community: don't run the challenge/publication pubsub topic and omit pubsubTopic
         // from the published record, so readers know not to attempt a challenge exchange (issue #229)
-        disablePubsubChallengeExchange: z.boolean().optional()
+        disablePubsubChallengeExchange: z.boolean().optional(),
+        // Which page sorts to generate and which to embed (issue #73). Unset generates exactly what an
+        // unconfigured community generates today. See docs/protocol/page-sorts.md.
+        pages: CommunityPagesSettingsSchema.optional()
     })
     .strict();
 

@@ -1,5 +1,5 @@
 import { stringify as deterministicStringify } from "safe-stable-stringify";
-import { groupBy, keys, pick } from "remeda";
+import { groupBy, keys } from "remeda";
 import pLimit from "p-limit";
 import Logger from "../../../../logger.js";
 import { timestamp, writeKuboFilesWithTimeout } from "../../../../util.js";
@@ -18,6 +18,8 @@ import type {
 import type { LocalCommunity } from "../local-community.js";
 import type { CommentUpdateToWriteToDbAndPublishToIpfs } from "./defaults.js";
 import { rmUnneededMfsPaths } from "./cleanup.js";
+import { wirePagesFromGeneration } from "../page-generator.js";
+import { reportFailedPageSorts } from "../page-sorts/index.js";
 
 // The topic this community uses for the challenge exchange, ignoring whether the exchange is
 // currently enabled. There is no fallback to community.address anymore (issue #229): absence of
@@ -91,29 +93,21 @@ export async function calculateNewCommentUpdate(opts: {
         })
     };
 
-    const preloadedRepliesPages = "best";
     const inlineRepliesBudget = calculateInlineRepliesBudget({
         comment,
         commentUpdateWithoutReplies: commentUpdatePriorToSigning
     });
     const adjustedPreloadedRepliesPageSizeBytes = Math.max(inlineRepliesBudget, 1);
 
+    // Which reply sorts are generated and which embed is settings.pages' call (issue #73)
     const generatedRepliesPages =
         comment.depth === 0
-            ? await community._pageGenerator.generatePostPages(comment, preloadedRepliesPages, adjustedPreloadedRepliesPageSizeBytes)
-            : await community._pageGenerator.generateReplyPages(comment, preloadedRepliesPages, adjustedPreloadedRepliesPageSizeBytes);
+            ? await community._pageGenerator.generatePostPages(comment, adjustedPreloadedRepliesPageSizeBytes)
+            : await community._pageGenerator.generateReplyPages(comment, adjustedPreloadedRepliesPageSizeBytes);
+    if (generatedRepliesPages) reportFailedPageSorts(community, generatedRepliesPages.failedSorts, log);
 
     // we have to make sure not clean up submissions of authors by calling cleanUpBeforePublishing
-    if (generatedRepliesPages) {
-        if ("singlePreloadedPage" in generatedRepliesPages)
-            commentUpdatePriorToSigning.replies = { pages: generatedRepliesPages.singlePreloadedPage };
-        else if (generatedRepliesPages.pageCids) {
-            commentUpdatePriorToSigning.replies = {
-                pageCids: generatedRepliesPages.pageCids,
-                pages: pick(generatedRepliesPages.pages, [preloadedRepliesPages])
-            };
-        }
-    }
+    if (generatedRepliesPages) commentUpdatePriorToSigning.replies = wirePagesFromGeneration(generatedRepliesPages);
 
     // Extract allPageCids from the generation result (not available for singlePreloadedPage case)
     const allPageCids =

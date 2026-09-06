@@ -5,6 +5,7 @@ import { timestamp } from "../../../../dist/node/util.js";
 import {
     createCommunityWithDefaultDb,
     getPageGenerator,
+    regenerateAllCommentUpdates,
     seedComments,
     sortedKeys,
     NO_BUMP_KEYWORD_SORT_PATH,
@@ -340,12 +341,14 @@ describeSkipIfRpc.concurrent("settings.pages: page generation", () => {
         const context = await createCommunityWithDefaultDb();
         try {
             await editPages(context, { replies: [{ name: "old", preloaded: true }, { name: "newFlat" }] });
-            const { cidOf } = await seedComments(context.community, [postWithManyReplies(6)]);
+            const { cidOf } = await seedComments(context.community, [postWithManyReplies(14)]);
             await updateCommentsThatNeedToBeUpdated(context.community);
             const generator = getPageGenerator(context.community);
 
+            // A budget the preloaded sort overflows, so the non-preloaded flat sort is materialised (the single-chunk
+            // shortcut would otherwise skip it, by design)
             const post = context.community._dbHandler.queryComment(cidOf("post"))!;
-            const postReplies = await generator.generatePostPages(post, LARGE_PRELOAD_BUDGET);
+            const postReplies = await generator.generatePostPages(post, SMALL_PRELOAD_BUDGET / 2);
             if (!postReplies || "singlePreloadedPage" in postReplies) throw new Error("expected pageCids for the flat sort");
             expect(sortedKeys(postReplies.pages)).to.deep.equal(["old"]);
             expect(sortedKeys(postReplies.pageCids)).to.deep.equal(["newFlat"]);
@@ -366,17 +369,18 @@ describeSkipIfRpc.concurrent("settings.pages: page generation", () => {
             await editPages(context, {
                 posts: [{ path: THROWING_SORT_PATH, preloaded: true }, { name: "new", preloaded: true }, { name: "old" }]
             });
-            await seedComments(context.community, manyPosts(4));
+            await seedComments(context.community, manyPosts(14));
             await updateCommentsThatNeedToBeUpdated(context.community);
 
             const posts = await getPageGenerator(context.community).generateCommunityPosts({
-                preloadedPageSizeBytes: LARGE_PRELOAD_BUDGET
+                preloadedPageSizeBytes: SMALL_PRELOAD_BUDGET
             });
-            if (!posts || "singlePreloadedPage" in posts) throw new Error("expected the multi-chunk path (old is not preloaded)");
+            if (!posts || "singlePreloadedPage" in posts) throw new Error("expected the multi-chunk path");
             expect(sortedKeys(posts.pages)).to.deep.equal(["new"]);
             expect(sortedKeys(posts.pageCids)).to.deep.equal(["old"]);
             expect(sortedKeys(posts.failedSorts)).to.deep.equal(["throwing"]);
-            expect(posts.failedSorts.throwing.message).to.include("scoreAll failed on purpose");
+            expect(posts.failedSorts.throwing.code).to.equal("ERR_PAGE_SORT_FAILED_TO_GENERATE");
+            expect((posts.failedSorts.throwing.details.error as Error).message).to.include("scoreAll failed on purpose");
         } finally {
             await context.cleanup();
         }
@@ -389,7 +393,7 @@ describeSkipIfRpc.concurrent("settings.pages: page generation", () => {
             const { cidOf } = await seedComments(context.community, [
                 { label: "post", children: [{ label: "r1", children: [{ label: "r1a" }, { label: "r1b" }] }, { label: "r2" }] }
             ]);
-            await updateCommentsThatNeedToBeUpdated(context.community);
+            await regenerateAllCommentUpdates(context.community);
             expect(context.community._dbHandler.queryCommentsToBeUpdated()).to.deep.equal([]);
 
             const tree = context.community._dbHandler.queryPageCommentsWithResolvedReplies({

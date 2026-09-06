@@ -4,6 +4,7 @@ import { of as calculateIpfsCidV0Lib } from "typestub-ipfs-only-hash";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { calculateStringSizeSameAsIpfsAddCidV0 } from "../../../../dist/node/util.js";
+import { updateCommentsThatNeedToBeUpdated } from "../../../../dist/node/runtime/node/community/local-community/comment-updates.js";
 import env from "../../../../dist/node/version.js";
 
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
@@ -151,4 +152,12 @@ export async function seedComments(
 
 export function sortedKeys(record: Record<string, unknown> | undefined): string[] {
     return Object.keys(record ?? {}).sort();
+}
+
+// One full CommentUpdate pass, then mark everything as published to MFS the way the IPNS publish step would, so
+// queryCommentsToBeUpdated() is empty afterwards and a test can assert on what re-flags a comment.
+export async function regenerateAllCommentUpdates(community: LocalCommunity): Promise<void> {
+    await updateCommentsThatNeedToBeUpdated(community);
+    const cids = community._dbHandler["_db"].prepare("SELECT cid FROM commentUpdates").all() as { cid: string }[];
+    community._dbHandler.markCommentsAsPublishedToPostUpdates(cids.map((row) => row.cid));
 }

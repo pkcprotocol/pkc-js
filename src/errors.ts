@@ -424,5 +424,19 @@ export enum messages {
     ERR_CHALLENGE_REQUIRED_OPTION_MISSING = "settings.challenges[i].options is missing an option whose optionInputs entry is required",
     ERR_CHALLENGE_PUBLIC_OPTION_NOT_DECLARED_IN_OPTION_INPUTS = "settings.challenges[i].publicOptions names an option that no optionInputs entry of the challenge declares",
     ERR_CHALLENGE_SETTINGS_VALIDATION_FAILED = "The challenge's validateChallengeSettings hook rejected settings.challenges[i]",
-    ERR_CHALLENGE_SETTINGS_VALIDATION_FAILED_FOR_CHALLENGES = "One or more challenges in settings.challenges failed validation"
+    ERR_CHALLENGE_SETTINGS_VALIDATION_FAILED_FOR_CHALLENGES = "One or more challenges in settings.challenges failed validation",
+
+    // Configurable page sorts (settings.pages, issue #73). See docs/protocol/page-sorts.md.
+    ERR_FAILED_TO_IMPORT_PAGE_SORT_FILE_FACTORY = "Failed to import page sort file factory",
+    ERR_PAGE_SORT_FILE_INVALID = "The page sort file did not return a valid PageSortFile",
+    ERR_PAGE_SORT_DUPLICATE_SORT_NAME = "Two entries of settings.pages resolve to the same sortName",
+    ERR_PAGE_SORT_SCOPE_MISMATCH = "A page sort declared for one scope was configured under the other (a reply-only sort under posts, or a post-only sort under replies)",
+    ERR_PAGE_SORT_OPTION_NOT_DECLARED_IN_OPTION_INPUTS = "settings.pages[].options has a key that neither the reserved options nor any optionInputs entry of the page sort declares, so it is never read",
+    ERR_PAGE_SORT_REQUIRED_OPTION_MISSING = "settings.pages[].options is missing an option whose optionInputs entry is required",
+    ERR_PAGE_SORT_INVALID_RESERVED_OPTION = "A reserved page sort option (maxAge, pinnedFirst, exclude*) has a value pkc-js cannot parse",
+    ERR_PAGE_SORT_PRIVATE_OPTION_NOT_SET = "settings.pages[].privateOptions names an option that is not set in options",
+    ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED = "The page sort's validatePageSortSettings hook rejected settings.pages[]",
+    ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED_FOR_PAGE_SORTS = "One or more entries of settings.pages failed validation",
+    ERR_PAGE_SORT_FAILED_TO_GENERATE = "A configured page sort threw while generating its pages; it was skipped for this cycle and the remaining sorts were published",
+    ERR_PAGE_SORT_DB_WRITE_REJECTED = "A page sort attempted to prepare a statement that would write to the community database"
 }

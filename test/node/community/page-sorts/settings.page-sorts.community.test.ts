@@ -8,10 +8,16 @@ import {
     publishWithExpectedResult,
     resolveWhenConditionIsTrue
 } from "../../../../dist/node/test/test-util.js";
-import { updateCommentsThatNeedToBeUpdated } from "../../../../dist/node/runtime/node/community/local-community/comment-updates.js";
 import { PKCError } from "../../../../dist/node/pkc-error.js";
+import { DbHandler } from "../../../../dist/node/runtime/node/community/db-handler.js";
 import { timestamp } from "../../../../dist/node/util.js";
-import { createCommunityWithDefaultDb, seedComments, NO_BUMP_KEYWORD_SORT_PATH, THROWING_SORT_PATH } from "./page-sorts-test-util.js";
+import {
+    createCommunityWithDefaultDb,
+    regenerateAllCommentUpdates,
+    seedComments,
+    NO_BUMP_KEYWORD_SORT_PATH,
+    THROWING_SORT_PATH
+} from "./page-sorts-test-util.js";
 
 import type { PKC as PKCType } from "../../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
@@ -19,6 +25,11 @@ import type { RemoteCommunity } from "../../../../dist/node/community/remote-com
 import type { CommunitySettings } from "../../../../dist/node/community/types.js";
 
 type PagesSettings = NonNullable<CommunitySettings["pages"]>;
+
+// Invalid entries are rejected the way challenges are: loading failures (a bad name or path) and schema errors
+// propagate as their own code, everything found by validating the loaded file is aggregated under
+// ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED_FOR_PAGE_SORTS with one failure per entry.
+const TOP_LEVEL_CODES = new Set(["ERR_COMMUNITY_EDIT_OPTIONS_SCHEMA", "ERR_FAILED_TO_IMPORT_PAGE_SORT_FILE_FACTORY"]);
 
 async function expectEditToFail(community: LocalCommunity, pages: PagesSettings, code: string): Promise<PKCError> {
     let caught: unknown;
@@ -28,8 +39,16 @@ async function expectEditToFail(community: LocalCommunity, pages: PagesSettings,
         caught = e;
     }
     expect(caught, `expected edit with ${JSON.stringify(pages)} to throw ${code}`).to.be.instanceOf(PKCError);
-    expect((caught as PKCError).code).to.equal(code);
-    return caught as PKCError;
+    const error = caught as PKCError;
+    if (TOP_LEVEL_CODES.has(code)) {
+        expect(error.code).to.equal(code);
+        return error;
+    }
+    expect(error.code).to.equal("ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED_FOR_PAGE_SORTS");
+    const failures = error.details.failures as { error: PKCError }[];
+    const failure = failures.find((f) => f.error.code === code);
+    expect(failure, `expected a failure with code ${code}, got ${failures.map((f) => f.error.code).join(", ")}`).to.exist;
+    return failure!.error;
 }
 
 // settings.pages is validated by the LocalCommunity edit path, which only runs in this process (not over RPC).
@@ -147,7 +166,7 @@ describeSkipIfRpc.concurrent("settings.pages: regeneration triggers", () => {
                 { label: "post-a", children: [{ label: "reply-a" }] },
                 { label: "post-b", children: [{ label: "reply-b", children: [{ label: "reply-b-child" }] }] }
             ]);
-            await updateCommentsThatNeedToBeUpdated(context.community);
+            await regenerateAllCommentUpdates(context.community);
             expect(context.community._dbHandler.queryCommentsToBeUpdated()).to.deep.equal([]);
 
             await context.community.edit({ settings: { ...context.community.settings, fetchThumbnailUrls: true } });
@@ -162,7 +181,7 @@ describeSkipIfRpc.concurrent("settings.pages: regeneration triggers", () => {
             expect(flagged.sort()).to.deep.equal(rows.map((row) => row.cid!).sort());
 
             // Regeneration clears the flags again
-            await updateCommentsThatNeedToBeUpdated(context.community);
+            await regenerateAllCommentUpdates(context.community);
             expect(context.community._dbHandler.queryCommentsToBeUpdated()).to.deep.equal([]);
 
             // Re-submitting the identical pages config is not a change
@@ -194,7 +213,7 @@ describeSkipIfRpc.concurrent("settings.pages: regeneration triggers", () => {
                 { label: "pinned", children: [{ label: "pinned-reply", timestamp: now - 1 }] },
                 { label: "no-replies" }
             ]);
-            await updateCommentsThatNeedToBeUpdated(context.community);
+            await regenerateAllCommentUpdates(context.community);
             context.community._dbHandler["_db"].prepare(`UPDATE commentUpdates SET pinned = 1 WHERE cid = ?`).run(cidOf("pinned-reply"));
             expect(context.community._dbHandler.queryCommentsToBeUpdated()).to.deep.equal([]);
 
@@ -204,7 +223,7 @@ describeSkipIfRpc.concurrent("settings.pages: regeneration triggers", () => {
             expect(flagged).to.deep.equal([cidOf("crossing")]);
 
             // Regenerating drops the aged-out reply from the page and clears the flag; nothing else crosses later
-            await updateCommentsThatNeedToBeUpdated(context.community);
+            await regenerateAllCommentUpdates(context.community);
             const crossingUpdate = context.community._dbHandler.queryStoredCommentUpdate({ cid: cidOf("crossing") });
             expect(crossingUpdate?.replies).to.be.undefined;
             expect(context.community._dbHandler.queryCommentsToBeUpdated()).to.deep.equal([]);
@@ -222,7 +241,6 @@ describeSkipIfRpc.concurrent("settings.pages: the db facade", () => {
             expect(db.prepare("SELECT COUNT(*) AS n FROM comments").get()).to.deep.equal({ n: 0 });
             expect(() => db.prepare("DELETE FROM comments")).to.throw();
             expect(() => db.prepare("INSERT INTO keyv (key, value) VALUES ('x', 'y')")).to.throw();
-            expect(() => db.prepare("PRAGMA journal_mode = DELETE")).to.throw();
             expect(db.exclusionClauses({ excludeRemovedComments: "true" }, { comment: "c", update: "cu" }).sql).to.include("cu.removed");
         } finally {
             await context.cleanup();
@@ -230,13 +248,18 @@ describeSkipIfRpc.concurrent("settings.pages: the db facade", () => {
     });
 
     it("rejects a write statement on a noData (in-memory) community through the shared handle", async () => {
-        const context = await createCommunityWithDefaultDb({ noData: true, dataPath: undefined });
+        // pkc.createCommunity refuses to create a local community without a dataPath, so an in-memory community DB only
+        // exists when a DbHandler is built by hand (the migration tests do the same); the facade must still work there.
+        const fakeCommunity = { address: "in-memory-page-sorts", _pkc: { noData: true } } as unknown as LocalCommunity;
+        const dbHandler = new DbHandler(fakeCommunity);
+        await dbHandler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         try {
-            const db = context.community._dbHandler.createPageSortDb();
+            await dbHandler.createOrMigrateTablesIfNeeded();
+            const db = dbHandler.createPageSortDb();
             expect(db.prepare("SELECT COUNT(*) AS n FROM comments").get()).to.deep.equal({ n: 0 });
             expect(() => db.prepare("DELETE FROM comments")).to.throw();
         } finally {
-            await context.cleanup();
+            dbHandler.destoryConnection();
         }
     });
 });

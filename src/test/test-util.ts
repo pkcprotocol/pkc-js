@@ -2222,16 +2222,16 @@ export function disablePreloadPagesOnSub({ community }: { community: LocalCommun
     const originalReplyRepliesFunc = pageGenerator.generateReplyPages.bind(pageGenerator);
     const originalChunkComments = pageGenerator._chunkComments.bind(pageGenerator);
 
-    pageGenerator.generateCommunityPosts = async (preloadedPageSortName, preloadedPageSize) => {
-        return originalCommunityPostsFunc(preloadedPageSortName, preloadedPageSize); // should force community to publish to pageCids
+    pageGenerator.generateCommunityPosts = async (args) => {
+        return originalCommunityPostsFunc(args); // should force community to publish to pageCids
     };
 
-    pageGenerator.generatePostPages = async (comment, preloadedPageSortName, preloadedPageSize) => {
-        return originalPostRepliesFunc(comment, preloadedPageSortName, preloadedPageSize); // should force community to publish to pageCids
+    pageGenerator.generatePostPages = async (comment, preloadedPageSize) => {
+        return originalPostRepliesFunc(comment, preloadedPageSize); // should force community to publish to pageCids
     };
 
-    pageGenerator.generateReplyPages = async (comment, preloadedPageSortName, preloadedPageSize) => {
-        return originalReplyRepliesFunc(comment, preloadedPageSortName, preloadedPageSize);
+    pageGenerator.generateReplyPages = async (comment, preloadedPageSize) => {
+        return originalReplyRepliesFunc(comment, preloadedPageSize);
     };
 
     //@ts-expect-error
@@ -2421,14 +2421,9 @@ export async function forceLocalSubPagesToAlwaysGenerateMultipleChunks({
         | {
               generateReplyPages?: (
                   comment: Pick<CommentsTableRow, "cid" | "depth">,
-                  preloadedReplyPageSortName: keyof typeof REPLY_REPLIES_SORT_TYPES,
                   preloadedPageSizeBytes: number
               ) => Promise<RepliesPagesTypeIpfs | { singlePreloadedPage: Record<string, PageIpfs> } | undefined>;
-              generatePostPages?: (
-                  comment: Pick<CommentsTableRow, "cid">,
-                  preloadedReplyPageSortName: keyof typeof POST_REPLIES_SORT_TYPES,
-                  preloadedPageSizeBytes: number
-              ) => Promise<any>;
+              generatePostPages?: (comment: Pick<CommentsTableRow, "cid">, preloadedPageSizeBytes: number) => Promise<any>;
           }
         | undefined;
     if (!pageGenerator) throw Error("Local community page generator is not initialized");
@@ -2439,21 +2434,21 @@ export async function forceLocalSubPagesToAlwaysGenerateMultipleChunks({
 
     if (isPost) {
         if (typeof originalGeneratePostPages !== "function") throw Error("Page generator post pages function is not available");
-        pageGenerator.generatePostPages = (async (comment, preloadedReplyPageSortName, preloadedPageSizeBytes) => {
+        pageGenerator.generatePostPages = (async (comment, preloadedPageSizeBytes) => {
             const shouldForce = comment?.cid === parentCid;
             const effectivePageSizeBytes = shouldForce
                 ? Math.min(preloadedPageSizeBytes, forcedPreloadedPageSizeBytes)
                 : preloadedPageSizeBytes;
-            return originalGeneratePostPages.call(pageGenerator, comment, preloadedReplyPageSortName, effectivePageSizeBytes);
+            return originalGeneratePostPages.call(pageGenerator, comment, effectivePageSizeBytes);
         }) as typeof pageGenerator.generatePostPages;
     } else {
         if (typeof originalGenerateReplyPages !== "function") throw Error("Page generator reply pages function is not available");
-        pageGenerator.generateReplyPages = (async (comment, preloadedReplyPageSortName, preloadedPageSizeBytes) => {
+        pageGenerator.generateReplyPages = (async (comment, preloadedPageSizeBytes) => {
             const shouldForce = comment?.cid === parentCid;
             const effectivePageSizeBytes = shouldForce
                 ? Math.min(preloadedPageSizeBytes, forcedPreloadedPageSizeBytes)
                 : preloadedPageSizeBytes;
-            return originalGenerateReplyPages.call(pageGenerator, comment, preloadedReplyPageSortName, effectivePageSizeBytes);
+            return originalGenerateReplyPages.call(pageGenerator, comment, effectivePageSizeBytes);
         }) as typeof pageGenerator.generateReplyPages;
     }
 

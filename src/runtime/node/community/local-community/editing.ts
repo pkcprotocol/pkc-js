@@ -8,6 +8,7 @@ import { parseCommunityEditOptionsSchemaWithPKCErrorIfItFails } from "../../../.
 import { findStartedCommunity, trackStartedCommunity } from "../../../../pkc/tracked-instance-registry-util.js";
 import { getCommunityChallengeFromCommunityChallengeSettings } from "../challenges/index.js";
 import { throwIfChallengeSettingsAreInvalid } from "../challenges/validate-challenge-settings.js";
+import { derivePublicPageSorts, resolvePageSortsOrThrow } from "../page-sorts/index.js";
 import type {
     CommunityEditOptions,
     CommunityIpfsType,
@@ -78,6 +79,28 @@ export async function parseChallengesToEdit(
         ),
         _usingDefaultChallenge: isDefaultChallengeStructure(newChallengeSettings)
     };
+}
+
+// settings.pages: validate the new entries against their files (rejecting the whole edit on failure, like
+// challenges), derive the public community.pageSorts for the record, and apply the change to this instance.
+// Any change to settings.pages, however small, regenerates every CommentUpdate: reply pages are only rebuilt
+// for flagged comments, so without this an untouched comment would carry its old reply sorts indefinitely.
+export async function parsePagesToEdit(
+    community: LocalCommunity,
+    newSettings: NonNullable<CommunityEditOptions["settings"]>
+): Promise<Pick<InternalCommunityRecordAfterFirstUpdateType, "pageSorts">> {
+    await community._dbHandler.initDbIfNeeded();
+    const resolved = await resolvePageSortsOrThrow({
+        pagesSettings: newSettings.pages,
+        pkc: community._pkc,
+        db: community._dbHandler.createPageSortDb(),
+        communityAddress: community.address
+    });
+    const pagesChanged = deterministicStringify(community.settings?.pages ?? null) !== deterministicStringify(newSettings.pages ?? null);
+    if (pagesChanged) community._dbHandler.forceUpdateOnAllComments();
+    community._pageSorts = resolved;
+    community._lastGeneratedPageSortKeys = {};
+    return { pageSorts: derivePublicPageSorts({ pagesSettings: newSettings.pages, resolved }) };
 }
 
 export async function validateNewAddressBeforeEditing(community: LocalCommunity, newAddress: string, log: Logger) {
@@ -219,11 +242,15 @@ export async function edit(community: LocalCommunity, newCommunityOptions: Commu
             ? { ...parsedEditOptions, name: parsedEditOptions.address }
             : parsedEditOptions;
 
-    const newInternalProps = <Pick<InternalCommunityRecordAfterFirstUpdateType, "roles" | "challenges" | "_usingDefaultChallenge">>{
+    const newInternalProps = <
+        Pick<InternalCommunityRecordAfterFirstUpdateType, "roles" | "challenges" | "_usingDefaultChallenge" | "pageSorts">
+    >{
         ...(editWithDerivedName.roles ? { roles: await parseRolesToEdit(community, editWithDerivedName.roles) } : undefined),
         ...(editWithDerivedName?.settings?.challenges
             ? await parseChallengesToEdit(community, editWithDerivedName.settings.challenges)
-            : undefined)
+            : undefined),
+        // settings is replaced wholesale, so an edit carrying settings without `pages` unsets it too
+        ...(editWithDerivedName?.settings ? await parsePagesToEdit(community, editWithDerivedName.settings) : undefined)
     };
 
     const newProps = <ParsedCommunityEditOptions>{
