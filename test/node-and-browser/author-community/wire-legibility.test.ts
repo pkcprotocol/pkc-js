@@ -60,7 +60,8 @@ function buildProfileRecord(challenge: Record<string, unknown> = ownerOnlyPublic
         ...record,
         anchor: { publicKey: OWNER_ADDRESS },
         roles: { [OWNER_ADDRESS]: { role: "owner" } },
-        challenges: [clone(challenge)]
+        challenges: [clone(challenge)],
+        suggested: { uiType: "author" }
     };
 }
 
@@ -139,6 +140,16 @@ describe.concurrent("author community: what the posting restriction looks like o
         const parsed = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(buildProfileRecord());
         expect(parsed.anchor).to.deep.equal({ publicKey: OWNER_ADDRESS });
     });
+
+    // suggested.uiType is the recommended way for a client to decide how to render the record: a hint
+    // the owner sets, spoofable like `title`, with absence meaning an ordinary community. See
+    // "Declaring the profile to UIs" in docs/protocol/author-communities.md.
+    it("carries suggested.uiType through the parse, and an ordinary community carries none", () => {
+        const profile = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(buildProfileRecord());
+        expect(profile.suggested?.uiType).to.equal("author");
+        const ordinary = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(clone(newFormatFixture) as CommunityIpfsType);
+        expect(ordinary.suggested?.uiType).to.be.undefined;
+    });
 });
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
@@ -158,6 +169,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             community.initCommunityIpfsPropsNoMerge(buildProfileRecord());
             expect(community.challenges[0].exclude).to.deep.equal(ownerOnlyPublicChallenge.exclude);
             expect(community.roles?.[OWNER_ADDRESS]).to.deep.equal({ role: "owner" });
+            expect(community.suggested?.uiType).to.equal("author");
         });
     });
 });

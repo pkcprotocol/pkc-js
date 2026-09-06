@@ -156,6 +156,29 @@ One further trap: the anchor schema accepts base36 and base32 CIDv1 peer-ID form
 that are valid IPNS names but are not what the address derivation emits. A roles key written that way
 never matches.
 
+## Declaring the profile to UIs
+
+`suggested.uiType: "author"` is how a profile tells clients what it is. It lives in `suggested`
+alongside `primaryColor` and `avatarUrl` because it is the same kind of thing: a rendering hint the
+owner sets, which a client may ignore without breaking interoperability. It is not a record type and
+does not weaken "a configuration, not a type": nothing in pkc-js branches on it, it plays no role in
+validation or loading, and a record that lies about it verifies fine, exactly like a record with a
+misleading `title`.
+
+```js
+await community.edit({ suggested: { uiType: "author" } })
+```
+
+`"author"` is the only defined value. Absence means an ordinary community. Clients must ignore values
+they do not recognize, so the vocabulary can grow without breaking old clients.
+
+This is the only recommended way for a client to decide how to render the record. The tempting
+inference `roles[community.address].role === "owner"` is not reliable in either direction: any
+ordinary community can hold the owner role over its own address and nothing forbids or even
+discourages it, while `createCommunity` never seeds `roles`, so a half-configured profile lacks the
+entry. Both signals are claims by the same node that writes the record, so the inference buys no
+extra trust over the declaration, it only buys false positives.
+
 ## The feed
 
 The owner's client publishes a crosspost into the profile alongside the real comment, so the profile
@@ -220,12 +243,6 @@ is never part of an export, so the database is portable by construction.
   always derivable from `comment.signature.publicKey`, so a hint would only save a failed lookup, but
   at scale that may be worth a signed optional boolean on `AuthorPubsubSchema`. Deferred rather than
   rejected: it is permanent wire surface once published.
-- **A field saying this is a profile.** Nothing in the record declares itself a profile rather than an
-  ordinary community, and the pieces that imply one are spread across the anchor, the roles map and the
-  challenge excludes. Right now a client can do `const isAuthor = roles[community.address].role ===
-  "owner"` and it is accurate, because an ordinary community has no reason to hold the owner role over
-  its own address. Whether that is enough, or whether it deserves an explicit field, is open. Like the
-  hint above, a field is permanent wire surface once published.
 - **Delegating profile moderation** to a third party. The schema already supports it; v1 seeds the
   roles map with the owner alone.
 - **Convergence**, one name carrying both a community feed and its owner's author feed.
