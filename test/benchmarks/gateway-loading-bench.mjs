@@ -1,0 +1,89 @@
+// Gateway-reader loading benchmark for issue #328. Standalone on purpose: it takes a repo root
+// and imports THAT repo's dist, so the identical measurement can run against the pre-fix build
+// (the main checkout) and the fix branch (this worktree). Requires the test server.
+//
+//   node test/benchmarks/gateway-loading-bench.mjs <repoRoot> [samples]
+//
+// Metrics, per sample, all through a gateway-only PKC at the production updateInterval (60s):
+//   initialLoadMs: createCommunity + update() -> first "update" event (fresh static record)
+//   propagationMs: publish a newer record generation -> "update" event delivering it. The
+//                  clock starts BEFORE publishToIpns so a reader that delivers while the publish
+//                  call is still returning (it includes a verify-resolve poll) can never record
+//                  0ms; publishMs is reported alongside so the post-publish figure that
+//                  test/node-and-browser/community/update-freshness-gateway.test.ts uses stays
+//                  derivable as propagationMs - publishMs.
+
+const [repoRoot, samplesArg] = process.argv.slice(2);
+if (!repoRoot) throw new Error("usage: node bench-gateway-loading.mjs <repoRoot> [samples]");
+const samples = Number(samplesArg ?? 3);
+
+// same hard-exit watchdog as the cost benches, so a stalled gateway fails loudly instead of hanging
+let stage = "imports";
+setTimeout(() => {
+    console.error("bench HARD EXIT: stage never completed:", stage);
+    process.exit(2);
+}, samples * 300_000);
+
+const { mockGatewayPKC, publishCommunityRecordWithExtraProp } = await import(`${repoRoot}/dist/node/test/test-util.js`);
+const { signCommunity } = await import(`${repoRoot}/dist/node/signer/signatures.js`);
+const { timestamp } = await import(`${repoRoot}/dist/node/util.js`);
+
+const initialLoadMs = [];
+const propagationMs = [];
+const publishMs = [];
+
+for (let i = 0; i < samples; i++) {
+    const pkc = await mockGatewayPKC({ pkcOptions: { updateInterval: 60_000 } });
+    const staticRecord = await publishCommunityRecordWithExtraProp();
+
+    const community = await pkc.createCommunity({ address: staticRecord.ipnsObj.signer.address });
+    let t0 = Date.now();
+    const firstUpdate = new Promise((resolve) => community.once("update", resolve));
+    stage = `sample ${i + 1} initial-load`;
+    await community.update();
+    await firstUpdate;
+    initialLoadMs.push(Date.now() - t0);
+
+    const next = JSON.parse(JSON.stringify(staticRecord.communityRecord));
+    next.updatedAt = Math.max(community.updatedAt + 1, timestamp());
+    next.signature = await signCommunity({ community: next, signer: staticRecord.ipnsObj.signer });
+    const delivered = new Promise((resolve) => {
+        const onUpdate = () => {
+            if (community.updatedAt === next.updatedAt) {
+                community.removeListener("update", onUpdate);
+                resolve();
+            }
+        };
+        community.on("update", onUpdate);
+    });
+    stage = `sample ${i + 1} propagation`;
+    t0 = Date.now();
+    await staticRecord.ipnsObj.publishToIpns(JSON.stringify(next));
+    publishMs.push(Date.now() - t0);
+    await delivered;
+    propagationMs.push(Date.now() - t0);
+
+    stage = `sample ${i + 1} teardown`;
+    await community.stop();
+    await staticRecord.ipnsObj.pkc.destroy();
+    await pkc.destroy();
+    console.error(`sample ${i + 1}/${samples}: initialLoad=${initialLoadMs[i]}ms propagation=${propagationMs[i]}ms (publish ${publishMs[i]}ms)`);
+}
+
+const median = (xs) => {
+    const s = [...xs].sort((a, b) => a - b);
+    return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+};
+console.log(
+    JSON.stringify({
+        repoRoot,
+        samples,
+        initialLoadMs,
+        propagationMs,
+        publishMs,
+        medianInitialLoadMs: median(initialLoadMs),
+        medianPropagationMs: median(propagationMs),
+        medianPublishMs: median(publishMs)
+    })
+);
+process.exit(0);
