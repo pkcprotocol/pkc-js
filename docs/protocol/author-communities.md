@@ -38,7 +38,8 @@ await community.edit({
                 publicOptions: ["error"], // publish the rejection text, see "What a reader can actually tell"
                 exclude: [
                     { role: ["owner"] },
-                    { publicationType: { reply: true, vote: true, commentEdit: true, commentModeration: true, communityEdit: true } }
+                    // no `vote`: votes are rejected by default, see below
+                    { publicationType: { reply: true, commentEdit: true, commentModeration: true, communityEdit: true } }
                 ]
             },
             {
@@ -60,9 +61,19 @@ only if **all** of its conditions hold:
 | owner, reply | excluded by either rule | excluded by `role` | accepted, unchallenged |
 | stranger, post | matches neither rule, so it runs and fails | dropped | **rejected** |
 | stranger, reply | excluded by `publicationType` | runs | challenged normally |
+| stranger, vote | matches neither rule, so it runs and fails | dropped | **rejected** |
 
 A failing challenge drops any challenge still pending, so the rejected stranger is never asked the
 question: they get one immediate failed verification rather than a challenge round trip.
+
+**Votes are rejected by default.** `vote` is deliberately absent from the `publicationType` exclude,
+so a stranger's vote hits the `fail` challenge exactly like a stranger's post, while the owner's own
+votes stay excluded by `role`. The reason is the karma model in [crossposts.md](crossposts.md): karma
+over a profile is read at tier 2 from each entry's origin community, so a vote published to the
+profile lands on the crosspost copy, is tallied by the owner's own delegate, and counts toward
+nothing a client should trust. It would only accumulate a misleading second score on the copy, and it
+does not drive ranking either, since `new` is the only sort a profile feed has a reason to serve. A
+profile that wants vote-driven reply sorting can opt back in by adding `vote: true` to the exclude.
 
 Set the `error` option. It is what the rejected publisher actually sees: a `fail` challenge reports
 through `challengeErrors`, not through the verification `reason`, and its default text is the generic
@@ -205,7 +216,8 @@ one community is legitimate, so idempotency belongs to whatever does the mirrori
 
 **Reply-able**, the default. The challenge exchange runs, the record carries a `pubsubTopic`, and
 strangers can reply over pubsub. This needs the second challenge in the config above, or replies are
-unguarded.
+unguarded. Strangers still cannot vote: the recommended config rejects votes regardless of flavor,
+see "Votes are rejected by default" above.
 
 **Feed-only.** Set `settings.disablePubsubChallengeExchange`. The record omits `pubsubTopic`, the node
 unsubscribes, and remote publishers fail fast with `ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED`. Nobody

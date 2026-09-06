@@ -26,6 +26,7 @@ import {
     createSubWithNoChallenge,
     generateMockComment,
     generateMockPost,
+    generateMockVote,
     isRpcFlagOn,
     mockPKC,
     mockRpcServerForTests,
@@ -37,6 +38,7 @@ import {
 import { createAnchorIpnsRecord, createSigner } from "../../../dist/node/signer/index.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
+import type Vote from "../../../dist/node/publications/vote/vote.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/comment/types.js";
@@ -117,7 +119,10 @@ async function createHarness(): Promise<{ pkc: PKCType; teardown: () => Promise<
 
 // The two excludes that express "the owner posts, anyone may reply". An exclude array matches if ANY
 // item matches, and an item matches only if ALL of its conditions hold, so the `fail` challenge runs
-// for exactly one case: a non-owner publishing a post.
+// for exactly two cases: a non-owner publishing a post, and a non-owner publishing a vote. `vote` is
+// deliberately absent from the publicationType exclude: profile karma is read from each entry's origin
+// community at tier 2, so a vote on the copy would be tallied by the owner's own delegate and count
+// toward nothing. See "Votes are rejected by default" in the protocol doc.
 function ownerOnlyPostingChallenge(): CommunityChallengeSetting {
     return {
         name: "fail",
@@ -127,14 +132,14 @@ function ownerOnlyPostingChallenge(): CommunityChallengeSetting {
         publicOptions: ["error"],
         exclude: [
             { role: ["owner"] },
-            { publicationType: { reply: true, vote: true, commentEdit: true, commentModeration: true, communityEdit: true } }
+            { publicationType: { reply: true, commentEdit: true, commentModeration: true, communityEdit: true } }
         ]
     };
 }
 
 // A `fail` challenge reports through challengeErrors, not through the verification `reason`, so
 // publishWithExpectedResult's expectedReason cannot see it.
-async function publishAndCaptureVerification(publication: Comment): Promise<DecryptedChallengeVerificationMessageType> {
+async function publishAndCaptureVerification(publication: Comment | Vote): Promise<DecryptedChallengeVerificationMessageType> {
     const verification = new Promise<DecryptedChallengeVerificationMessageType>((resolve, reject) => {
         publication.once("challengeverification", resolve);
         publication.once("error", reject);
@@ -235,6 +240,34 @@ describe.sequential("author community: a community configured as a profile", () 
             });
             const reply = await generateMockComment(ownerPost as CommentIpfsWithCidDefined, pkc, false);
             await publishWithExpectedResult({ publication: reply, expectedChallengeSuccess: true });
+        });
+    });
+
+    // Votes are rejected by default: `vote` is deliberately absent from the publicationType exclude, so
+    // a stranger's vote hits the `fail` challenge exactly like a stranger's post, while the owner stays
+    // excluded by role. See "Votes are rejected by default" in the protocol doc for why a vote on a
+    // profile copy counts toward nothing.
+    describe("votes are rejected by default", () => {
+        let ownerPost: Comment;
+
+        beforeAll(async () => {
+            ownerPost = await publishRandomPost({
+                communityAddress: community.address,
+                pkc,
+                postProps: { signer: anchorSigner }
+            });
+        });
+
+        it("rejects a stranger's vote with the configured error", async () => {
+            const vote = await generateMockVote(ownerPost as CommentIpfsWithCidDefined, 1, pkc);
+            const verification = await publishAndCaptureVerification(vote);
+            expect(verification.challengeSuccess).to.be.false;
+            expect(verification.challengeErrors?.["0"]).to.equal(OWNER_ONLY_ERROR);
+        });
+
+        it("accepts the owner's vote, matched on the role exclude", async () => {
+            const vote = await generateMockVote(ownerPost as CommentIpfsWithCidDefined, 1, pkc, anchorSigner);
+            await publishWithExpectedResult({ publication: vote, expectedChallengeSuccess: true });
         });
     });
 

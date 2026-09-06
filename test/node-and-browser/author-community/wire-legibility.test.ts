@@ -21,9 +21,12 @@ const OWNER_ADDRESS = signers[0].address;
 
 const OWNER_ONLY_ERROR = "Only the owner can post to this profile.";
 
+// No `vote` in the publicationType exclude: the recommended profile config rejects votes by default,
+// so a stranger's vote faces the gate exactly like a stranger's post. See "Votes are rejected by
+// default" in docs/protocol/author-communities.md.
 const ownerOnlyExclude = [
     { role: ["owner"] },
-    { publicationType: { reply: true, vote: true, commentEdit: true, commentModeration: true, communityEdit: true } }
+    { publicationType: { reply: true, commentEdit: true, commentModeration: true, communityEdit: true } }
 ];
 
 // The public half of the challenge settings, i.e. what survives into the signed record. No `name`, no
