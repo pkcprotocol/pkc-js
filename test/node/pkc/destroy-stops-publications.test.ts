@@ -26,7 +26,9 @@ describe("pkc.destroy() stops in-flight publications", () => {
     });
 
     afterAll(async () => {
-        if (!pkc.destroyed) await pkc.destroy();
+        // beforeAll may fail before pkc is assigned, and dereferencing it here would throw a TypeError
+        // that replaces the real setup failure in the report.
+        if (pkc && !pkc.destroyed) await pkc.destroy();
     });
 
     it("a publication waiting on a challenge answer is stopped by destroy()", async () => {

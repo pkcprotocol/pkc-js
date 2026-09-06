@@ -186,6 +186,7 @@ CommunitySuggested { // values suggested by the community owner, the client/user
   bannerUrl?: string
   backgroundUrl?: string
   language?: string
+  uiType?: string // how the owner suggests clients render this community, e.g. "author" for a profile; never affects validation or loading
   // TODO: menu links, wiki pages, sidebar widgets
 }
 CommunityFeatures { // any boolean that changes the functionality of the community, add "no" in front if doesn't default to false
