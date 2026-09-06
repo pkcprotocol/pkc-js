@@ -402,7 +402,9 @@ describeSkipIfRpc("challenge exchange ttl bounds an overlapping request's wait (
 
         const retry = await pkc.createComment(clonePublication(original.raw.pubsubMessageToPublish!));
         const retryChallenges: DecryptedChallengeMessageType[] = [];
+        const retryVerifications: DecryptedChallengeVerificationMessageType[] = [];
         retry.on("challenge", (challenge) => retryChallenges.push(challenge));
+        retry.on("challengeverification", (verification) => retryVerifications.push(verification));
 
         try {
             // The original is challenged and its author never answers.
@@ -430,11 +432,19 @@ describeSkipIfRpc("challenge exchange ttl bounds an overlapping request's wait (
                 message: "the waiting request was never challenged after the parked exchange was failed"
             });
             expect(challengeCalls).to.equal(2);
+            // The retry's exchange was registered as ongoing when it arrived and then spent a whole
+            // ttl waiting, so its own exchange must start with a fresh ttl rather than the leftover
+            // of the wait. Answer half a ttl in, well past what the leftover would allow; without the
+            // refresh the community rejects this answer as having no prior challenge request.
+            await new Promise((resolve) => setTimeout(resolve, TTL_MS / 2));
             await retry.publishChallengeAnswers({ challengeAnswers: ["anything"] });
-            await waitFor(() => typeof retry.cid === "string", {
+            await waitFor(() => retryVerifications.length >= 1, {
                 timeoutMs: TTL_MS * 4,
-                message: "the retry's own exchange did not succeed"
+                message: "the retry's own exchange got no verification"
             });
+            expect(retryVerifications[0].reason, "the retry's answer must be accepted on its own exchange").to.be.undefined;
+            expect(retryVerifications[0].challengeSuccess).to.be.true;
+            expect(retry.cid).to.be.a("string");
             expect(retry.publishingState).to.equal("succeeded");
             expect(countCommentRows(community, signature)).to.equal(1);
             expect(community._inFlightPublicationExchanges.size).to.equal(0);
