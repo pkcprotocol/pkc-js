@@ -1,9 +1,10 @@
 // What a client can and cannot conclude about an author community by reading its record. Owner-only
-// posting has no feature flag and no read-side check: it is challenge configuration, and `exclude` is
-// published while `name` and `path` are stripped and `options` stay private unless the owner names them
-// in publicOptions. That publishes the exemption structure but not the policy, which is the distinction
-// the last test in the first block pins down. See "What a reader can actually tell" in
-// docs/protocol/author-communities.md, and challenge-settings.md.
+// posting has no feature flag and no read-side check. The feed-only default's signal is an absence,
+// no pubsubTopic, because the exchange is disabled outright. The reply-able flavor is challenge
+// configuration, and `exclude` is published while `name` and `path` are stripped and `options` stay
+// private unless the owner names them in publicOptions. That publishes the exemption structure but
+// not the policy, which is the distinction the last test in the first block pins down. See "What a
+// reader can actually tell" in docs/protocol/author-communities.md, and challenge-settings.md.
 //
 // This runs in the browser and touches no network: the point is what a reader can conclude from bytes.
 // The producing half, that a real community actually puts these rules on the wire, is asserted in
@@ -21,9 +22,10 @@ const OWNER_ADDRESS = signers[0].address;
 
 const OWNER_ONLY_ERROR = "Only the owner can post to this profile.";
 
-// No `vote` in the publicationType exclude: the recommended profile config rejects votes by default,
-// so a stranger's vote faces the gate exactly like a stranger's post. See "Votes are rejected by
-// default" in docs/protocol/author-communities.md.
+// The reply-able flavor's exclude. No `vote` in the publicationType item: votes stay rejected, so a
+// stranger's vote faces the gate exactly like a stranger's post. See "Votes stay rejected" in
+// docs/protocol/author-communities.md. The feed-only default carries a simpler signal entirely, the
+// absence of pubsubTopic, tested below.
 const ownerOnlyExclude = [
     { role: ["owner"] },
     { publicationType: { reply: true, commentEdit: true, commentModeration: true, communityEdit: true } }
@@ -66,6 +68,14 @@ function buildProfileRecord(challenge: Record<string, unknown> = ownerOnlyPublic
         challenges: [clone(challenge)],
         suggested: { uiType: "author" }
     };
+}
+
+// The feed-only default: settings.disablePubsubChallengeExchange makes the record omit pubsubTopic,
+// and the backing fail challenge excludes the owner alone rather than carving out replies.
+function buildFeedOnlyProfileRecord(): CommunityIpfsType {
+    const record = buildProfileRecord({ ...clone(ownerOnlyPublicChallenge), exclude: [{ role: ["owner"] }] });
+    delete record.pubsubTopic;
+    return record;
 }
 
 // What a client can actually implement. Note what it is NOT called: the record does not say only the
@@ -137,6 +147,22 @@ describe.concurrent("author community: what the posting restriction looks like o
         // Even the rejection text the profile opted into publishing is reproducible by the answerable
         // one, so it narrows nothing: both sides carry it and both sides remain what they were.
         expect(answerable.challenges[0].publicOptions).to.deep.equal(unpassable.challenges[0].publicOptions);
+    });
+
+    // The feed-only default's signal is an absence: no pubsubTopic means the exchange is off, nobody
+    // can publish remotely, and honest clients fail fast instead of trying. That is a stronger
+    // owner-only signal than any exclude inference, because there is no challenge whose passability
+    // is left to guess at. See "What a reader can actually tell" in the protocol doc.
+    it("reads a missing pubsubTopic as the exchange being disabled, the feed-only default", () => {
+        const feedOnly = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(buildFeedOnlyProfileRecord());
+        expect(feedOnly.pubsubTopic).to.be.undefined;
+        // an ordinary community carries one, so the absence is a real discriminator, unlike the
+        // exclude structure
+        const ordinary = parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails(clone(newFormatFixture) as CommunityIpfsType);
+        expect(ordinary.pubsubTopic).to.be.a("string");
+        // the exemption reader above is a reply-able-flavor tool and does not detect this shape: the
+        // role-only exclude excuses no replies, so a feed-only client must look at pubsubTopic
+        expect(readPostingExemptions(feedOnly).nonOwnerPostsAreGated).to.be.false;
     });
 
     it("carries the anchor claim, so a reader knows the address is the author's identity key", () => {
