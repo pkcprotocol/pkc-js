@@ -471,6 +471,7 @@ export async function stop(community: LocalCommunity) {
         untrackStartedCommunity(community._pkc, community);
         processStartedCommunities.untrack(community);
         community._duplicatePublicationAttempts?.clear();
+        community._inFlightPublicationExchanges.clear();
         await community._dbHandler.rollbackAllTransactions();
         await community._dbHandler.unlockCommunityState();
         await community._updateStartedValue();

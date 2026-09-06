@@ -3,6 +3,7 @@ import { clone, keys, omit, pick } from "remeda";
 import * as cborg from "cborg";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { derivePublicationFromChallengeRequest, getErrorCodeFromMessage, timestamp } from "../../../../util.js";
+import { deriveCommentIpfsFromCommentTableRow } from "../../util.js";
 import env from "../../../../version.js";
 import { PKCError } from "../../../../pkc-error.js";
 import { messages } from "../../../../errors.js";
@@ -18,7 +19,6 @@ import { decryptEd25519AesGcmPublicKeyBuffer } from "../../../../signer/index.js
 import { encryptEd25519AesGcmPublicKeyBuffer } from "../../../../signer/encryption.js";
 import { getPKCAddressFromPublicKey } from "../../../../signer/util.js";
 import { buildRuntimeAuthor, getAuthorNameFromWire } from "../../../../publications/publication-author.js";
-import { CommentIpfsSchema } from "../../../../publications/comment/schema.js";
 import {
     ChallengeAnswerMessageSchema,
     ChallengeMessageSchema,
@@ -202,7 +202,10 @@ export async function publishIdempotentDuplicateVerification(
                 signer: community.signer
             })
         };
-        const commentIpfs = CommentIpfsSchema.strip().parse(existingComment);
+        // Rebuild the exact record that hashes to existingComment.cid (drops the row's own postCid on
+        // a post, restores extraProps). Parsing the row through CommentIpfsSchema keeps postCid on a
+        // post, which the author rejects as an unsigned field and then never learns their cid.
+        const commentIpfs = deriveCommentIpfsFromCommentTableRow(existingComment);
         toEncryptDecrypted = { comment: commentIpfs, commentUpdate };
 
         encrypted = await encryptEd25519AesGcmPublicKeyBuffer(
@@ -311,7 +314,17 @@ export async function publishChallengeVerification(
         try {
             toEncrypt = await storePublicationAndEncryptForChallengeVerification(community, request, pendingApproval, challengeAggregate);
         } catch (e) {
-            failureReason = (e as PKCError).message;
+            const error = e as PKCError;
+            if (DUPLICATE_PUBLICATION_ERRORS.has(error.message)) {
+                // The publication was stored by an overlapping exchange for the same signed
+                // publication after this one passed validation (issue #228). The author's
+                // publication is accepted, so answer with the stored copy rather than a failure.
+                // This is not a replay of an already stored row, so it does not count against
+                // _duplicatePublicationAttempts.
+                log("Publication was stored by an overlapping exchange, answering idempotently", request.challengeRequestId.toString());
+                return publishIdempotentDuplicateVerification(community, request, request.challengeRequestId, error.message);
+            }
+            failureReason = error.message;
             log.error("Failed to store store Publication And Encrypt For ChallengeVerification", e);
         }
 
@@ -526,23 +539,61 @@ async function parseAndValidateChallengeRequest(
 
     community.emit("challengerequest", decryptedRequestWithCommunityAuthor);
 
+    return validatePublicationOrRespondWithFailure({ community, decryptedRequestMsg, publication, countDuplicateAttempt: true });
+}
+
+// Validates the publication against the current database state and publishes a failure (or an
+// idempotent success for a duplicate) when it is rejected. Returns the structures the challenge
+// exchange needs, or `undefined` when a verification was published and processing should stop.
+//
+// Runs once on arrival, and again for a request that waited on an in-flight exchange for the same
+// signed publication (issue #228): the database may have changed while it waited. A duplicate found
+// on that second pass is the publication the author already got accepted through the overlapping
+// exchange, not a replay of a stored row, so the caller passes `countDuplicateAttempt: false` and
+// the author keeps their single post-storage idempotent retry.
+async function validatePublicationOrRespondWithFailure({
+    community,
+    decryptedRequestMsg,
+    publication,
+    countDuplicateAttempt
+}: {
+    community: LocalCommunity;
+    decryptedRequestMsg: DecryptedChallengeRequestMessageType;
+    publication: PublicationFromDecryptedChallengeRequest;
+    countDuplicateAttempt: boolean;
+}): Promise<ParsedChallengeRequest | undefined> {
+    const authorSignerAddress = await getPKCAddressFromPublicKey(publication.signature.publicKey);
+    const authorDomain = getAuthorNameFromWire(publication.author);
+    const communityAuthor = community._dbHandler.queryCommunityAuthor(authorSignerAddress, authorDomain);
+    const decryptedRequestWithCommunityAuthor = buildRuntimeChallengeRequest({
+        request: decryptedRequestMsg,
+        authorCommunity: communityAuthor
+    });
+
     const publicationInvalidityReason = await checkPublicationValidity(community, decryptedRequestMsg, publication, communityAuthor);
     if (publicationInvalidityReason) {
         if (DUPLICATE_PUBLICATION_ERRORS.has(publicationInvalidityReason)) {
             const sig = publication.signature.signature;
-            const attempts = (community._duplicatePublicationAttempts.get(sig) || 0) + 1;
-            community._duplicatePublicationAttempts.set(sig, attempts);
+            let attempts = 0;
+            if (countDuplicateAttempt) {
+                attempts = (community._duplicatePublicationAttempts.get(sig) || 0) + 1;
+                community._duplicatePublicationAttempts.set(sig, attempts);
+            }
             if (attempts <= 1) {
                 await publishIdempotentDuplicateVerification(
                     community,
                     decryptedRequestMsg,
-                    request.challengeRequestId,
+                    decryptedRequestMsg.challengeRequestId,
                     publicationInvalidityReason
                 );
                 return undefined;
             }
         }
-        await publishFailedChallengeVerification(community, { reason: publicationInvalidityReason }, request.challengeRequestId);
+        await publishFailedChallengeVerification(
+            community,
+            { reason: publicationInvalidityReason },
+            decryptedRequestMsg.challengeRequestId
+        );
         return undefined;
     }
 
@@ -642,13 +693,54 @@ export async function handleChallengeRequest(community: LocalCommunity, request:
             challengeRequest: omit(request, ["encrypted"])
         });
 
-    const parsed = await parseAndValidateChallengeRequest(community, request, log);
+    let parsed = await parseAndValidateChallengeRequest(community, request, log);
     if (!parsed) return;
 
-    const challengeVerification = await runChallengeExchangeIfNeeded(community, parsed, log);
-    if (!challengeVerification) return;
+    // One challenge exchange at a time per signed publication (issue #228). A client that gets no
+    // response within its provider-switch threshold re-sends the same signed publication under a new
+    // challengeRequestId while a slow automatic challenge is still deciding the first request. Both
+    // pass the duplicate check above because nothing is stored yet; without this, the second would
+    // run the (expensive) challenge again and then fail at storage with ERR_DUPLICATE_COMMENT for a
+    // publication that was just accepted. Instead it waits for the first exchange to settle and then
+    // re-validates: stored now means an idempotent success, not stored (the first exchange failed)
+    // means it runs its own exchange as a fresh attempt.
+    const publicationSignature = parsed.publication.signature.signature;
+    let waitedForInFlightExchange = false;
+    while (community._inFlightPublicationExchanges.has(publicationSignature)) {
+        waitedForInFlightExchange = true;
+        log(
+            "Received a challenge request for a signed publication whose challenge exchange is in flight, waiting for it to settle",
+            request.challengeRequestId.toString()
+        );
+        await community._inFlightPublicationExchanges.get(publicationSignature);
+    }
+    // Registered synchronously after the wait so two waiters woken by the same settle cannot both
+    // proceed: the second one sees this entry on its next loop check.
+    let settleInFlightExchange!: () => void;
+    const inFlightExchange = new Promise<void>((resolve) => (settleInFlightExchange = resolve));
+    community._inFlightPublicationExchanges.set(publicationSignature, inFlightExchange);
+    try {
+        if (waitedForInFlightExchange) {
+            parsed = await validatePublicationOrRespondWithFailure({
+                community,
+                decryptedRequestMsg: parsed.decryptedRequestMsg,
+                publication: parsed.publication,
+                countDuplicateAttempt: false
+            });
+            if (!parsed) return;
+        }
 
-    await runVerificationAndStorePublication(community, parsed, challengeVerification);
+        const challengeVerification = await runChallengeExchangeIfNeeded(community, parsed, log);
+        if (!challengeVerification) return;
+
+        await runVerificationAndStorePublication(community, parsed, challengeVerification);
+    } finally {
+        // Only remove our own entry: stop() clears the map, and a later start may have registered
+        // a new exchange for the same signature before this one unwinds.
+        if (community._inFlightPublicationExchanges.get(publicationSignature) === inFlightExchange)
+            community._inFlightPublicationExchanges.delete(publicationSignature);
+        settleInFlightExchange();
+    }
 }
 
 export async function parseChallengeAnswerOrRespondWithFailure(

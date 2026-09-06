@@ -115,6 +115,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _ongoingChallengeExchanges!: LRUCache<string, boolean>;
     _duplicatePublicationAttempts!: LRUCache<string, number>;
     _challengeExchangesFromLocalPublishers: Record<string, boolean> = {}; // key is stringified challengeRequestId and value is true if the challenge exchange is ongoing
+    // One entry per signed publication whose challenge exchange is running, keyed by publication
+    // signature. A second request for the same signed publication (a client retry under a new
+    // challengeRequestId, issue #228) waits on this promise instead of running its own exchange.
+    _inFlightPublicationExchanges: Map<string, Promise<void>> = new Map();
 
     _cidsToUnPin: Set<string> = new Set<string>();
     _mfsPathsToRemove: Set<string> = new Set<string>();
