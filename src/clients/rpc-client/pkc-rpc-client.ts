@@ -210,8 +210,12 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                         })
                     });
                 } catch (e) {
-                    const typedError = <PKCError | { code: number; message: string } | Error | ZodError>e;
-                    //e is an error json representation of PKCError
+                    // A JSON-RPC rejection is the serialized server error as a plain object, never an
+                    // Error instance: reconstruct a PKCError (or Error) from it, same as subscription
+                    // "error" notifications. Locally-created errors (e.g. the pTimeout
+                    // ERR_RPC_CALL_TIMED_OUT above, or transport errors) are already instances and
+                    // pass through untouched.
+                    const typedError = e instanceof Error ? <PKCError | Error | ZodError>e : this._deserializeRpcError(e);
                     //@ts-expect-error
                     typedError.details = { ...typedError.details, rpcArgs: args, rpcServerUrl: this._websocketServerUrl };
 
