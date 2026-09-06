@@ -189,9 +189,10 @@ The contract:
 - The reference implementation of the keyword no-bump sort is
   `test/fixtures/page-sorts/active-no-bump-keyword.js`.
 
-A package is installed to `${dataPath}/page-sorts/` and referenced by `name`; registering a factory under
-the `pageSorts` PKC option does the same in-process. A reload of a package applies at the next
-generation; a cycle producing some pages from the old version and some from the new is acceptable.
+Registering a factory under the `pageSorts` PKC option (or on `PKC.pageSorts`) makes it available by
+`name`; a `path` entry loads a file directly. Installing packages to `${dataPath}/page-sorts/` through
+`bitsocial page-sort install` is bitsocial-cli work that builds on the same registry. A reload applies at
+the next generation; a cycle producing some pages from the old version and some from the new is acceptable.
 
 ## Client side
 
