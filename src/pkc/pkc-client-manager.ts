@@ -158,13 +158,14 @@ export class PKCClientsManager extends BaseClientsManager {
         this.clients.nameResolvers[resolverKey].emit("statechange", newState);
     }
 
-    async fetchCid(cid: string): Promise<string> {
+    async fetchCid(cid: string, opts?: { maxFileSizeBytes?: number; abortSignal?: AbortSignal }): Promise<string> {
         let finalCid = clone(cid);
         if (!isIpfsCid(finalCid) && isIpfsPath(finalCid)) finalCid = finalCid.split("/")[2];
         if (!isIpfsCid(finalCid)) throw new PKCError("ERR_CID_IS_INVALID", { cid });
         const timeoutMs = this._pkc._timeouts["generic-ipfs"];
+        const maxFileSizeBytes = opts?.maxFileSizeBytes ?? 1024 * 1024;
         if (Object.keys(this.clients.kuboRpcClients).length > 0 || Object.keys(this.clients.libp2pJsClients).length > 0)
-            return this._fetchCidP2P(cid, { maxFileSizeBytes: 1024 * 1024, timeoutMs });
+            return this._fetchCidP2P(cid, { maxFileSizeBytes, timeoutMs, abortSignal: opts?.abortSignal });
         else {
             const log = Logger("pkc-js:clients-manager:fetchCid");
             const resObj = await this.fetchFromMultipleGateways({
@@ -173,8 +174,9 @@ export class PKCClientsManager extends BaseClientsManager {
                 recordPKCType: "generic-ipfs",
                 validateGatewayResponseFunc: async () => {}, // no need to validate body against cid here, fetchFromMultipleGateways already does it
                 log,
-                maxFileSizeBytes: 1024 * 1024,
-                timeoutMs
+                maxFileSizeBytes,
+                timeoutMs,
+                abortSignal: opts?.abortSignal
             });
             return resObj.resText;
         }

@@ -111,3 +111,13 @@ export const RpcExportCommunityModLogsParamSchema = ExportCommunityModLogsOption
 export const RpcExportCommunityModLogsResultSchema = z.object({
     moderations: z.array(CommentModerationsTableRowSchema.loose()) // .loose() element preserves extraProps / future fields
 });
+
+// CommunityList (docs/protocol/community-lists.md). The client signs locally; the server only adds
+// the signed JSON to IPFS and returns the cid. Fetch returns the raw string so the client can check
+// the bytes against the cid and verify the signature locally.
+// The publish param is the raw signed string (not a parsed object): the server must add the exact
+// bytes the client signed, and object round-trips through JSON-RPC/zod may reorder keys
+export const RpcPublishCommunityListParamSchema = z.object({ communityListRawString: z.string() });
+export const RpcPublishCommunityListResultSchema = z.object({ cid: CidStringSchema });
+export const RpcFetchCommunityListParamSchema = z.object({ cid: CidStringSchema });
+export const RpcFetchCommunityListResultSchema = z.object({ communityListRawString: z.string() });

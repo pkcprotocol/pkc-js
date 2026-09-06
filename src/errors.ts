@@ -423,5 +423,23 @@ export enum messages {
     ERR_CHALLENGE_REQUIRED_OPTION_MISSING = "settings.challenges[i].options is missing an option whose optionInputs entry is required",
     ERR_CHALLENGE_PUBLIC_OPTION_NOT_DECLARED_IN_OPTION_INPUTS = "settings.challenges[i].publicOptions names an option that no optionInputs entry of the challenge declares",
     ERR_CHALLENGE_SETTINGS_VALIDATION_FAILED = "The challenge's validateChallengeSettings hook rejected settings.challenges[i]",
-    ERR_CHALLENGE_SETTINGS_VALIDATION_FAILED_FOR_CHALLENGES = "One or more challenges in settings.challenges failed validation"
+    ERR_CHALLENGE_SETTINGS_VALIDATION_FAILED_FOR_CHALLENGES = "One or more challenges in settings.challenges failed validation",
+
+    // CommunityList errors (docs/protocol/community-lists.md)
+    ERR_INVALID_COMMUNITY_LIST_SCHEMA = "The schema of the CommunityList record is invalid",
+    ERR_INVALID_CREATE_COMMUNITY_LIST_OPTIONS_SCHEMA = "The options sent to pkc.createCommunityList() have an invalid schema",
+    ERR_COMMUNITY_LIST_RECORD_INCLUDES_RESERVED_FIELD = "CommunityList record includes a reserved field",
+    ERR_COMMUNITY_LIST_AUTHOR_INCLUDES_RESERVED_FIELD = "CommunityList record's author includes a reserved field",
+    ERR_COMMUNITY_LIST_ENTRY_INCLUDES_RESERVED_FIELD = "A CommunityList entry includes a reserved field",
+    ERR_COMMUNITY_LIST_RECORD_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES = "CommunityList record includes a signable field that is not in signature.signedPropertyNames",
+    ERR_COMMUNITY_LIST_HAS_DUPLICATE_COMMUNITY_PUBLIC_KEY = "CommunityList communities include a duplicate publicKey",
+    ERR_COMMUNITY_LIST_OVER_ALLOWED_SIZE = "CommunityList record size is over 2mb",
+    ERR_COMMUNITY_LIST_HAS_NO_CID = "CommunityList instance has no cid to update from. To fetch a list, create it with pkc.createCommunityList({cid})",
+    ERR_COMMUNITY_LIST_HAS_NO_SIGNER = "CommunityList instance has no signer. To publish a new list, create it with pkc.createCommunityList({signer, ...})",
+    ERR_COMMUNITY_LIST_ALREADY_PUBLISHING = "CommunityList.publish() is already in progress",
+    ERR_COMMUNITY_LIST_ALREADY_UPDATING = "CommunityList.update() is already in progress",
+    ERR_COMMUNITY_LIST_PUBLISH_ABORTED = "CommunityList.publish() was aborted via stop()",
+    ERR_COMMUNITY_LIST_SIGNATURE_IS_INVALID = "CommunityList record has an invalid signature",
+    ERR_ADDED_COMMUNITY_LIST_TO_IPFS_BUT_GOT_DIFFERENT_CID = "The RPC server returned a cid different from the cid of the signed CommunityList bytes",
+    ERR_GET_COMMUNITY_LIST_ABORTED = "pkc.getCommunityList() was aborted by a signal"
 }
