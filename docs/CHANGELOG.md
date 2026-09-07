@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.100](https://github.com/pkcprotocol/pkc-js/compare/v0.0.99...v0.0.100) (2026-09-07)
+
+### Bug Fixes
+
+* **publication:** drop duplicate challenge deliveries and reject a second challenge answer ([#349](https://github.com/pkcprotocol/pkc-js/issues/349)) ([#350](https://github.com/pkcprotocol/pkc-js/issues/350)) ([2522fae](https://github.com/pkcprotocol/pkc-js/commit/2522fae41550c5bc7508f995d5d0893bfe727b64)), closes [#340](https://github.com/pkcprotocol/pkc-js/issues/340)
+
+### Performance
+
+* **community:** pace gateway polls on max-age, fix If-None-Match, publish 20s record ttl ([#338](https://github.com/pkcprotocol/pkc-js/issues/338)) ([bdec5c3](https://github.com/pkcprotocol/pkc-js/commit/bdec5c3f1d079afda8cb402505b70276d1cda096)), closes [#328](https://github.com/pkcprotocol/pkc-js/issues/328) [#328](https://github.com/pkcprotocol/pkc-js/issues/328) [#328](https://github.com/pkcprotocol/pkc-js/issues/328) [#328](https://github.com/pkcprotocol/pkc-js/issues/328)
+
 ## [0.0.99](https://github.com/pkcprotocol/pkc-js/compare/v0.0.98...v0.0.99) (2026-09-06)
 
 ### Bug Fixes
