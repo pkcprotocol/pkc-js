@@ -288,12 +288,7 @@ export const CommentUpdateTableRowSchema = CommentUpdateSchema.extend({
     insertedAt: PKCTimestampSchema,
     postUpdatesBucket: z.int().nonnegative().optional(), // the post updates bucket of post CommentUpdate, not applicable to replies
     publishedToPostUpdatesMFS: z.boolean(), // whether the comment latest update has been published
-    replies: DbRepliesSchema.optional(), // Override: DB stores CID refs, not wire format
-    // The wire `replies` of this CommentUpdate as canonical JSON (safe-stable-stringify), exactly as signed and
-    // published; a page entry for this comment embeds it verbatim, so page generation never rebuilds the reply tree
-    // from rows (issue #351). Absent when the update has no replies, or on a row written without it (then the tree
-    // is resolved from the CID refs above).
-    wireReplies: z.string().optional()
+    replies: DbRepliesSchema.optional() // Override: DB stores CID refs, not wire format
 });
 
 // Comment pubsub reserved fields

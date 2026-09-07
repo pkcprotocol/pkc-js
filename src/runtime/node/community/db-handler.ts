@@ -75,7 +75,6 @@ import { messages } from "../../../errors.js";
 import type { PseudonymityAliasRow, PurgedCommentTableRows } from "./db-handler-types.js";
 import { getAuthorNameFromWire } from "../../../publications/publication-author.js";
 import type { PageSortReplyEntry } from "../../../pages/types.js";
-import { pageEntryJson, pageEntryJsonBytes, pageEntryJsonParts } from "./page-entry-json.js";
 
 const TABLES = Object.freeze({
     COMMENTS: "comments",
@@ -380,7 +379,6 @@ export class DbHandler {
                 signature TEXT NOT NULL, -- JSON
                 author TEXT NULLABLE, -- JSON
                 replies TEXT NULLABLE, -- JSON: CID refs per sort (DbRepliesSchema)
-                wireReplies TEXT NULLABLE, -- JSON: the wire replies as signed and published, verbatim for page entries (issue #351)
                 lastChildCid TEXT NULLABLE,
                 lastReplyTimestamp INTEGER NULLABLE, 
                 postUpdatesBucket INTEGER NULLABLE,
@@ -1161,15 +1159,15 @@ export class DbHandler {
 
         const stmt = this._prepareCached(`
             INSERT INTO ${TABLES.COMMENT_UPDATES} 
-            (cid, edit, upvoteCount, downvoteCount, replyCount, childCount, number, postNumber, flairs, spoiler, nsfw, pinned, locked, archived, removed, approved, reason, updatedAt, protocolVersion, signature, author, replies, wireReplies, lastChildCid, lastReplyTimestamp, postUpdatesBucket, publishedToPostUpdatesMFS, insertedAt)
-            VALUES (@cid, @edit, @upvoteCount, @downvoteCount, @replyCount, @childCount, @number, @postNumber, @flairs, @spoiler, @nsfw, @pinned, @locked, @archived, @removed, @approved, @reason, @updatedAt, @protocolVersion, @signature, @author, @replies, @wireReplies, @lastChildCid, @lastReplyTimestamp, @postUpdatesBucket, @publishedToPostUpdatesMFS, @insertedAt)
+            (cid, edit, upvoteCount, downvoteCount, replyCount, childCount, number, postNumber, flairs, spoiler, nsfw, pinned, locked, archived, removed, approved, reason, updatedAt, protocolVersion, signature, author, replies, lastChildCid, lastReplyTimestamp, postUpdatesBucket, publishedToPostUpdatesMFS, insertedAt)
+            VALUES (@cid, @edit, @upvoteCount, @downvoteCount, @replyCount, @childCount, @number, @postNumber, @flairs, @spoiler, @nsfw, @pinned, @locked, @archived, @removed, @approved, @reason, @updatedAt, @protocolVersion, @signature, @author, @replies, @lastChildCid, @lastReplyTimestamp, @postUpdatesBucket, @publishedToPostUpdatesMFS, @insertedAt)
             ON CONFLICT(cid) DO UPDATE SET
                 edit = excluded.edit, upvoteCount = excluded.upvoteCount, downvoteCount = excluded.downvoteCount, replyCount = excluded.replyCount, childCount = excluded.childCount,
                 number = COALESCE(excluded.number, ${TABLES.COMMENT_UPDATES}.number),
                 postNumber = COALESCE(excluded.postNumber, ${TABLES.COMMENT_UPDATES}.postNumber),
                 flairs = excluded.flairs, spoiler = excluded.spoiler, nsfw = excluded.nsfw, pinned = excluded.pinned, locked = excluded.locked, archived = excluded.archived,
                 removed = excluded.removed, approved = excluded.approved, reason = excluded.reason, updatedAt = excluded.updatedAt, protocolVersion = excluded.protocolVersion,
-                signature = excluded.signature, author = excluded.author, replies = excluded.replies, wireReplies = excluded.wireReplies, lastChildCid = excluded.lastChildCid,
+                signature = excluded.signature, author = excluded.author, replies = excluded.replies, lastChildCid = excluded.lastChildCid,
                 lastReplyTimestamp = excluded.lastReplyTimestamp, postUpdatesBucket = excluded.postUpdatesBucket,
                 publishedToPostUpdatesMFS = excluded.publishedToPostUpdatesMFS,
                 insertedAt = excluded.insertedAt
@@ -1404,21 +1402,20 @@ export class DbHandler {
         return rows.map(mapper.map);
     }
 
-    // Nested reply trees out of the rows a reply_tree CTE returns (each row is one page entry plus its tree_parent).
+    // Nested reply trees out of page entries and the parent each was reached through (its own parentCid, whether
+    // it came from a flat subtree read or from the level walk).
     // A child listed under two preloaded sorts of the same parent comes back twice and is kept once. `attachReplies`
     // rebuilds one page per preloaded sort of a parent, in that sort's commentCids order (the CTE's row order is not
     // the json_each order once the JOINs are involved), and `buildWireCommentUpdate` swaps the DB-format `replies`
     // for the resolved pages, or for `pageCids` alone when nothing is embedded but pages exist.
-    private _assembleReplyTrees(rows: unknown[][], mapper: PositionalCommentRowMapper, treeParentIndex: number) {
+    private _assembleReplyTrees(items: { entry: PageIpfs["comments"][number]; parent: string }[]) {
         type Entry = PageIpfs["comments"][number];
         const parsedByCid = new Map<string, Entry>();
         const childrenByParent = new Map<string, Map<string, Entry>>();
-        for (const row of rows) {
-            const entry = mapper.map(row);
+        for (const { entry, parent } of items) {
             const cid = entry.commentUpdate.cid;
             if (parsedByCid.has(cid)) continue;
             parsedByCid.set(cid, entry);
-            const parent = row[treeParentIndex] as string;
             let siblings = childrenByParent.get(parent);
             if (!siblings) childrenByParent.set(parent, (siblings = new Map()));
             siblings.set(cid, entry);
@@ -1470,31 +1467,11 @@ export class DbHandler {
         return { parsedByCid, childrenByParent, buildWireCommentUpdate, attachReplies };
     }
 
-    // The recursive part shared by the two reply_tree CTEs: follow every preloaded sort's commentCids out of each
-    // node's DB-format replies into its children, one row per listed child.
-    private _replyTreeRecursiveSelect(mapper: PositionalCommentRowMapper, extraJoin = "", extraWhere = ""): string {
-        return `
-                SELECT ${mapper.selectList(
-                    (col) => `c2.${col}`,
-                    (col) => `cu2.${col}`
-                )},
-                       rt.commentUpdate_cid AS tree_parent
-                FROM reply_tree rt
-                CROSS JOIN json_each(rt.commentUpdate_replies) sort_entry
-                CROSS JOIN json_each(json_extract(sort_entry.value, '$.commentCids')) child_ref
-                JOIN ${TABLES.COMMENTS} c2 ON c2.cid = child_ref.value
-                JOIN ${TABLES.COMMENT_UPDATES} cu2 ON c2.cid = cu2.cid
-                ${extraJoin}
-                WHERE rt.commentUpdate_replies IS NOT NULL
-                  AND json_type(sort_entry.value, '$.commentCids') = 'array'
-                  ${extraWhere}`;
-    }
-
     // The page entries under one comment: its direct children that pass the page's exclusions, each carrying the
     // reply pages its own CommentUpdate was signed with (resolveRepliesCidRefsForEntries). The exclusions apply to
     // the children only: what a child embeds was fixed when the child was signed, and a change below it re-flags the
     // child before its parent (stale_replies), so re-filtering the nested tree here could only disagree with the
-    // child's signature.
+    // child's signature. The recursive CTE this replaced cost a scan of the board per call (issue #351).
     queryPageCommentsWithResolvedReplies(options: Omit<PageOptions, "firstPageSizeBytes">): PageIpfs["comments"] {
         return this.resolveRepliesCidRefsForEntries(this.queryPageComments(options));
     }
@@ -1523,143 +1500,99 @@ export class DbHandler {
         }
     }
 
-    // Whether this database has the column: a community another process holds at an older version is read as is,
-    // the way resolveRepliesCidRefsForEntries reads its other columns, so the CID-ref fallback serves it
-    private _hasWireRepliesColumn(): boolean {
-        return this._existingColumns(TABLES.COMMENT_UPDATES, ["wireReplies"]).length === 1;
-    }
-
-    // The stored wire replies (commentUpdates.wireReplies) of the given comments; absent for a row without one
-    queryWireReplies(cids: string[]): Map<string, string> {
-        const result = new Map<string, string>();
-        if (!this._hasWireRepliesColumn()) return result;
-        this._forEachCidBatch<{ cid: string; wireReplies: string | null }>(
-            cids,
-            (placeholders) =>
-                `SELECT cid, wireReplies FROM ${TABLES.COMMENT_UPDATES} WHERE cid IN (${placeholders}) AND wireReplies IS NOT NULL`,
-            (row) => result.set(row.cid, row.wireReplies!)
+    // Every reply under the given posts (depth > 0, by postCid, indexed), as page entries with their DB-format reply
+    // refs, in one flat read per batch of posts: what the page generator streams through, one batch of posts at a
+    // time, to build those posts' nested reply pages (issue #351). Reads a post's whole subtree, listed or not; the
+    // assembly keeps what the CID refs list.
+    queryRepliesUnderPosts(postCids: string[]): PageIpfs["comments"] {
+        const mapper = this._pageEntryMapper(undefined, true);
+        const entries: PageIpfs["comments"] = [];
+        this._forEachCidBatch<unknown[]>(
+            postCids,
+            (placeholders) => `
+            SELECT ${mapper.selectList(
+                (col) => `c.${col}`,
+                (col) => `cu.${col}`
+            )}
+            FROM ${TABLES.COMMENTS} c
+            INNER JOIN ${TABLES.COMMENT_UPDATES} cu ON c.cid = cu.cid
+            WHERE c.depth > 0 AND c.postCid IN (${placeholders})
+        `,
+            (row) => entries.push(mapper.map(row)),
+            true
         );
-        return result;
+        return entries;
     }
 
-    // UTF-8 sizes of the stored wire replies, without reading them
-    private _queryWireRepliesBytes(cids: string[]): Map<string, number> {
-        const result = new Map<string, number>();
-        if (!this._hasWireRepliesColumn()) return result;
-        this._forEachCidBatch<{ cid: string; bytes: number }>(
-            cids,
-            (placeholders) =>
-                `SELECT cid, LENGTH(CAST(wireReplies AS BLOB)) AS bytes FROM ${TABLES.COMMENT_UPDATES} WHERE cid IN (${placeholders}) AND wireReplies IS NOT NULL`,
-            (row) => result.set(row.cid, row.bytes)
-        );
-        return result;
-    }
-
-    // The page JSON of each entry, in order: the entry as loaded when it has no replies, else its comment and
-    // CommentUpdate with the stored wire replies spliced in (page-entry-json.ts). An entry with CID-ref replies but no
-    // stored wire replies is resolved from rows and stringified, so the result is the same either way.
-    serializePageEntries(entries: PageIpfs["comments"]): string[] {
-        const withReplies = entries.filter((entry) => this._entryHasDbReplies(entry));
-        const wire = this.queryWireReplies(withReplies.map((entry) => entry.commentUpdate.cid));
-        const fallback = withReplies.filter((entry) => !wire.has(entry.commentUpdate.cid));
-        const fallbackJson = new Map(
-            this._resolveRepliesCidRefsFromRows(fallback).map((resolved, i) => [fallback[i].commentUpdate.cid, JSON.stringify(resolved)])
-        );
-        return entries.map((entry) => {
-            const cid = entry.commentUpdate.cid;
-            if (!this._entryHasDbReplies(entry)) return JSON.stringify(entry);
-            const stored = wire.get(cid);
-            if (stored !== undefined) return pageEntryJson(pageEntryJsonParts(entry, true), stored);
-            return fallbackJson.get(cid)!;
-        });
-    }
-
-    // UTF-8 size of serializePageEntries(entry) for each entry, from the stored wire replies' size alone; undefined
-    // where the entry needs the row-resolution fallback (the caller serializes those to size them)
-    sizePageEntries(entries: PageIpfs["comments"]): (number | undefined)[] {
-        const withReplies = entries.filter((entry) => this._entryHasDbReplies(entry));
-        const bytes = this._queryWireRepliesBytes(withReplies.map((entry) => entry.commentUpdate.cid));
-        return entries.map((entry) => {
-            if (!this._entryHasDbReplies(entry)) return pageEntryJsonBytes(pageEntryJsonParts(entry, false));
-            const stored = bytes.get(entry.commentUpdate.cid);
-            return stored === undefined ? undefined : pageEntryJsonBytes(pageEntryJsonParts(entry, true), stored);
-        });
-    }
-
-    // Resolve each entry's replies into wire form: the stored wire replies parsed back (what the update was signed
-    // with), or, for a row without them, the CID-ref tree resolved from rows. Entries without replies come back
-    // untouched. Called per bounded batch by the page generator (issue #351).
+    // Resolve each entry's CID-ref replies into the wire form its CommentUpdate was signed with: one page per preloaded
+    // sort in that sort's commentCids order, nested recursively, `pageCids` from allPageCids. Entries without replies
+    // come back untouched. Posts are resolved from one flat read of their subtrees (queryRepliesUnderPosts); a set
+    // that includes replies walks the listed CID refs level by level. The page generator calls this per bounded
+    // batch of posts (issue #351), never for a whole board at once.
     resolveRepliesCidRefsForEntries(entries: PageIpfs["comments"]): PageIpfs["comments"] {
         const withReplies = entries.filter((entry) => this._entryHasDbReplies(entry));
-        const wire = this.queryWireReplies(withReplies.map((entry) => entry.commentUpdate.cid));
-        const fallback = withReplies.filter((entry) => !wire.has(entry.commentUpdate.cid));
-        const fallbackResolved = new Map(
-            this._resolveRepliesCidRefsFromRows(fallback).map((resolved, i) => [fallback[i].commentUpdate.cid, resolved])
-        );
-        return entries.map((entry) => {
-            const cid = entry.commentUpdate.cid;
-            if (!this._entryHasDbReplies(entry)) return entry;
-            const stored = wire.get(cid);
-            if (stored === undefined) return fallbackResolved.get(cid)!;
-            const { replies: _dbReplies, ...rest } = entry.commentUpdate;
-            return { comment: entry.comment, commentUpdate: withSortedKeys({ ...rest, replies: JSON.parse(stored) }) as CommentUpdateType };
-        });
+        if (withReplies.length === 0) return entries;
+        const trees = withReplies.every((entry) => entry.comment.depth === 0)
+            ? this._assembleReplyTrees(
+                  this.queryRepliesUnderPosts(withReplies.map((entry) => entry.commentUpdate.cid)).map((entry) => ({
+                      entry,
+                      parent: entry.comment.parentCid!
+                  }))
+              )
+            : this._assembleReplyTreesFromCidRefs(withReplies);
+        return this._rebuildEntriesFromTrees(entries, trees);
     }
 
-    // The row-based resolution: one recursive query per batch of listed child CIDs (a statement binds at most
-    // SQLITE_MAX_VARIABLE_NUMBER = 32766 variables; a few thousand posts exceed that in one IN list, issue #351), then
-    // each entry's pages rebuilt in its own commentCids order. For rows written before wireReplies existed, or
-    // seeded straight into the table.
-    private _resolveRepliesCidRefsFromRows(entries: PageIpfs["comments"]): PageIpfs["comments"] {
-        if (entries.length === 0) return [];
+    // The listed-subtree resolution for entries that are not all posts (a reply's page, at any depth): walk the CID
+    // refs level by level, each level one primary-key read of the cids the level above lists, batched under the
+    // SQLite variable cap. Reads exactly the tree the entries embed, so a reply's cost is its own subtree (issue #351).
+    private _assembleReplyTreesFromCidRefs(entries: PageIpfs["comments"]): ReturnType<DbHandler["_assembleReplyTrees"]> {
         const mapper = this._pageEntryMapper(undefined, true);
-
-        const allCids: string[] = [];
-        for (const entry of entries) {
-            const replies = entry.commentUpdate.replies as Record<string, DbRepliesSortEntry> | undefined;
-            if (!replies) continue;
-            for (const sortEntry of Object.values(replies)) if (sortEntry?.commentCids) allCids.push(...sortEntry.commentCids);
-        }
-
-        const rows: unknown[][] = [];
-        if (allCids.length > 0) {
-            const queryFor = (placeholders: string) =>
-                `
-                WITH RECURSIVE reply_tree AS (
-                    SELECT ${mapper.selectList(
-                        (col) => `c.${col}`,
-                        (col) => `cu.${col}`
-                    )},
-                           c.parentCid AS tree_parent
-                    FROM ${TABLES.COMMENTS} c
-                    INNER JOIN ${TABLES.COMMENT_UPDATES} cu ON c.cid = cu.cid
-                    WHERE c.cid IN (${placeholders})
-                    UNION ALL
-                    ${this._replyTreeRecursiveSelect(mapper)}
-                )
-                SELECT * FROM reply_tree
-            `;
-            const BATCH = 4096;
-            const statements = new Map<number, Statement>();
-            for (let start = 0; start < allCids.length; start += BATCH) {
-                const batch = allCids.slice(start, start + BATCH);
-                let statement = statements.get(batch.length);
-                if (!statement)
-                    statements.set(
-                        batch.length,
-                        (statement = this._prepareCached(queryFor(new Array(batch.length).fill("?").join(","))).raw(true))
-                    );
-                for (const row of statement.all(...batch) as unknown[][]) rows.push(row);
+        const listedChildren = (ofEntries: PageIpfs["comments"]): string[] => {
+            const cids: string[] = [];
+            for (const entry of ofEntries) {
+                const replies = entry.commentUpdate.replies as Record<string, DbRepliesSortEntry> | undefined;
+                if (!replies) continue;
+                for (const sortEntry of Object.values(replies)) if (sortEntry?.commentCids) cids.push(...sortEntry.commentCids);
             }
+            return cids;
+        };
+        const items: { entry: PageIpfs["comments"][number]; parent: string }[] = [];
+        const seen = new Set<string>();
+        let frontier = listedChildren(entries);
+        while (frontier.length > 0) {
+            const level: PageIpfs["comments"] = [];
+            this._forEachCidBatch<unknown[]>(
+                frontier.filter((cid) => !seen.has(cid)),
+                (placeholders) => `
+                SELECT ${mapper.selectList(
+                    (col) => `c.${col}`,
+                    (col) => `cu.${col}`
+                )}
+                FROM ${TABLES.COMMENTS} c
+                INNER JOIN ${TABLES.COMMENT_UPDATES} cu ON c.cid = cu.cid
+                WHERE c.cid IN (${placeholders})
+            `,
+                (row) => level.push(mapper.map(row)),
+                true
+            );
+            for (const entry of level) {
+                seen.add(entry.commentUpdate.cid);
+                items.push({ entry, parent: entry.comment.parentCid! });
+            }
+            frontier = listedChildren(level);
         }
-        const treeParentIndex = mapper.commentIpfsCols.length + mapper.commentUpdateCols.length;
-        const { parsedByCid, buildWireCommentUpdate, attachReplies } = this._assembleReplyTrees(rows, mapper, treeParentIndex);
+        return this._assembleReplyTrees(items);
+    }
 
+    // Each entry's pages rebuilt from the assembled trees in its own commentCids order
+    private _rebuildEntriesFromTrees(
+        entries: PageIpfs["comments"],
+        { parsedByCid, buildWireCommentUpdate, attachReplies }: ReturnType<DbHandler["_assembleReplyTrees"]>
+    ): PageIpfs["comments"] {
         return entries.map((entry) => {
-            const replies = entry.commentUpdate.replies as Record<string, DbRepliesSortEntry> | undefined;
-            if (!replies) return entry;
-            const isDbFormat = Object.values(replies).some((s) => s?.commentCids || s?.allPageCids);
-            if (!isDbFormat) return entry;
+            if (!this._entryHasDbReplies(entry)) return entry;
+            const replies = entry.commentUpdate.replies as Record<string, DbRepliesSortEntry>;
 
             const resolvedPages: Record<string, PageIpfs> = {};
             const resolvedPageCids: Record<string, string> = {};
@@ -3364,13 +3297,24 @@ export class DbHandler {
     // signature, no nested pages, no schema row parser, since a board can hold a million replies and this runs per
     // generation. A pending-approval reply is marked on its CommentUpdate the way the mod queue marks one, so the
     // filter can see it; the list never reaches a page.
-    queryAllRepliesForPageSort(opts: { postCid?: string } = {}): PageSortReplyEntry[] {
-        const params: Record<string, string> = {};
-        const whereClauses = ["c.depth > 0"];
-        if (opts.postCid) {
-            whereClauses.push("c.postCid = :postCid");
-            params.postCid = opts.postCid;
+    queryAllRepliesForPageSort(opts: { postCid?: string; postCids?: string[] } = {}): PageSortReplyEntry[] {
+        // A list of posts streams in batches under the SQLite variable cap: what a post sort with requireReplies
+        // scores over, one batch of posts' subtrees at a time (issue #351)
+        if (opts.postCids) {
+            const entries: PageSortReplyEntry[] = [];
+            const BATCH = 4096;
+            for (let start = 0; start < opts.postCids.length; start += BATCH) {
+                const batch = opts.postCids.slice(start, start + BATCH);
+                entries.push(...this._queryRepliesForPageSort(`c.postCid IN (${batch.map(() => "?").join(",")})`, batch));
+            }
+            return entries;
         }
+        if (opts.postCid) return this._queryRepliesForPageSort("c.postCid = ?", [opts.postCid]);
+        return this._queryRepliesForPageSort("1 = 1", []);
+    }
+
+    private _queryRepliesForPageSort(scopeClause: string, params: unknown[]): PageSortReplyEntry[] {
+        const whereClauses = ["c.depth > 0", scopeClause];
         const query = `
             SELECT c.cid, c.parentCid, c.postCid, c.depth, c.timestamp, c.content, c.title, c.link, c.author, c.communityPublicKey,
                 c.communityName, c.nsfw, c.spoiler, c.flairs, c.pendingApproval,
@@ -3413,7 +3357,9 @@ export class DbHandler {
             cuFlairs: string | null,
             editDeleted: number | null
         ];
-        const rows = this._prepareCached(query).raw(true).all(params) as Row[];
+        const rows = this._prepareCached(query)
+            .raw(true)
+            .all(...params) as Row[];
         const entries: PageSortReplyEntry[] = new Array(rows.length);
         for (let i = 0; i < rows.length; i++) {
             const [

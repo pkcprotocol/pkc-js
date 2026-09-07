@@ -22,6 +22,7 @@ import { PKCError } from "../../../pkc-error.js";
 import type { ResolvedPageSort } from "./page-sorts/index.js";
 import {
     applyPageSortExclusions,
+    createDescendantsLookup,
     orderPageCommentsByScore,
     partitionPageCommentsForSort,
     scorePageCommentsWithFile,
@@ -111,21 +112,61 @@ const pageDagSize = (entrySizes: number[], hasNextCid: boolean): number => calcu
 
 const SERIALIZE_BATCH = 256; // entries resolved and serialized per database round trip
 
-// How many bytes of serialized entries a generation keeps in memory: a quarter of the heap limit (so
-// --max-old-space-size scales it), never under 64 MiB or over 2 GiB. Past it, pages re-serialize what they need.
+// How many bytes of serialized entries a community keeps between generations: an eighth of the heap limit (so
+// --max-old-space-size scales it), never under 32 MiB or over 512 MiB. Past it, pages re-serialize what they need.
 function serializedEntryCacheBudgetBytes(): number {
     const heapLimit = v8.getHeapStatistics().heap_size_limit;
-    return Math.min(Math.max(Math.floor(heapLimit / 4), 64 * MB), 2048 * MB);
+    return Math.min(Math.max(Math.floor(heapLimit / 8), 32 * MB), 512 * MB);
 }
 
 // Where a generation's page entries come from once the comment set is loaded: the JSON a page holds for each entry
-// (nested replies included), the wire object of each (for an embedded page), and each entry's JSON size when the
-// database knows it without serializing (the stored wire replies' size). DbHandler implements all three.
+// (nested reply pages resolved from the database), and the wire object of each (for an embedded page). Both are
+// called per bounded batch, so the reply rows a board holds are streamed through, never held at once (issue #351).
 export type PageEntrySource = {
     serialize: (entries: PageComment[]) => string[];
     resolve: (entries: PageComment[]) => PageComment[];
-    sizeOf: (entries: PageComment[]) => (number | undefined)[];
 };
+
+// Serialized entries kept across generations, by cid, valid while the CommentUpdate's updatedAt is unchanged: a
+// CommentUpdate is recalculated (new updatedAt) whenever anything under the comment changes, so the same
+// (cid, updatedAt) serializes to the same bytes. Bounded by a byte budget; a changed entry replaces its old bytes,
+// a new entry is kept only while the budget allows, and entries a generation did not see are dropped after it, so
+// a steady board costs a serialization per changed post and the budget's worth of memory (issue #351).
+class EntryJsonCache {
+    private _byCid = new Map<string, { updatedAt: number; json: string; bytes: number }>();
+    private _bytes = 0;
+
+    constructor(private readonly _budgetBytes: number) {}
+
+    get(entry: PageComment): { json: string; bytes: number } | undefined {
+        const cached = this._byCid.get(entry.commentUpdate.cid);
+        return cached && cached.updatedAt === entry.commentUpdate.updatedAt ? cached : undefined;
+    }
+
+    offer(entry: PageComment, json: string, bytes: number): void {
+        const cid = entry.commentUpdate.cid;
+        const previous = this._byCid.get(cid);
+        const budgetAfter = this._bytes - (previous?.bytes ?? 0) + bytes;
+        if (budgetAfter > this._budgetBytes) {
+            if (previous) this._drop(cid);
+            return;
+        }
+        this._byCid.set(cid, { updatedAt: entry.commentUpdate.updatedAt, json, bytes });
+        this._bytes = budgetAfter;
+    }
+
+    // Keep only the cids a generation listed (a purged or excluded post frees its bytes)
+    retainOnly(cids: Set<string>): void {
+        for (const cid of [...this._byCid.keys()]) if (!cids.has(cid)) this._drop(cid);
+    }
+
+    private _drop(cid: string): void {
+        const cached = this._byCid.get(cid);
+        if (!cached) return;
+        this._byCid.delete(cid);
+        this._bytes -= cached.bytes;
+    }
+}
 
 // Admission by bytes for the pages being built at once: sorts add their pages in parallel, but a page's string (its
 // entries fetched plus the join) lives in memory until its add returns, and the doubling page sizes make late pages
@@ -165,38 +206,33 @@ class PageBytesBudget {
 }
 
 // The serialized form of one generation's entries: each entry's canonical page JSON and that JSON's UTF-8 size.
-// Sizes are kept for every entry, since every sort's chunking needs them, and come from the database where it
-// knows them; an entry serialized to be sized keeps its string up to a byte budget, so a board's reply trees are
-// never all in memory at once. A page fetches what it does not hold in one batch when it is built (issue #351).
+// Sizes are kept for every entry, since every sort's chunking needs them; the strings live in the cache, so a
+// board's resolved reply trees are never all in memory. Sizing streams: entries the cache does not hold are
+// resolved and serialized a batch at a time; a page fetches what the cache does not hold in one batch when it is
+// built (issue #351).
 class SerializedEntries {
     private _sizes = new Map<PageComment, number>();
-    private _strings = new Map<PageComment, string>();
-    private _cachedBytes = 0;
 
     constructor(
-        private readonly _source: Pick<PageEntrySource, "serialize" | "sizeOf">,
-        private readonly _budgetBytes: number
+        private readonly _source: PageEntrySource,
+        private readonly _cache: EntryJsonCache
     ) {}
 
     sizeAll(entries: PageComment[]): void {
-        const pending = entries.filter((entry) => !this._sizes.has(entry));
+        const pending: PageComment[] = [];
+        for (const entry of entries) {
+            if (this._sizes.has(entry)) continue;
+            const cached = this._cache.get(entry);
+            if (cached) this._sizes.set(entry, cached.bytes);
+            else pending.push(entry);
+        }
         for (let start = 0; start < pending.length; start += SERIALIZE_BATCH) {
             const batch = pending.slice(start, start + SERIALIZE_BATCH);
-            const known = this._source.sizeOf(batch);
-            const unknown: PageComment[] = [];
+            const strings = this._source.serialize(batch);
             for (let i = 0; i < batch.length; i++) {
-                if (known[i] !== undefined) this._sizes.set(batch[i], known[i]!);
-                else unknown.push(batch[i]);
-            }
-            if (unknown.length === 0) continue;
-            const strings = this._source.serialize(unknown);
-            for (let i = 0; i < unknown.length; i++) {
                 const bytes = Buffer.byteLength(strings[i]);
-                this._sizes.set(unknown[i], bytes);
-                if (this._cachedBytes + bytes <= this._budgetBytes) {
-                    this._strings.set(unknown[i], strings[i]);
-                    this._cachedBytes += bytes;
-                }
+                this._sizes.set(batch[i], bytes);
+                this._cache.offer(batch[i], strings[i], bytes);
             }
         }
     }
@@ -212,13 +248,14 @@ class SerializedEntries {
         const strings: string[] = new Array(entries.length);
         const missing: number[] = [];
         for (let i = 0; i < entries.length; i++) {
-            const cached = this._strings.get(entries[i]);
-            if (cached !== undefined) strings[i] = cached;
+            const cached = this._cache.get(entries[i]);
+            if (cached) strings[i] = cached.json;
             else missing.push(i);
         }
-        if (missing.length > 0) {
-            const serialized = this._source.serialize(missing.map((i) => entries[i]));
-            for (let k = 0; k < missing.length; k++) strings[missing[k]] = serialized[k];
+        for (let start = 0; start < missing.length; start += SERIALIZE_BATCH) {
+            const indexes = missing.slice(start, start + SERIALIZE_BATCH);
+            const serialized = this._source.serialize(indexes.map((i) => entries[i]));
+            for (let k = 0; k < indexes.length; k++) strings[indexes[k]] = serialized[k];
         }
         return strings;
     }
@@ -226,6 +263,7 @@ class SerializedEntries {
 
 export class PageGenerator {
     private _community: LocalCommunity;
+    private _postEntryCache: EntryJsonCache | undefined; // post page entries across generations, see EntryJsonCache
 
     constructor(community: PageGenerator["_community"]) {
         this._community = community;
@@ -428,16 +466,19 @@ export class PageGenerator {
         sort: ResolvedPageSort,
         baseTimestamp: number,
         replies?: PageSortReplyEntry[],
-        stripEntry?: (entry: PageComment) => PageComment
+        stripEntry?: (entry: PageComment) => PageComment,
+        streamReplies?: (ordered: PageComment[]) => (cid: string) => PageSortReplyEntry[]
     ): PageIpfs["comments"] {
         const { options } = sort;
         const { pinned, unpinned } = partitionPageCommentsForSort({ comments, reserved: sort, baseTimestamp });
         if (pinned.length + unpinned.length === 0) return [];
+        // a requireReplies post sort scores pinned then unpinned in this order, and the provider streams subtrees along it
+        const descendantsOf = streamReplies && sort.file.requireReplies ? streamReplies([...pinned, ...unpinned]) : undefined;
         return orderPageCommentsByScore({
             pinned,
             unpinned,
             sortName: sort.sortName,
-            scoreOf: scorePageCommentsWithFile({ file: sort.file, options, baseTimestamp, replies, stripEntry })
+            scoreOf: scorePageCommentsWithFile({ file: sort.file, options, baseTimestamp, replies, stripEntry, descendantsOf })
         });
     }
 
@@ -448,10 +489,18 @@ export class PageGenerator {
             replies?: PageSortReplyEntry[];
             sizeOf?: (entry: PageComment) => number;
             stripEntry?: (entry: PageComment) => PageComment;
+            streamReplies?: (ordered: PageComment[]) => (cid: string) => PageSortReplyEntry[];
         }
     ): Promise<PageIpfs["comments"][]> {
         if (unsortedComments.length === 0) throw Error("Should not provide empty array of comments to sort");
-        const commentsSorted = this.sortComments(unsortedComments, sort, options.baseTimestamp, options.replies, options.stripEntry);
+        const commentsSorted = this.sortComments(
+            unsortedComments,
+            sort,
+            options.baseTimestamp,
+            options.replies,
+            options.stripEntry,
+            options.streamReplies
+        );
         if (commentsSorted.length === 0) return [];
         return this._chunkComments({ comments: commentsSorted, firstPageSizeBytes: options.firstPageSizeBytes, sizeOf: options.sizeOf });
     }
@@ -474,18 +523,50 @@ export class PageGenerator {
         };
     }
 
+    // The reply set a requireReplies post sort scores over, streamed: the provider walks the posts in the order the
+    // scorer asks for them and loads one batch of posts' subtrees at a time (lean entries, the sort's exclusions
+    // applied), so a board's replies are never in memory at once; the file still receives each post's whole subtree
+    // (issue #351). A post asked out of order (never, in practice) just loads its own batch.
+    private _createStreamingRepliesProvider(sort: ResolvedPageSort): (ordered: PageComment[]) => (cid: string) => PageSortReplyEntry[] {
+        const db = this._community._dbHandler;
+        const communityAddress = this._community.address;
+        return (ordered) => {
+            const indexOf = new Map(ordered.map((entry, index) => [entry.commentUpdate.cid, index]));
+            let batchStart = -1;
+            let batchEnd = -1;
+            let descendantsOf: ((cid: string) => PageSortReplyEntry[]) | undefined;
+            return (cid) => {
+                const index = indexOf.get(cid);
+                if (index === undefined) return [];
+                if (index < batchStart || index >= batchEnd || !descendantsOf) {
+                    batchStart = index;
+                    batchEnd = Math.min(index + SERIALIZE_BATCH, ordered.length);
+                    const replies = db.queryAllRepliesForPageSort({
+                        postCids: ordered.slice(batchStart, batchEnd).map((entry) => entry.commentUpdate.cid)
+                    });
+                    descendantsOf = createDescendantsLookup(
+                        applyPageSortExclusions({ comments: replies, exclusions: sort.exclusions, communityAddress })
+                    );
+                }
+                return descendantsOf(cid);
+            };
+        };
+    }
+
     // Load the comment set each sort runs over. Sorts that share the same exclusion options (all of them, unless an
     // owner set an exclude* option on one entry) share one query; flat sorts have their own query shape.
     private _createCommentLoader(
         load: (exclusions: Record<PageSortExclusionOptionName, boolean>, flat: boolean) => PageIpfs["comments"]
-    ): (sort: ResolvedPageSort) => PageIpfs["comments"] {
+    ): ((sort: ResolvedPageSort) => PageIpfs["comments"]) & { loaded: () => PageIpfs["comments"] } {
         const cache = new Map<string, PageIpfs["comments"]>();
-        return (sort) => {
+        const loader = (sort: ResolvedPageSort) => {
             const exclusions = sort.exclusions;
             const key = `${sort.flat}:${JSON.stringify(exclusions)}`;
             if (!cache.has(key)) cache.set(key, load(exclusions, sort.flat));
             return cache.get(key)!;
         };
+        loader.loaded = () => [...cache.values()].flat(); // every entry any sort of this generation loaded
+        return loader;
     }
 
     // Generic generation for one scope (community posts, or one comment's replies) from its configured sorts.
@@ -505,15 +586,18 @@ export class PageGenerator {
     // Results keep the configured order so `pages` keys tell a client which preloaded sort is the default.
     //
     // The comment sets are lean: an entry carries its DB-format reply refs, which `score` never sees since `replies`
-    // is stripped. What a page holds for an entry comes from `source` (its stored wire replies spliced in), sized
-    // once per entry through SerializedEntries and fetched per page when built: chunking sizes and page contents
-    // both come from there, so a sort costs an ordered list of references, not another copy of the set (issue #351).
+    // is stripped. What a page holds for an entry comes from `source`, which resolves a batch's nested reply pages
+    // from rows; entries are sized through SerializedEntries (serialized a batch at a time, strings kept in the
+    // entry cache while its budget allows) and fetched per page when built, so a sort costs an ordered list of
+    // references, and a board's reply trees stream through instead of being held at once (issue #351).
     private async _generatePagesForSorts<T extends PostsPagesTypeIpfs | RepliesPagesTypeIpfs>({
         scope,
         sorts,
         loadComments,
         loadReplies,
+        streamReplies,
         source,
+        entryCache,
         preloadedPageSizeBytes,
         baseTimestamp,
         parentCid
@@ -521,8 +605,10 @@ export class PageGenerator {
         scope: PageSortScope;
         sorts: ResolvedPageSort[];
         loadComments: (sort: ResolvedPageSort) => PageIpfs["comments"];
-        loadReplies: (sort: ResolvedPageSort) => PageSortReplyEntry[]; // the scope's descendants, called only for a requireReplies file
+        loadReplies?: (sort: ResolvedPageSort) => PageSortReplyEntry[]; // the scope's descendants at once (reply scope), for a requireReplies file
+        streamReplies?: (sort: ResolvedPageSort) => (ordered: PageComment[]) => (cid: string) => PageSortReplyEntry[]; // or streamed (post scope)
         source: PageEntrySource;
+        entryCache: EntryJsonCache;
         preloadedPageSizeBytes: number;
         baseTimestamp: number;
         parentCid: string | null;
@@ -543,11 +629,12 @@ export class PageGenerator {
         const loaded: { sort: ResolvedPageSort; comments: PageIpfs["comments"]; replies?: PageSortReplyEntry[] }[] = [];
         for (const sort of sorts) {
             const comments = loadComments(sort);
-            if (comments.length > 0) loaded.push({ sort, comments, ...(sort.file.requireReplies ? { replies: loadReplies(sort) } : {}) });
+            if (comments.length > 0)
+                loaded.push({ sort, comments, ...(sort.file.requireReplies && loadReplies ? { replies: loadReplies(sort) } : {}) });
         }
         if (loaded.length === 0) return undefined;
 
-        const serialized = new SerializedEntries(source, serializedEntryCacheBudgetBytes());
+        const serialized = new SerializedEntries(source, entryCache);
         for (const { comments } of loaded) serialized.sizeAll(comments); // one serialization per entry, shared by every sort
         const strippedEntries = new Map<PageComment, PageComment>(); // what `score` receives, built once per entry
         const stripEntry = (entry: PageComment): PageComment => {
@@ -569,7 +656,8 @@ export class PageGenerator {
                     firstPageSizeBytes: sort.preloaded ? share : NON_PRELOADED_FIRST_PAGE_SIZE,
                     replies,
                     sizeOf: serialized.sizeOf,
-                    stripEntry
+                    stripEntry,
+                    streamReplies: streamReplies?.(sort)
                 });
             } catch (e) {
                 fail(sort, e);
@@ -650,14 +738,13 @@ export class PageGenerator {
         return (await this._community._ensurePageSortsLoaded())[scope];
     }
 
-    // Page entries out of the community database: the stored wire replies of each comment, spliced or parsed
+    // Page entries out of the community database: each batch's nested reply pages resolved from rows. Plain
+    // JSON.stringify is canonical here: the row mapper builds every object with sorted keys
+    // (createPositionalCommentRowMapper), so this is byte-identical to safe-stable-stringify at native speed.
     private _dbPageEntrySource(): PageEntrySource {
         const db = this._community._dbHandler;
-        return {
-            serialize: (entries) => db.serializePageEntries(entries),
-            resolve: (entries) => db.resolveRepliesCidRefsForEntries(entries),
-            sizeOf: (entries) => db.sizePageEntries(entries)
-        };
+        const resolve = (entries: PageComment[]) => db.resolveRepliesCidRefsForEntries(entries);
+        return { resolve, serialize: (entries) => resolve(entries).map((entry) => JSON.stringify(entry)) };
     }
 
     async generateCommunityPosts({
@@ -667,23 +754,25 @@ export class PageGenerator {
     }): Promise<PageGenerationResult<PostsPagesTypeIpfs>> {
         const baseTimestamp = timestamp();
         const sorts = await this._pageSortsFor("posts");
-        // Posts are loaded lean, their reply pages still as CID refs; the page entry source supplies the stored wire
-        // replies per page (issue #351)
+        // Posts are loaded lean, their reply pages still as CID refs; the page entry source resolves them per batch
+        // (issue #351)
         const loadComments = this._createCommentLoader((exclusions) =>
             this._community._dbHandler.queryPosts({ ...exclusions, parentCid: null })
         );
-        // Every reply in the community, for a requireReplies post sort; each post's subtree is sliced from it
-        const loadReplies = this._createRepliesLoader(() => this._community._dbHandler.queryAllRepliesForPageSort());
-        return this._generatePagesForSorts<PostsPagesTypeIpfs>({
+        this._postEntryCache ??= new EntryJsonCache(serializedEntryCacheBudgetBytes());
+        const generated = await this._generatePagesForSorts<PostsPagesTypeIpfs>({
             scope: "posts",
             sorts,
             loadComments,
-            loadReplies,
+            streamReplies: (sort) => this._createStreamingRepliesProvider(sort), // a requireReplies post sort streams each post's subtree
             source: this._dbPageEntrySource(),
+            entryCache: this._postEntryCache,
             preloadedPageSizeBytes,
             baseTimestamp,
             parentCid: null
         });
+        this._postEntryCache.retainOnly(new Set(loadComments.loaded().map((entry) => entry.commentUpdate.cid)));
+        return generated;
     }
 
     async _bundleLatestCommentUpdateWithQueuedComments(queuedComment: CommentsTableRow): Promise<ModQueueCommentInPage> {
@@ -741,7 +830,7 @@ export class PageGenerator {
             const pageOptions = { ...exclusions, parentCid: comment.cid, baseTimestamp };
             return flat
                 ? this._community._dbHandler.queryFlattenedPageReplies({ ...pageOptions, commentUpdateFieldsToExclude: ["replies"] })
-                : this._community._dbHandler.queryPageComments(pageOptions); // the direct children, lean; their stored wire replies come per page
+                : this._community._dbHandler.queryPageCommentsWithResolvedReplies(pageOptions); // recursive query following CID-ref lists in DB replies to build nested trees
         });
         // Every reply under the comment's post, for a requireReplies reply sort; each reply's own subtree is sliced from it
         const loadReplies = this._createRepliesLoader(() => {
@@ -754,6 +843,7 @@ export class PageGenerator {
             loadComments,
             loadReplies,
             source: this._dbPageEntrySource(),
+            entryCache: new EntryJsonCache(serializedEntryCacheBudgetBytes()), // one comment's replies, dropped with the generation
             preloadedPageSizeBytes,
             baseTimestamp,
             parentCid: comment.cid

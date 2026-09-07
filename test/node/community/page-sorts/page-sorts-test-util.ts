@@ -94,7 +94,9 @@ function createFakeIpfsClient(): FakeIpfsClient {
 
 export async function seedComments(
     community: LocalCommunity,
-    trees: TreeNode[]
+    trees: TreeNode[],
+    // Seed the trees as replies under an existing comment instead of as posts
+    under?: { cid: string; depth: number; postCid: string }
 ): Promise<{ rows: TestCommentRow[]; cidOf: (label: string) => string }> {
     const rows: TestCommentRow[] = [];
     const labelToCid = new Map<string, string>();
@@ -140,7 +142,10 @@ export async function seedComments(
         for (const child of node.children ?? []) await traverse(child, depth + 1, cid, rootCid ?? cid);
     }
 
-    for (const tree of trees) await traverse(tree, 0, null, null);
+    for (const tree of trees) {
+        if (under) await traverse(tree, under.depth + 1, under.cid, under.postCid);
+        else await traverse(tree, 0, null, null);
+    }
     community._dbHandler.insertComments(rows as CommentsTableRowInsert[]);
     return {
         rows,

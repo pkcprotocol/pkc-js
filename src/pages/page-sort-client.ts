@@ -160,15 +160,17 @@ export function scorePageCommentsWithFile({
     options,
     baseTimestamp,
     replies,
-    stripEntry = stripRepliesFromPageComment
+    stripEntry = stripRepliesFromPageComment,
+    descendantsOf: descendantsOfOverride
 }: {
     file: PageSortFile;
     options: Record<string, string>;
     baseTimestamp: number;
     replies?: PageSortReplyEntry[];
     stripEntry?: (entry: PageComment) => PageComment; // the community strips each entry once and reuses it across sorts
+    descendantsOf?: (cid: string) => PageSortReplyEntry[]; // the community streams subtrees instead of passing `replies`
 }): (entry: PageComment) => number | null {
-    const descendantsOf = file.requireReplies ? createDescendantsLookup(replies ?? []) : undefined;
+    const descendantsOf = file.requireReplies ? descendantsOfOverride ?? createDescendantsLookup(replies ?? []) : undefined;
     return (entry) => {
         const { comment, commentUpdate } = stripEntry(entry);
         return file.score({

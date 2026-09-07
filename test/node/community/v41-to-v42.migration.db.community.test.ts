@@ -7,7 +7,7 @@ import type Database from "better-sqlite3";
 import { readFileSync } from "node:fs";
 import { getPKCAddressFromPublicKeySync } from "../../../dist/node/signer/util.js";
 
-// v41 tables: the comments table with crosspost, the commentUpdates table before `wireReplies` (issue #351).
+// v41 tables: the comments table with crosspost, the aliases table before `originalAuthorSignerAddress` (issue #351).
 const V41_CREATE_COMMENTS = `
     CREATE TABLE IF NOT EXISTS comments (
         cid TEXT NOT NULL PRIMARY KEY UNIQUE,
@@ -217,7 +217,7 @@ function getPrivate(handler: DbHandler): DbHandlerPrivate {
 }
 
 // Uses DbHandler directly (Node-only) — cannot run under RPC.
-describeSkipIfRpc("v41 → v42 DB migration (wireReplies column on commentUpdates, comment tree indexes)", function () {
+describeSkipIfRpc("v41 → v42 DB migration (alias reverse-lookup column, comment tree and author indexes)", function () {
     let dbHandler: DbHandler | undefined;
 
     afterAll(() => {
@@ -278,13 +278,6 @@ describeSkipIfRpc("v41 → v42 DB migration (wireReplies column on commentUpdate
         await dbHandler.createOrMigrateTablesIfNeeded();
     });
 
-    it("commentUpdates table has the new wireReplies column", () => {
-        const priv = getPrivate(dbHandler!);
-        const columns = (priv._db.pragma("table_info(commentUpdates)") as { name: string }[]).map((c) => c.name);
-        expect(columns).to.include("wireReplies");
-        expect(columns).to.include("replies"); // the CID-ref column stays for stale_replies and unpinning
-    });
-
     it("comments table carries the parentCid, postCid and authorSignerAddress indexes", () => {
         const priv = getPrivate(dbHandler!);
         const indexes = (priv._db.pragma("index_list(comments)") as { name: string }[]).map((i) => i.name);
@@ -339,32 +332,5 @@ describeSkipIfRpc("v41 → v42 DB migration (wireReplies column on commentUpdate
         const priv = getPrivate(dbHandler!);
         const userVersion = priv._db.pragma("user_version", { simple: true }) as number;
         expect(userVersion).to.equal(env.DB_VERSION);
-    });
-
-    it("new CommentUpdate rows write and read wireReplies through the handler", () => {
-        const wireReplies = JSON.stringify({ pages: { best: { comments: [] } } });
-        dbHandler!.upsertCommentUpdates([
-            {
-                cid: "QmLegacyPost",
-                upvoteCount: 0,
-                downvoteCount: 0,
-                replyCount: 0,
-                childCount: 0,
-                updatedAt: now,
-                protocolVersion: "1.0.0",
-                signature: JSON.parse(fakeSignatureJson("sig-update")) as Record<string, unknown>,
-                author: { community: {} },
-                replies: { best: { commentCids: [] } },
-                wireReplies,
-                publishedToPostUpdatesMFS: false,
-                insertedAt: now
-            } as unknown as Parameters<DbHandler["upsertCommentUpdates"]>[0][number]
-        ]);
-        const priv = getPrivate(dbHandler!);
-        const row = priv._db.prepare("SELECT wireReplies FROM commentUpdates WHERE cid = ?").get("QmLegacyPost") as {
-            wireReplies: string | null;
-        };
-        expect(row.wireReplies).to.equal(wireReplies);
-        expect(dbHandler!.queryWireReplies(["QmLegacyPost", "QmMissing"])).to.deep.equal(new Map([["QmLegacyPost", wireReplies]]));
     });
 });

@@ -224,16 +224,16 @@ The contract:
   complete; a client that walked only part of a thread gets a wrong order, not an error.
 - **What a reply-dependent sort costs the community.** `test/benchmarks/page-generation-bench.mjs` seeds
   20k posts with 10 to 100 replies each (1.1M replies), every post embedding its preloaded reply tree the way
-  production does, and times post page generation with IPFS stubbed. On that board the nine default sorts
-  take about 7 s inside a 2 GB heap while writing 6.7 GB of pages (the output, nine copies of the board, is
-  the cost; sorting itself works on lean rows and never loads a reply, see "How an entry is built" in
-  `pages.md`); the built-in `active`, which reads `lastReplyTimestamp`, takes under 2 s. The keyword
-  no-bump sort takes about 10 s and holds the 1.1M lean reply entries at once, about 1 GB of live heap: the
-  cost of `requireReplies` is linear in the reply count and is paid in memory, so a board with a million
-  posts should not configure a reply-dependent post sort; a 5chan-sized board (a few hundred live threads)
-  does not notice it. `BENCH_PIPELINE=1` times the whole publish cycle instead (every comment's
-  CommentUpdate, then the post pages): about 0.25 ms per comment, which is what a full regeneration after a
-  migration or a `settings.pages` edit costs.
+  production does, and times post page generation with IPFS stubbed. Nothing holds the board's replies at
+  once: the nine default sorts stream each post's subtree from the reply rows as pages are built and take
+  about a minute inside a 2 GB heap while writing 6.7 GB of pages (the output, nine copies of the board, is
+  the cost; a board whose serialized entries fit the entry cache, a few thousand posts, publishes again in a
+  fraction of a second, see "How an entry is built" in `pages.md`). A `requireReplies` post sort streams
+  the same way: `score` still receives each post's whole subtree, loaded one batch of posts at a time, so
+  its cost is the reply rows read once more per generation, not memory. A reply sort with `requireReplies`
+  loads the post's subtree, which is bounded. `BENCH_PIPELINE=1` times the whole publish cycle instead
+  (every comment's CommentUpdate, then the post pages): about 0.25 ms per comment, which is what a full
+  regeneration after a migration or a `settings.pages` edit costs.
 
 - **Sync only.** Generation runs per comment per cycle; an async signature would invite a network call in
   the community's hot loop. This is a deliberate divergence from `ChallengeFile.getChallenge`.

@@ -5,16 +5,15 @@ import { createCommunityWithDefaultDb, seedComments } from "../page-sorts/page-s
 import { updateCommentsThatNeedToBeUpdated } from "../../../../dist/node/runtime/node/community/local-community/comment-updates.js";
 import type { CommunityContext, TreeNode } from "../page-sorts/page-sorts-test-util.js";
 import type { PageIpfs, RepliesPagesTypeIpfs } from "../../../../dist/node/pages/types.js";
-import type { CommentUpdateType } from "../../../../dist/node/publications/comment/types.js";
 
 // A post's page entry is its comment plus the CommentUpdate the community last signed and published, nested reply
-// pages included: `replies` is a signed field, so a page must carry it byte for byte. The community stores that
-// canonical `replies` JSON on the row when it signs the update (commentUpdates.wireReplies, issue #351) and builds
-// post pages from it, resolving the CID-ref tree only for a row that lacks it. This pins the output to the published
-// updates: every page added to IPFS is byte-identical to the deterministic JSON of the published entries, every
-// embedded first page holds the same objects, every sort's chain lists each post exactly once, with and without the
-// stored column. Uses the fake kubo client of the page-sort tests, so it cannot run over RPC (the generator is driven
-// in-process).
+// pages included: `replies` is a signed field, so a page must carry it byte for byte. The generator rebuilds each
+// post's tree from the reply rows a batch of posts at a time (issue #351), keeps serialized entries across
+// generations while their CommentUpdate is unchanged, and re-serializes a post whose update changed. This pins the
+// output to the published updates: every page added to IPFS is byte-identical to the deterministic JSON of the
+// published entries, every embedded first page holds the same objects, every sort's chain lists each post exactly
+// once, before and after a post changes between two generations. Uses the fake kubo client of the page-sort tests,
+// so it cannot run over RPC (the generator is driven in-process).
 describeSkipIfRpc("post pages with nested replies are built from the published CommentUpdates", () => {
     let ctx: CommunityContext;
     const added = new Map<string, string>(); // cid -> page content
@@ -47,43 +46,40 @@ describeSkipIfRpc("post pages with nested replies are built from the published C
             trees.push({ label: `p${p}`, contentBytes: p % 7 === 0 ? 6000 : 300, ...(p % 4 === 0 ? { content: escapes } : {}), children });
         }
         await seedComments(ctx.community, trees);
-        const updates = await updateCommentsThatNeedToBeUpdated(ctx.community);
-        const db = ctx.community._dbHandler;
-        db.markCommentsAsPublishedToPostUpdates(updates.map((u) => u.newCommentUpdate.cid));
-        const posts = db.queryPosts({
-            parentCid: null,
-            excludeRemovedComments: true,
-            excludeDeletedComments: true,
-            excludeCommentPendingApproval: true,
-            excludeCommentWithApprovedFalse: true,
-            excludeCommentsWithDifferentCommunityAddress: true
-        });
-        expect(posts).to.have.length(60);
-        for (const post of posts) {
-            const update = updates.find((u) => u.newCommentUpdate.cid === post.commentUpdate.cid);
-            expect(update, `published update of ${post.commentUpdate.cid}`).to.exist;
-            publishedByCid.set(post.commentUpdate.cid, { comment: post.comment, commentUpdate: update!.newCommentUpdate });
-        }
+        await publishUpdates();
         const repliesOf = (entry: PageIpfs["comments"][number]) => entry.commentUpdate.replies as RepliesPagesTypeIpfs | undefined;
         expect([...publishedByCid.values()].some((entry) => (repliesOf(entry)?.pages?.best?.comments.length ?? 0) > 0)).to.be.true;
     });
 
+    const exclusions = {
+        parentCid: null as string | null,
+        excludeRemovedComments: true,
+        excludeDeletedComments: true,
+        excludeCommentPendingApproval: true,
+        excludeCommentWithApprovedFalse: true,
+        excludeCommentsWithDifferentCommunityAddress: true
+    };
+
+    // Run the CommentUpdate pass the sync loop runs and refresh the reference entries of the posts it touched
+    async function publishUpdates() {
+        const db = ctx.community._dbHandler;
+        const updates = await updateCommentsThatNeedToBeUpdated(ctx.community);
+        db.markCommentsAsPublishedToPostUpdates(updates.map((u) => u.newCommentUpdate.cid));
+        const posts = db.queryPosts(exclusions);
+        expect(posts).to.have.length(60);
+        for (const post of posts) {
+            const update = updates.find((u) => u.newCommentUpdate.cid === post.commentUpdate.cid);
+            if (!update) {
+                expect(publishedByCid.has(post.commentUpdate.cid), `untouched post ${post.commentUpdate.cid} has a reference`).to.be.true;
+                continue;
+            }
+            publishedByCid.set(post.commentUpdate.cid, { comment: post.comment, commentUpdate: update.newCommentUpdate });
+        }
+        return updates;
+    }
+
     afterAll(async () => {
         await ctx.cleanup();
-    });
-
-    it("stores the canonical replies JSON of every signed CommentUpdate on its row", () => {
-        const rows = ctx.community._dbHandler["_db"].prepare("SELECT cid, wireReplies FROM commentUpdates").all() as {
-            cid: string;
-            wireReplies: string | null;
-        }[];
-        expect(rows.length).to.be.greaterThan(60);
-        for (const post of publishedByCid.values()) {
-            const row = rows.find((r) => r.cid === post.commentUpdate.cid)!;
-            expect(row.wireReplies).to.equal(deterministicStringify(post.commentUpdate.replies));
-        }
-        const leaf = rows.filter((row) => !publishedByCid.has(row.cid) && row.wireReplies === null);
-        expect(leaf.length, "replies without children store no wire replies").to.be.greaterThan(0);
     });
 
     async function generateAndCheck() {
@@ -134,37 +130,32 @@ describeSkipIfRpc("post pages with nested replies are built from the published C
         await generateAndCheck();
     });
 
-    it("resolves the CID-ref tree for rows without stored wire replies and still matches the published entries", async () => {
-        // Rows written before the column existed, or seeded straight into the table: half the posts lose the column
-        const db = ctx.community._dbHandler["_db"];
-        const cids = [...publishedByCid.keys()].filter((_, index) => index % 2 === 0);
-        db.prepare(`UPDATE commentUpdates SET wireReplies = NULL WHERE cid IN (${cids.map(() => "?").join(",")})`).run(...cids);
-        expect(
-            (
-                db.prepare("SELECT COUNT(*) AS n FROM commentUpdates WHERE wireReplies IS NULL AND replies IS NOT NULL").get() as {
-                    n: number;
-                }
-            ).n
-        ).to.equal(cids.length);
+    it("re-serializes a post whose CommentUpdate changed between generations and reuses the rest", async () => {
+        // A new reply under one post re-flags that post (and only it): its entry must come out fresh, the other 59
+        // may come from the cache. The reference is refreshed from the published update, so a stale cached entry
+        // would break byte-identity.
+        const target = [...publishedByCid.keys()][7];
+        await seedComments(ctx.community, [{ label: "late-reply", contentBytes: 400 }], { cid: target, depth: 0, postCid: target });
+        const updates = await publishUpdates();
+        expect(updates.map((u) => u.newCommentUpdate.cid)).to.include(target);
         await generateAndCheck();
+        await generateAndCheck(); // and again with everything cached
     });
 
-    it("materializes a resolved entry the same way from the stored column and from the CID-ref tree", () => {
+    it("resolves the same trees through the flat post read and through the recursive CID-ref walk", () => {
         const db = ctx.community._dbHandler;
-        const posts = db.queryPosts({
-            parentCid: null,
-            excludeRemovedComments: true,
-            excludeDeletedComments: true,
-            excludeCommentPendingApproval: true,
-            excludeCommentWithApprovedFalse: true,
-            excludeCommentsWithDifferentCommunityAddress: true
-        });
-        const resolved = db.resolveRepliesCidRefsForEntries(posts);
-        for (const entry of resolved) {
+        const posts = db.queryPosts(exclusions);
+        const flat = db.resolveRepliesCidRefsForEntries(posts); // every entry a post: one indexed read of their subtrees
+        const anyReply = db.queryPageComments({
+            ...exclusions,
+            parentCid: posts[0].commentUpdate.cid,
+            baseTimestamp: Math.floor(Date.now() / 1000)
+        })[0];
+        const recursive = db.resolveRepliesCidRefsForEntries([...posts, anyReply]).slice(0, posts.length); // a reply in the set: the CID-ref walk
+        expect(flat.map((entry) => JSON.stringify(entry))).to.deep.equal(recursive.map((entry) => JSON.stringify(entry)));
+        for (const entry of flat) {
             const reference = publishedByCid.get(entry.commentUpdate.cid)!;
-            expect(entry.commentUpdate.replies as CommentUpdateType["replies"]).to.deep.equal(reference.commentUpdate.replies);
             expect(JSON.stringify(entry)).to.equal(deterministicStringify(reference)); // built with sorted keys
         }
-        expect(db.serializePageEntries(posts)).to.deep.equal(resolved.map((entry) => deterministicStringify(entry)));
     });
 });
