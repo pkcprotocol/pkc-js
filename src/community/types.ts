@@ -4,6 +4,14 @@ import {
     ChallengeExcludeSchema,
     ChallengeFileFactoryArgsSchema,
     ChallengeFileFactorySchema,
+    CommunityPageSortSettingSchema,
+    CommunityPagesSettingsSchema,
+    CommunityPageSortSchema,
+    CommunityPageSortsSchema,
+    PageSortFileSchema,
+    PageSortFileFactorySchema,
+    PageSortFileFactoryArgsSchema,
+    PageSortScopeSchema,
     ChallengeFileSchema,
     ChallengeFromGetChallengeSchema,
     ChallengeResultSchema,
@@ -149,6 +157,26 @@ export type GetChallengeArgsInput = z.input<typeof GetChallengeArgsSchema>;
 
 export type CommunitySettings = z.infer<typeof CommunitySettingsSchema>;
 
+export type CommunityPageSortSetting = z.infer<typeof CommunityPageSortSettingSchema>;
+
+export type CommunityPagesSettings = z.infer<typeof CommunityPagesSettingsSchema>;
+
+export type PageSortFile = z.infer<typeof PageSortFileSchema>;
+
+export type PageSortFileInput = z.input<typeof PageSortFileSchema>;
+
+export type PageSortFileFactory = z.infer<typeof PageSortFileFactorySchema>;
+
+export type PageSortFileFactoryInput = z.input<typeof PageSortFileFactorySchema>;
+
+export type PageSortFileFactoryArgs = z.infer<typeof PageSortFileFactoryArgsSchema>;
+
+export type PageSortScope = z.infer<typeof PageSortScopeSchema>;
+
+export type CommunityPageSort = z.infer<typeof CommunityPageSortSchema>;
+
+export type CommunityPageSorts = z.infer<typeof CommunityPageSortsSchema>;
+
 // RPC update events
 
 export type RpcRemoteCommunityUpdateEventResultType = z.infer<typeof RpcRemoteCommunityUpdateEventResultSchema>;
@@ -186,6 +214,7 @@ export type CommunityUpdatingState =
 export interface InternalCommunityRecordBeforeFirstUpdateType extends CreateNewLocalCommunityParsedOptions {
     settings: CommunitySettings;
     challenges: CommunityIpfsType["challenges"];
+    pageSorts?: CommunityIpfsType["pageSorts"]; // derived from settings.pages at creation and on every edit (issue #73)
     createdAt: CommunityIpfsType["createdAt"];
     protocolVersion: CommunityIpfsType["protocolVersion"];
     encryption: CommunityIpfsType["encryption"];
@@ -244,7 +273,7 @@ export type RpcLocalCommunityUpdateResultType =
 // This is the object that gets passed to _updateDbInternalState after calling .edit()
 export interface ParsedCommunityEditOptions
     extends Omit<CommunityEditOptions, "roles">,
-        Pick<InternalCommunityRecordBeforeFirstUpdateType, "_usingDefaultChallenge" | "challenges" | "roles"> {}
+        Pick<InternalCommunityRecordBeforeFirstUpdateType, "_usingDefaultChallenge" | "challenges" | "roles" | "pageSorts"> {}
 
 export interface CommunityEvents {
     challengerequest: (request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor) => void;

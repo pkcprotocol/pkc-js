@@ -75,6 +75,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     signature?: CommunityIpfsType["signature"];
     rules?: CommunityIpfsType["rules"];
     challenges?: CommunityIpfsType["challenges"];
+    pageSorts?: CommunityIpfsType["pageSorts"]; // what the community publishes about its configured page sorts (issue #73)
     postUpdates?: CommunityIpfsType["postUpdates"];
 
     // to be overridden by local community classes
@@ -372,6 +373,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         this.flairs = newProps.flairs;
         this.postUpdates = newProps.postUpdates;
         this.challenges = newProps.challenges;
+        this.pageSorts = newProps.pageSorts;
         this.statsCid = newProps.statsCid;
         this.createdAt = newProps.createdAt;
         this.updatedAt = newProps.updatedAt;

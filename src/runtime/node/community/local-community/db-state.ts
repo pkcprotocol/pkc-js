@@ -12,6 +12,7 @@ import { getIpfsKeyFromPrivateKey, getPublicKeyFromPrivateKey } from "../../../.
 import { findStartedCommunity } from "../../../../pkc/tracked-instance-registry-util.js";
 import { getCommunityChallengeFromCommunityChallengeSettings } from "../challenges/index.js";
 import { throwIfChallengeSettingsAreInvalid } from "../challenges/validate-challenge-settings.js";
+import { derivePublicPageSorts, resolvePageSortsOrThrow } from "../page-sorts/index.js";
 import type {
     CommunityIpfsType,
     CreateNewLocalCommunityParsedOptions,
@@ -288,6 +289,15 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
                     .communityChallenge
         )
     );
+
+    // settings.pages is validated the same way: an invalid entry refuses creation before anything is on disk
+    community._pageSorts = await resolvePageSortsOrThrow({
+        pagesSettings: community.settings.pages,
+        pkc: community._pkc,
+        db: community._dbHandler.createPageSortDb(),
+        communityAddress: community.address
+    });
+    community.pageSorts = derivePublicPageSorts({ pagesSettings: community.settings.pages, resolved: community._pageSorts });
 
     if (community._dbHandler.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY])) throw Error("Internal state exists already");
 

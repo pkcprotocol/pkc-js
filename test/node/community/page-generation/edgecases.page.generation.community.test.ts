@@ -185,7 +185,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
             const preloadedSortName = "hot";
             const availablePostsSize = await calculateAvailablePostsSizeForCommunity(context.community);
             const pageGenerator = getPageGenerator(context.community);
-            const generatedPosts = await pageGenerator.generateCommunityPosts(preloadedSortName, availablePostsSize);
+            const generatedPosts = await pageGenerator.generateCommunityPosts({ preloadedPageSizeBytes: availablePostsSize });
 
             expect(generatedPosts, "expected generateCommunityPosts to return posts data").to.exist;
             expect(generatedPosts).to.have.property("singlePreloadedPage"); // deeper comments should've gotten folded
@@ -211,7 +211,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
             const availablePostsSize = await calculateAvailablePostsSizeForCommunity(context.community);
             expect(availablePostsSize, "expected available posts budget to remain positive").to.be.greaterThan(0);
             const pageGenerator = getPageGenerator(context.community);
-            const generatedPosts = await pageGenerator.generateCommunityPosts("hot", availablePostsSize);
+            const generatedPosts = await pageGenerator.generateCommunityPosts({ preloadedPageSizeBytes: availablePostsSize });
             expect(generatedPosts, "expected no pagination output when there are no posts").to.be.undefined;
         } finally {
             await context.cleanup();
@@ -257,7 +257,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
                 return result;
             });
 
-            const generatedPosts = await pageGenerator.generateCommunityPosts(preloadedSortName, availablePostsSize);
+            const generatedPosts = await pageGenerator.generateCommunityPosts({ preloadedPageSizeBytes: availablePostsSize });
 
             expect(capturedFirstChunk, "expected to capture first chunk from sortAndChunkComments").to.exist;
             const firstChunkSerializedSize = await calculateStringSizeSameAsIpfsAddCidV0(JSON.stringify({ comments: capturedFirstChunk }));
@@ -290,7 +290,10 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
         }
     });
 
-    it("errors instead of collapsing community.posts preloads when the budget is too small", async () => {
+    it("drops the community.posts preloaded sort to pageCids instead of throwing when the budget is too small", async () => {
+        // Before settings.pages (issue #73) an over-budget preloaded posts chunk failed the whole publish cycle with
+        // ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE. Degradation is now per sort: the sort that does not fit its share
+        // goes to pageCids like a non-preloaded one and the record ships `pages: {}`, which is a valid state.
         const context = await createCommunityWithDefaultDb();
         try {
             const { rows } = await seedHeavyDiscussion(context.community, { primaryChainDepth: 60 });
@@ -299,16 +302,12 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
 
             const tinyBudgetBytes = 512; // force preloaded chunk over budget
             const pageGenerator = getPageGenerator(context.community);
-            let caughtError: Error | undefined;
-            try {
-                await pageGenerator.generateCommunityPosts("hot", tinyBudgetBytes);
-            } catch (e) {
-                caughtError = e as Error;
-            }
-
-            expect(caughtError, "expected generateCommunityPosts to reject when budget is too small").to.exist;
-            expect(caughtError).to.be.instanceOf(PKCError);
-            expect((caughtError as PKCError).code).to.equal("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE");
+            const generatedPosts = await pageGenerator.generateCommunityPosts({ preloadedPageSizeBytes: tinyBudgetBytes });
+            expect(generatedPosts, "expected generateCommunityPosts to still return posts data").to.exist;
+            if (!generatedPosts || "singlePreloadedPage" in generatedPosts) throw new Error("expected the multi-chunk path");
+            expect(generatedPosts.pages).to.deep.equal({});
+            expect(generatedPosts.pageCids).to.have.property("hot");
+            expect(generatedPosts.failedSorts).to.deep.equal({});
         } finally {
             await context.cleanup();
         }

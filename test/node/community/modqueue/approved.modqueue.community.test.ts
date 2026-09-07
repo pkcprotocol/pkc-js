@@ -264,17 +264,16 @@ for (const batch of depthBatches) {
 }
 
 type PageGen = LocalCommunity["_pageGenerator"];
-type PostSortArg = Parameters<PageGen["generateCommunityPosts"]>[0];
-type PostReplySortArg = Parameters<PageGen["generatePostPages"]>[1];
-type ReplyReplySortArg = Parameters<PageGen["generateReplyPages"]>[1];
 type SortAndChunk = PageGen["sortAndChunkComments"];
 
+// Which sort is preloaded is settings.pages' decision (hot / best by default), so the callers only pick the budget
+// and name the sort whose chunks they want to capture.
 async function capturePostsGeneration(community: LocalCommunity, preloadedSortName: string, preloadedPageSizeBytes: number) {
     return captureSortChunks({
         community,
         matchParentCid: null,
         matchSortName: preloadedSortName,
-        generate: () => community._pageGenerator.generateCommunityPosts(preloadedSortName as PostSortArg, preloadedPageSizeBytes)
+        generate: () => community._pageGenerator.generateCommunityPosts({ preloadedPageSizeBytes })
     });
 }
 
@@ -292,18 +291,8 @@ async function captureRepliesGeneration({
     preloadedPageSizeBytes: number;
 }) {
     const generator = async () => {
-        if (parentDepth === 0) {
-            return community._pageGenerator.generatePostPages(
-                { cid: parentCid },
-                preloadedSortName as PostReplySortArg,
-                preloadedPageSizeBytes
-            );
-        }
-        return community._pageGenerator.generateReplyPages(
-            { cid: parentCid, depth: parentDepth },
-            preloadedSortName as ReplyReplySortArg,
-            preloadedPageSizeBytes
-        );
+        if (parentDepth === 0) return community._pageGenerator.generatePostPages({ cid: parentCid }, preloadedPageSizeBytes);
+        return community._pageGenerator.generateReplyPages({ cid: parentCid, depth: parentDepth }, preloadedPageSizeBytes);
     };
 
     return captureSortChunks({
@@ -329,8 +318,8 @@ async function captureSortChunks<T>({
     const originalSortAndChunk: SortAndChunk = community._pageGenerator.sortAndChunkComments.bind(community._pageGenerator);
     community._pageGenerator.sortAndChunkComments = async function (...args: Parameters<SortAndChunk>) {
         const result = await originalSortAndChunk(...args);
-        const [, sortName, options] = args;
-        if (sortName === matchSortName && (options?.parentCid ?? null) === (matchParentCid ?? null)) {
+        const [, sort, options] = args;
+        if (sort.sortName === matchSortName && (options?.parentCid ?? null) === (matchParentCid ?? null)) {
             capturedChunks.push(...result);
         }
         return result;

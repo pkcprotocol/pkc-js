@@ -8,6 +8,7 @@ import { parseCommunityEditOptionsSchemaWithPKCErrorIfItFails } from "../../../.
 import { findStartedCommunity, trackStartedCommunity } from "../../../../pkc/tracked-instance-registry-util.js";
 import { getCommunityChallengeFromCommunityChallengeSettings } from "../challenges/index.js";
 import { throwIfChallengeSettingsAreInvalid } from "../challenges/validate-challenge-settings.js";
+import { derivePublicPageSorts, resolvePageSortsOrThrow, type ResolvedPageSorts } from "../page-sorts/index.js";
 import type {
     CommunityEditOptions,
     CommunityIpfsType,
@@ -80,6 +81,41 @@ export async function parseChallengesToEdit(
     };
 }
 
+// settings.pages: validate the new entries against their files (rejecting the whole edit on failure, like
+// challenges) and derive the public community.pageSorts for the record. Pure, like parseRolesToEdit: nothing on the
+// instance or in the DB changes here, because the edit may still be rejected (address validation runs later) and
+// must be atomic. The side effects live in applyPagesEdit, called once the edit is persisted.
+export type PagesEdit = {
+    pageSorts: InternalCommunityRecordAfterFirstUpdateType["pageSorts"];
+    resolved: ResolvedPageSorts;
+    pagesChanged: boolean;
+};
+
+export async function parsePagesToEdit(
+    community: LocalCommunity,
+    newSettings: NonNullable<CommunityEditOptions["settings"]>
+): Promise<PagesEdit> {
+    await community._dbHandler.initDbIfNeeded();
+    const resolved = await resolvePageSortsOrThrow({
+        pagesSettings: newSettings.pages,
+        pkc: community._pkc,
+        db: community._dbHandler.createPageSortDb(),
+        communityAddress: community.address
+    });
+    const pagesChanged = deterministicStringify(community.settings?.pages ?? null) !== deterministicStringify(newSettings.pages ?? null);
+    return { pageSorts: derivePublicPageSorts({ pagesSettings: newSettings.pages, resolved }), resolved, pagesChanged };
+}
+
+// Apply a persisted settings.pages edit to the running instance. Any change to settings.pages, however small,
+// regenerates every CommentUpdate: reply pages are only rebuilt for flagged comments, so without this an untouched
+// comment would carry its old reply sorts indefinitely. Runs after any restart of the community, since start()
+// resolves whatever settings were persisted at that moment. Needs an open DB.
+function applyPagesEdit(community: LocalCommunity, pagesEdit: PagesEdit | undefined): void {
+    if (!pagesEdit) return;
+    if (pagesEdit.pagesChanged) community._dbHandler.forceUpdateOnAllComments();
+    community._pageSorts = pagesEdit.resolved;
+}
+
 export async function validateNewAddressBeforeEditing(community: LocalCommunity, newAddress: string, log: Logger) {
     if (doesDomainAddressHaveCapitalLetter(newAddress))
         throw new PKCError("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER", { communityAddress: newAddress });
@@ -102,7 +138,8 @@ export async function validateNewAddressBeforeEditing(community: LocalCommunity,
 
 export async function editPropsOnStartedCommunity(
     community: LocalCommunity,
-    parsedEditOptions: ParsedCommunityEditOptions
+    parsedEditOptions: ParsedCommunityEditOptions,
+    pagesEdit?: PagesEdit
 ): Promise<LocalCommunity> {
     // 'community' is the started community with state="started"
     // community._pkc._startedCommunities[community.address] === community
@@ -135,6 +172,7 @@ export async function editPropsOnStartedCommunity(
             ...parsedEditOptions,
             _internalStateUpdateId: uniqueEditId
         });
+    applyPagesEdit(community, pagesEdit);
     community._communityUpdateTrigger = true;
     log(
         `Community (${community.address}) props (${keys(parsedEditOptions)}) has been edited. Will be including edited props in next update: `,
@@ -150,7 +188,8 @@ export async function editPropsOnStartedCommunity(
 
 export async function editPropsOnNotStartedCommunity(
     community: LocalCommunity,
-    parsedEditOptions: ParsedCommunityEditOptions
+    parsedEditOptions: ParsedCommunityEditOptions,
+    pagesEdit?: PagesEdit
 ): Promise<LocalCommunity> {
     // sceneario 3, the community is not running anywhere, we need to edit the db and update this instance
     const log = Logger("pkc-js:local-community:edit:editPropsOnNotStartedCommunity");
@@ -175,6 +214,7 @@ export async function editPropsOnNotStartedCommunity(
     if ("updatedAt" in mergedInternalState && mergedInternalState.updatedAt)
         await community.initInternalCommunityAfterFirstUpdateNoMerge(mergedInternalState);
     else await community.initInternalCommunityBeforeFirstUpdateNoMerge(mergedInternalState);
+    applyPagesEdit(community, pagesEdit);
     await community._dbHandler.destoryConnection();
     community.emit("update", community);
     return community;
@@ -219,11 +259,16 @@ export async function edit(community: LocalCommunity, newCommunityOptions: Commu
             ? { ...parsedEditOptions, name: parsedEditOptions.address }
             : parsedEditOptions;
 
-    const newInternalProps = <Pick<InternalCommunityRecordAfterFirstUpdateType, "roles" | "challenges" | "_usingDefaultChallenge">>{
+    // settings is replaced wholesale, so an edit carrying settings without `pages` unsets it too
+    const pagesEdit = editWithDerivedName?.settings ? await parsePagesToEdit(community, editWithDerivedName.settings) : undefined;
+    const newInternalProps = <
+        Pick<InternalCommunityRecordAfterFirstUpdateType, "roles" | "challenges" | "_usingDefaultChallenge" | "pageSorts">
+    >{
         ...(editWithDerivedName.roles ? { roles: await parseRolesToEdit(community, editWithDerivedName.roles) } : undefined),
         ...(editWithDerivedName?.settings?.challenges
             ? await parseChallengesToEdit(community, editWithDerivedName.settings.challenges)
-            : undefined)
+            : undefined),
+        ...(pagesEdit ? { pageSorts: pagesEdit.pageSorts } : undefined)
     };
 
     const newProps = <ParsedCommunityEditOptions>{
@@ -233,12 +278,12 @@ export async function edit(community: LocalCommunity, newCommunityOptions: Commu
 
     if (!community.started && !startedCommunity) {
         // sceneario 3
-        return editPropsOnNotStartedCommunity(community, newProps);
+        return editPropsOnNotStartedCommunity(community, newProps, pagesEdit);
     }
 
     if (findStartedCommunity(community._pkc, { publicKey: community.publicKey, name: community.name }) === community) {
         // sceneario 4
-        return editPropsOnStartedCommunity(community, newProps);
+        return editPropsOnStartedCommunity(community, newProps, pagesEdit);
     }
     throw new Error("Can't edit a community that's started in another process");
 }

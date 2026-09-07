@@ -44,6 +44,27 @@ export type PostSort = Record<PostSortName, SortProps>;
 
 export type ReplySort = Record<ReplySortName, SortProps>;
 
+// The exclusion settings every page sort receives as string options (settings.pages[].options), defaulting to
+// what the generator applies today per scope. A sort file splices them into its own SQL through
+// PageSortDb.exclusionClauses so pkc-js keeps the single definition of what "removed" means (issue #73).
+export type PageSortExclusionOptionName =
+    | "excludeRemovedComments"
+    | "excludeDeletedComments"
+    | "excludeCommentPendingApproval"
+    | "excludeCommentWithApprovedFalse"
+    | "excludeCommentsWithDifferentCommunityAddress";
+
+// The read-only sqlite facade handed to page sort files. `prepare` returns better-sqlite3's own Statement so
+// authors get the upstream API and docs; anything that would write is rejected at prepare time. Node only:
+// page generation runs in the LocalCommunity process.
+export interface PageSortDb {
+    prepare(sql: string): import("better-sqlite3").Statement;
+    exclusionClauses(
+        options: Record<string, string | undefined>,
+        aliases: { comment: string; update: string; paramPrefix?: string }
+    ): { sql: string; params: Record<string, string> };
+}
+
 // JSON types
 
 export interface PageTypeJson extends Omit<PageIpfs, "comments"> {

@@ -652,7 +652,7 @@ async function capturePostsGeneration(community: LocalCommunity, preloadedSortNa
         community,
         matchParentCid: null,
         matchSortName: preloadedSortName,
-        generate: () => community._pageGenerator.generateCommunityPosts(preloadedSortName, preloadedPageSizeBytes)
+        generate: () => community._pageGenerator.generateCommunityPosts({ preloadedPageSizeBytes })
     });
 }
 
@@ -670,14 +670,8 @@ async function captureRepliesGeneration({
     preloadedPageSizeBytes: number;
 }) {
     const generator = async () => {
-        if (parentDepth === 0) {
-            return community._pageGenerator.generatePostPages({ cid: parentCid }, preloadedSortName, preloadedPageSizeBytes);
-        }
-        return community._pageGenerator.generateReplyPages(
-            { cid: parentCid, depth: parentDepth },
-            preloadedSortName,
-            preloadedPageSizeBytes
-        );
+        if (parentDepth === 0) return community._pageGenerator.generatePostPages({ cid: parentCid }, preloadedPageSizeBytes);
+        return community._pageGenerator.generateReplyPages({ cid: parentCid, depth: parentDepth }, preloadedPageSizeBytes);
     };
 
     return captureSortChunks({
@@ -703,8 +697,8 @@ async function captureSortChunks<T>({
     const originalSortAndChunk = community._pageGenerator.sortAndChunkComments.bind(community._pageGenerator);
     const sortSpy = vi.spyOn(community._pageGenerator, "sortAndChunkComments").mockImplementation(async (...args) => {
         const result = await originalSortAndChunk(...args);
-        const [, sortName, options] = args as [unknown, string, { parentCid?: string | null }?];
-        if (sortName === matchSortName && (options?.parentCid ?? null) === (matchParentCid ?? null)) {
+        const [, sort, options] = args;
+        if (sort.sortName === matchSortName && (options?.parentCid ?? null) === (matchParentCid ?? null)) {
             capturedChunks.push(...result);
         }
         return result;
