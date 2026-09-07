@@ -886,6 +886,11 @@ export async function verifyCommentUpdate({
             const pageCid: string | undefined = update.replies.pageCids?.[replySortName];
             const page = update.replies.pages[replySortName];
             if (!page) throw Error("Failed to find page to verify within comment update");
+            // A preloaded flat sort (settings.pages, #73) embeds the post's flattened descendant subtree, so its comments
+            // are not all direct replies; verify those against the post only, the rule RepliesPages applies to fetched
+            // flat pages. Flat sorts exist for posts only, so a reply's pages are always verified as its direct replies.
+            const isDirectRepliesPage = page.comments.every((pageComment) => pageComment.comment.depth === comment.depth + 1);
+            const parentComment = isDirectRepliesPage || comment.depth !== 0 ? comment : { postCid: comment.cid };
             const validity = await verifyPage({
                 pageCid,
                 page,
@@ -893,7 +898,7 @@ export async function verifyCommentUpdate({
                 resolveAuthorNames,
                 clientsManager,
                 community,
-                parentComment: comment,
+                parentComment,
                 validatePages,
                 validateUpdateSignature,
                 abortSignal
