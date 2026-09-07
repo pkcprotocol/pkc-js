@@ -118,9 +118,12 @@ export class BasePagesClientsManager extends BaseClientsManager {
         for (const [sortType, pageCid] of Object.entries(newPageCids)) {
             this._updatePageCidsSortCache(pageCid, [sortType]);
         }
+        // A community may publish pageCids under any sort name its page-sort packages declare (settings.pages, #73),
+        // so every transport's state is seeded for the discovered keys, not only the built-in sort names (#348)
         this._updateIpfsGatewayClientStates(Object.keys(newPageCids));
         this._updateKuboRpcClientStates(Object.keys(newPageCids));
         this._updatePKCRpcClientStates(Object.keys(newPageCids));
+        this._updateLibp2pJsClientStates(Object.keys(newPageCids));
     }
 
     private _calculatePageMaxSizeCacheKey(pageCid: string) {
