@@ -133,7 +133,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // settings.pages resolved against the loaded sort files (issue #73); set at start and on every settings edit.
     // Initialized (not just declared) so hideClassPrivateProps sees it and keeps it out of JSON.
     _pageSorts: ResolvedPageSorts | undefined = undefined;
-    _lastGeneratedPageSortKeys: { posts?: string[]; replies?: string[] } = {};
     _dbHandler!: DbHandler;
     _stopHasBeenCalled: boolean; // we use this to track if community.stop() has been called after community.start() or community.update()
     _publishLoopPromise?: Promise<void> = undefined;

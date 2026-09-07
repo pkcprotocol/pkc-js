@@ -114,7 +114,6 @@ function applyPagesEdit(community: LocalCommunity, pagesEdit: PagesEdit | undefi
     if (!pagesEdit) return;
     if (pagesEdit.pagesChanged) community._dbHandler.forceUpdateOnAllComments();
     community._pageSorts = pagesEdit.resolved;
-    community._lastGeneratedPageSortKeys = {};
 }
 
 export async function validateNewAddressBeforeEditing(community: LocalCommunity, newAddress: string, log: Logger) {

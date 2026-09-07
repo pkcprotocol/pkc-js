@@ -377,23 +377,3 @@ export function reportFailedPageSorts(community: LocalCommunity, failedSorts: Fa
         community.emit("error", error);
     }
 }
-
-// "Generated key set changed since the previous cycle": ambiguous by nature (a settings.pages edit and a package
-// rename look identical), so it warns with both key sets rather than erroring. Tracked per scope on the community.
-export function warnIfGeneratedSortKeysChanged({
-    community,
-    scope,
-    generatedKeys,
-    log
-}: {
-    community: LocalCommunity;
-    scope: PageSortScope;
-    generatedKeys: string[];
-    log: Logger;
-}): void {
-    const previous = community._lastGeneratedPageSortKeys[scope];
-    const current = [...generatedKeys].sort();
-    if (previous && (previous.length !== current.length || previous.some((key, i) => key !== current[i])))
-        log.error(`Generated ${scope} page sort keys changed since the previous cycle`, community.address, { previous, current });
-    community._lastGeneratedPageSortKeys[scope] = current;
-}

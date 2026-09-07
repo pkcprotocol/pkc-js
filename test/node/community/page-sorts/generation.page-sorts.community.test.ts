@@ -1,5 +1,5 @@
 import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
-import { it, expect } from "vitest";
+import { it, expect, vi } from "vitest";
 import { updateCommentsThatNeedToBeUpdated } from "../../../../dist/node/runtime/node/community/local-community/comment-updates.js";
 import { timestamp } from "../../../../dist/node/util.js";
 import {
@@ -358,6 +358,80 @@ describeSkipIfRpc.concurrent("settings.pages: page generation", () => {
             if (!replyReplies || !("singlePreloadedPage" in replyReplies))
                 throw new Error("expected only the preloaded sort for reply replies");
             expect(sortedKeys(replyReplies.singlePreloadedPage)).to.deep.equal(["old"]);
+        } finally {
+            await context.cleanup();
+        }
+    });
+
+    it("the single-chunk shortcut needs the embedded page to hold every comment: a windowed preloaded sort next to another sort ships pageCids", async () => {
+        const context = await createCommunityWithDefaultDb();
+        try {
+            await editPages(context, { posts: [{ name: "topDay", preloaded: true }, { name: "topAll" }] });
+            const now = timestamp();
+            await seedComments(context.community, [
+                ...Array.from({ length: 3 }, (_, i) => ({ label: `today-${i}`, timestamp: now - 60 - i })),
+                ...Array.from({ length: 3 }, (_, i) => ({ label: `old-${i}`, timestamp: now - 3 * 86400 - i }))
+            ]);
+            await updateCommentsThatNeedToBeUpdated(context.community);
+
+            // Everything would fit in one chunk, but topDay's page holds only today's three posts: a client cannot
+            // build topAll from it, so topAll must still be generated
+            const posts = await getPageGenerator(context.community).generateCommunityPosts({
+                preloadedPageSizeBytes: LARGE_PRELOAD_BUDGET
+            });
+            if (!posts || "singlePreloadedPage" in posts) throw new Error("expected pageCids for topAll, not the single-page shortcut");
+            expect(sortedKeys(posts.pages)).to.deep.equal(["topDay"]);
+            expect(commentCidsOfPage(posts.pages.topDay)).to.have.length(3);
+            expect(sortedKeys(posts.pageCids)).to.deep.equal(["topAll"]);
+        } finally {
+            await context.cleanup();
+        }
+    });
+
+    it("the single-chunk shortcut still applies when the unfiltered preloaded page holds the whole board next to non-preloaded sorts", async () => {
+        const context = await createCommunityWithDefaultDb();
+        try {
+            await editPages(context, { posts: [{ name: "hot", preloaded: true }, { name: "new" }, { name: "topAll" }] });
+            await seedComments(context.community, manyPosts(3));
+            await updateCommentsThatNeedToBeUpdated(context.community);
+            const posts = await getPageGenerator(context.community).generateCommunityPosts({
+                preloadedPageSizeBytes: LARGE_PRELOAD_BUDGET
+            });
+            if (!posts || !("singlePreloadedPage" in posts)) throw new Error("expected the single-page shortcut");
+            expect(sortedKeys(posts.singlePreloadedPage)).to.deep.equal(["hot"]);
+            expect(commentCidsOfPage(posts.singlePreloadedPage.hot)).to.have.length(3);
+        } finally {
+            await context.cleanup();
+        }
+    });
+
+    it("an error while loading the comment set propagates out of generation instead of counting as every sort failing", async () => {
+        const context = await createCommunityWithDefaultDb();
+        try {
+            const { cidOf } = await seedComments(context.community, [postWithManyReplies(2), ...manyPosts(2)]);
+            await updateCommentsThatNeedToBeUpdated(context.community);
+            const generator = getPageGenerator(context.community);
+
+            const postsSpy = vi.spyOn(context.community._dbHandler, "queryPosts").mockImplementation(() => {
+                throw new Error("SQLITE_BUSY: database is locked");
+            });
+            try {
+                await expect(generator.generateCommunityPosts({ preloadedPageSizeBytes: LARGE_PRELOAD_BUDGET })).rejects.toThrow(
+                    "SQLITE_BUSY"
+                );
+            } finally {
+                postsSpy.mockRestore();
+            }
+
+            const post = context.community._dbHandler.queryComment(cidOf("post"))!;
+            const repliesSpy = vi.spyOn(context.community._dbHandler, "queryPageCommentsWithResolvedReplies").mockImplementation(() => {
+                throw new Error("SQLITE_BUSY: database is locked");
+            });
+            try {
+                await expect(generator.generatePostPages(post, LARGE_PRELOAD_BUDGET)).rejects.toThrow("SQLITE_BUSY");
+            } finally {
+                repliesSpy.mockRestore();
+            }
         } finally {
             await context.cleanup();
         }

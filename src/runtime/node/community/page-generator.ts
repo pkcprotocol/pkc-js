@@ -386,11 +386,16 @@ export class PageGenerator {
     // Generic generation for one scope (community posts, or one comment's replies) from its configured sorts.
     //
     // 1. Every sort is applied to its comment set; a sort whose file throws is recorded in failedSorts and skipped.
+    //    Loading the comment set is pkc-js's own code, so an error there (a busy sqlite, a malformed row) propagates
+    //    and aborts the cycle, leaving the last good record published; the sync loop retries next cycle.
     // 2. Preloaded sorts split preloadedPageSizeBytes equally. One whose first chunk does not fit its share drops to
     //    pageCids (it is generated like a non-preloaded sort) while the others still embed.
-    // 3. If every surviving preloaded sort fits in a single chunk, the single-page shortcut applies: only those pages
-    //    are returned and nothing else is generated (docs/protocol/pages.md, "single-chunk shortcut"). With no
-    //    preloaded sort at all there is no shortcut and every sort goes to pageCids.
+    // 3. If every preloaded sort fits in a single chunk, the single-page shortcut applies: only those pages are returned
+    //    and nothing else is generated (docs/protocol/pages.md, "single-chunk shortcut"). Skipping the other sorts is
+    //    only sound when a client holding the embedded pages can build them locally, so when any sort would be
+    //    skipped (a non-preloaded or demoted one) every embedded page must hold the whole comment set: a windowed or
+    //    filtered preloaded sort next to other sorts takes the full path instead. With no preloaded sort at all there
+    //    is no shortcut and every sort goes to pageCids.
     // 4. Otherwise preloaded sorts embed their first chunk and add the rest to IPFS; the others add every chunk.
     // Results keep the configured order so `pages` keys tell a client which preloaded sort is the default.
     private async _generatePagesForSorts<T extends PostsPagesTypeIpfs | RepliesPagesTypeIpfs>({
@@ -420,21 +425,18 @@ export class PageGenerator {
         };
         const NON_PRELOADED_FIRST_PAGE_SIZE = 1024 * 1024; // pageCids first pages are always capped at 1mib, regardless of the preload budget
 
-        // Load first so the preload budget is split only among preloaded sorts that have something to embed
+        // Load first so the preload budget is split only among preloaded sorts that have something to embed. Not
+        // inside the per-sort net: only the sort file's own code may fail a single sort (see 1. above).
         const loaded: { sort: ResolvedPageSort; comments: PageIpfs["comments"] }[] = [];
         for (const sort of sorts) {
-            try {
-                const comments = loadComments(sort);
-                if (comments.length > 0) loaded.push({ sort, comments });
-            } catch (e) {
-                fail(sort, e);
-            }
+            const comments = loadComments(sort);
+            if (comments.length > 0) loaded.push({ sort, comments });
         }
         if (loaded.length === 0) return undefined;
 
         const preloadedCount = loaded.filter(({ sort }) => sort.preloaded).length;
         const share = preloadedCount > 0 ? Math.floor(preloadedPageSizeBytes / preloadedCount) : 0;
-        const preloaded: (SortedPageSort & { chunks: PageIpfs["comments"][] })[] = [];
+        const preloaded: (SortedPageSort & { chunks: PageIpfs["comments"][]; holdsWholeSet: boolean })[] = [];
         const nonPreloaded: (SortedPageSort & { chunks: PageIpfs["comments"][] })[] = [];
         for (const { sort, comments } of loaded) {
             let chunks: PageIpfs["comments"][];
@@ -462,11 +464,19 @@ export class PageGenerator {
                     firstPageSizeBytes: NON_PRELOADED_FIRST_PAGE_SIZE
                 });
                 nonPreloaded.push({ sort, comments: sortedComments, chunks: rechunked });
-            } else preloaded.push({ sort, comments: sortedComments, chunks });
+            } else
+                preloaded.push({
+                    sort,
+                    comments: sortedComments,
+                    chunks,
+                    holdsWholeSet: chunks.length === 1 && sortedComments.length === comments.length
+                });
         }
         if (preloaded.length === 0 && nonPreloaded.length === 0) return undefined;
 
-        if (preloaded.length > 0 && preloaded.every(({ chunks }) => chunks.length === 1)) {
+        const everyPreloadedIsSingleChunk = preloaded.length > 0 && preloaded.every(({ chunks }) => chunks.length === 1);
+        const skippingOtherSortsIsSound = nonPreloaded.length === 0 || preloaded.every(({ holdsWholeSet }) => holdsWholeSet);
+        if (everyPreloadedIsSingleChunk && skippingOtherSortsIsSound) {
             const singlePreloadedPage: SinglePreloadedPageRes = {};
             for (const { sort, chunks } of preloaded) singlePreloadedPage[sort.sortName] = { comments: chunks[0] };
             return { singlePreloadedPage, failedSorts };

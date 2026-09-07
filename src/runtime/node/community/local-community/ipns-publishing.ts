@@ -31,7 +31,7 @@ import {
 import { cleanUpIpfsRepoIfDue, purgeDisapprovedCommentsOlderThan, unpinStaleCids } from "./cleanup.js";
 import { providePubsubTopicRoutingCidsIfNeeded } from "./pubsub.js";
 import { wirePagesFromGeneration } from "../page-generator.js";
-import { reportFailedPageSorts, warnIfGeneratedSortKeysChanged } from "../page-sorts/index.js";
+import { reportFailedPageSorts } from "../page-sorts/index.js";
 
 export async function calculateNewPostUpdates(community: LocalCommunity): Promise<CommunityIpfsType["postUpdates"]> {
     const postUpdates: CommunityIpfsType["postUpdates"] = {};
@@ -224,12 +224,7 @@ async function calculateNextCommunityRecord(
 
     // Which sorts are generated and which embed is settings.pages' call (issue #73); the preloaded ones share availablePostsSize
     const generatedPosts = await community._pageGenerator.generateCommunityPosts({ preloadedPageSizeBytes: availablePostsSize });
-    if (generatedPosts) {
-        reportFailedPageSorts(community, generatedPosts.failedSorts, log);
-        const generatedKeys =
-            "singlePreloadedPage" in generatedPosts ? keys(generatedPosts.singlePreloadedPage) : keys(generatedPosts.allPageCids);
-        warnIfGeneratedSortKeysChanged({ community, scope: "posts", generatedKeys, log });
-    }
+    if (generatedPosts) reportFailedPageSorts(community, generatedPosts.failedSorts, log);
 
     // posts should not be cleaned up because we want to make sure not to modify authors' posts
 
