@@ -268,7 +268,7 @@ describeSkipIfRpc.concurrent("settings.pages: the db facade", () => {
 });
 
 // Loads a page sort by `path`, which the RPC server cannot resolve on the client's filesystem, and asserts on
-// community.pageSorts as the owner instance holds it; the RPC round trip of the same field is covered in test/node/rpc.
+// community.pageSorts as the owner instance holds it; the RPC round trip of the same field is covered in test/node/pkc/pkc-settings-page-sorts-rpc.test.ts.
 describeSkipIfRpc.concurrent("settings.pages: published record", () => {
     let pkc: PKCType;
     let remotePKC: PKCType;
