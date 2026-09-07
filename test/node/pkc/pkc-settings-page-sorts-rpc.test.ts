@@ -19,6 +19,23 @@ const customNewestFirst: PageSortFileFactory = () => ({
     scoreAll: ({ comments }) => new Map(comments.map((entry) => [entry.commentUpdate.cid, entry.comment.timestamp]))
 });
 
+// A sort that prepares its statement and its exclusion clauses in the factory closure, the pattern the registry
+// recommends for performance. Listing it for RPC settings must not require a real community DB.
+const preparesInClosure: PageSortFileFactory = ({ db }) => {
+    const statement = db.prepare("SELECT cid, timestamp FROM comments WHERE depth = 0");
+    const exclusions = db.exclusionClauses({}, { comment: "c", update: "cu" });
+    return {
+        sortName: "prepared-newest",
+        description: "Newest first, with a statement prepared at construction",
+        optionInputs: [],
+        scoreAll: ({ comments }) => {
+            void statement;
+            void exclusions;
+            return new Map(comments.map((entry) => [entry.commentUpdate.cid, entry.comment.timestamp]));
+        }
+    };
+};
+
 const RPC_AUTH_KEY = "test-settings-page-sorts";
 
 const getAvailablePort = async (startPort = 39760): Promise<number> => {
@@ -48,7 +65,7 @@ describe("pkc.settings.pageSorts over RPC", () => {
 
     beforeAll(async () => {
         serverPKC = await mockRpcServerPKC({ dataPath: path.join(process.cwd(), ".pkc-rpc-settings-page-sorts-test") });
-        serverPKC.settings.pageSorts = { "custom-newest": customNewestFirst };
+        serverPKC.settings.pageSorts = { "custom-newest": customNewestFirst, "prepared-newest": preparesInClosure };
 
         const rpcPort = await getAvailablePort();
         RPC_URL = `ws://localhost:${rpcPort}`;
@@ -99,6 +116,9 @@ describe("pkc.settings.pageSorts over RPC", () => {
         expect(settings.pageSorts!.topWeek.defaultOptions).to.deep.equal({ maxAge: "1w" });
         expect(settings.pageSorts!["custom-newest"].description).to.include("registered through pkc.settings.pageSorts");
         expect(settings.pageSorts!["custom-newest"]).to.not.have.property("scoreAll");
+        expect(settings.pageSorts!["prepared-newest"]?.sortName, "a factory that prepares in its closure is still listed").to.equal(
+            "prepared-newest"
+        );
         await clientPKC.destroy();
     });
 

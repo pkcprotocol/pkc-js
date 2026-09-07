@@ -969,17 +969,18 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             omit(challengeFactory({ challengeSettings: {} }), ["getChallenge", "validateChallengeSettings"])
         );
 
-        // Page sorts (issue #73): the same projection. A factory is invoked with no settings and a db facade that
-        // refuses every query, since there is no community here; one that needs the database at construction time
-        // is left out of the listing rather than failing the whole settings payload.
+        // Page sorts (issue #73): the same projection. A factory is invoked with no settings and a lazy db facade,
+        // since there is no community here: preparing a statement or building exclusion clauses in the factory closure
+        // (the pattern the registry recommends) succeeds, only executing a statement throws. A factory that still
+        // throws is a broken package and is left out of the listing rather than failing the whole settings payload.
         const allPageSortFactories = { ...(PKCJs.PKC.pageSorts || {}), ...(pkc.settings?.pageSorts || {}) };
+        const notAvailable = () => {
+            throw Error("The db facade cannot execute statements while listing page sorts for RPC settings");
+        };
+        const lazyStatement = new Proxy({}, { get: () => notAvailable }) as unknown as ReturnType<PageSortDb["prepare"]>;
         const noDb: PageSortDb = {
-            prepare: () => {
-                throw Error("The db facade is not available while listing page sorts for RPC settings");
-            },
-            exclusionClauses: () => {
-                throw Error("The db facade is not available while listing page sorts for RPC settings");
-            }
+            prepare: () => lazyStatement,
+            exclusionClauses: () => ({ sql: "", params: {} })
         };
         const pageSorts: PKCWsServerSettingsSerialized["pageSorts"] = {};
         for (const [name, pageSortFactory] of Object.entries(allPageSortFactories)) {
