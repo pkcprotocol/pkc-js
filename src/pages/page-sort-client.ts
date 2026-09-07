@@ -107,34 +107,42 @@ export function orderPageCommentsByScore({
     return [...pinned].sort(byScoreDesc).concat([...unpinned].sort(byScoreDesc));
 }
 
+// What a UI holds: either the wire entries of a PageIpfs, or the parsed page comments of community.posts.pages /
+// comment.replies.pages, which keep the wire entry under `raw`. Sorting returns the same shape it was given.
+type SortablePageComment = PageComment | { raw: PageComment };
+
+const toWireEntry = (entry: SortablePageComment): PageComment => ("raw" in entry ? entry.raw : entry);
+
 // Sort a page's comments the way the community would for `file` under `options`: the full option set the sort runs
 // with (community.pageSorts[sortName].publicOptions, or the same merge a community does). Applies the reserved
 // exclusions, pinned placement and the window, then the file's per-comment `score`. A file with only scoreAll cannot
 // be applied on a client: it needs the community database.
-export function sortPageComments({
+export function sortPageComments<T extends SortablePageComment>({
     comments,
     file,
     options,
     baseTimestamp,
     communityAddress
 }: {
-    comments: PageComment[];
+    comments: T[];
     file: PageSortFile;
     options: Record<string, string>;
     baseTimestamp: number;
     communityAddress?: string;
-}): PageComment[] {
+}): T[] {
     const score = file.score;
     if (!score) throw new PKCError("ERR_PAGE_SORT_FILE_HAS_NO_CLIENT_SCORER", { sortName: file.sortName });
     const reserved = parseReservedPageSortOptions(options);
-    const included = applyPageSortExclusions({ comments, exclusions: reserved.exclusions, communityAddress });
+    const byCid = new Map(comments.map((entry) => [toWireEntry(entry).commentUpdate.cid, entry]));
+    const included = applyPageSortExclusions({ comments: comments.map(toWireEntry), exclusions: reserved.exclusions, communityAddress });
     const { pinned, unpinned } = partitionPageCommentsForSort({ comments: included, reserved, baseTimestamp });
-    return orderPageCommentsByScore({
+    const ordered = orderPageCommentsByScore({
         pinned,
         unpinned,
         sortName: file.sortName,
         scoreOf: (entry) => score({ comment: entry.comment, commentUpdate: entry.commentUpdate, options, baseTimestamp })
     });
+    return ordered.map((entry) => byCid.get(entry.commentUpdate.cid)!);
 }
 
 // A whole-set scorer from a per-comment one, for the community's generator when a file has only `score`.

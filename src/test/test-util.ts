@@ -22,7 +22,8 @@ import type {
     CreateNewLocalCommunityUserOptions,
     LocalCommunityJson,
     CommunityIpfsType,
-    CommunityChallengeSetting
+    CommunityChallengeSetting,
+    PageSortFileFactoryInput
 } from "../community/types.js";
 import type { SignerType } from "../signer/types.js";
 import type { CreateVoteOptions } from "../publications/vote/types.js";
@@ -457,7 +458,66 @@ type TestServerSubs = {
     subForChainProviders: LocalCommunity;
     subForEditContent: LocalCommunity;
     subForLocked: LocalCommunity;
+    subForPageSorts: LocalCommunity;
 };
+
+// The name the keyword no-bump fixture is registered under on the test server's PKC (pkc.settings.pageSorts) and the
+// name a client registers it under (the `pageSorts` PKC option) to re-sort the community's pages locally.
+export const PAGE_SORTS_TEST_COMMUNITY = Object.freeze({
+    registryName: "activeNoBumpKeyword",
+    sortName: "active",
+    noBumpKeyword: "sage",
+    fixturePathFromRepoRoot: "test/fixtures/page-sorts/active-no-bump-keyword.js"
+});
+
+// A community whose posts feed is the keyword no-bump sort (settings.pages, #73), seeded so the three orders a client
+// may compute differ: plain bump order, no-bump order and newest first. Posts a, b, c published in that order, then a
+// "sage" reply on b (no bump) and a normal reply on a (bump), so no-bump active is [a, c, b], plain active [a, b, c],
+// new [c, b, a]. Every thread fits in one chunk, so the record embeds the whole board.
+async function _startPageSortsCommunity(signer: SignerType, pkc: PKC): Promise<LocalCommunity> {
+    // No node:path / node:url here: this file is built for the browser too (the function only ever runs on the test server)
+    const fixtureUrl = `file://${globalThis["process"].cwd()}/${PAGE_SORTS_TEST_COMMUNITY.fixturePathFromRepoRoot}`;
+    const factory = (await import(/* @vite-ignore */ fixtureUrl)).default as PageSortFileFactoryInput;
+    pkc.settings.pageSorts = { ...pkc.settings.pageSorts, [PAGE_SORTS_TEST_COMMUNITY.registryName]: factory };
+
+    const community = (await createSubWithNoChallenge({ signer }, pkc)) as LocalCommunity;
+    await community.edit({
+        settings: {
+            ...community.settings,
+            pages: {
+                posts: [
+                    {
+                        name: PAGE_SORTS_TEST_COMMUNITY.registryName,
+                        preloaded: true,
+                        options: { noBumpKeywords: PAGE_SORTS_TEST_COMMUNITY.noBumpKeyword }
+                    },
+                    { name: "new" }
+                ]
+            }
+        }
+    });
+    await community.start();
+    await new Promise((resolve) => community.once("update", resolve));
+
+    // Explicit, distinct timestamps: seconds granularity would otherwise tie the scores and leave the order ambiguous
+    const now = timestamp();
+    const publishPost = (title: string, at: number) =>
+        publishRandomPost({ communityAddress: community.address, pkc, postProps: { title, timestamp: at } });
+    const a = await publishPost("page-sorts a", now - 50);
+    const b = await publishPost("page-sorts b", now - 40);
+    await publishPost("page-sorts c", now - 30);
+    await publishRandomReply({
+        parentComment: b as CommentIpfsWithCidDefined,
+        pkc,
+        commentProps: { content: PAGE_SORTS_TEST_COMMUNITY.noBumpKeyword, timestamp: now - 20 }
+    });
+    await publishRandomReply({
+        parentComment: a as CommentIpfsWithCidDefined,
+        pkc,
+        commentProps: { content: "bumps a", timestamp: now - 10 }
+    });
+    return community;
+}
 
 export async function startOnlineCommunity() {
     const onlinePKC = await createOnlinePKC();
@@ -585,6 +645,8 @@ export async function startCommunities(props: {
     await subForLocked.start();
     await new Promise((resolve) => subForLocked.once("update", resolve));
 
+    const subForPageSorts = await _startPageSortsCommunity(props.signers[12], pkc);
+
     return {
         onlineSub: onlineSub,
         mathSub: mathSub,
@@ -597,7 +659,8 @@ export async function startCommunities(props: {
         subForDelete: subForDelete,
         subForChainProviders: subForChainProviders,
         subForEditContent: subForEditContent,
-        subForLocked: subForLocked
+        subForLocked: subForLocked,
+        subForPageSorts: subForPageSorts
     };
 }
 
