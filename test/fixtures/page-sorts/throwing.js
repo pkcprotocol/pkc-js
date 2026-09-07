@@ -3,9 +3,9 @@
 export default function throwingPageSort() {
     return {
         sortName: "throwing",
-        description: "Always throws inside scoreAll",
-        scoreAll() {
-            throw new Error("throwing page sort fixture: scoreAll failed on purpose");
+        description: "Always throws inside score",
+        score() {
+            throw new Error("throwing page sort fixture: score failed on purpose");
         }
     };
 }

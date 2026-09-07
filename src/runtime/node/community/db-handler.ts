@@ -73,10 +73,7 @@ import { ZodError } from "zod";
 import { messages } from "../../../errors.js";
 import type { PseudonymityAliasRow, PurgedCommentTableRows } from "./db-handler-types.js";
 import { getAuthorNameFromWire } from "../../../publications/publication-author.js";
-import { PageSortDbFacade } from "./page-sorts/db-facade.js";
-import { parseBooleanOption } from "../../../pages/page-sort-options.js";
-import activePageSort from "./page-sorts/pkc-js-page-sorts/active.js";
-import type { PageSortDb } from "../../../pages/types.js";
+import type { PageSortReplyEntry } from "../../../pages/types.js";
 
 const TABLES = Object.freeze({
     COMMENTS: "comments",
@@ -95,7 +92,6 @@ export class DbHandler {
     private _keyv!: KeyvBetterSqlite3;
     private _createdTables: boolean;
     private _columnNamesByTable: Record<string, string[]>;
-    private _pageSortDb?: PageSortDbFacade; // the read-only facade page sort files query through (issue #73)
 
     constructor(community: DbHandler["_community"]) {
         this._community = community;
@@ -244,7 +240,6 @@ export class DbHandler {
             this._db.close();
         }
         if (this._keyv) this._keyv.disconnect();
-        this._pageSortDb?.close(); // the facade itself stays, page sort instances hold it; it reopens on demand
 
         //@ts-expect-error
         this._db = this._keyv = undefined;
@@ -1265,49 +1260,6 @@ export class DbHandler {
             const paramName = `${paramPrefix}CommunityKey`;
             return { clause: `${alias}.communityPublicKey = :${paramName}`, params: { [paramName]: address } };
         }
-    }
-
-    // The handle page sort files query through. File-backed communities get a second connection opened read-only;
-    // `noData` (`:memory:`) communities share this handle and rely on the facade's per-statement readonly check.
-    // Cached for the life of the connection and closed with it, so a file may prepare statements once.
-    createPageSortDb(): PageSortDb {
-        if (this._pageSortDb) return this._pageSortDb;
-        assert(this._dbConfig, "DbHandler.createPageSortDb needs the db config; call initDbConfigIfNeeded first");
-        const exclusionClauses: PageSortDb["exclusionClauses"] = (options, aliases) => this.exclusionClausesForPageSort(options, aliases);
-        const isInMemory = this._dbConfig.filename === ":memory:";
-        this._pageSortDb = new PageSortDbFacade({
-            exclusionClauses,
-            ...(isInMemory
-                ? {
-                      sharedHandle: () => {
-                          assert(this._db?.open, "The community db connection is not open");
-                          return this._db;
-                      }
-                  }
-                : { openReadOnlyConnection: () => new Database(this._dbConfig.filename, { readonly: true, fileMustExist: true }) })
-        });
-        return this._pageSortDb;
-    }
-
-    // The single definition of what the exclude* page sort options mean in SQL, for a page sort file to splice into
-    // its own query: `WHERE ${sql}` with the returned named params. A file that runs the same exclusions twice in one
-    // statement (the active sort does, for the root and the descendants) passes distinct paramPrefix values.
-    exclusionClausesForPageSort(
-        options: Record<string, string | undefined>,
-        aliases: { comment: string; update: string; paramPrefix?: string }
-    ): { sql: string; params: Record<string, string> } {
-        const clauses: string[] = [];
-        const params: Record<string, string> = {};
-        if (parseBooleanOption(options.excludeCommentsWithDifferentCommunityAddress)) {
-            const { clause, params: addrParams } = this._communityAddressClauseNamed(aliases.comment, aliases.paramPrefix ?? "pageSort");
-            clauses.push(clause);
-            Object.assign(params, addrParams);
-        }
-        if (parseBooleanOption(options.excludeCommentPendingApproval)) clauses.push(this._pendingApprovalClause(aliases.comment));
-        if (parseBooleanOption(options.excludeRemovedComments)) clauses.push(this._removedClause(aliases.update));
-        if (parseBooleanOption(options.excludeDeletedComments)) clauses.push(this._deletedFromUpdatesClause(aliases.update));
-        if (parseBooleanOption(options.excludeCommentWithApprovedFalse)) clauses.push(this._approvedClause(aliases.update));
-        return { sql: clauses.join(" AND "), params };
     }
 
     private _buildPageQueryParts(options: Omit<PageOptions, "pageSize" | "preloadedPage" | "baseTimestamp" | "firstPageSizeBytes">): {
@@ -3354,30 +3306,138 @@ export class DbHandler {
         });
     }
 
-    // queryPosts plus the built-in active score, computed by the active page sort file through the read-only facade.
-    // The SQL lives in page-sorts/pkc-js-page-sorts/active.ts now; this stays so the page generator's callers and
-    // the migration tests keep one entry point for "posts with their bump score".
+    // queryPosts plus the built-in active score: the bump time the CommentUpdate carries (max of the post's own
+    // timestamp and lastReplyTimestamp), the same number the active page sort file and a client compute. Kept as one
+    // entry point for "posts with their bump score" for the migration tests.
     queryPostsWithActiveScore(
         pageOptions: Omit<PageOptions, "pageSize" | "preloadedPage" | "baseTimestamp" | "firstPageSizeBytes">
     ): (PageIpfs["comments"][0] & { activeScore: number })[] {
-        const posts = this.queryPosts(pageOptions);
-        if (posts.length === 0) return [];
-        const db = this.createPageSortDb();
-        const options: Record<string, string> = {
-            excludeRemovedComments: String(pageOptions.excludeRemovedComments),
-            excludeDeletedComments: String(pageOptions.excludeDeletedComments),
-            excludeCommentPendingApproval: String(pageOptions.excludeCommentPendingApproval),
-            excludeCommentWithApprovedFalse: String(pageOptions.excludeCommentWithApprovedFalse),
-            excludeCommentsWithDifferentCommunityAddress: String(pageOptions.excludeCommentsWithDifferentCommunityAddress)
-        };
-        const scores = activePageSort({ pageSortSettings: { name: "active" }, db }).scoreAll!({
-            // active is an SQL sort: it always has scoreAll
-            comments: posts,
-            db,
-            options,
-            baseTimestamp: timestamp()
-        });
-        return posts.map((post) => ({ ...post, activeScore: scores.get(post.commentUpdate.cid) ?? post.comment.timestamp }));
+        return this.queryPosts(pageOptions).map((post) => ({
+            ...post,
+            activeScore: Math.max(post.comment.timestamp, post.commentUpdate.lastReplyTimestamp ?? 0)
+        }));
+    }
+
+    // Every reply (depth > 0) in the community, or under one post, with no exclusions applied: the one reply set a
+    // generation loads for its requireReplies sorts, each of which then filters it with its own exclusion options
+    // through applyPageSortExclusions (the same filter a client applies) and slices each comment's subtree from it
+    // (createDescendantsLookup). Lean on purpose (PageSortReplyEntry): a fixed column list mapped by hand, no
+    // signature, no nested pages, no schema row parser, since a board can hold a million replies and this runs per
+    // generation. A pending-approval reply is marked on its CommentUpdate the way the mod queue marks one, so the
+    // filter can see it; the list never reaches a page.
+    queryAllRepliesForPageSort(opts: { postCid?: string } = {}): PageSortReplyEntry[] {
+        const params: Record<string, string> = {};
+        const whereClauses = ["c.depth > 0"];
+        if (opts.postCid) {
+            whereClauses.push("c.postCid = :postCid");
+            params.postCid = opts.postCid;
+        }
+        const query = `
+            SELECT c.cid, c.parentCid, c.postCid, c.depth, c.timestamp, c.content, c.title, c.link, c.author, c.communityPublicKey,
+                c.communityName, c.nsfw, c.spoiler, c.flairs, c.pendingApproval,
+                cu.upvoteCount, cu.downvoteCount, cu.replyCount, cu.childCount, cu.updatedAt, cu.lastReplyTimestamp, cu.pinned,
+                cu.locked, cu.removed, cu.approved, cu.nsfw AS cuNsfw, cu.spoiler AS cuSpoiler, cu.flairs AS cuFlairs,
+                json_extract(cu.edit, '$.deleted') AS editDeleted
+            FROM ${TABLES.COMMENTS} c INNER JOIN ${TABLES.COMMENT_UPDATES} cu ON c.cid = cu.cid
+            WHERE ${whereClauses.join(" AND ")}
+        `;
+        // Raw rows: better-sqlite3 building an object per row is the dominant cost at a million rows (about 4x the
+        // array form on the benchmark in test/benchmarks), and the entry shape is fixed anyway.
+        type Row = [
+            cid: string,
+            parentCid: string,
+            postCid: string,
+            depth: number,
+            timestamp: number,
+            content: string | null,
+            title: string | null,
+            link: string | null,
+            author: string,
+            communityPublicKey: string | null,
+            communityName: string | null,
+            nsfw: number | null,
+            spoiler: number | null,
+            flairs: string | null,
+            pendingApproval: number | null,
+            upvoteCount: number,
+            downvoteCount: number,
+            replyCount: number,
+            childCount: number,
+            updatedAt: number,
+            lastReplyTimestamp: number | null,
+            pinned: number | null,
+            locked: number | null,
+            removed: number | null,
+            approved: number | null,
+            cuNsfw: number | null,
+            cuSpoiler: number | null,
+            cuFlairs: string | null,
+            editDeleted: number | null
+        ];
+        const rows = this._db.prepare(query).raw(true).all(params) as Row[];
+        const entries: PageSortReplyEntry[] = new Array(rows.length);
+        for (let i = 0; i < rows.length; i++) {
+            const [
+                cid,
+                parentCid,
+                postCid,
+                depth,
+                timestamp,
+                content,
+                title,
+                link,
+                author,
+                communityPublicKey,
+                communityName,
+                nsfw,
+                spoiler,
+                flairs,
+                pendingApproval,
+                upvoteCount,
+                downvoteCount,
+                replyCount,
+                childCount,
+                updatedAt,
+                lastReplyTimestamp,
+                pinned,
+                locked,
+                removed,
+                approved,
+                cuNsfw,
+                cuSpoiler,
+                cuFlairs,
+                editDeleted
+            ] = rows[i];
+            const comment: PageSortReplyEntry["comment"] = { parentCid, postCid, depth, timestamp, author: JSON.parse(author) };
+            if (content !== null) comment.content = content;
+            if (title !== null) comment.title = title;
+            if (link !== null) comment.link = link;
+            if (communityPublicKey !== null) comment.communityPublicKey = communityPublicKey;
+            if (communityName !== null) comment.communityName = communityName;
+            if (nsfw !== null) comment.nsfw = Boolean(nsfw);
+            if (spoiler !== null) comment.spoiler = Boolean(spoiler);
+            if (flairs !== null) comment.flairs = JSON.parse(flairs);
+            const commentUpdate: PageSortReplyEntry["commentUpdate"] = {
+                cid,
+                upvoteCount,
+                downvoteCount,
+                replyCount,
+                childCount,
+                updatedAt
+            };
+            if (lastReplyTimestamp !== null) commentUpdate.lastReplyTimestamp = lastReplyTimestamp;
+            if (pinned !== null) commentUpdate.pinned = Boolean(pinned);
+            if (locked !== null) commentUpdate.locked = Boolean(locked);
+            if (removed !== null) commentUpdate.removed = Boolean(removed);
+            if (approved !== null) commentUpdate.approved = Boolean(approved);
+            if (cuNsfw !== null) commentUpdate.nsfw = Boolean(cuNsfw);
+            if (cuSpoiler !== null) commentUpdate.spoiler = Boolean(cuSpoiler);
+            if (cuFlairs !== null) commentUpdate.flairs = JSON.parse(cuFlairs);
+            if (editDeleted) commentUpdate.edit = { deleted: true };
+            if (pendingApproval) commentUpdate.pendingApproval = true;
+            entries[i] = { comment, commentUpdate };
+        }
+        return entries;
     }
 
     private _processRecordsForDbBeforeInsert<T extends Record<string, any>>(records: T[]): T[] {

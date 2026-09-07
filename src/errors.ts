@@ -435,11 +435,10 @@ export enum messages {
     ERR_PAGE_SORT_REQUIRED_OPTION_MISSING = "settings.pages[].options is missing an option whose optionInputs entry is required",
     ERR_PAGE_SORT_INVALID_RESERVED_OPTION = "A reserved page sort option (maxAge, pinnedFirst, exclude*) has a value pkc-js cannot parse",
     ERR_PAGE_SORT_PRIVATE_OPTION_NOT_SET = "settings.pages[].privateOptions names an option that is not set in options",
-    ERR_PAGE_SORT_FILE_HAS_NO_CLIENT_SCORER = "This page sort file defines only scoreAll, which needs the community database; it cannot re-sort a page on a client",
+    ERR_PAGE_SORT_REPLIES_REQUIRED = "This page sort file declares requireReplies; pass the descendants of the page's comments as `replies` to sort it on a client",
     ERR_PAGE_SORT_RESERVED_OPTION_CANNOT_BE_PRIVATE = "settings.pages[].privateOptions names a reserved option (maxAge, pinnedFirst, exclude*); reserved options describe what the page contains and are always published",
     ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED = "The page sort's validatePageSortSettings hook rejected settings.pages[]",
     ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED_FOR_PAGE_SORTS = "One or more entries of settings.pages failed validation",
     ERR_PAGE_SORT_FAILED_TO_GENERATE = "A configured page sort threw while generating its pages; it was skipped for this cycle and the remaining sorts were published",
-    ERR_PAGE_SORT_DB_WRITE_REJECTED = "A page sort attempted to prepare a statement that would write to the community database",
     ERR_RPC_CLIENT_PAGE_SORT_NAME_NOT_AVAILABLE_ON_SERVER = "settings.pages names a page sort that is not registered on the RPC server"
 }

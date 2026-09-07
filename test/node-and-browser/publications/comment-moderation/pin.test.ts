@@ -224,14 +224,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                         const [commentA, commentB] = comments.slice(i, i + 2);
                         const scoreFunc = POSTS_SORT_TYPES[sortName].score;
 
-                        if (sortName !== "active") {
-                            // Temporary. Active does not have a sorting function as of now
-                            const [scoreA, scoreB] = [
-                                scoreFunc({ comment: commentA.raw.comment, commentUpdate: commentA.raw.commentUpdate }),
-                                scoreFunc({ comment: commentB.raw.comment, commentUpdate: commentB.raw.commentUpdate })
-                            ];
-                            expect(scoreA).to.be.greaterThanOrEqual(scoreB);
-                        }
+                        const [scoreA, scoreB] = [
+                            scoreFunc({ comment: commentA.raw.comment, commentUpdate: commentA.raw.commentUpdate }),
+                            scoreFunc({ comment: commentB.raw.comment, commentUpdate: commentB.raw.commentUpdate })
+                        ];
+                        expect(scoreA, sortName).to.be.greaterThanOrEqual(scoreB);
                     }
                 }
             }
@@ -303,14 +300,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     const [commentA, commentB] = [pageComments[i], pageComments[i + 1]];
                     const scoreFunc = POSTS_SORT_TYPES[sortName].score;
 
-                    if (sortName !== "active") {
-                        // Temporary. Active does not have a sorting function as of now
-                        const [scoreA, scoreB] = [
-                            scoreFunc({ comment: commentA.raw.comment, commentUpdate: commentA.raw.commentUpdate }),
-                            scoreFunc({ comment: commentB.raw.comment, commentUpdate: commentB.raw.commentUpdate })
-                        ];
-                        expect(scoreA).to.be.greaterThanOrEqual(scoreB);
-                    }
+                    const [scoreA, scoreB] = [
+                        scoreFunc({ comment: commentA.raw.comment, commentUpdate: commentA.raw.commentUpdate }),
+                        scoreFunc({ comment: commentB.raw.comment, commentUpdate: commentB.raw.commentUpdate })
+                    ];
+                    expect(scoreA, sortName).to.be.greaterThanOrEqual(scoreB);
                 }
             }
         });

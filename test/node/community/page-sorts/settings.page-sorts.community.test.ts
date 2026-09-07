@@ -249,38 +249,6 @@ describeSkipIfRpc.concurrent("settings.pages: regeneration triggers", () => {
     });
 });
 
-// The facade is built from the community's DbHandler, which only exists on a LocalCommunity in this process.
-describeSkipIfRpc.concurrent("settings.pages: the db facade", () => {
-    it("rejects a write statement on a file-backed community and still serves reads", async () => {
-        const context = await createCommunityWithDefaultDb();
-        try {
-            const db = context.community._dbHandler.createPageSortDb();
-            expect(db.prepare("SELECT COUNT(*) AS n FROM comments").get()).to.deep.equal({ n: 0 });
-            expect(() => db.prepare("DELETE FROM comments")).to.throw();
-            expect(() => db.prepare("INSERT INTO keyv (key, value) VALUES ('x', 'y')")).to.throw();
-            expect(db.exclusionClauses({ excludeRemovedComments: "true" }, { comment: "c", update: "cu" }).sql).to.include("cu.removed");
-        } finally {
-            await context.cleanup();
-        }
-    });
-
-    it("rejects a write statement on a noData (in-memory) community through the shared handle", async () => {
-        // pkc.createCommunity refuses to create a local community without a dataPath, so an in-memory community DB only
-        // exists when a DbHandler is built by hand (the migration tests do the same); the facade must still work there.
-        const fakeCommunity = { address: "in-memory-page-sorts", _pkc: { noData: true } } as unknown as LocalCommunity;
-        const dbHandler = new DbHandler(fakeCommunity);
-        await dbHandler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
-        try {
-            await dbHandler.createOrMigrateTablesIfNeeded();
-            const db = dbHandler.createPageSortDb();
-            expect(db.prepare("SELECT COUNT(*) AS n FROM comments").get()).to.deep.equal({ n: 0 });
-            expect(() => db.prepare("DELETE FROM comments")).to.throw();
-        } finally {
-            dbHandler.destoryConnection();
-        }
-    });
-});
-
 // Loads a page sort by `path`, which the RPC server cannot resolve on the client's filesystem, and asserts on
 // community.pageSorts as the owner instance holds it; the RPC round trip of the same field is covered in test/node/pkc/pkc-settings-page-sorts-rpc.test.ts.
 describeSkipIfRpc.concurrent("settings.pages: published record", () => {

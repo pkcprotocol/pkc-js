@@ -99,7 +99,6 @@ export async function parsePagesToEdit(
     const resolved = await resolvePageSortsOrThrow({
         pagesSettings: newSettings.pages,
         pkc: community._pkc,
-        db: community._dbHandler.createPageSortDb(),
         communityAddress: community.address
     });
     const pagesChanged = deterministicStringify(community.settings?.pages ?? null) !== deterministicStringify(newSettings.pages ?? null);

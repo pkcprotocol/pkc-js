@@ -10,6 +10,8 @@ import {
     sortedKeys,
     NO_BUMP_KEYWORD_SORT_PATH,
     THROWING_SORT_PATH,
+    KEYWORD_FILTER_SORT_PATH,
+    MOST_REPLIES_SORT_PATH,
     type CommunityContext,
     type TreeNode
 } from "./page-sorts-test-util.js";
@@ -454,7 +456,92 @@ describeSkipIfRpc.concurrent("settings.pages: page generation", () => {
             expect(sortedKeys(posts.pageCids)).to.deep.equal(["old"]);
             expect(sortedKeys(posts.failedSorts)).to.deep.equal(["throwing"]);
             expect(posts.failedSorts.throwing.code).to.equal("ERR_PAGE_SORT_FAILED_TO_GENERATE");
-            expect((posts.failedSorts.throwing.details.error as Error).message).to.include("scoreAll failed on purpose");
+            expect((posts.failedSorts.throwing.details.error as Error).message).to.include("score failed on purpose");
+        } finally {
+            await context.cleanup();
+        }
+    });
+
+    it("score returning null drops the comment from that sort only, a pinned comment included; other sorts and the CommentUpdate are untouched", async () => {
+        const context = await createCommunityWithDefaultDb();
+        try {
+            await editPages(context, {
+                posts: [
+                    { path: KEYWORD_FILTER_SORT_PATH, options: { dropKeywords: "hide" }, preloaded: true },
+                    { name: "new", preloaded: true }
+                ]
+            });
+            const base = timestamp() - 10_000;
+            const { cidOf } = await seedComments(context.community, [
+                { label: "kept-old", timestamp: base + 100, children: [{ label: "kept-old-reply", timestamp: base + 150 }] },
+                { label: "hidden", content: "hide", timestamp: base + 200, children: [{ label: "hidden-reply", timestamp: base + 250 }] },
+                { label: "kept-new", timestamp: base + 300 },
+                { label: "hidden-pinned", content: "first line\nhide", timestamp: base + 400 }
+            ]);
+            await updateCommentsThatNeedToBeUpdated(context.community);
+            context.community._dbHandler["_db"].prepare(`UPDATE commentUpdates SET pinned = 1 WHERE cid = ?`).run(cidOf("hidden-pinned"));
+
+            const posts = await getPageGenerator(context.community).generateCommunityPosts({
+                preloadedPageSizeBytes: LARGE_PRELOAD_BUDGET
+            });
+            if (!posts || !("singlePreloadedPage" in posts)) throw new Error("expected the single preloaded page shortcut");
+            expect(commentCidsOfPage(posts.singlePreloadedPage.filtered)).to.deep.equal(["kept-new", "kept-old"].map(cidOf));
+            // The same set under `new`: declining is per sort, and the pinned comment still leads there
+            expect(commentCidsOfPage(posts.singlePreloadedPage.new)).to.deep.equal(
+                ["hidden-pinned", "kept-new", "hidden", "kept-old"].map(cidOf)
+            );
+            // Declining touches nothing beyond that sort's pages
+            expect(context.community._dbHandler.queryStoredCommentUpdate({ cid: cidOf("hidden") })?.replyCount).to.equal(1);
+        } finally {
+            await context.cleanup();
+        }
+    });
+
+    it("requireReplies: a post is scored over its descendants minus the sort's exclusions, and a reply over its own subtree", async () => {
+        const context = await createCommunityWithDefaultDb();
+        try {
+            await editPages(context, {
+                posts: [{ path: MOST_REPLIES_SORT_PATH, preloaded: true }],
+                replies: [{ path: MOST_REPLIES_SORT_PATH, preloaded: true, options: { excludeRemovedComments: "true" } }]
+            });
+            const base = timestamp() - 10_000;
+            const { cidOf } = await seedComments(context.community, [
+                {
+                    label: "busy",
+                    timestamp: base + 100,
+                    children: [
+                        {
+                            label: "r-two",
+                            timestamp: base + 200,
+                            children: [
+                                { label: "r-two-a", timestamp: base + 300 },
+                                { label: "r-two-b", timestamp: base + 400 }
+                            ]
+                        },
+                        { label: "r-none", timestamp: base + 500 },
+                        { label: "r-removed-child", timestamp: base + 600, children: [{ label: "removed", timestamp: base + 700 }] }
+                    ]
+                },
+                { label: "one-reply", timestamp: base + 800, children: [{ label: "single", timestamp: base + 900 }] },
+                { label: "quiet", timestamp: base + 1000 }
+            ]);
+            await updateCommentsThatNeedToBeUpdated(context.community);
+            context.community._dbHandler["_db"].prepare(`UPDATE commentUpdates SET removed = 1 WHERE cid = ?`).run(cidOf("removed"));
+            const generator = getPageGenerator(context.community);
+
+            // Posts: busy has 5 descendants surviving the default exclusions (removed excluded), one-reply 1, quiet 0
+            const posts = await generator.generateCommunityPosts({ preloadedPageSizeBytes: LARGE_PRELOAD_BUDGET });
+            if (!posts || !("singlePreloadedPage" in posts)) throw new Error("expected the single preloaded page shortcut");
+            expect(commentCidsOfPage(posts.singlePreloadedPage.mostReplies)).to.deep.equal(["busy", "one-reply", "quiet"].map(cidOf));
+
+            // Replies of busy: each reply is scored over its own subtree, with the removed grandchild excluded, so
+            // r-two (2) beats r-removed-child (0, newer) which ties with r-none (0) and loses on age
+            const busy = context.community._dbHandler.queryComment(cidOf("busy"))!;
+            const busyReplies = await generator.generatePostPages(busy, LARGE_PRELOAD_BUDGET);
+            if (!busyReplies || !("singlePreloadedPage" in busyReplies)) throw new Error("expected the single preloaded page shortcut");
+            expect(commentCidsOfPage(busyReplies.singlePreloadedPage.mostReplies)).to.deep.equal(
+                ["r-two", "r-removed-child", "r-none"].map(cidOf)
+            );
         } finally {
             await context.cleanup();
         }

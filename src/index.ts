@@ -10,7 +10,10 @@ import { shortifyAddress, shortifyCid } from "./util.js";
 import { createAnchorIpnsRecord as signerCreateAnchorIpnsRecord } from "./signer/ipns-record.js";
 import { pkcJsChallenges } from "./runtime/node/community/challenges/index.js";
 import { pkcJsPageSorts } from "./runtime/node/community/page-sorts/index.js";
-import { instantiatePageSortFileWithoutDb, sortPageComments as sortPageCommentsForClient } from "./pages/page-sort-client.js";
+import {
+    instantiatePageSortFile as instantiatePageSortFileForClient,
+    sortPageComments as sortPageCommentsForClient
+} from "./pages/page-sort-client.js";
 import { PKCWithRpcClient } from "./pkc/pkc-with-rpc-client.js";
 import type { AuthorNameRpcParam, CidRpcParam } from "./clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam } from "./clients/rpc-client/rpc-schema-util.js";
@@ -42,7 +45,7 @@ PKC.pageSorts = pkcJsPageSorts;
 // the community published in community.pageSorts[sortName].publicOptions. See docs/protocol/page-sorts.md,
 // "Client-side re-sorting". Browser-safe, no community database involved.
 PKC.sortPageComments = sortPageCommentsForClient;
-PKC.instantiatePageSortFile = instantiatePageSortFileWithoutDb;
+PKC.instantiatePageSortFile = instantiatePageSortFileForClient;
 // Delegation setup (#234): the anchor record An -> Mn is signed with As, the one key that by design
 // never reaches the node, so this is the single step of the flow that has to run in the consumer's
 // process. Nothing in src/ calls it and nothing ever can, which is exactly why it belongs on the
@@ -71,3 +74,8 @@ export type { NameResolver } from "./types.js";
 // the root entry instead of reaching through private fields or deep-importing internals.
 export type { Libp2pJsClient } from "./helia/libp2pjsClient.js";
 export type { HeliaWithLibp2pPubsub } from "./helia/types.js";
+
+// Public re-exports: the page sort file contract (issue #73), for packages such as @pkcprotocol/active-page-sort
+// and for UI libraries re-sorting pages with sortPageComments.
+export type { PageSortFile, PageSortFileFactory, PageSortFileFactoryInput } from "./community/types.js";
+export type { PageSortReplyEntry } from "./pages/types.js";

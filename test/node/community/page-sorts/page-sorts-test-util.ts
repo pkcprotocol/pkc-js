@@ -19,6 +19,8 @@ import type { PageGenerator } from "../../../../dist/node/runtime/node/community
 
 export const NO_BUMP_KEYWORD_SORT_PATH = path.resolve(process.cwd(), "test/fixtures/page-sorts/active-no-bump-keyword.js");
 export const THROWING_SORT_PATH = path.resolve(process.cwd(), "test/fixtures/page-sorts/throwing.js");
+export const KEYWORD_FILTER_SORT_PATH = path.resolve(process.cwd(), "test/fixtures/page-sorts/keyword-filter.js");
+export const MOST_REPLIES_SORT_PATH = path.resolve(process.cwd(), "test/fixtures/page-sorts/most-replies.js");
 
 export interface CommunityContext {
     pkc: PKCType;

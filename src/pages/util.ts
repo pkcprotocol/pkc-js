@@ -49,11 +49,7 @@ export const TIMEFRAMES_TO_SECONDS: Record<Timeframe, number> = Object.freeze({
 export const POSTS_SORT_TYPES: PostSort = {
     hot: { score: (...args) => hotScore(...args) },
     new: { score: (...args) => newScore(...args) },
-    active: {
-        score: (...args) => {
-            throw Error("Active sort has no scoring");
-        }
-    },
+    active: { score: (...args) => activeScore(...args) },
     topHour: { timeframe: "HOUR", score: (...args) => topScore(...args) },
     topDay: { timeframe: "DAY", score: (...args) => topScore(...args) },
     topWeek: { timeframe: "WEEK", score: (...args) => topScore(...args) },
@@ -91,6 +87,11 @@ export function hotScore(comment: CommentToSort) {
     const sign = score > 0 ? 1 : score < 0 ? -1 : 0;
     const seconds = comment.comment.timestamp - 1134028003;
     return round(sign * order + seconds / 45000, 7);
+}
+
+// Bump order from what the CommentUpdate carries; the same number the built-in active page sort file returns
+export function activeScore(comment: CommentToSort) {
+    return Math.max(comment.comment.timestamp, comment.commentUpdate.lastReplyTimestamp ?? 0);
 }
 
 export function bestScore(comment: CommentToSort) {

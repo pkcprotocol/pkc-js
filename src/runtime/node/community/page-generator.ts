@@ -6,6 +6,7 @@ import type {
     ModQueueCommentInPage,
     ModQueuePageIpfs,
     PageIpfs,
+    PageSortReplyEntry,
     PageSortExclusionOptionName,
     PostSortName,
     PostsPagesTypeIpfs,
@@ -17,7 +18,12 @@ import { stringify as deterministicStringify } from "safe-stable-stringify";
 import env from "../../../version.js";
 import { PKCError } from "../../../pkc-error.js";
 import type { ResolvedPageSort } from "./page-sorts/index.js";
-import { orderPageCommentsByScore, partitionPageCommentsForSort, scoreAllFromScore } from "../../../pages/page-sort-client.js";
+import {
+    applyPageSortExclusions,
+    orderPageCommentsByScore,
+    partitionPageCommentsForSort,
+    scorePageCommentsWithFile
+} from "../../../pages/page-sort-client.js";
 import type { PageSortScope } from "../../../community/types.js";
 import Logger from "../../../logger.js";
 import type { CommunityIpfsType } from "../../../community/types.js";
@@ -317,32 +323,33 @@ export class PageGenerator {
     }
 
     // Apply one sort to a loaded comment set: pinned placement, the maxAge window (both shared with the client-side
-    // sorter so a client reproduces the same set), then the file's scorer. scoreAll runs over the whole set with the db
-    // facade; a file that only has the per-comment `score` is lifted to the same contract. The exclusions were already
-    // applied by the SQL that loaded the set.
-    sortComments(comments: PageIpfs["comments"], sort: ResolvedPageSort, baseTimestamp: number): PageIpfs["comments"] {
-        const db = this._community._dbHandler.createPageSortDb();
+    // sorter so a client reproduces the same set), then the file's `score` per comment, which drops what it declines.
+    // The exclusions were already applied by the SQL that loaded the set, and to `replies` (the scope's descendants,
+    // loaded once per generation and only for a file that declares requireReplies).
+    sortComments(
+        comments: PageIpfs["comments"],
+        sort: ResolvedPageSort,
+        baseTimestamp: number,
+        replies?: PageSortReplyEntry[]
+    ): PageIpfs["comments"] {
         const { options } = sort;
         const { pinned, unpinned } = partitionPageCommentsForSort({ comments, reserved: sort, baseTimestamp });
-        const survivors = pinned.concat(unpinned);
-        if (survivors.length === 0) return [];
-        const scoreAll = sort.file.scoreAll ?? scoreAllFromScore(sort.file.score!); // the schema guarantees one of the two
-        const scores = scoreAll({ comments: survivors, db, options, baseTimestamp });
+        if (pinned.length + unpinned.length === 0) return [];
         return orderPageCommentsByScore({
             pinned,
             unpinned,
             sortName: sort.sortName,
-            scoreOf: (entry) => scores.get(entry.commentUpdate.cid)
+            scoreOf: scorePageCommentsWithFile({ file: sort.file, options, baseTimestamp, replies })
         });
     }
 
     async sortAndChunkComments(
         unsortedComments: PageIpfs["comments"],
         sort: ResolvedPageSort,
-        options: Pick<PageOptions, "baseTimestamp" | "firstPageSizeBytes" | "parentCid">
+        options: Pick<PageOptions, "baseTimestamp" | "firstPageSizeBytes" | "parentCid"> & { replies?: PageSortReplyEntry[] }
     ): Promise<PageIpfs["comments"][]> {
         if (unsortedComments.length === 0) throw Error("Should not provide empty array of comments to sort");
-        const commentsSorted = this.sortComments(unsortedComments, sort, options.baseTimestamp);
+        const commentsSorted = this.sortComments(unsortedComments, sort, options.baseTimestamp, options.replies);
         if (commentsSorted.length === 0) return [];
         return this._chunkComments({ comments: commentsSorted, firstPageSizeBytes: options.firstPageSizeBytes });
     }
@@ -352,11 +359,29 @@ export class PageGenerator {
     async sortChunkAddIpfsNonPreloaded(
         comments: PageIpfs["comments"],
         sort: ResolvedPageSort,
-        options: Pick<PageOptions, "baseTimestamp" | "firstPageSizeBytes" | "parentCid">
+        options: Pick<PageOptions, "baseTimestamp" | "firstPageSizeBytes" | "parentCid"> & { replies?: PageSortReplyEntry[] }
     ): Promise<AddedPageChunksToIpfsRes | undefined> {
         const commentsChunks = await this.sortAndChunkComments(comments, sort, options);
         if (commentsChunks.length === 0) return undefined;
         return this.addCommentChunksToIpfs(commentsChunks, sort.sortName);
+    }
+
+    // The reply set requireReplies sorts score over: one unfiltered query per generation, shared by every such sort,
+    // each filtering it with its own exclusion options in JS (the same filter a client applies before sortPageComments
+    // scores). Nothing runs unless a sort asks.
+    private _createRepliesLoader(load: () => PageSortReplyEntry[]): (sort: ResolvedPageSort) => PageSortReplyEntry[] {
+        let all: PageSortReplyEntry[] | undefined;
+        const filtered = new Map<string, PageSortReplyEntry[]>();
+        return (sort) => {
+            all ??= load();
+            const key = JSON.stringify(sort.exclusions);
+            if (!filtered.has(key))
+                filtered.set(
+                    key,
+                    applyPageSortExclusions({ comments: all, exclusions: sort.exclusions, communityAddress: this._community.address })
+                );
+            return filtered.get(key)!;
+        };
     }
 
     // Load the comment set each sort runs over. Sorts that share the same exclusion options (all of them, unless an
@@ -392,6 +417,7 @@ export class PageGenerator {
         scope,
         sorts,
         loadComments,
+        loadReplies,
         preloadedPageSizeBytes,
         baseTimestamp,
         parentCid
@@ -399,6 +425,7 @@ export class PageGenerator {
         scope: PageSortScope;
         sorts: ResolvedPageSort[];
         loadComments: (sort: ResolvedPageSort) => PageIpfs["comments"];
+        loadReplies: (sort: ResolvedPageSort) => PageSortReplyEntry[]; // the scope's descendants, called only for a requireReplies file
         preloadedPageSizeBytes: number;
         baseTimestamp: number;
         parentCid: string | null;
@@ -417,10 +444,10 @@ export class PageGenerator {
 
         // Load first so the preload budget is split only among preloaded sorts that have something to embed. Not
         // inside the per-sort net: only the sort file's own code may fail a single sort (see 1. above).
-        const loaded: { sort: ResolvedPageSort; comments: PageIpfs["comments"] }[] = [];
+        const loaded: { sort: ResolvedPageSort; comments: PageIpfs["comments"]; replies?: PageSortReplyEntry[] }[] = [];
         for (const sort of sorts) {
             const comments = loadComments(sort);
-            if (comments.length > 0) loaded.push({ sort, comments });
+            if (comments.length > 0) loaded.push({ sort, comments, ...(sort.file.requireReplies ? { replies: loadReplies(sort) } : {}) });
         }
         if (loaded.length === 0) return undefined;
 
@@ -428,13 +455,14 @@ export class PageGenerator {
         const share = preloadedCount > 0 ? Math.floor(preloadedPageSizeBytes / preloadedCount) : 0;
         const preloaded: (SortedPageSort & { chunks: PageIpfs["comments"][]; holdsWholeSet: boolean })[] = [];
         const nonPreloaded: (SortedPageSort & { chunks: PageIpfs["comments"][] })[] = [];
-        for (const { sort, comments } of loaded) {
+        for (const { sort, comments, replies } of loaded) {
             let chunks: PageIpfs["comments"][];
             try {
                 chunks = await this.sortAndChunkComments(comments, sort, {
                     baseTimestamp,
                     parentCid,
-                    firstPageSizeBytes: sort.preloaded ? share : NON_PRELOADED_FIRST_PAGE_SIZE
+                    firstPageSizeBytes: sort.preloaded ? share : NON_PRELOADED_FIRST_PAGE_SIZE,
+                    replies
                 });
             } catch (e) {
                 fail(sort, e);
@@ -520,10 +548,13 @@ export class PageGenerator {
             // Resolve CID-ref replies for each post so pages have full nested reply trees
             return this._community._dbHandler.resolveRepliesCidRefsForEntries(rawPostsUnresolved);
         });
+        // Every reply in the community, for a requireReplies post sort; each post's subtree is sliced from it
+        const loadReplies = this._createRepliesLoader(() => this._community._dbHandler.queryAllRepliesForPageSort());
         return this._generatePagesForSorts<PostsPagesTypeIpfs>({
             scope: "posts",
             sorts,
             loadComments,
+            loadReplies,
             preloadedPageSizeBytes,
             baseTimestamp,
             parentCid: null
@@ -575,7 +606,7 @@ export class PageGenerator {
     // Reply pages of one comment. Flat sorts (flattened descendant subtree) are generated for post replies only:
     // depth-1+ comments have never had them and one settings.pages.replies list applies at every depth.
     private async _generateRepliesPages(
-        comment: Pick<CommentsTableRow, "cid">,
+        comment: Pick<CommentsTableRow, "cid"> & Partial<Pick<CommentsTableRow, "postCid">>,
         preloadedPageSizeBytes: number,
         includeFlatSorts: boolean
     ): Promise<PageGenerationResult<RepliesPagesTypeIpfs>> {
@@ -587,10 +618,16 @@ export class PageGenerator {
                 ? this._community._dbHandler.queryFlattenedPageReplies({ ...pageOptions, commentUpdateFieldsToExclude: ["replies"] })
                 : this._community._dbHandler.queryPageCommentsWithResolvedReplies(pageOptions); // recursive query following CID-ref lists in DB replies to build nested trees
         });
+        // Every reply under the comment's post, for a requireReplies reply sort; each reply's own subtree is sliced from it
+        const loadReplies = this._createRepliesLoader(() => {
+            const postCid = comment.postCid ?? this._community._dbHandler.queryComment(comment.cid)?.postCid ?? comment.cid;
+            return this._community._dbHandler.queryAllRepliesForPageSort({ postCid });
+        });
         return this._generatePagesForSorts<RepliesPagesTypeIpfs>({
             scope: "replies",
             sorts,
             loadComments,
+            loadReplies,
             preloadedPageSizeBytes,
             baseTimestamp,
             parentCid: comment.cid

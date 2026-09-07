@@ -4,8 +4,8 @@ import type { PageSortScope } from "../community/types.js";
 
 // The options pkc-js itself reads off every settings.pages[] entry (the "reserved options", issue #73). They are
 // ordinary string options (a config UI renders them like any other) and are passed through to the sort file
-// unstripped, so a file can splice the exclusions into its own SQL through PageSortDb.exclusionClauses and read the
-// window it runs in. Browser-safe: a client re-sorting a page locally parses the same options out of
+// unstripped, so a file can read the window it runs in; the exclusions themselves are applied by pkc-js, to the
+// comment set and to the `replies` a file receives. Browser-safe: a client re-sorting a page locally parses the same options out of
 // community.pageSorts[sortName].publicOptions (see sortPageComments in ./page-sort-client.ts).
 
 // `M` and `y` reproduce the windows the legacy topMonth / topYear sorts have always used (TIMEFRAMES_TO_SECONDS),

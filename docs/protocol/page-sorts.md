@@ -98,7 +98,7 @@ filtered.
 |---|---|---|
 | `hot`, `new`, `old`, `best`, `controversial`, `top` | either | `top` has no window of its own; pair it with `maxAge` |
 | `topHour`, `topDay`, `topWeek`, `topMonth`, `topYear`, `topAll` | either | `top` with a fixed `defaultOptions.maxAge` (`topAll` has none) |
-| `active` | posts | Newest timestamp among the post and its surviving descendants, computed in SQL |
+| `active` | posts | Bump order: the newest of the post's own timestamp and its CommentUpdate's `lastReplyTimestamp`, so a client re-sorts by bump order from the page alone |
 | `newFlat`, `oldFlat` | replies | Sort the flattened descendant subtree; generated for a post's replies only, ignored for deeper comments |
 
 Configuring `newFlat` under `posts` or `active` under `replies` is a validation error (`ERR_PAGE_SORT_SCOPE_MISMATCH`).
@@ -165,43 +165,24 @@ cycle, the last good record stays published and the next cycle retries.
 
 ## Writing a page sort file
 
-A file default-exports a factory, invoked once per community start and per settings edit with the entry
-and the read-only database facade. The returned object is cached and reused by every generation.
+A file default-exports a factory, invoked once per community start and per settings edit with the entry.
+The returned object is cached and reused by every generation.
 
 ```js
-export default function ({ pageSortSettings, db }) {
+export default function ({ pageSortSettings }) {
     const keywords = (pageSortSettings.options?.noBumpKeywords ?? "").split(",").map((k) => k.trim()).filter(Boolean);
     return {
         sortName: "active",                    // the wire key; public API of your package, changing it breaks every board using it
         description: "Bump order where replies carrying a configured keyword do not bump",
         scope: "posts",                        // "posts" | "replies" | omitted for either
         flat: false,                           // reply sorts only: score the flattened subtree
+        requireReplies: true,                  // this sort reads the replies; pkc-js supplies them (see below)
         optionInputs: [{ option: "noBumpKeywords", label: "No-bump keywords", description: "Comma-separated" }],
         defaultOptions: {},                    // merged under the entry's options
-        score({ comment, commentUpdate, options, baseTimestamp }) {   // per comment, no database: what clients run
+        score({ comment, commentUpdate, options, baseTimestamp, replies }) {
             let score = comment.timestamp;
-            const walk = (entry) => {
-                for (const page of Object.values(entry.commentUpdate.replies?.pages ?? {}))
-                    for (const child of page.comments) {
-                        if (!keywords.includes(child.comment.content?.trim())) score = Math.max(score, child.comment.timestamp);
-                        walk(child);
-                    }
-            };
-            walk({ comment, commentUpdate });
+            for (const reply of replies) if (!keywords.includes(reply.comment.content?.trim())) score = Math.max(score, reply.comment.timestamp);
             return score;
-        },
-        scoreAll({ comments, db, options, baseTimestamp }) {           // whole set, over SQL: what the community runs
-            const root = db.exclusionClauses(options, { comment: "p", update: "cu_root", paramPrefix: "root" });
-            const desc = db.exclusionClauses(options, { comment: "c", update: "cu", paramPrefix: "desc" });
-            const rows = db.prepare(`WITH RECURSIVE descendants AS (
-                SELECT p.cid AS post_cid, p.cid AS current_cid, p.timestamp AS ts FROM comments p
-                INNER JOIN commentUpdates cu_root ON p.cid = cu_root.cid WHERE p.depth = 0 ${root.sql ? `AND ${root.sql}` : ""}
-                UNION ALL
-                SELECT d.post_cid, c.cid, c.timestamp FROM comments c INNER JOIN commentUpdates cu ON c.cid = cu.cid
-                JOIN descendants d ON c.parentCid = d.current_cid ${desc.sql ? `WHERE ${desc.sql}` : ""}
-            ) SELECT post_cid, MAX(ts) AS score FROM descendants GROUP BY post_cid`).all({ ...root.params, ...desc.params });
-            const scores = new Map(rows.map((r) => [r.post_cid, r.score]));
-            return new Map(comments.map((e) => [e.commentUpdate.cid, scores.get(e.commentUpdate.cid) ?? e.comment.timestamp]));
         },
         validatePageSortSettings({ pageSortSettings }) {}  // throw to reject the entry
     };
@@ -210,37 +191,56 @@ export default function ({ pageSortSettings, db }) {
 
 The contract:
 
-- **Two scoring functions, for two places.** `scoreAll` is a whole-set function, called once per
-  generation with every comment that survived the window, returning `Map<cid, number>`; it receives the
-  database facade, so `active` can be `MAX(timestamp)` over every descendant in the table, which no
-  per-comment function can express there. `score` is a per-comment function over what a page entry
-  carries: the comment, its CommentUpdate and the preloaded reply pages nested under it. It is what a
-  client runs to re-sort a page, since a client has no database, and what the community runs when a file
-  has no `scoreAll`. Higher scores sort first in both. A file needs at least one; a file that wants
-  clients to reproduce its order provides `score`, and keeps the two consistent over what a page carries.
-  The pure built-ins (`hot`, `new`, `old`, `best`, `top*`, `controversial`, the flat variants) provide
-  `score` only; `active` provides `scoreAll` only and therefore cannot be re-applied on a client.
-- Neither is a comparator, and neither filters: membership is decided by the reserved options, which
-  pkc-js applies identically on the community and on clients.
+- **One scorer, run in two places.** `score` is a per-comment, synchronous function of what a page entry
+  carries: the comment and its CommentUpdate. The community calls it once per comment per generation, and a
+  client calls the same function to re-sort a page it holds (see [Client side](#client-side)), which is
+  how a client reproduces the community's order. Higher scores sort first. The CommentUpdate arrives with
+  its nested `replies` stripped: a file never sees the preloaded reply slice, so it cannot mistake it for
+  the reply set.
+- **Ties keep the community's order.** Equal scores keep the order the comments were loaded in, which is the
+  community's insertion order at generation and the page's order on a client. There is no comparator and
+  no secondary key; a file that needs a tie-break folds it into the score.
+- **`null` declines.** Returning `null` drops the comment from this sort's pages, on the community and on
+  a client, a pinned comment included. It touches nothing else: other sorts, `replyCount`, the
+  CommentUpdate. The reserved options decide the base set every sort starts from; a sort may decline from
+  it. This is how a package exposes a content filter, an option such as `filterNsfw` applied inside
+  `score`, and a client passing the published options reproduces the drop. Any other non-numeric score is
+  a bug and fails the sort for the cycle.
+- **`requireReplies`.** A sort whose order depends on the replies (bump order with exceptions, most-replied
+  first) declares it and receives `replies`: every descendant of the scored comment that survives the
+  sort's exclusion options, as one flat, unordered array. A post gets everything under it, a reply on a
+  reply page gets its own subtree. Each entry is the lean `PageSortReplyEntry`: the comment's `parentCid`,
+  `postCid`, `depth`, `timestamp`, `content`, `title`, `link`, `author`, community address fields, `nsfw`,
+  `spoiler` and `flairs`, and the CommentUpdate's `cid`, vote and reply counts, `updatedAt`,
+  `lastReplyTimestamp`, `pinned`, `locked`, `removed`, `approved`, `nsfw`, `spoiler`, `flairs` and
+  `edit.deleted`. No signature, no nested pages, no media metadata. A page entry is a superset, so a client
+  passes the entries it walked as they are. The community loads the set once per generation with one
+  unfiltered query (the whole community for a post sort, the post's subtree for a reply sort), every
+  `requireReplies` sort filters it with its own exclusion options and slices each comment's subtree from
+  it. On a client the caller walks the reply pages and passes the list, or `sortPageComments` throws
+  `ERR_PAGE_SORT_REPLIES_REQUIRED`. A file without the flag never receives `replies` and costs nothing
+  beyond the entry itself: re-sorting is then a per-entry computation with no reply fetching anywhere,
+  which is what every built-in is, `active` included. A reply-dependent sort has no way to know the list is
+  complete; a client that walked only part of a thread gets a wrong order, not an error.
+- **What a reply-dependent sort costs the community.** `test/benchmarks/page-generation-bench.mjs` seeds
+  20k posts with 10 to 100 replies each (1.1M replies) and times post page generation with IPFS stubbed. On
+  that board the keyword no-bump sort takes about 16 s and 1 GB of heap per generation against about 2 s
+  for the built-in `active`, which reads `lastReplyTimestamp` and loads no replies. The cost is linear in
+  the reply count, so a board with a million posts should not configure a reply-dependent post sort; a
+  5chan-sized board (a few hundred live threads) does not notice it.
+
 - **Sync only.** Generation runs per comment per cycle; an async signature would invite a network call in
   the community's hot loop. This is a deliberate divergence from `ChallengeFile.getChallenge`.
-- `db` is a **read-only** sqlite facade: `prepare(sql)` returns better-sqlite3's `Statement` (so the
-  upstream docs apply) and rejects anything that would write with `ERR_PAGE_SORT_DB_WRITE_REJECTED`;
-  `exclusionClauses(options, { comment, update, paramPrefix })` returns the `WHERE` fragment and named
-  params for the `exclude*` options against your own table aliases, so your SQL and pkc-js cannot drift
-  apart on what "removed" means. Use distinct `paramPrefix` values when you splice it twice into one
-  statement. The tables are `comments` and `commentUpdates`. The facade lives for the life of the
-  community's database handler; do not cache prepared statements across cycles, the underlying connection
-  may be reopened. Preparing a statement in the factory closure is fine: outside a community (the RPC
-  settings listing, a client instantiating the file) the facade returns a statement whose execution throws,
-  so construction still succeeds.
-- pkc-js owns pinned placement, `maxAge`, chunking and page-size budgeting. A file contains no date
-  arithmetic and never sees a pinned flag.
+- pkc-js owns pinned placement, `maxAge`, chunking, page-size budgeting and the exclusions. A file contains
+  no date arithmetic, never sees a pinned flag and never decides what "removed" means.
 - Options are strings. Document how you split a list.
 - `optionInputs` is optional but declaring it lets core catch typos in the owner's options; an entry may
   also list the reserved names, they are always accepted.
+- There is no database access. A sort that needs an aggregate the reply list cannot express (an author's
+  history, vote timing) is a later iteration of this contract, not a reason to reach for the tables.
 - The reference implementation of the keyword no-bump sort is
-  `test/fixtures/page-sorts/active-no-bump-keyword.js`.
+  `test/fixtures/page-sorts/active-no-bump-keyword.js`; `test/fixtures/page-sorts/keyword-filter.js`
+  declines comments, and `test/fixtures/page-sorts/most-replies.js` scores a reply over its own subtree.
 
 Registering a factory under the `pageSorts` PKC option (or on `PKC.pageSorts`) makes it available by
 `name`; a `path` entry loads a file directly. Installing packages to `${dataPath}/page-sorts/` through
@@ -270,9 +270,7 @@ integrates with configurable sorts. Nothing here needs a community database; eve
 
 ### Re-sorting a page locally
 
-When the embedded page holds the whole comment set (the single-chunk shortcut: `pageCids` is absent), a
-client can offer every sort it has without fetching anything, and can reproduce the community's own order
-after a local change. pkc-js ships the sorter; the package is looked up by name:
+pkc-js ships the sorter; the package is looked up by name:
 
 ```ts
 import PKC, { sortPageComments, instantiatePageSortFile } from "@pkcprotocol/pkc-js";
@@ -290,25 +288,40 @@ const ordered = sortPageComments({
     file,
     options: published?.publicOptions ?? {},           // the merged reserved options: this is the filter the community applied
     baseTimestamp: Math.round(Date.now() / 1000),
-    communityAddress: community.address
+    communityAddress: community.address,
+    replies                                             // only for a file with requireReplies; see below
 });
 ```
 
 - `sortPageComments` applies the reserved options exactly as the community does (the `exclude*` flags,
-  `pinnedFirst`, the `maxAge` window against `baseTimestamp`) and then the file's `score`. Pass the
-  `publicOptions` of the sort you want to reproduce; to apply a different sort, pass that sort's options
-  (or the community's for a same-scope built-in) and its file.
-- To re-sort with a built-in, instantiate it from `PKC.pageSorts` (`hot`, `new`, `topDay`, ...). `top*`
-  windows come from the file's `defaultOptions`, so passing `{}` as options applies them; a community that
-  changed a window publishes the change in `publicOptions`.
-- A package whose file has only `scoreAll` cannot run on a client:
-  `ERR_PAGE_SORT_FILE_HAS_NO_CLIENT_SCORER`. The built-in `active` is one; a bump-order UI on an
-  unconfigured community keeps using the community's `active` page.
-- A page that is not the whole set (a `pageCids` page, or an embedded page next to `pageCids`) is only a
-  slice of one sort: re-sorting it gives that slice in another order, not the other sort. Fetch the other
-  sort's `pageCids` instead.
-- Flat reply pages are one level; `score` on a flat entry sees no nested replies. `newFlat` and `oldFlat`
-  only need the entry's own timestamp.
+  `pinnedFirst`, the `maxAge` window against `baseTimestamp`), then the file's `score`, dropping what it
+  declines. Pass the `publicOptions` of the sort you want to reproduce; to apply a different sort, pass
+  that sort's options (or the community's for a same-scope built-in) and its file.
+- To re-sort with a built-in, instantiate it from `PKC.pageSorts` (`hot`, `new`, `active`, `topDay`, ...).
+  `top*` windows come from the file's `defaultOptions`, so passing `{}` as options applies them; a community
+  that changed a window publishes the change in `publicOptions`. No built-in requires replies: `active`
+  reads `commentUpdate.lastReplyTimestamp`, so a bump-order feed on a board that publishes only `hot` is a
+  per-entry computation over the `hot` pages, with nothing else fetched.
+- **What is the whole set.** A preloaded page with no `pageCids` and no `nextCid` for its key is the
+  complete comment set (the single-chunk shortcut); a client holding it can offer every sort it has without
+  fetching anything. Any other page is a slice of one sort: re-sorting it gives that slice in another order,
+  not the other sort.
+- **Deriving a sort the community did not publish** needs the whole set: walk every page of any published
+  sort, then re-sort. To bound the walk with a window, walk a base sort that is monotonic in the window's
+  key and stop at the cutoff: `new` or `old` for post age, the community's `active` for bump age. `hot` and
+  the `top*` sorts are monotonic in neither, so a walk over them cannot stop early. A windowed sort the
+  community publishes (`maxAge`) is already the whole set for its window.
+- **Applying a reply-dependent package** (`requireReplies`), the community's own or one the UI installed to
+  apply to every board it shows, needs the reply set of each comment on the page. The caller walks each
+  thread's reply pages into one flat list and passes it as `replies`: a flat reply sort (`newFlat`,
+  `oldFlat`, published by default) lists a post's whole subtree in one chain of pages; without one, walk
+  the nested sort's pages and every reply's own reply pages recursively, since a nested reply carries its
+  own `replies.pages` and `nextCid`. `sortPageComments` applies the exclusions to the list and slices each
+  comment's subtree from it, so pass the descendants of every comment on the page together. How many
+  threads to walk and when to stop is the UI's policy; pkc-js exports no walker, the worked example is
+  `test/node-and-browser/pages/page-sorts-client-test-util.ts`. A file without `requireReplies` needs none
+  of this.
+- Flat reply pages are one level; `newFlat` and `oldFlat` only need the entry's own timestamp.
 - `community.pageSorts[].name` is untrusted data: look it up in your own registry, never import from it.
 
 ### Configuring sorts from a UI
@@ -323,4 +336,4 @@ before the round trip. Send the reserved options like any other option; withhold
 ## Not in scope
 
 - Per-depth reply sorts (see [pages.md, Future Work](pages.md#future-work)).
-- Absolute time windows, write access from sort packages, raw database access without the facade.
+- Absolute time windows; database access from sort packages (a later iteration, additive to this contract).

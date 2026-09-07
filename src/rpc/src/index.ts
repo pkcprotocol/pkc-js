@@ -77,7 +77,6 @@ import { PublicationRpcErrorToTransmit } from "../../publications/types.js";
 import { TypedEmitter } from "tiny-typed-emitter";
 import { sanitizeRpcNotificationResult } from "./json-rpc-util.js";
 import type { ModQueuePageIpfs, PageIpfs } from "../../pages/types.js";
-import { createUnavailablePageSortDb } from "../../pages/page-sort-client.js";
 import { buildPageRuntimeFields, buildPagesRuntimeFields } from "../../pages/util.js";
 import { extractCrosspostRuntimeFields } from "../../publications/comment/crosspost-runtime.js";
 import {
@@ -970,20 +969,14 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             omit(challengeFactory({ challengeSettings: {} }), ["getChallenge", "validateChallengeSettings"])
         );
 
-        // Page sorts (issue #73): the same projection. A factory is invoked with no settings and a lazy db facade,
-        // since there is no community here: preparing a statement or building exclusion clauses in the factory closure
-        // (the pattern the registry recommends) succeeds, only executing a statement throws. A factory that still
-        // throws is a broken package and is left out of the listing rather than failing the whole settings payload.
+        // Page sorts (issue #73): the same projection, functions dropped and `requireReplies` kept so a config UI can
+        // show what a sort costs. A factory that throws with no options is a broken package and is left out of the
+        // listing rather than failing the whole settings payload.
         const allPageSortFactories = { ...(PKCJs.PKC.pageSorts || {}), ...(pkc.settings?.pageSorts || {}) };
-        const noDb = createUnavailablePageSortDb("The db facade cannot execute statements while listing page sorts for RPC settings");
         const pageSorts: PKCWsServerSettingsSerialized["pageSorts"] = {};
         for (const [name, pageSortFactory] of Object.entries(allPageSortFactories)) {
             try {
-                pageSorts[name] = omit(pageSortFactory({ pageSortSettings: { name }, db: noDb }), [
-                    "score",
-                    "scoreAll",
-                    "validatePageSortSettings"
-                ]);
+                pageSorts[name] = omit(pageSortFactory({ pageSortSettings: { name } }), ["score", "validatePageSortSettings"]);
             } catch (e) {
                 log.error(`Page sort "${name}" could not be listed in the RPC settings because its factory threw`, e);
             }

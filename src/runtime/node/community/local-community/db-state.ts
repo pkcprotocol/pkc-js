@@ -294,7 +294,6 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
     community._pageSorts = await resolvePageSortsOrThrow({
         pagesSettings: community.settings.pages,
         pkc: community._pkc,
-        db: community._dbHandler.createPageSortDb(),
         communityAddress: community.address
     });
     community.pageSorts = derivePublicPageSorts({ pagesSettings: community.settings.pages, resolved: community._pageSorts });

@@ -15,7 +15,7 @@ import {
 } from "../schema/schema.js";
 import { ModQueuePagesIpfsSchema, PostsPagesIpfsSchema } from "../pages/schema.js";
 import type { LocalCommunity } from "../runtime/node/community/local-community.js";
-import type { PageIpfs, PageSortDb } from "../pages/types.js";
+import type { PageIpfs, PageSortReplyEntry } from "../pages/types.js";
 import { difference, isEmpty, keys, omit } from "remeda";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../pubsub-messages/types.js";
 import { messages } from "../errors.js";
@@ -258,13 +258,8 @@ export const CommunityPagesSettingsSchema = z
     .strict();
 
 export const PageSortFileFactoryArgsSchema = z.object({
-    pageSortSettings: CommunityPageSortSettingSchema,
-    db: z.custom<PageSortDb>()
+    pageSortSettings: CommunityPageSortSettingSchema
 });
-
-// Typed rather than parsed: the entries are pkc-js's own already-parsed rows, and a zod parse per comment per
-// cycle would be pure overhead in the community's hot loop.
-const PageSortCommentEntrySchema = z.custom<PageIpfs["comments"][number]>();
 
 export const PageSortScopeSchema = z.enum(["posts", "replies"]);
 
@@ -276,53 +271,37 @@ export const PageSortFileSchema = z.looseObject({
     scope: PageSortScopeSchema.optional(), // undefined = usable under both posts and replies
     flat: z.boolean().optional(), // reply sorts only: sort the flattened descendant subtree instead of the direct replies
     defaultOptions: z.record(z.string(), z.string()).optional(), // merged under settings.pages[].options (the entry wins); how topWeek fixes its own maxAge
-    // Two scorers, for two places (docs/protocol/page-sorts.md, "Two scoring functions"). Higher scores sort first.
+    // The scorer (docs/protocol/page-sorts.md, "Writing a page sort file"). Per comment, sync, from what the page entry
+    // carries: the comment and its CommentUpdate with the nested `replies` stripped, so a file never mistakes the
+    // preloaded slice for the reply set. Higher scores sort first; equal scores keep the community's order; `null`
+    // declines the comment from this sort's pages (pinned or not), touching nothing else. The same function runs on
+    // the community and on a client re-sorting a page, so a client reproduces the community's order.
     //
-    // `score`: per comment, sync, from what the page entry itself carries (comment, commentUpdate, its nested
-    // preloaded replies). Runs on clients re-sorting a page locally, where there is no database, and on the
-    // community when the file has no scoreAll. A file that wants clients to reproduce its order provides it.
-    score: z
-        .function({
-            input: [
-                z.object({
-                    comment: z.custom<PageIpfs["comments"][number]["comment"]>(),
-                    commentUpdate: z.custom<PageIpfs["comments"][number]["commentUpdate"]>(),
-                    options: z.record(z.string(), z.string()),
-                    baseTimestamp: z.number()
-                })
-            ],
-            output: z.number()
-        })
-        .optional(),
-    // `scoreAll`: whole set, sync, called once per generation with every surviving comment, with the read-only db
-    // facade so a sort can score from SQL (the active sort is MAX(timestamp) over a post's descendants, which no
-    // per-comment function can express over the whole table). Community-side only.
-    scoreAll: z
-        .function({
-            input: [
-                z.object({
-                    comments: PageSortCommentEntrySchema.array(),
-                    db: z.custom<PageSortDb>(),
-                    options: z.record(z.string(), z.string()),
-                    baseTimestamp: z.number()
-                })
-            ],
-            output: z.map(z.string(), z.number())
-        })
-        .optional(),
+    // `requireReplies`: the file also receives `replies`, every descendant of the scored comment that survives the
+    // sort's exclusion options, as one flat list of page entries (parentCid and depth are on each comment for a file
+    // that wants the tree). The community builds it from the database; a client passes what it walked from the reply
+    // pages, and sortPageComments throws ERR_PAGE_SORT_REPLIES_REQUIRED when it did not. A file without the flag never
+    // sees `replies` and costs nothing beyond the entry itself.
+    requireReplies: z.boolean().optional(),
+    score: z.function({
+        input: [
+            z.object({
+                comment: z.custom<PageIpfs["comments"][number]["comment"]>(),
+                commentUpdate: z.custom<PageIpfs["comments"][number]["commentUpdate"]>(), // `replies` stripped at runtime
+                options: z.record(z.string(), z.string()),
+                baseTimestamp: z.number(),
+                replies: z.custom<PageSortReplyEntry>().array().optional()
+            })
+        ],
+        output: z.number().nullable()
+    }),
     // Sync semantic validation of the entry, same contract as ChallengeFile.validateChallengeSettings
     validatePageSortSettings: z
         .function({ input: [z.object({ pageSortSettings: CommunityPageSortSettingSchema })], output: z.void() })
         .optional()
 });
 
-// A file must be able to score somehow; the two functions are optional individually only so a client-only file
-// (score) and an SQL-only file (scoreAll) are both valid.
-export const PageSortFileWithScorerSchema = PageSortFileSchema.refine((file) => Boolean(file.score || file.scoreAll), {
-    message: "A page sort file must define score, scoreAll or both"
-});
-
-export const PageSortFileFactorySchema = z.function({ input: [PageSortFileFactoryArgsSchema], output: PageSortFileWithScorerSchema });
+export const PageSortFileFactorySchema = z.function({ input: [PageSortFileFactoryArgsSchema], output: PageSortFileSchema });
 
 // What a community publishes about each configured sort (community.pageSorts), keyed by sortName. Mirrors
 // community.challenges[i]: enough for a client to tell the built-in `active` from a package that reuses the

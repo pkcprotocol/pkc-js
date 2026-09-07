@@ -32,7 +32,6 @@ import type {
     PageSortFileFactoryInput,
     PageSortScope
 } from "../../../../community/types.js";
-import type { PageSortDb } from "../../../../pages/types.js";
 import type { FailedPageSorts } from "../page-generator.js";
 import Logger from "../../../../logger.js";
 import { cleanUpBeforePublishing } from "../../../../signer/signatures.js";
@@ -119,12 +118,10 @@ export type ResolvedPageSorts = {
 
 export async function loadPageSortFile({
     pageSortSettings,
-    pkc,
-    db
+    pkc
 }: {
     pageSortSettings: CommunityPageSortSetting;
     pkc?: PKCWithSettingsPageSorts;
-    db: PageSortDb;
 }): Promise<PageSortFile> {
     let factory: PageSortFileFactory;
     try {
@@ -143,7 +140,7 @@ export async function loadPageSortFile({
     }
     let file: PageSortFile;
     try {
-        file = PageSortFileSchema.parse(factory({ pageSortSettings, db }));
+        file = PageSortFileSchema.parse(factory({ pageSortSettings }));
     } catch (e) {
         throw new PKCError("ERR_PAGE_SORT_FILE_INVALID", { pageSortSettings, error: e });
     }
@@ -249,12 +246,10 @@ function resolveOneEntry({
 export async function resolvePageSortsAndCollectFailures({
     pagesSettings,
     pkc,
-    db,
     tolerateLoadErrors = false
 }: {
     pagesSettings: CommunityPagesSettings | undefined;
     pkc?: PKCWithSettingsPageSorts;
-    db: PageSortDb;
     tolerateLoadErrors?: boolean; // start path: a file that no longer imports is a failure to report, not a reason to stop
 }): Promise<{ resolved: ResolvedPageSorts; failures: PageSortSettingsValidationFailure[] }> {
     const failures: PageSortSettingsValidationFailure[] = [];
@@ -269,7 +264,7 @@ export async function resolvePageSortsAndCollectFailures({
             const pageSortName = describePageSort(pageSortSettings);
             let file: PageSortFile;
             try {
-                file = await loadPageSortFile({ pageSortSettings, pkc, db });
+                file = await loadPageSortFile({ pageSortSettings, pkc });
             } catch (e) {
                 if (!tolerateLoadErrors) throw e;
                 failures.push({ scope, pageSortIndex, pageSortName, error: e as PKCError });
@@ -303,15 +298,13 @@ export async function resolvePageSortsAndCollectFailures({
 export async function resolvePageSortsOrThrow({
     pagesSettings,
     pkc,
-    db,
     communityAddress
 }: {
     pagesSettings: CommunityPagesSettings | undefined;
     pkc?: PKCWithSettingsPageSorts;
-    db: PageSortDb;
     communityAddress?: string;
 }): Promise<ResolvedPageSorts> {
-    const { resolved, failures } = await resolvePageSortsAndCollectFailures({ pagesSettings, pkc, db });
+    const { resolved, failures } = await resolvePageSortsAndCollectFailures({ pagesSettings, pkc });
     if (failures.length)
         throw new PKCError("ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED_FOR_PAGE_SORTS", {
             communityAddress,
@@ -362,7 +355,6 @@ export async function loadPageSortsForStartedCommunity(community: LocalCommunity
     const { resolved, failures } = await resolvePageSortsAndCollectFailures({
         pagesSettings: community.settings?.pages,
         pkc: community._pkc,
-        db: community._dbHandler.createPageSortDb(),
         tolerateLoadErrors: true
     });
     for (const { error, scope, pageSortIndex, pageSortName } of failures) {

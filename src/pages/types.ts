@@ -45,8 +45,8 @@ export type PostSort = Record<PostSortName, SortProps>;
 export type ReplySort = Record<ReplySortName, SortProps>;
 
 // The exclusion settings every page sort receives as string options (settings.pages[].options), defaulting to
-// what the generator applies today per scope. A sort file splices them into its own SQL through
-// PageSortDb.exclusionClauses so pkc-js keeps the single definition of what "removed" means (issue #73).
+// what the generator applies today per scope. pkc-js applies them to the comment set and to the `replies` list a
+// file receives, so a sort file never decides what "removed" means (issue #73).
 export type PageSortExclusionOptionName =
     | "excludeRemovedComments"
     | "excludeDeletedComments"
@@ -54,15 +54,44 @@ export type PageSortExclusionOptionName =
     | "excludeCommentWithApprovedFalse"
     | "excludeCommentsWithDifferentCommunityAddress";
 
-// The read-only sqlite facade handed to page sort files. `prepare` returns better-sqlite3's own Statement so
-// authors get the upstream API and docs; anything that would write is rejected at prepare time. Node only:
-// page generation runs in the LocalCommunity process.
-export interface PageSortDb {
-    prepare(sql: string): import("better-sqlite3").Statement;
-    exclusionClauses(
-        options: Record<string, string | undefined>,
-        aliases: { comment: string; update: string; paramPrefix?: string }
-    ): { sql: string; params: Record<string, string> };
+// What a page sort file with `requireReplies` receives per descendant (docs/protocol/page-sorts.md, "Writing a page
+// sort file"): the subset of a page entry a sort can reasonably rank on, without the signature, the nested pages or
+// the media metadata. A page entry is a superset, so a client passes its walked page entries as they are; the
+// community selects exactly these columns, which is what keeps a reply set of a million rows affordable.
+export interface PageSortReplyEntry {
+    comment: Pick<
+        CommentIpfsType,
+        | "parentCid"
+        | "postCid"
+        | "depth"
+        | "timestamp"
+        | "content"
+        | "title"
+        | "link"
+        | "author"
+        | "communityPublicKey"
+        | "communityName"
+        | "nsfw"
+        | "spoiler"
+        | "flairs"
+    >;
+    commentUpdate: Pick<
+        CommentUpdateType,
+        | "cid"
+        | "upvoteCount"
+        | "downvoteCount"
+        | "replyCount"
+        | "childCount"
+        | "updatedAt"
+        | "lastReplyTimestamp"
+        | "pinned"
+        | "locked"
+        | "removed"
+        | "approved"
+        | "nsfw"
+        | "spoiler"
+        | "flairs"
+    > & { edit?: Pick<NonNullable<CommentUpdateType["edit"]>, "deleted">; pendingApproval?: boolean };
 }
 
 // JSON types
