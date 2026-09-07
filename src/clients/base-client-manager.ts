@@ -371,6 +371,10 @@ export class BaseClientsManager {
                     url,
                     status: res?.status,
                     statusText: res?.statusText,
+                    // A 304 carries the matched entity-tag and the cache countdown; the community
+                    // update loop uses both for conditional-request memory and poll pacing (#328)
+                    responseEtag: res?.headers?.get("etag"),
+                    responseCacheControl: res?.headers?.get("cache-control"),
                     fetchError: String(e),
                     fetchErrorCode: nodeError?.code,
                     fetchErrorErrno: nodeError?.errno,
@@ -516,9 +520,19 @@ export class BaseClientsManager {
             e.details = { ...e.details, url, loadOpts, wasRequestAborted: loadOpts.abortController.signal.aborted };
 
             this.postFetchGatewayFailure(gateway, loadOpts, <PKCError>e);
-            this._pkc._stats
-                .recordGatewayFailure(gateway, loadOpts.recordIpfsType)
-                .catch((err) => log.error("failed to report gateway error", err));
+            // A 304 or an "already loaded this record" abort is the gateway HEALTHILY confirming
+            // the record we hold — recording it as a failure made every idle poll poison the
+            // gateway's score in the sorting stats (issue #328). Everything else stays a failure.
+            const gatewayConfirmedCurrentRecord =
+                (<PKCError>e).details?.status === 304 || String((<PKCError>e).code).startsWith("ERR_GATEWAY_ABORTING_LOADING");
+            if (gatewayConfirmedCurrentRecord)
+                this._pkc._stats
+                    .recordGatewaySuccess(gateway, loadOpts.recordIpfsType, Date.now() - timeBefore)
+                    .catch((err) => log.error("Failed to report gateway success", err));
+            else
+                this._pkc._stats
+                    .recordGatewayFailure(gateway, loadOpts.recordIpfsType)
+                    .catch((err) => log.error("failed to report gateway error", err));
             return { error: <PKCError>e };
         }
     }

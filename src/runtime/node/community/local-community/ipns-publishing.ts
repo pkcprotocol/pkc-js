@@ -301,7 +301,13 @@ async function publishCommunityRecordToIpns(
     if (!community.signer.ipnsKeyName) throw Error("IPNS key name is not defined");
     // after kubo 0.40 implements fetching IPNS record from local blockstore, we don't need line below anymore
     if (community._firstUpdateAfterStart) await community._resolveIpnsAndLogIfPotentialProblematicSequence();
-    const ttl = `${community._pkc.publishInterval * 3}ms`; // default publish interval is 20s, so default ttl is 60s
+    // ttl = one publish cadence (20s at the default publishInterval). The record's ttl is the
+    // staleness every cache in the world is entitled to serve — kubo gateways cache resolves
+    // for exactly this long (default Ipns.MaxCacheTTL is unbounded) — so declaring 3x our own
+    // update cadence, as this used to, meant gateway readers could lag three generations
+    // behind (issue #328). One cadence bounds cache staleness at roughly one generation while
+    // costing caches at most one extra resolve per publish.
+    const ttl = `${community._pkc.publishInterval * 1}ms`;
     const lastPublishedIpnsRecordData = <any | undefined>await community._dbHandler.keyvGet(STORAGE_KEYS[STORAGE_KEYS.LAST_IPNS_RECORD]);
     const decodedIpnsRecord: any | undefined = lastPublishedIpnsRecordData
         ? cborg.decode(new Uint8Array(Object.values(lastPublishedIpnsRecordData)))

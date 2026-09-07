@@ -19,8 +19,8 @@ import type { RemoteCommunity } from "../../dist/node/community/remote-community
 //
 //   node test/run-test-config.js --pkc-config remote-libp2pjs test/benchmarks/update-loop-bench.test.ts
 //
-// It stands up N static communities (records published with a 60s ttl, matching what real
-// communities publish: publishInterval * 3), updates all of them from one libp2p-js pkc, and
+// It stands up N static communities (records published with a 20s ttl, matching what real
+// communities publish: publishInterval * 1, see issue #328), updates all of them from one libp2p-js pkc, and
 // measures over a steady-state window:
 //   - updatingstatechange events (the #308 churn metric)
 //   - IPNS record network fetch operations via the libp2p fetch service, bucketed per second so
@@ -41,7 +41,7 @@ import type { RemoteCommunity } from "../../dist/node/community/remote-community
 // ttl windows so at least one expiry boundary lands inside the measurement).
 const COMMUNITY_COUNT = Number(process.env.PKC_BENCH_COMMUNITIES) > 0 ? Number(process.env.PKC_BENCH_COMMUNITIES) : 32;
 const WINDOW_MS = Number(process.env.PKC_BENCH_WINDOW_MS) > 0 ? Number(process.env.PKC_BENCH_WINDOW_MS) : 300_000;
-const RECORD_TTL = "60s";
+const RECORD_TTL = "20s"; // publishInterval * 1, what real communities publish (#328)
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"] }).map((config) => {
     describe(`update loop benchmark (issues #308/#307) - ${config.name}`, () => {
@@ -71,7 +71,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
         // Republish a community record under its IPNS key with an explicit ttl, so cached records
-        // expire on the same schedule real community records do (publishInterval * 3 = 60s), which
+        // expire on the same schedule real community records do (publishInterval * 1 = 20s), which
         // is what makes the #307 lockstep expiry reproducible in the window.
         const publishRecordWithTtl = async ({
             staticRecord,
@@ -90,7 +90,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         };
 
         it(`steady-state update-loop cost at ${COMMUNITY_COUNT} communities over ${WINDOW_MS / 1000}s`, async () => {
-            // ---- setup: N static communities, records carrying a 60s ttl ----
+            // ---- setup: N static communities, records carrying a 20s ttl ----
             const setupBatchSize = 8;
             for (let batchStart = 0; batchStart < COMMUNITY_COUNT; batchStart += setupBatchSize) {
                 await Promise.all(
@@ -238,7 +238,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             // Per-peer breakdown (issues #329/#330): a hub peer subscribed to many topics is
             // asked once per name per ttl window, twice while the #329 duplicate exists, so the
             // top rows are where the before/after difference of those fixes shows up.
-            const perPeer = new Map<string, { started: number; ok: number; errorOrAborted: number; pending: number; duplicateConcurrent: number }>();
+            const perPeer = new Map<
+                string,
+                { started: number; ok: number; errorOrAborted: number; pending: number; duplicateConcurrent: number }
+            >();
             for (const call of windowFetchCalls) {
                 const row = perPeer.get(call.peer) ?? { started: 0, ok: 0, errorOrAborted: 0, pending: 0, duplicateConcurrent: 0 };
                 row.started++;

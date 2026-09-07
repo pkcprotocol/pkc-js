@@ -1715,7 +1715,7 @@ export async function createNewIpns() {
     // cache for RPC tests) — it does NOT change what name.publish does. Set it false when
     // publishing a hop whose target isn't resolvable yet, so that resolve check doesn't fail.
     // `ttl` (kubo duration string, e.g. "10s") overrides kubo's default record ttl, which is 5
-    // MINUTES on kubo 0.43, not the 60s a LocalCommunity publishes (publishInterval * 3). The
+    // MINUTES on kubo 0.43, not the 20s a LocalCommunity publishes (publishInterval * 1, #328). The
     // ttl bounds how long the libp2p-js resolver may serve a name from its routing-layer cache
     // without revalidating (issue #301/#307), so any test that must observe a cache expiry
     // inside its own timeout has to shorten it here instead of waiting out kubo's default.

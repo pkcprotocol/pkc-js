@@ -244,7 +244,12 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
 
             const ifNoneMatchHeader = req.headers["if-none-match"];
             const ifNoneMatch = Array.isArray(ifNoneMatchHeader) ? ifNoneMatchHeader.join(",") : ifNoneMatchHeader || "";
-            if (ifNoneMatch.includes(conditional304RecordCid)) {
+            // Match the way a spec-conformant gateway (RFC 9110 If-None-Match) does: split the
+            // header into individual entity-tags and compare each whole tag against the etag this
+            // server emits. A substring .includes() here used to hide that the client sent one
+            // quoted blob of comma-joined CIDs, which real gateways never 304 on (issue #328).
+            const entityTags = ifNoneMatch.split(",").map((tag) => tag.trim().replace(/^W\//, ""));
+            if (entityTags.includes(`"${conditional304RecordCid}"`)) {
                 res.statusCode = 304;
                 res.setHeader("etag", `"${conditional304RecordCid}"`);
                 res.end();
