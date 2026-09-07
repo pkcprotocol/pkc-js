@@ -98,6 +98,12 @@ class MockPubsubHttpClient {
             },
             subscribe: async (topic: string, rawCallback: PubsubSubscriptionHandler) => {
                 await ensurePubsubActive(this._connectionState);
+                // kubo-rpc-client's SubscriptionTracker rejects a second subscribe with the same handler
+                // on a topic, and the client manager treats that rejection as "already subscribed". Do
+                // the same instead of registering the handler twice, which made every message reach it
+                // twice when a publication retried its request on the same provider (#349).
+                if (this._subscriptions.some((sub) => sub.topic === topic && sub.rawCallback === rawCallback))
+                    throw new Error(`Already subscribed to ${topic} with this handler`);
                 this._ensureTopicListener(topic);
                 const uniqueSubId = uuidV4();
                 this._subscriptions.push({ topic, rawCallback, subscriptionId: uniqueSubId });

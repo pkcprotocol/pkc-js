@@ -160,6 +160,7 @@ export enum messages {
     ERR_INVALID_COMMUNITY_EDIT_CHALLENGE_REQUEST_TO_ENCRYPT_SCHEMA = "RPC client sent an invalid schema for challenge request with communityEdit",
     ERR_COMMUNITY_EDIT_OPTIONS_SCHEMA = "User sent a community edit options with invalid schema",
     ERR_INVALID_CHALLENGE_ANSWERS = "User sent challenge answers with invalid schema",
+    ERR_CHALLENGE_ANSWER_ALREADY_PUBLISHED = "publishChallengeAnswers was called again for a challenge exchange whose answer has already been published or is being published. Each challenge is answered once",
     ERR_INVALID_CREATE_PKC_WS_SERVER_OPTIONS_SCHEMA = "Invalid create arguments for PKC WS RPC server",
     ERR_INVALID_CREATE_PKC_ARGS_SCHEMA = "User sent arguments with invalid schema in an attempt to create a PKC instance",
     ERR_INVALID_CREATE_COMMUNITY_WITH_RPC_ARGS_SCHEMA = "User provided invalid schema of arguments for pkc.createCommunity while connected to RPC",

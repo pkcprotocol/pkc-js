@@ -133,6 +133,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
             challengeVerification?: DecryptedChallengeVerificationMessageType;
             challengeRequestPublishTimestamp?: number; // in seconds
             challengeAnswerPublishTimestamp?: number; // in seconds
+            // Set synchronously when publishChallengeAnswers claims this exchange, before the answer is
+            // encrypted, signed and published; cleared if that publish fails so the user can retry.
+            // Together with challengeAnswer it makes a second publishChallengeAnswers call reject (#349).
+            challengeAnswerPublishInFlight?: boolean;
             signer?: Signer; // could be undefined if we're publishing over an RPC
             challengeRequestPublishError?: Error;
             challengeAnswerPublishError?: Error;
@@ -389,6 +393,14 @@ class Publication extends TypedEmitter<PublicationEvents> {
             ...msg,
             ...decryptedChallenge
         };
+        // The guard at the top of this method ran before the awaits above. A copy of the same CHALLENGE
+        // delivered through another pubsub provider can have passed it in the meantime and be the one
+        // that recorded the challenge. Nothing can interleave between here and the write below, so
+        // re-checking now is enough to drop the copy before it touches the state or emits (#349).
+        if (Object.values(this._challengeExchanges).some((exchange) => exchange.challenge)) {
+            log.trace("Received a copy of a challenge that was already handled, ignoring it");
+            return;
+        }
         this._challengeExchanges[msg.challengeRequestId.toString()].challenge = decryptedChallengeMsg;
 
         this._updatePublishingStateWithEmission("waiting-challenge-answers");
@@ -485,6 +497,14 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
         const challengeVerificationMsg = { ...msg, ...decryptedChallengeVerification };
 
+        // Same re-check as in _handleIncomingChallengePubsubMessage: the guard at the top ran before the
+        // awaits, and a copy of this CHALLENGEVERIFICATION from another provider may have recorded the
+        // verdict since. Dropping the copy here keeps "challengeverification" and the post-publish
+        // cleanup to one run per exchange (#349).
+        if (this._challengeExchanges[msg.challengeRequestId.toString()].challengeVerification) {
+            log.trace("Received a copy of a challenge verification that was already handled, ignoring it");
+            return;
+        }
         this._challengeExchanges[msg.challengeRequestId.toString()].challengeVerification = challengeVerificationMsg;
 
         Object.values(this._challengeExchanges).forEach((exchange) => this._updatePubsubState("stopped", exchange.providerUrl));
@@ -582,29 +602,48 @@ class Publication extends TypedEmitter<PublicationEvents> {
         if (challengeExchangesWithChallenge.length > 1) throw Error("We should only have one challenge exchange with challenge");
 
         const challengeExchange = challengeExchangesWithChallenge[0];
+        const challengeRequestIdString = challengeExchange.challengeRequest.challengeRequestId.toString();
+
+        // Each challenge is answered once. A second call, whether after the first answer was published or
+        // while it is still being encrypted and signed, would put a second CHALLENGEANSWER on the topic;
+        // the community rejects or errors on it, and for a locally hosted community that error would
+        // propagate back here and mark a publication the community accepts as failed (#349). The claim
+        // is made before the first await so two calls in the same tick cannot both pass.
+        if (challengeExchange.challengeAnswer || challengeExchange.challengeAnswerPublishInFlight)
+            throw new PKCError("ERR_CHALLENGE_ANSWER_ALREADY_PUBLISHED", {
+                challengeRequestId: challengeRequestIdString,
+                publishingState: this.publishingState
+            });
+        challengeExchange.challengeAnswerPublishInFlight = true;
 
         assert(this._community, "Local pkc-js needs publication._community to be defined to publish challenge answer");
 
         if (!challengeExchange.signer) throw Error("Signer is undefined for this challenge exchange");
-        const encryptedChallengeAnswers = await encryptEd25519AesGcm(
-            JSON.stringify(toEncryptAnswers),
-            challengeExchange.signer.privateKey,
-            this._community.encryption.publicKey
-        );
+        let answerMsgToPublish: ChallengeAnswerMessageType;
+        try {
+            const encryptedChallengeAnswers = await encryptEd25519AesGcm(
+                JSON.stringify(toEncryptAnswers),
+                challengeExchange.signer.privateKey,
+                this._community.encryption.publicKey
+            );
 
-        const toSignAnswer: Omit<ChallengeAnswerMessageType, "signature"> = cleanUpBeforePublishing({
-            type: "CHALLENGEANSWER",
-            challengeRequestId: challengeExchange.challengeRequest.challengeRequestId,
-            encrypted: encryptedChallengeAnswers,
-            userAgent: this._pkc.userAgent,
-            protocolVersion: env.PROTOCOL_VERSION,
-            timestamp: timestamp()
-        });
+            const toSignAnswer: Omit<ChallengeAnswerMessageType, "signature"> = cleanUpBeforePublishing({
+                type: "CHALLENGEANSWER",
+                challengeRequestId: challengeExchange.challengeRequest.challengeRequestId,
+                encrypted: encryptedChallengeAnswers,
+                userAgent: this._pkc.userAgent,
+                protocolVersion: env.PROTOCOL_VERSION,
+                timestamp: timestamp()
+            });
 
-        const answerMsgToPublish = <ChallengeAnswerMessageType>{
-            ...toSignAnswer,
-            signature: await signChallengeAnswer({ challengeAnswer: toSignAnswer, signer: challengeExchange.signer })
-        };
+            answerMsgToPublish = <ChallengeAnswerMessageType>{
+                ...toSignAnswer,
+                signature: await signChallengeAnswer({ challengeAnswer: toSignAnswer, signer: challengeExchange.signer })
+            };
+        } catch (e) {
+            challengeExchange.challengeAnswerPublishInFlight = false;
+            throw e;
+        }
 
         // TODO should be handling multiple providers with publishing challenge answer?
         // For now, let's just publish to the provider that got us the challenge and its request
@@ -617,6 +656,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             } catch (e) {
                 this._challengeExchanges[challengeExchange.challengeRequest.challengeRequestId.toString()].challengeAnswerPublishError =
                     e as Error | PKCError;
+                challengeExchange.challengeAnswerPublishInFlight = false;
                 this._updatePublishingStateWithEmission("failed");
                 this._updatePubsubState("stopped", challengeExchange.providerUrl);
                 throw e;
@@ -631,6 +671,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             } catch (e) {
                 this._challengeExchanges[challengeExchange.challengeRequest.challengeRequestId.toString()].challengeAnswerPublishError =
                     e as Error | PKCError;
+                challengeExchange.challengeAnswerPublishInFlight = false;
                 this._updatePublishingStateWithEmission("failed");
                 this._updatePubsubState("stopped", challengeExchange.providerUrl);
                 throw e;
