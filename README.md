@@ -1306,7 +1306,7 @@ An object which may have the following keys:
 | suggested | `CommunitySuggested` or `undefined` | The suggested client settings for the community |
 | flairs | `{[key: 'post' or 'author']: Flair[]}` or `undefined` | The list of flairs (colored labels for comments or authors) authors or mods can choose from |
 | settings | `CommunitySettings` or `undefined` | The private community.settings property of the community, not shared in the community IPNS |
-| pageSorts | `CommunityPageSorts` or `undefined` | What the community publishes about its configured page sorts (`settings.pages`), keyed by sort name per scope: `{ posts?: {[sortName]: { name?, description?, publicOptions? }}, replies?: ... }`. Absent when `settings.pages` is unset |
+| pageSorts | `CommunityPageSorts` or `undefined` | What the community publishes about its configured page sorts (`settings.pages`), keyed by sort name per scope: `{ posts?: {[sortName]: { name?, description?, publicOptions? }}, replies?: ... }`. `publicOptions` is the full option set the sort runs with (reserved options included) minus `privateOptions`, so a client can re-sort a page locally with `sortPageComments`. Absent when `settings.pages` is unset |
 
 ##### CommunitySettings
 
@@ -1329,7 +1329,7 @@ One entry of `settings.pages.posts` / `settings.pages.replies`, mirroring `Commu
 | path | `string` or `undefined` | (only if name is undefined) The path to the page sort js file |
 | options | `{[optionName: string]: string}` or `undefined` | Options passed to the file. `maxAge` (`"7d"`, `"2w"`), `pinnedFirst` (`"true"`/`"false"`) and the `exclude*` moderation flags are reserved options every sort accepts |
 | preloaded | `boolean` or `undefined` | Embed this sort's first page in the record (`posts.pages` / `commentUpdate.replies.pages`). Default `false`; the first preloaded entry is the client's default sort |
-| privateOptions | `string[]` or `undefined` | Option names withheld from the public `community.pageSorts`; everything else set in `options` is published |
+| privateOptions | `string[]` or `undefined` | Option names withheld from the public `community.pageSorts`; everything else the sort runs with is published. Package options only: a reserved option (`maxAge`, `pinnedFirst`, `exclude*`) cannot be private |
 
 #### Example
 
