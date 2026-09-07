@@ -141,15 +141,25 @@ describe("pkc.settings.pageSorts over RPC", () => {
             };
             await community.edit({ settings: { ...community.settings, pages } });
             expect(community.settings?.pages).to.deep.equal(pages);
+            // publicOptions carries the full merged option set (the scope's reserved defaults here, nothing else was set)
+            const exclusions = (removedDeletedApproved: "true" | "false") => ({
+                pinnedFirst: "true",
+                excludeRemovedComments: removedDeletedApproved,
+                excludeDeletedComments: removedDeletedApproved,
+                excludeCommentPendingApproval: "true",
+                excludeCommentWithApprovedFalse: removedDeletedApproved,
+                excludeCommentsWithDifferentCommunityAddress: "true"
+            });
             expect(community.pageSorts).to.deep.equal({
                 posts: {
                     "custom-newest": {
                         name: "custom-newest",
-                        description: "Newest first, registered through pkc.settings.pageSorts on the server"
+                        description: "Newest first, registered through pkc.settings.pageSorts on the server",
+                        publicOptions: exclusions("true")
                     },
-                    hot: { name: "hot", description: "Reddit-style hot ranking: votes weighted by age" }
+                    hot: { name: "hot", description: "Reddit-style hot ranking: votes weighted by age", publicOptions: exclusions("true") }
                 },
-                replies: { old: { name: "old", description: "Oldest first" } }
+                replies: { old: { name: "old", description: "Oldest first", publicOptions: exclusions("false") } }
             });
         } finally {
             await community.delete();

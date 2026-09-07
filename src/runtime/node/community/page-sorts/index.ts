@@ -2,11 +2,11 @@ import { pathToFileURL } from "node:url";
 import { PKCError } from "../../../../pkc-error.js";
 import { PageSortFileFactorySchema, PageSortFileSchema } from "../../../../community/schema.js";
 import {
-    DEFAULT_EXCLUSION_OPTIONS,
+    DEFAULT_RESERVED_OPTIONS,
     parseReservedPageSortOptions,
     RESERVED_PAGE_SORT_OPTION_NAMES,
     type ParsedReservedPageSortOptions
-} from "./reserved-options.js";
+} from "../../../../pages/page-sort-options.js";
 import hot from "./pkc-js-page-sorts/hot.js";
 import newSort from "./pkc-js-page-sorts/new.js";
 import old from "./pkc-js-page-sorts/old.js";
@@ -35,6 +35,7 @@ import type {
 import type { PageSortDb } from "../../../../pages/types.js";
 import type { FailedPageSorts } from "../page-generator.js";
 import Logger from "../../../../logger.js";
+import { cleanUpBeforePublishing } from "../../../../signer/signatures.js";
 import type { LocalCommunity } from "../local-community.js";
 
 // Configurable page sorts (settings.pages, issue #73). Mirrors the challenges module: a registry of built-ins that
@@ -197,11 +198,16 @@ function resolveOneEntry({
                 };
     }
 
-    for (const optionName of pageSortSettings.privateOptions ?? [])
+    for (const optionName of pageSortSettings.privateOptions ?? []) {
+        if (RESERVED_PAGE_SORT_OPTION_NAMES.includes(optionName))
+            return {
+                error: new PKCError("ERR_PAGE_SORT_RESERVED_OPTION_CANNOT_BE_PRIVATE", { ...baseDetails, offendingOption: optionName })
+            };
         if (entryOptions[optionName] === undefined)
             return { error: new PKCError("ERR_PAGE_SORT_PRIVATE_OPTION_NOT_SET", { ...baseDetails, offendingOption: optionName }) };
+    }
 
-    const options: Record<string, string> = { ...DEFAULT_EXCLUSION_OPTIONS[scope], ...file.defaultOptions, ...entryOptions };
+    const options: Record<string, string> = { ...DEFAULT_RESERVED_OPTIONS[scope], ...file.defaultOptions, ...entryOptions };
     let reserved: ParsedReservedPageSortOptions;
     try {
         reserved = parseReservedPageSortOptions(options);
@@ -315,8 +321,10 @@ export async function resolvePageSortsOrThrow({
 }
 
 // community.pageSorts: what the record says about each configured sort. Only present when settings.pages is set, so
-// an unconfigured community publishes the same record it always has. Every option the owner set is public unless
-// named in privateOptions; the scope defaults and the file's own defaultOptions are not options the owner set.
+// an unconfigured community publishes the same record it always has. publicOptions is the full merged option set the
+// sort runs with (scope reserved defaults, the file's defaultOptions, the entry's options) minus privateOptions, so a
+// client can re-sort locally from the same inputs without knowing pkc-js's defaults. The result goes through the same
+// cleanup as the record, so the owner's community.pageSorts is exactly what remote clients see.
 export function derivePublicPageSorts({
     pagesSettings,
     resolved
@@ -325,13 +333,11 @@ export function derivePublicPageSorts({
     resolved: ResolvedPageSorts;
 }): CommunityPageSorts | undefined {
     if (!pagesSettings) return undefined;
-    const project = (sorts: ResolvedPageSort[]): Record<string, CommunityPageSort> | undefined => {
+    const project = (sorts: ResolvedPageSort[]): Record<string, CommunityPageSort> => {
         const record: Record<string, CommunityPageSort> = {};
         for (const sort of sorts) {
             const privateOptions = new Set(sort.settings.privateOptions ?? []);
-            const publicOptions = Object.fromEntries(
-                Object.entries(sort.settings.options ?? {}).filter(([name]) => !privateOptions.has(name))
-            );
+            const publicOptions = Object.fromEntries(Object.entries(sort.options).filter(([name]) => !privateOptions.has(name)));
             record[sort.sortName] = {
                 ...(sort.settings.name ? { name: sort.settings.name } : {}),
                 ...(sort.file.description ? { description: sort.file.description } : {}),
@@ -340,10 +346,11 @@ export function derivePublicPageSorts({
         }
         return record;
     };
-    return {
+    const cleaned = cleanUpBeforePublishing({
         ...(pagesSettings.posts !== undefined ? { posts: project(resolved.posts) } : {}),
         ...(pagesSettings.replies !== undefined ? { replies: project(resolved.replies) } : {})
-    };
+    });
+    return Object.keys(cleaned).length > 0 ? cleaned : undefined; // the record drops an empty pageSorts too (posts: [] and replies: [])
 }
 
 // Start path: resolve settings.pages with every failure reported as its own `error` event, one per entry, and keep

@@ -76,7 +76,8 @@ import type { CommunityEditChallengeRequestToEncryptType } from "../../publicati
 import { PublicationRpcErrorToTransmit } from "../../publications/types.js";
 import { TypedEmitter } from "tiny-typed-emitter";
 import { sanitizeRpcNotificationResult } from "./json-rpc-util.js";
-import type { ModQueuePageIpfs, PageIpfs, PageSortDb } from "../../pages/types.js";
+import type { ModQueuePageIpfs, PageIpfs } from "../../pages/types.js";
+import { createUnavailablePageSortDb } from "../../pages/page-sort-client.js";
 import { buildPageRuntimeFields, buildPagesRuntimeFields } from "../../pages/util.js";
 import { extractCrosspostRuntimeFields } from "../../publications/comment/crosspost-runtime.js";
 import {
@@ -974,19 +975,12 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         // (the pattern the registry recommends) succeeds, only executing a statement throws. A factory that still
         // throws is a broken package and is left out of the listing rather than failing the whole settings payload.
         const allPageSortFactories = { ...(PKCJs.PKC.pageSorts || {}), ...(pkc.settings?.pageSorts || {}) };
-        const notAvailable = () => {
-            throw Error("The db facade cannot execute statements while listing page sorts for RPC settings");
-        };
-        const lazyStatement = new Proxy({}, { get: () => notAvailable }) as unknown as ReturnType<PageSortDb["prepare"]>;
-        const noDb: PageSortDb = {
-            prepare: () => lazyStatement,
-            exclusionClauses: () => ({ sql: "", params: {} })
-        };
+        const noDb = createUnavailablePageSortDb("The db facade cannot execute statements while listing page sorts for RPC settings");
         const pageSorts: PKCWsServerSettingsSerialized["pageSorts"] = {};
         for (const [name, pageSortFactory] of Object.entries(allPageSortFactories)) {
             try {
                 pageSorts[name] = omit(pageSortFactory({ pageSortSettings: { name }, db: noDb }), [
-                    "filter",
+                    "score",
                     "scoreAll",
                     "validatePageSortSettings"
                 ]);

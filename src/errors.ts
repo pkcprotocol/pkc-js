@@ -435,6 +435,8 @@ export enum messages {
     ERR_PAGE_SORT_REQUIRED_OPTION_MISSING = "settings.pages[].options is missing an option whose optionInputs entry is required",
     ERR_PAGE_SORT_INVALID_RESERVED_OPTION = "A reserved page sort option (maxAge, pinnedFirst, exclude*) has a value pkc-js cannot parse",
     ERR_PAGE_SORT_PRIVATE_OPTION_NOT_SET = "settings.pages[].privateOptions names an option that is not set in options",
+    ERR_PAGE_SORT_FILE_HAS_NO_CLIENT_SCORER = "This page sort file defines only scoreAll, which needs the community database; it cannot re-sort a page on a client",
+    ERR_PAGE_SORT_RESERVED_OPTION_CANNOT_BE_PRIVATE = "settings.pages[].privateOptions names a reserved option (maxAge, pinnedFirst, exclude*); reserved options describe what the page contains and are always published",
     ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED = "The page sort's validatePageSortSettings hook rejected settings.pages[]",
     ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED_FOR_PAGE_SORTS = "One or more entries of settings.pages failed validation",
     ERR_PAGE_SORT_FAILED_TO_GENERATE = "A configured page sort threw while generating its pages; it was skipped for this cycle and the remaining sorts were published",

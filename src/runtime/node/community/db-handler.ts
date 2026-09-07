@@ -74,7 +74,7 @@ import { messages } from "../../../errors.js";
 import type { PseudonymityAliasRow, PurgedCommentTableRows } from "./db-handler-types.js";
 import { getAuthorNameFromWire } from "../../../publications/publication-author.js";
 import { PageSortDbFacade } from "./page-sorts/db-facade.js";
-import { parseBooleanOption } from "./page-sorts/reserved-options.js";
+import { parseBooleanOption } from "../../../pages/page-sort-options.js";
 import activePageSort from "./page-sorts/pkc-js-page-sorts/active.js";
 import type { PageSortDb } from "../../../pages/types.js";
 
@@ -3370,7 +3370,8 @@ export class DbHandler {
             excludeCommentWithApprovedFalse: String(pageOptions.excludeCommentWithApprovedFalse),
             excludeCommentsWithDifferentCommunityAddress: String(pageOptions.excludeCommentsWithDifferentCommunityAddress)
         };
-        const scores = activePageSort({ pageSortSettings: { name: "active" }, db }).scoreAll({
+        const scores = activePageSort({ pageSortSettings: { name: "active" }, db }).scoreAll!({
+            // active is an SQL sort: it always has scoreAll
             comments: posts,
             db,
             options,

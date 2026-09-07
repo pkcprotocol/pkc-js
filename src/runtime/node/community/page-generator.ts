@@ -17,6 +17,7 @@ import { stringify as deterministicStringify } from "safe-stable-stringify";
 import env from "../../../version.js";
 import { PKCError } from "../../../pkc-error.js";
 import type { ResolvedPageSort } from "./page-sorts/index.js";
+import { orderPageCommentsByScore, partitionPageCommentsForSort, scoreAllFromScore } from "../../../pages/page-sort-client.js";
 import type { PageSortScope } from "../../../community/types.js";
 import Logger from "../../../logger.js";
 import type { CommunityIpfsType } from "../../../community/types.js";
@@ -315,35 +316,24 @@ export class PageGenerator {
         return chunks;
     }
 
-    // Apply one sort to a loaded comment set: the file's filter, pinned placement, the maxAge window, then the file's
-    // whole-set scorer. Pinned comments sort first and bypass both filters when pinnedFirst is on (the default), so a
-    // sticky never ages out of a windowed index; with pinnedFirst off they are ordinary comments.
+    // Apply one sort to a loaded comment set: pinned placement, the maxAge window (both shared with the client-side
+    // sorter so a client reproduces the same set), then the file's scorer. scoreAll runs over the whole set with the db
+    // facade; a file that only has the per-comment `score` is lifted to the same contract. The exclusions were already
+    // applied by the SQL that loaded the set.
     sortComments(comments: PageIpfs["comments"], sort: ResolvedPageSort, baseTimestamp: number): PageIpfs["comments"] {
         const db = this._community._dbHandler.createPageSortDb();
         const { options } = sort;
-        const pinned = sort.pinnedFirst ? comments.filter((entry) => entry.commentUpdate.pinned === true) : [];
-        let unpinned = sort.pinnedFirst ? comments.filter((entry) => entry.commentUpdate.pinned !== true) : comments;
-        if (sort.file.filter) {
-            const filter = sort.file.filter;
-            unpinned = unpinned.filter((entry) =>
-                filter({ comment: entry.comment, commentUpdate: entry.commentUpdate, options, baseTimestamp })
-            );
-        }
-        if (typeof sort.maxAgeSeconds === "number") {
-            const timestampLower = baseTimestamp - sort.maxAgeSeconds;
-            unpinned = unpinned.filter((entry) => entry.comment.timestamp >= timestampLower);
-        }
+        const { pinned, unpinned } = partitionPageCommentsForSort({ comments, reserved: sort, baseTimestamp });
         const survivors = pinned.concat(unpinned);
         if (survivors.length === 0) return [];
-        const scores = sort.file.scoreAll({ comments: survivors, db, options, baseTimestamp });
-        const scoreOf = (entry: PageIpfs["comments"][number]): number => {
-            const score = scores.get(entry.commentUpdate.cid);
-            if (typeof score !== "number" || Number.isNaN(score))
-                throw Error(`Page sort ${sort.sortName} returned no numeric score for comment ${entry.commentUpdate.cid}`);
-            return score;
-        };
-        const byScoreDesc = (a: PageIpfs["comments"][number], b: PageIpfs["comments"][number]) => scoreOf(b) - scoreOf(a);
-        return pinned.sort(byScoreDesc).concat(unpinned.sort(byScoreDesc));
+        const scoreAll = sort.file.scoreAll ?? scoreAllFromScore(sort.file.score!); // the schema guarantees one of the two
+        const scores = scoreAll({ comments: survivors, db, options, baseTimestamp });
+        return orderPageCommentsByScore({
+            pinned,
+            unpinned,
+            sortName: sort.sortName,
+            scoreOf: (entry) => scores.get(entry.commentUpdate.cid)
+        });
     }
 
     async sortAndChunkComments(

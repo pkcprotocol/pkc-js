@@ -55,5 +55,5 @@ export const PKCWsServerSettingsSerializedSchema = z.object({
     // The page sorts the server can resolve settings.pages[].name against (issue #73), minus their functions, so
     // a client can render a picker and reject an unknown name before the round trip. Optional: an older server
     // does not send it.
-    pageSorts: z.record(z.string(), PageSortFileSchema.omit({ filter: true, scoreAll: true, validatePageSortSettings: true })).optional()
+    pageSorts: z.record(z.string(), PageSortFileSchema.omit({ score: true, scoreAll: true, validatePageSortSettings: true })).optional()
 });

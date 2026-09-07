@@ -1,5 +1,5 @@
 import { oldScore } from "../../../../../pages/util.js";
-import { scoreAllFromPerCommentScore } from "./util.js";
+import { perCommentScore } from "./util.js";
 import type { PageSortFileFactory } from "../../../../../community/types.js";
 
 const oldFlat: PageSortFileFactory = () => ({
@@ -8,7 +8,7 @@ const oldFlat: PageSortFileFactory = () => ({
     optionInputs: [], // reads nothing beyond the reserved options (maxAge, pinnedFirst, exclude*)
     scope: "replies",
     flat: true,
-    scoreAll: scoreAllFromPerCommentScore(oldScore)
+    score: perCommentScore(oldScore)
 });
 
 export default oldFlat;

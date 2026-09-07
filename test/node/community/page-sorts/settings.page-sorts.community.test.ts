@@ -124,7 +124,21 @@ describeSkipIfRpc.concurrent("settings.pages: validation", () => {
 
     it("rejects a privateOptions entry that is not a set option", async () => {
         const community = (await pkc.createCommunity()) as LocalCommunity;
-        await expectEditToFail(community, { posts: [{ name: "new", privateOptions: ["maxAge"] }] }, "ERR_PAGE_SORT_PRIVATE_OPTION_NOT_SET");
+        await expectEditToFail(
+            community,
+            { posts: [{ path: NO_BUMP_KEYWORD_SORT_PATH, privateOptions: ["noBumpKeywords"] }] },
+            "ERR_PAGE_SORT_PRIVATE_OPTION_NOT_SET"
+        );
+    });
+
+    it("rejects a reserved option in privateOptions: how the page was filtered is always published", async () => {
+        const community = (await pkc.createCommunity()) as LocalCommunity;
+        for (const reserved of ["maxAge", "pinnedFirst", "excludeRemovedComments"])
+            await expectEditToFail(
+                community,
+                { posts: [{ name: "new", options: { [reserved]: reserved === "maxAge" ? "1d" : "true" }, privateOptions: [reserved] }] },
+                "ERR_PAGE_SORT_RESERVED_OPTION_CANNOT_BE_PRIVATE"
+            );
     });
 
     it("accepts every built-in under its scope, including controversial", async () => {
@@ -281,7 +295,7 @@ describeSkipIfRpc.concurrent("settings.pages: published record", () => {
         await remotePKC.destroy();
     });
 
-    it("publishes community.pageSorts with every option public by default and privateOptions withheld", async () => {
+    it("publishes community.pageSorts with the full merged option set per sort and privateOptions withheld", async () => {
         const community = (await pkc.createCommunity()) as LocalCommunity;
         await community.edit({
             settings: {
@@ -290,8 +304,8 @@ describeSkipIfRpc.concurrent("settings.pages: published record", () => {
                     posts: [
                         {
                             path: NO_BUMP_KEYWORD_SORT_PATH,
-                            options: { noBumpKeywords: "sage", maxAge: "1w" },
-                            privateOptions: ["maxAge"],
+                            options: { noBumpKeywords: "sage,nobump", maxAge: "1w" },
+                            privateOptions: ["noBumpKeywords"], // a board may keep its no-bump vocabulary to itself
                             preloaded: true
                         }
                     ],
@@ -308,16 +322,34 @@ describeSkipIfRpc.concurrent("settings.pages: published record", () => {
             const remoteCommunity = (await remotePKC.getCommunity({ address: community.address })) as RemoteCommunity;
             expect(remoteCommunity.updatedAt).to.equal(community.updatedAt);
             for (const _community of [community, remoteCommunity]) {
+                // publicOptions is everything the sort runs with: the scope's reserved defaults, the file's defaultOptions,
+                // the entry's options, minus privateOptions. A client needs no knowledge of pkc-js defaults to re-sort.
+                const postDefaults = {
+                    pinnedFirst: "true",
+                    excludeRemovedComments: "true",
+                    excludeDeletedComments: "true",
+                    excludeCommentPendingApproval: "true",
+                    excludeCommentWithApprovedFalse: "true",
+                    excludeCommentsWithDifferentCommunityAddress: "true"
+                };
+                const replyDefaults = {
+                    pinnedFirst: "true",
+                    excludeRemovedComments: "false",
+                    excludeDeletedComments: "false",
+                    excludeCommentPendingApproval: "true",
+                    excludeCommentWithApprovedFalse: "false",
+                    excludeCommentsWithDifferentCommunityAddress: "true"
+                };
                 expect(_community.pageSorts).to.deep.equal({
                     posts: {
                         active: {
                             description: "Bump order where replies whose content is one of the configured keywords do not bump the thread",
-                            publicOptions: { noBumpKeywords: "sage" }
+                            publicOptions: { ...postDefaults, maxAge: "1w" }
                         }
                     },
                     replies: {
-                        old: { name: "old", description: "Oldest first" },
-                        new: { name: "new", description: "Newest first", publicOptions: { pinnedFirst: "false" } }
+                        old: { name: "old", description: "Oldest first", publicOptions: replyDefaults },
+                        new: { name: "new", description: "Newest first", publicOptions: { ...replyDefaults, pinnedFirst: "false" } }
                     }
                 });
             }

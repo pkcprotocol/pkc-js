@@ -276,8 +276,12 @@ export const PageSortFileSchema = z.looseObject({
     scope: PageSortScopeSchema.optional(), // undefined = usable under both posts and replies
     flat: z.boolean().optional(), // reply sorts only: sort the flattened descendant subtree instead of the direct replies
     defaultOptions: z.record(z.string(), z.string()).optional(), // merged under settings.pages[].options (the entry wins); how topWeek fixes its own maxAge
-    // Per comment, before scoreAll, sync. Return false to drop the comment from this sort's pages.
-    filter: z
+    // Two scorers, for two places (docs/protocol/page-sorts.md, "Two scoring functions"). Higher scores sort first.
+    //
+    // `score`: per comment, sync, from what the page entry itself carries (comment, commentUpdate, its nested
+    // preloaded replies). Runs on clients re-sorting a page locally, where there is no database, and on the
+    // community when the file has no scoreAll. A file that wants clients to reproduce its order provides it.
+    score: z
         .function({
             input: [
                 z.object({
@@ -287,38 +291,50 @@ export const PageSortFileSchema = z.looseObject({
                     baseTimestamp: z.number()
                 })
             ],
-            output: z.boolean()
+            output: z.number()
         })
         .optional(),
-    // Whole-set scorer, sync, called once per generation with every surviving comment. Higher scores sort first.
-    // Receives the read-only db facade so a sort can score from SQL (the active sort is MAX(timestamp) over a
-    // post's descendants, which no per-comment function can express).
-    scoreAll: z.function({
-        input: [
-            z.object({
-                comments: PageSortCommentEntrySchema.array(),
-                db: z.custom<PageSortDb>(),
-                options: z.record(z.string(), z.string()),
-                baseTimestamp: z.number()
-            })
-        ],
-        output: z.map(z.string(), z.number())
-    }),
+    // `scoreAll`: whole set, sync, called once per generation with every surviving comment, with the read-only db
+    // facade so a sort can score from SQL (the active sort is MAX(timestamp) over a post's descendants, which no
+    // per-comment function can express over the whole table). Community-side only.
+    scoreAll: z
+        .function({
+            input: [
+                z.object({
+                    comments: PageSortCommentEntrySchema.array(),
+                    db: z.custom<PageSortDb>(),
+                    options: z.record(z.string(), z.string()),
+                    baseTimestamp: z.number()
+                })
+            ],
+            output: z.map(z.string(), z.number())
+        })
+        .optional(),
     // Sync semantic validation of the entry, same contract as ChallengeFile.validateChallengeSettings
     validatePageSortSettings: z
         .function({ input: [z.object({ pageSortSettings: CommunityPageSortSettingSchema })], output: z.void() })
         .optional()
 });
 
-export const PageSortFileFactorySchema = z.function({ input: [PageSortFileFactoryArgsSchema], output: PageSortFileSchema });
+// A file must be able to score somehow; the two functions are optional individually only so a client-only file
+// (score) and an SQL-only file (scoreAll) are both valid.
+export const PageSortFileWithScorerSchema = PageSortFileSchema.refine((file) => Boolean(file.score || file.scoreAll), {
+    message: "A page sort file must define score, scoreAll or both"
+});
+
+export const PageSortFileFactorySchema = z.function({ input: [PageSortFileFactoryArgsSchema], output: PageSortFileWithScorerSchema });
 
 // What a community publishes about each configured sort (community.pageSorts), keyed by sortName. Mirrors
 // community.challenges[i]: enough for a client to tell the built-in `active` from a package that reuses the
-// name, and to re-sort locally with the same package when the board fits in one chunk.
+// name, and to re-sort locally with the same package when the board fits in one chunk (docs/protocol/page-sorts.md,
+// "Client-side re-sorting").
 export const CommunityPageSortSchema = z.looseObject({
     name: z.string().optional(), // the PKC.pageSorts key for name: entries; omitted for path: entries
     description: PageSortFileSchema.shape.description,
-    // Every option set in settings.pages[].options, minus the names listed in privateOptions. Omitted when nothing is left.
+    // Every option the sort runs with, minus the names listed in privateOptions: the scope's reserved defaults,
+    // then the file's defaultOptions, then the entry's options. The reserved options (maxAge, pinnedFirst, exclude*)
+    // are always here, so a client knows exactly how the page's comment set was filtered without knowing pkc-js's
+    // defaults. Omitted only when nothing is left.
     publicOptions: z.record(z.string(), z.string()).optional()
 });
 

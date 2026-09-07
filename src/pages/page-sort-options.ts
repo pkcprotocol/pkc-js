@@ -1,10 +1,12 @@
-import { PKCError } from "../../../../pkc-error.js";
-import type { PageSortExclusionOptionName } from "../../../../pages/types.js";
-import type { PageSortScope } from "../../../../community/types.js";
+import { PKCError } from "../pkc-error.js";
+import type { PageSortExclusionOptionName } from "./types.js";
+import type { PageSortScope } from "../community/types.js";
 
-// The options pkc-js itself reads off every settings.pages[] entry. They are ordinary string options (a config
-// UI renders them like any other) and are passed through to the sort file unstripped, so a file can splice the
-// exclusions into its own SQL through PageSortDb.exclusionClauses and read the window it runs in.
+// The options pkc-js itself reads off every settings.pages[] entry (the "reserved options", issue #73). They are
+// ordinary string options (a config UI renders them like any other) and are passed through to the sort file
+// unstripped, so a file can splice the exclusions into its own SQL through PageSortDb.exclusionClauses and read the
+// window it runs in. Browser-safe: a client re-sorting a page locally parses the same options out of
+// community.pageSorts[sortName].publicOptions (see sortPageComments in ./page-sort-client.ts).
 
 // `M` and `y` reproduce the windows the legacy topMonth / topYear sorts have always used (TIMEFRAMES_TO_SECONDS),
 // so the built-in files produce the same pages as before.
@@ -41,10 +43,16 @@ export const RESERVED_PAGE_SORT_OPTION_NAMES: readonly string[] = Object.freeze(
     ...PAGE_SORT_EXCLUSION_OPTION_NAMES
 ]);
 
-// What the generator has always applied per scope (docs/protocol/pages.md, "Moderation Visibility"): the posts feed
-// hides moderated comments, reply pages keep removed and deleted ones so clients can render tombstones.
-export const DEFAULT_EXCLUSION_OPTIONS: Record<PageSortScope, Record<PageSortExclusionOptionName, "true" | "false">> = Object.freeze({
+// What every sort runs with unless the file's defaultOptions or the entry's options say otherwise: the exclusions
+// the generator has always applied per scope (docs/protocol/pages.md, "Moderation Visibility": the posts feed hides
+// moderated comments, reply pages keep removed and deleted ones so clients can render tombstones) and pinned
+// placement. The full merged set is published per sort in community.pageSorts, so a client never has to know these.
+export const DEFAULT_RESERVED_OPTIONS: Record<
+    PageSortScope,
+    Record<PageSortExclusionOptionName | "pinnedFirst", "true" | "false">
+> = Object.freeze({
     posts: {
+        pinnedFirst: "true",
         excludeRemovedComments: "true",
         excludeDeletedComments: "true",
         excludeCommentPendingApproval: "true",
@@ -52,6 +60,7 @@ export const DEFAULT_EXCLUSION_OPTIONS: Record<PageSortScope, Record<PageSortExc
         excludeCommentsWithDifferentCommunityAddress: "true"
     },
     replies: {
+        pinnedFirst: "true",
         excludeRemovedComments: "false",
         excludeDeletedComments: "false",
         excludeCommentPendingApproval: "true",

@@ -13,6 +13,36 @@ const splitKeywords = (raw) =>
         .map((keyword) => keyword.trim())
         .filter(Boolean);
 
+const isNoBump = (content, keywords) => {
+    if (typeof content !== "string") return false;
+    const lines = content.split("\n");
+    return keywords.some((keyword) => lines.includes(keyword));
+};
+
+// The same exclusions the community's SQL applies to descendants (db.exclusionClauses), read off the merged options
+// a client gets from community.pageSorts[sortName].publicOptions.
+const isExcluded = (entry, options) =>
+    (options.excludeRemovedComments === "true" && entry.commentUpdate.removed === true) ||
+    (options.excludeDeletedComments === "true" && entry.commentUpdate.edit?.deleted === true) ||
+    (options.excludeCommentWithApprovedFalse === "true" && entry.commentUpdate.approved === false) ||
+    (options.excludeCommentPendingApproval === "true" && entry.commentUpdate.pendingApproval === true);
+
+// Client-side bump score: MAX(timestamp) over the post and the descendants carried in its preloaded reply pages,
+// skipping no-bump replies. Same rule as scoreAll below, over what a page entry carries instead of the DB.
+const bumpScoreFromEntry = ({ comment, commentUpdate, keywords, options }) => {
+    let score = comment.timestamp;
+    const walk = (entry) => {
+        for (const page of Object.values(entry.commentUpdate.replies?.pages ?? {}))
+            for (const child of page.comments) {
+                if (isExcluded(child, options)) continue;
+                if (!isNoBump(child.comment.content, keywords)) score = Math.max(score, child.comment.timestamp);
+                walk(child);
+            }
+    };
+    walk({ comment, commentUpdate });
+    return score;
+};
+
 export default function activeNoBumpKeywordPageSort({ pageSortSettings }) {
     const keywords = splitKeywords(pageSortSettings.options?.noBumpKeywords);
 
@@ -28,6 +58,11 @@ export default function activeNoBumpKeywordPageSort({ pageSortSettings }) {
                 placeholder: "sage,nobump"
             }
         ],
+        // Per-comment scorer for clients re-sorting a page locally (no database): walks the nested reply pages the
+        // post entry carries. See docs/protocol/page-sorts.md, "Two scoring functions".
+        score({ comment, commentUpdate, options }) {
+            return bumpScoreFromEntry({ comment, commentUpdate, keywords, options });
+        },
         // Whole-set scorer: MAX(timestamp) over each post's descendants, skipping no-bump replies. Descendants of a
         // no-bump reply are still walked, so a normal reply under a no-bump one bumps as usual.
         scoreAll({ comments, db, options }) {
