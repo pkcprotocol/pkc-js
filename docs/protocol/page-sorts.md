@@ -224,8 +224,9 @@ The contract:
   complete; a client that walked only part of a thread gets a wrong order, not an error.
 - **What a reply-dependent sort costs the community.** `test/benchmarks/page-generation-bench.mjs` seeds
   20k posts with 10 to 100 replies each (1.1M replies) and times post page generation with IPFS stubbed. On
-  that board the keyword no-bump sort takes about 16 s and 1 GB of heap per generation against about 2 s
-  for the built-in `active`, which reads `lastReplyTimestamp` and loads no replies. The cost is linear in
+  that board the keyword no-bump sort takes about 16 s and grows the heap by about 1 GB per generation,
+  against about 2 s and 60 MB for the built-in `active`, which reads `lastReplyTimestamp` and loads no
+  replies; the nine default sorts together take about 7 s and 180 MB. The cost is linear in
   the reply count, so a board with a million posts should not configure a reply-dependent post sort; a
   5chan-sized board (a few hundred live threads) does not notice it.
 
