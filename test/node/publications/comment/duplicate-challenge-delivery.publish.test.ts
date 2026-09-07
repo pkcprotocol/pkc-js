@@ -12,9 +12,13 @@
 // the answer is signed and published, and is what CI hit on the #340 watchdog test, where the single
 // provider listed twice made the mock pubsub client deliver each message twice. The verification
 // handler records its guard late in the same way, so a duplicated CHALLENGEVERIFICATION emits
-// "challengeverification" twice as well. The two event-count assertions fail deterministically; the
-// state assertion after the answer documents the regression CI saw and holds once the duplicates
-// are dropped.
+// "challengeverification" twice as well, and because its guard is re-checked only after the comment
+// props were updated from the decrypted verification, the second copy also re-verifies the comment
+// and emits "update" a second time with nothing changed on the instance (the copy carries the same
+// cid, CommentIpfs and CommentUpdate). "update" is emitted only when a prop actually changed
+// everywhere else on Comment. The three event-count assertions fail deterministically; the state
+// assertion after the answer documents the regression CI saw and holds once the duplicates are
+// dropped.
 //
 // The duplicate is produced deterministically: the test taps the publisher's mock pubsub client with
 // a second subscription on the same topic and hands every community message to the publication's
@@ -118,6 +122,8 @@ describeSkipIfRpc("a CHALLENGE delivered twice to the publisher", () => {
         post.on("publishingstatechange", (state) => publishingStates.push(state));
         post.on("challenge", (challenge) => challenges.push(challenge));
         post.on("challengeverification", (verification) => verifications.push(verification));
+        let updates = 0;
+        post.on("update", () => updates++);
 
         const pubsubClient = publisherPKC.clients.pubsubKuboRpcClients[PUBSUB_PROVIDER]._client;
         const redeliverToPublication = (msg: IpfsHttpClientPubsubMessage) => {
@@ -158,6 +164,10 @@ describeSkipIfRpc("a CHALLENGE delivered twice to the publisher", () => {
             expect(verifications.length, "one CHALLENGEVERIFICATION message must produce one challengeverification event").to.equal(1);
             expect(verifications[0].challengeSuccess).to.be.true;
             expect(post.cid).to.be.a("string");
+            expect(
+                updates,
+                "the first copy sets cid and the comment props, the second copy changes nothing, so update is emitted once"
+            ).to.equal(1);
             expect(post.publishingState).to.equal("succeeded");
             expect(post.state).to.equal("stopped");
             expect(publishingStates.filter((state) => state === "succeeded").length).to.equal(1);

@@ -476,11 +476,6 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     this.emit("error", <PKCError>e);
                     return;
                 }
-
-                if (decryptedChallengeVerification.comment) {
-                    await this._verifyDecryptedChallengeVerificationAndUpdateCommentProps(decryptedChallengeVerification);
-                    log("Updated the props of this instance with challengeverification.encrypted");
-                }
             }
         } else {
             newPublishingState = "failed";
@@ -499,13 +494,20 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
         // Same re-check as in _handleIncomingChallengePubsubMessage: the guard at the top ran before the
         // awaits, and a copy of this CHALLENGEVERIFICATION from another provider may have recorded the
-        // verdict since. Dropping the copy here keeps "challengeverification" and the post-publish
-        // cleanup to one run per exchange (#349).
+        // verdict since. The verdict is recorded here, synchronously after the last await above and
+        // before the comment props are updated from it, so a copy is dropped before it re-verifies the
+        // comment or emits "update" with nothing changed; "challengeverification" and the post-publish
+        // cleanup run once per exchange as well (#349).
         if (this._challengeExchanges[msg.challengeRequestId.toString()].challengeVerification) {
             log.trace("Received a copy of a challenge verification that was already handled, ignoring it");
             return;
         }
         this._challengeExchanges[msg.challengeRequestId.toString()].challengeVerification = challengeVerificationMsg;
+
+        if (decryptedChallengeVerification?.comment) {
+            await this._verifyDecryptedChallengeVerificationAndUpdateCommentProps(decryptedChallengeVerification);
+            log("Updated the props of this instance with challengeverification.encrypted");
+        }
 
         Object.values(this._challengeExchanges).forEach((exchange) => this._updatePubsubState("stopped", exchange.providerUrl));
 
