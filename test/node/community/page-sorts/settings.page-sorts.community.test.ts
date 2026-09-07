@@ -158,6 +158,8 @@ describeSkipIfRpc.concurrent("settings.pages: validation", () => {
     });
 });
 
+// These tests read queryCommentsToBeUpdated and seed rows straight into the community DB, which only exists on a
+// LocalCommunity in this process; an RPC client never sees the DB.
 describeSkipIfRpc.concurrent("settings.pages: regeneration triggers", () => {
     it("any settings.pages edit flags every comment for CommentUpdate regeneration; an unrelated settings edit does not", async () => {
         const context = await createCommunityWithDefaultDb();
@@ -233,6 +235,7 @@ describeSkipIfRpc.concurrent("settings.pages: regeneration triggers", () => {
     });
 });
 
+// The facade is built from the community's DbHandler, which only exists on a LocalCommunity in this process.
 describeSkipIfRpc.concurrent("settings.pages: the db facade", () => {
     it("rejects a write statement on a file-backed community and still serves reads", async () => {
         const context = await createCommunityWithDefaultDb();
@@ -264,6 +267,8 @@ describeSkipIfRpc.concurrent("settings.pages: the db facade", () => {
     });
 });
 
+// Loads a page sort by `path`, which the RPC server cannot resolve on the client's filesystem, and asserts on
+// community.pageSorts as the owner instance holds it; the RPC round trip of the same field is covered in test/node/rpc.
 describeSkipIfRpc.concurrent("settings.pages: published record", () => {
     let pkc: PKCType;
     let remotePKC: PKCType;
