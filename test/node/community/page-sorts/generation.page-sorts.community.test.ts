@@ -426,7 +426,8 @@ describeSkipIfRpc.concurrent("settings.pages: page generation", () => {
             }
 
             const post = context.community._dbHandler.queryComment(cidOf("post"))!;
-            const repliesSpy = vi.spyOn(context.community._dbHandler, "queryPageCommentsWithResolvedReplies").mockImplementation(() => {
+            // the reply loader reads the direct children lean (their stored wire replies come per page, issue #351)
+            const repliesSpy = vi.spyOn(context.community._dbHandler, "queryPageComments").mockImplementation(() => {
                 throw new Error("SQLITE_BUSY: database is locked");
             });
             try {

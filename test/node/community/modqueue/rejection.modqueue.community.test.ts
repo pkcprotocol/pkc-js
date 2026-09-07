@@ -699,7 +699,9 @@ async function captureSortChunks<T>({
         const result = await originalSortAndChunk(...args);
         const [, sort, options] = args;
         if (sort.sortName === matchSortName && (options?.parentCid ?? null) === (matchParentCid ?? null)) {
-            capturedChunks.push(...result);
+            // Chunks hold the lean rows the sorts score; a page materializes each entry with its stored wire replies
+            // (issue #351), so search what the page would hold
+            capturedChunks.push(...result.map((chunk) => community._dbHandler.resolveRepliesCidRefsForEntries(chunk)));
         }
         return result;
     });

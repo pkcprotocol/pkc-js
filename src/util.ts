@@ -144,6 +144,25 @@ export function replaceXWithY(obj: Record<string, any>, x: any, y: any): any {
     return newObj;
 }
 
+// A copy of `value` whose objects list their keys in sorted order, recursively: JSON.stringify of it is byte-identical
+// to safe-stable-stringify of the original (keys sorted by code unit, the same order Array.prototype.sort gives), at
+// native speed. Arrays keep their order; anything but a plain object or array is returned as is.
+export function withSortedKeysDeep<T>(value: T): T {
+    if (Array.isArray(value)) return value.map(withSortedKeysDeep) as unknown as T;
+    if (value === null || typeof value !== "object") return value;
+    const source = value as Record<string, unknown>;
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(source).sort()) sorted[key] = withSortedKeysDeep(source[key]);
+    return sorted as T;
+}
+
+// The shallow form: the same object's own keys re-inserted in sorted order (values untouched)
+export function withSortedKeys<T extends Record<string, unknown>>(value: T): T {
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(value).sort()) sorted[key] = value[key];
+    return sorted as T;
+}
+
 export function removeNullUndefinedValues<T extends Object>(obj: T): T {
     // remeda v2 types pickBy's result as EnumeratedPartialNarrowed<T, ...>, which no longer
     // overlaps T for a direct cast; go through unknown. Runtime: same object minus null/undefined.
@@ -1402,6 +1421,80 @@ export async function fetchAndValidateIpnsRecordFromGateway(
 }
 
 const textEncoder = new TextEncoder();
+
+// What `ipfs add` reports as the size of a file of `byteLength` bytes under pkc-js's add options (CIDv0, no raw
+// leaves, 256 KiB fixed chunks, balanced layout, 174 links per node): the cumulative DAG size, which depends only on
+// the length. Computed from the dag-pb and UnixFS protobuf encodings instead of importing and hashing, so the page
+// generator can size every comment and page synchronously (issue #351). Pinned to the importer by
+// test/node/util/unixfs-dag-size.test.ts across every encoding boundary.
+const UNIXFS_CHUNK_BYTES = 262144;
+const UNIXFS_MAX_LINKS_PER_NODE = 174;
+const CIDV0_MULTIHASH_BYTES = 34; // sha2-256 multihash: 2 header bytes + 32 digest bytes
+const UNIXFS_TYPE_FILE_FIELD_BYTES = 2; // field 1 varint, value 2 (File)
+
+function protobufVarintBytes(value: number): number {
+    let bytes = 1;
+    while (value >= 0x80) {
+        value = Math.floor(value / 0x80);
+        bytes++;
+    }
+    return bytes;
+}
+
+// A length-delimited field: 1 tag byte + the length varint + the payload
+const protobufBytesFieldBytes = (payloadLength: number): number => 1 + protobufVarintBytes(payloadLength) + payloadLength;
+// A varint field: 1 tag byte + the varint
+const protobufVarintFieldBytes = (value: number): number => 1 + protobufVarintBytes(value);
+
+// A leaf holding one chunk: dag-pb { Data: UnixFS { Type: File, Data: chunk, filesize } }; an empty file skips Data
+function unixFsLeafBytes(chunkLength: number): number {
+    const unixfs =
+        UNIXFS_TYPE_FILE_FIELD_BYTES + (chunkLength > 0 ? protobufBytesFieldBytes(chunkLength) : 0) + protobufVarintFieldBytes(chunkLength);
+    return protobufBytesFieldBytes(unixfs);
+}
+
+type UnixFsDagNode = { dagBytes: number; fileBytes: number };
+
+// A parent over up to 174 children: one dag-pb Link per child (CIDv0 hash, empty name, Tsize = the child's DAG size)
+// plus UnixFS { Type: File, filesize, blocksizes[] } (blocksizes are not packed)
+function unixFsParentNode(children: UnixFsDagNode[]): UnixFsDagNode {
+    let links = 0;
+    let unixfs = UNIXFS_TYPE_FILE_FIELD_BYTES;
+    let fileBytes = 0;
+    let childrenDagBytes = 0;
+    for (const child of children) {
+        const link = protobufBytesFieldBytes(CIDV0_MULTIHASH_BYTES) + protobufBytesFieldBytes(0) + protobufVarintFieldBytes(child.dagBytes);
+        links += protobufBytesFieldBytes(link);
+        unixfs += protobufVarintFieldBytes(child.fileBytes);
+        fileBytes += child.fileBytes;
+        childrenDagBytes += child.dagBytes;
+    }
+    unixfs += protobufVarintFieldBytes(fileBytes);
+    return { dagBytes: links + protobufBytesFieldBytes(unixfs) + childrenDagBytes, fileBytes };
+}
+
+export function calculateUnixFsDagSizeCidV0(byteLength: number): number {
+    if (!Number.isInteger(byteLength) || byteLength < 0) throw new Error(`Invalid byte length ${byteLength}`);
+    const chunkCount = Math.max(1, Math.ceil(byteLength / UNIXFS_CHUNK_BYTES));
+    if (chunkCount === 1) return unixFsLeafBytes(byteLength); // a single chunk is the file itself (reduceSingleLeafToSelf)
+    let level: UnixFsDagNode[] = new Array(chunkCount);
+    for (let i = 0; i < chunkCount; i++) {
+        const chunkLength = i < chunkCount - 1 ? UNIXFS_CHUNK_BYTES : byteLength - UNIXFS_CHUNK_BYTES * (chunkCount - 1);
+        level[i] = { dagBytes: unixFsLeafBytes(chunkLength), fileBytes: chunkLength };
+    }
+    while (level.length > 1) {
+        const parents: UnixFsDagNode[] = [];
+        for (let i = 0; i < level.length; i += UNIXFS_MAX_LINKS_PER_NODE)
+            parents.push(unixFsParentNode(level.slice(i, i + UNIXFS_MAX_LINKS_PER_NODE)));
+        level = parents;
+    }
+    return level[0].dagBytes;
+}
+
+// Sync twin of calculateStringSizeSameAsIpfsAddCidV0: the same number, from the UTF-8 byte length alone
+export function calculateStringSizeSameAsIpfsAddCidV0Sync(content: string): number {
+    return calculateUnixFsDagSizeCidV0(Buffer.byteLength(content, "utf8"));
+}
 
 export async function calculateStringSizeSameAsIpfsAddCidV0(content: string): Promise<number> {
     const { MemoryBlockstore } = await import("blockstore-core");

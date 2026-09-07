@@ -153,6 +153,9 @@ export async function calculateNewCommentUpdate(opts: {
         ...newCommentUpdate,
         // Store CID refs instead of full inline page data — see deriveDbReplies()
         replies: deriveDbReplies({ replies: newCommentUpdate.replies, allPageCids }),
+        // ...and the wire replies verbatim, the canonical JSON just signed: what a page entry for this comment embeds,
+        // so page generation never rebuilds the tree from rows (issue #351)
+        wireReplies: newCommentUpdate.replies ? deterministicStringify(newCommentUpdate.replies) : undefined,
         postUpdatesBucket: newPostUpdateBucket,
         publishedToPostUpdatesMFS: false,
 

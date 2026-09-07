@@ -1,6 +1,7 @@
 import { pathToFileURL } from "node:url";
 import { PKCError } from "../../../../pkc-error.js";
-import { PageSortFileFactorySchema, PageSortFileSchema } from "../../../../community/schema.js";
+import { PageSortFileFactorySchema } from "../../../../community/schema.js";
+import { validatePageSortFile } from "../../../../pages/page-sort-client.js";
 import {
     DEFAULT_RESERVED_OPTIONS,
     parseReservedPageSortOptions,
@@ -129,7 +130,8 @@ export async function loadPageSortFile({
             ? (await import(pathToFileURL(pageSortSettings.path).href)).default
             : resolvePageSortFactoryByName({ name: pageSortSettings.name!, pkc });
         if (!factoryInput) throw Error(`No page sort registered under the name "${pageSortSettings.name}"`);
-        factory = PageSortFileFactorySchema.parse(factoryInput);
+        PageSortFileFactorySchema.parse(factoryInput); // a function, or the schema says why not
+        factory = factoryInput as PageSortFileFactory; // called unwrapped: the output is validated once below
     } catch (e) {
         throw new PKCError("ERR_FAILED_TO_IMPORT_PAGE_SORT_FILE_FACTORY", {
             path: pageSortSettings.path,
@@ -140,7 +142,7 @@ export async function loadPageSortFile({
     }
     let file: PageSortFile;
     try {
-        file = PageSortFileSchema.parse(factory({ pageSortSettings }));
+        file = validatePageSortFile(factory({ pageSortSettings }));
     } catch (e) {
         throw new PKCError("ERR_PAGE_SORT_FILE_INVALID", { pageSortSettings, error: e });
     }

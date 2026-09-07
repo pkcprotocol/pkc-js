@@ -93,7 +93,11 @@ describe("built-in active sort end to end", () => {
             predicate: async () => {
                 if (!publisherCommunity.posts.pageCids.active) return false;
                 const posts = await loadActivePosts(publisherCommunity);
-                return posts.find((post) => post.cid === older.cid)?.lastReplyTimestamp === bump.timestamp;
+                // lastReplyTimestamp has second resolution and the filler reply can share the bump's second, so the
+                // count decides whether the bump reply itself reached the post (issue #351 made the cycle fast enough
+                // to publish the filler's update first)
+                const olderInPage = posts.find((post) => post.cid === older.cid);
+                return olderInPage?.lastReplyTimestamp === bump.timestamp && (olderInPage?.replyCount ?? 0) >= 2;
             }
         });
     });
@@ -121,7 +125,8 @@ describe("built-in active sort end to end", () => {
                     predicate: async () => {
                         if (!remoteCommunity.posts.pageCids.active) return false;
                         const posts = await loadActivePosts(remoteCommunity);
-                        return posts.find((post) => post.cid === older.cid)?.lastReplyTimestamp === bump.timestamp;
+                        const olderInPage = posts.find((post) => post.cid === older.cid);
+                        return olderInPage?.lastReplyTimestamp === bump.timestamp && (olderInPage?.replyCount ?? 0) >= 2;
                     }
                 });
                 activePosts = await loadActivePosts(remoteCommunity);

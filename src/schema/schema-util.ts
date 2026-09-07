@@ -622,6 +622,20 @@ function normalizeValue(
     return current;
 }
 
+// The per-column coercions createSchemaRowParser applies, exposed so a compiled positional mapper (db-row-parser.ts,
+// createPositionalCommentRowMapper) reproduces them column for column without the generic per-row key walk.
+export function collectSchemaRowCoercions(shape: SchemaShape): { booleanKeys: Set<string>; jsonKeys: Set<string> } {
+    return { booleanKeys: collectBooleanKeys(shape), jsonKeys: collectJsonKeys(shape) };
+}
+
+export function coerceSchemaRowBoolean(value: unknown): any {
+    return coerceBoolean(value);
+}
+
+export function coerceSchemaRowJson(value: unknown, key: string, prefix?: string): any {
+    return coerceJson(value, key, prefix);
+}
+
 function coerceBoolean(value: unknown): any {
     if (typeof value === "boolean") return value;
     if (typeof value === "number") {

@@ -1,8 +1,8 @@
 import { PKCError } from "../pkc-error.js";
-import { PageSortFileFactorySchema } from "../community/schema.js";
+import { PageSortFileFactorySchema, PageSortFileSchema } from "../community/schema.js";
 import { getEquivalentCommunityAddresses } from "../util.js";
 import { parseReservedPageSortOptions, type ParsedReservedPageSortOptions } from "./page-sort-options.js";
-import type { CommunityPageSortSetting, PageSortFile, PageSortFileFactoryInput } from "../community/types.js";
+import type { CommunityPageSortSetting, PageSortFile, PageSortFileFactory, PageSortFileFactoryInput } from "../community/types.js";
 import type { PageIpfs, PageSortExclusionOptionName, PageSortReplyEntry } from "./types.js";
 
 // Client-side page sorting (issue #73, docs/protocol/page-sorts.md "Client-side re-sorting"). Browser-safe: no
@@ -21,7 +21,22 @@ export function instantiatePageSortFile({
     factory: PageSortFileFactoryInput;
     pageSortSettings: CommunityPageSortSetting;
 }): PageSortFile {
-    return PageSortFileFactorySchema.parse(factory)({ pageSortSettings });
+    PageSortFileFactorySchema.parse(factory); // a function, or the schema says why not
+    return validatePageSortFile((factory as PageSortFileFactory)({ pageSortSettings }));
+}
+
+// Validate what a factory returned, once, and hand back the file with its own functions rather than the schema's
+// per-call wrappers: `score` runs once per comment per sort, and the wrapper re-validated its argument object (the
+// whole `replies` list included, for a requireReplies file) on every call (issue #351). The generator and
+// sortPageComments check the score's type themselves.
+export function validatePageSortFile(rawFile: unknown): PageSortFile {
+    const validated = PageSortFileSchema.parse(rawFile);
+    const raw = rawFile as PageSortFile;
+    return {
+        ...validated,
+        score: raw.score,
+        ...(raw.validatePageSortSettings ? { validatePageSortSettings: raw.validatePageSortSettings } : {})
+    };
 }
 
 // The reserved exclusions as a client applies them to page entries. Mirrors the SQL clauses in DbHandler
@@ -87,18 +102,18 @@ export function orderPageCommentsByScore({
     scoreOf: (entry: PageComment) => number | null | undefined;
     sortName: string;
 }): PageComment[] {
-    const scores = new Map<string, number>();
-    const kept = (entries: PageComment[]) =>
-        entries.filter((entry) => {
+    const kept = (entries: PageComment[]) => {
+        const scored: { entry: PageComment; score: number }[] = [];
+        for (const entry of entries) {
             const score = scoreOf(entry);
-            if (score === null) return false;
+            if (score === null) continue;
             if (typeof score !== "number" || Number.isNaN(score))
                 throw Error(`Page sort ${sortName} returned no numeric score for comment ${entry.commentUpdate.cid}`);
-            scores.set(entry.commentUpdate.cid, score);
-            return true;
-        });
-    const byScoreDesc = (a: PageComment, b: PageComment) => scores.get(b.commentUpdate.cid)! - scores.get(a.commentUpdate.cid)!;
-    return kept(pinned).sort(byScoreDesc).concat(kept(unpinned).sort(byScoreDesc));
+            scored.push({ entry, score });
+        }
+        return scored.sort((a, b) => b.score - a.score).map(({ entry }) => entry); // Array.prototype.sort is stable
+    };
+    return kept(pinned).concat(kept(unpinned));
 }
 
 // What `score` receives: the entry with the CommentUpdate's nested `replies` stripped, so a file cannot mistake the
@@ -144,16 +159,18 @@ export function scorePageCommentsWithFile({
     file,
     options,
     baseTimestamp,
-    replies
+    replies,
+    stripEntry = stripRepliesFromPageComment
 }: {
     file: PageSortFile;
     options: Record<string, string>;
     baseTimestamp: number;
     replies?: PageSortReplyEntry[];
+    stripEntry?: (entry: PageComment) => PageComment; // the community strips each entry once and reuses it across sorts
 }): (entry: PageComment) => number | null {
     const descendantsOf = file.requireReplies ? createDescendantsLookup(replies ?? []) : undefined;
     return (entry) => {
-        const { comment, commentUpdate } = stripRepliesFromPageComment(entry);
+        const { comment, commentUpdate } = stripEntry(entry);
         return file.score({
             comment,
             commentUpdate,

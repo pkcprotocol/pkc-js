@@ -10,14 +10,29 @@
 // (it detects the generator's signature), which is how the before/after numbers in the PR were taken.
 import { performance } from "node:perf_hooks";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { mockPKC } from "../../dist/node/test/test-util.js";
 import env from "../../dist/node/version.js";
+import { withSortedKeysDeep } from "../../dist/node/util.js";
+import { updateCommentsThatNeedToBeUpdated } from "../../dist/node/runtime/node/community/local-community/comment-updates.js";
 
 const POSTS = Number(process.env.BENCH_POSTS) > 0 ? Number(process.env.BENCH_POSTS) : 20_000;
 const MIN_REPLIES = Number(process.env.BENCH_MIN_REPLIES) >= 0 ? Number(process.env.BENCH_MIN_REPLIES) : 10;
 const MAX_REPLIES = Number(process.env.BENCH_MAX_REPLIES) >= 0 ? Number(process.env.BENCH_MAX_REPLIES) : 100;
 const MODE = process.env.BENCH_MODE || "default";
 const ITERATIONS = Number(process.env.BENCH_ITERATIONS) > 0 ? Number(process.env.BENCH_ITERATIONS) : 3;
+// Production posts embed their preloaded reply pages (the DB `replies` column lists each parent's children per
+// preloaded sort). The community stores each update's wire replies as canonical JSON next to the refs
+// (commentUpdates.wireReplies, issue #351), which the bench reproduces bottom-up; BENCH_WIRE=0 leaves that column
+// empty so every tree is resolved from rows (the fallback for rows written without it). BENCH_NESTED=0 seeds bare
+// posts instead.
+const NESTED = process.env.BENCH_NESTED !== "0";
+const WIRE = NESTED && process.env.BENCH_WIRE !== "0";
+// BENCH_PIPELINE=1 measures the whole publish cycle instead of only the posts pages: the board is seeded with comment
+// rows alone, then updateCommentsThatNeedToBeUpdated (every comment's CommentUpdate: counts, reply pages, signing,
+// the row with its wire replies) runs the way the sync loop does, then the posts pages are generated; time and the
+// sampled peak heap are reported per phase and over the cycle.
+const PIPELINE = process.env.BENCH_PIPELINE === "1";
 let seed = Number(process.env.BENCH_SEED) > 0 ? Number(process.env.BENCH_SEED) : 1;
 const NO_BUMP_FIXTURE = path.resolve(process.cwd(), "test/fixtures/page-sorts/active-no-bump-keyword.js");
 const CONTENT = "x".repeat(200);
@@ -39,10 +54,15 @@ async function main() {
     await community._dbHandler.initDbIfNeeded();
     await community._dbHandler.createOrMigrateTablesIfNeeded();
     let addCounter = 0;
+    let addedBytes = 0;
     const noop = async () => {};
     community._clientsManager.getDefaultKuboRpcClient = () => ({
         _client: {
-            add: async (content) => ({ cid: fakeCid(++addCounter), path: fakeCid(addCounter), size: content.length }),
+            add: async (content) => {
+                await new Promise((resolve) => setImmediate(resolve)); // yield like the real I/O does, so the heap sampler runs
+                addedBytes += content.length;
+                return { cid: fakeCid(++addCounter), path: fakeCid(addCounter), size: content.length };
+            },
             pin: { rm: noop },
             files: { rm: noop },
             key: { rm: noop },
@@ -64,6 +84,42 @@ async function main() {
         const seedMs = performance.now() - seedStart;
         console.log(JSON.stringify({ event: "seeded", posts: POSTS, replies: replyTotal, seedMs: Math.round(seedMs) }));
 
+        if (PIPELINE) {
+            for (let i = 0; i < ITERATIONS; i++) {
+                if (i > 0) community._dbHandler["_db"].exec("DELETE FROM commentUpdates"); // every comment needs an update again
+                if (global.gc) global.gc();
+                const heapBefore = process.memoryUsage().heapUsed;
+                let heapPeak = heapBefore;
+                const sampler = setInterval(() => (heapPeak = Math.max(heapPeak, process.memoryUsage().heapUsed)), 50);
+                addedBytes = 0;
+                const updatesStart = performance.now();
+                const updates = await updateCommentsThatNeedToBeUpdated(community);
+                community._dbHandler.markCommentsAsPublishedToPostUpdates(updates.map((u) => u.newCommentUpdate.cid));
+                const updatesMs = performance.now() - updatesStart;
+                const updatesHeapPeak = heapPeak;
+                const updatesPageBytes = addedBytes;
+                const postsStart = performance.now();
+                await community._pageGenerator.generateCommunityPosts({ preloadedPageSizeBytes: 1024 * 1024 });
+                const postsMs = performance.now() - postsStart;
+                clearInterval(sampler);
+                console.log(
+                    JSON.stringify({
+                        event: "pipeline",
+                        i,
+                        comments: updates.length,
+                        updatesMs: Math.round(updatesMs),
+                        updatesHeapPeakDeltaMB: Math.round((updatesHeapPeak - heapBefore) / 1024 / 1024),
+                        replyPageMB: Math.round(updatesPageBytes / 1024 / 1024),
+                        postsMs: Math.round(postsMs),
+                        cycleMs: Math.round(updatesMs + postsMs),
+                        cycleHeapPeakDeltaMB: Math.round((heapPeak - heapBefore) / 1024 / 1024),
+                        postsPageMB: Math.round((addedBytes - updatesPageBytes) / 1024 / 1024)
+                    })
+                );
+            }
+            return;
+        }
+
         const generator = community._pageGenerator;
         const legacySignature = generator.generateCommunityPosts.length === 2; // master: (preloadedPageSortName, preloadedPageSizeBytes)
         const budget = 1024 * 1024;
@@ -71,12 +127,17 @@ async function main() {
         for (let i = 0; i < ITERATIONS; i++) {
             if (global.gc) global.gc();
             const heapBefore = process.memoryUsage().heapUsed;
+            // Peak heap while generating, sampled: what a sort configuration needs at once, garbage included
+            let heapPeakSampled = heapBefore;
+            const sampler = setInterval(() => (heapPeakSampled = Math.max(heapPeakSampled, process.memoryUsage().heapUsed)), 50);
+            addedBytes = 0;
             const start = performance.now();
             const result = legacySignature
                 ? await generator.generateCommunityPosts("hot", budget)
                 : await generator.generateCommunityPosts({ preloadedPageSizeBytes: budget });
             const ms = performance.now() - start;
-            const heapPeak = process.memoryUsage().heapUsed;
+            clearInterval(sampler);
+            const heapPeak = Math.max(heapPeakSampled, process.memoryUsage().heapUsed);
             const sortKeys =
                 result &&
                 ("singlePreloadedPage" in result
@@ -89,7 +150,8 @@ async function main() {
                     i,
                     ms: Math.round(ms),
                     sorts: sortKeys,
-                    heapDeltaMB: Math.round((heapPeak - heapBefore) / 1024 / 1024)
+                    heapPeakDeltaMB: Math.round((heapPeak - heapBefore) / 1024 / 1024),
+                    pageMB: Math.round(addedBytes / 1024 / 1024)
                 })
             );
         }
@@ -114,7 +176,7 @@ async function main() {
     }
 }
 
-function seedBoard(community) {
+export function seedBoard(community) {
     const db = community._dbHandler;
     const now = Math.floor(Date.now() / 1000);
     const base = now - POSTS * 60;
@@ -125,7 +187,7 @@ function seedBoard(community) {
     let updateRows = [];
     const flush = () => {
         if (commentRows.length) db.insertComments(commentRows);
-        if (updateRows.length) db.upsertCommentUpdates(updateRows);
+        if (updateRows.length && !PIPELINE) db.upsertCommentUpdates(updateRows);
         commentRows = [];
         updateRows = [];
     };
@@ -144,8 +206,10 @@ function seedBoard(community) {
         protocolVersion: env.PROTOCOL_VERSION,
         insertedAt: timestamp
     });
-    const update = ({ cid, timestamp, replyCount, childCount, lastReplyTimestamp }) => ({
+    const update = ({ cid, timestamp, replyCount, childCount, lastReplyTimestamp, childCids, wireReplies }) => ({
         cid,
+        ...(NESTED && childCids?.length ? { replies: { best: { commentCids: childCids } } } : {}),
+        ...(WIRE && wireReplies ? { wireReplies } : {}),
         upvoteCount: randomInt(0, 50),
         downvoteCount: randomInt(0, 5),
         replyCount,
@@ -158,6 +222,24 @@ function seedBoard(community) {
         publishedToPostUpdatesMFS: true,
         insertedAt: timestamp + 1
     });
+
+    // The wire entry of a reply from its rows: CommentIpfs fields (no table-only columns), CommentUpdate fields with the
+    // wire replies parsed back in (the same shape the page generator materializes)
+    const wireEntry = (commentRow, updateRow, wireReplies) => {
+        const { cid: _c, authorSignerAddress: _a, insertedAt: _i, ...commentIpfs } = commentRow;
+        if (commentIpfs.title === null) delete commentIpfs.title;
+        const {
+            replies: _r,
+            wireReplies: _w,
+            publishedToPostUpdatesMFS: _p,
+            insertedAt: _u,
+            lastReplyTimestamp,
+            ...commentUpdate
+        } = updateRow;
+        if (lastReplyTimestamp !== undefined) commentUpdate.lastReplyTimestamp = lastReplyTimestamp;
+        if (wireReplies) commentUpdate.replies = JSON.parse(wireReplies);
+        return { comment: commentIpfs, commentUpdate };
+    };
 
     for (let i = 0; i < POSTS; i++) {
         const postCid = fakeCid(++cidCounter);
@@ -175,30 +257,49 @@ function seedBoard(community) {
             const depth = nested ? nested.depth + 1 : 1;
             const timestamp = postTimestamp + (r + 1) * 5;
             const content = MODE === "nobump" && random() < 0.05 ? "sage" : CONTENT;
-            commentRows.push(comment({ cid, parentCid, postCid, depth, timestamp, content, title: null }));
-            replies.push({ cid, depth, children: 0, timestamp });
-            if (nested) nested.children++;
+            const row = comment({ cid, parentCid, postCid, depth, timestamp, content, title: null });
+            commentRows.push(row);
+            replies.push({ cid, depth, children: 0, childCids: [], timestamp, row });
+            if (nested) {
+                nested.children++;
+                nested.childCids.push(cid);
+            }
             lastReplyTimestamp = Math.max(lastReplyTimestamp ?? 0, timestamp);
         }
+        // What the community stores for each update: the page entry JSON of each child, nested bottom-up (a child
+        // always has a larger index than its parent, so a reverse walk sees every child's entry before its parent)
+        const entryJsonByCid = new Map();
+        const wireRepliesOf = (childCids) =>
+            childCids.length ? `{"pages":{"best":{"comments":[${childCids.map((c) => entryJsonByCid.get(c)).join(",")}]}}}` : undefined;
+        const replyUpdates = new Map();
+        for (let i = replies.length - 1; i >= 0; i--) {
+            const reply = replies[i];
+            const wireReplies = WIRE ? wireRepliesOf(reply.childCids) : undefined;
+            const updateRow = update({
+                cid: reply.cid,
+                timestamp: reply.timestamp,
+                replyCount: reply.children,
+                childCount: reply.children,
+                lastReplyTimestamp: undefined,
+                childCids: reply.childCids,
+                wireReplies
+            });
+            replyUpdates.set(reply.cid, updateRow);
+            if (WIRE) entryJsonByCid.set(reply.cid, JSON.stringify(withSortedKeysDeep(wireEntry(reply.row, updateRow, wireReplies))));
+        }
+        const directChildren = replies.filter((x) => x.depth === 1);
         updateRows.push(
             update({
                 cid: postCid,
                 timestamp: postTimestamp,
                 replyCount,
-                childCount: replies.filter((x) => x.depth === 1).length,
-                lastReplyTimestamp
+                childCount: directChildren.length,
+                lastReplyTimestamp,
+                childCids: directChildren.map((x) => x.cid),
+                wireReplies: WIRE ? wireRepliesOf(directChildren.map((x) => x.cid)) : undefined
             })
         );
-        for (const reply of replies)
-            updateRows.push(
-                update({
-                    cid: reply.cid,
-                    timestamp: reply.timestamp,
-                    replyCount: reply.children,
-                    childCount: reply.children,
-                    lastReplyTimestamp: undefined
-                })
-            );
+        for (const reply of replies) updateRows.push(replyUpdates.get(reply.cid));
         replyTotal += replyCount;
         if (commentRows.length >= BATCH) flush();
     }
@@ -206,10 +307,11 @@ function seedBoard(community) {
     return { replyTotal };
 }
 
-main().then(
-    () => process.exit(0),
-    (error) => {
-        console.error(error);
-        process.exit(1);
-    }
-);
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))
+    main().then(
+        () => process.exit(0),
+        (error) => {
+            console.error(error);
+            process.exit(1);
+        }
+    );

@@ -74,6 +74,18 @@ describe("signer (node and browser)", async () => {
             expect(await verifyBufferEd25519(buffer, bufferSignature, randomSigner.publicKey!)).to.equal(false);
         });
 
+        it("signs identically to noble for random keys and messages (the native fast path is byte-exact)", async () => {
+            // signBufferEd25519 takes WebCrypto when the runtime has Ed25519 (issue #351); Ed25519 is deterministic
+            for (let i = 0; i < 20; i++) {
+                const privateKey = ed25519.utils.randomSecretKey();
+                const message = uint8ArrayFromString(`message-${i}-${Math.random()}`.repeat(1 + (i % 5)));
+                const signature = await signBufferEd25519(message, Buffer.from(privateKey).toString("base64"));
+                expect(Buffer.from(signature).toString("hex")).to.equal(Buffer.from(ed25519.sign(message, privateKey)).toString("hex"));
+                const publicKeyBase64 = Buffer.from(ed25519.getPublicKey(privateKey)).toString("base64");
+                expect(await verifyBufferEd25519(message, signature, publicKeyBase64)).to.equal(true);
+            }
+        });
+
         it("rejects a tampered message", async () => {
             const tamperedMessage = new Uint8Array(uint8array);
             tamperedMessage[0] ^= 1;
