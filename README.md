@@ -18,7 +18,7 @@ Note: IPFS files are immutable, fetched by their CID, which is a hash of their c
 ### Schema:
 
 ```js
-Address: string // a PKC author, community or multisub "address" can be a crypto domain like memes.bso, an IPNS name, an ethereum address, etc.
+Address: string // a PKC author or community "address" can be a crypto domain like memes.bso, an IPNS name, an ethereum address, etc.
 Publication {
   author: Author
   communityPublicKey: string // IPNS public key of the community this publication is directed to
@@ -84,7 +84,6 @@ CommentModeration extends Publication {
 CommunityEdit extends Publication {
   communityEdit: CreateCommunityOptions
 }
-MultisubEdit extends CreateMultisubOptions, Publication {} // not yet implemented
 CommentUpdate /* (IPFS file) */ {
   cid: string // cid of the comment, need it in signature to prevent attack
   edit?: AuthorCommentEdit // most recent edit by comment author, commentUpdate.edit.content, commentUpdate.edit.deleted, commentUpdate.edit.flairs override Comment instance props. Validate commentUpdate.edit.signature
@@ -282,29 +281,24 @@ ChallengeType {
   type: 'image/png' | 'text/plain' | 'chain/<chainTicker>'
   //...other properties for more complex types later, e.g. an array of whitelisted addresses, a token address, etc,
 }
-Multisub /* (IPNS record Multisub.address) (not yet implemented) */ {
+CommunityList /* (immutable IPFS file, addressed by CID, see docs/protocol/community-lists.md) */ {
   title?: string
   description?: string
-  communities: MultisubCommunity[]
-  createdAt: number
-  updatedAt: number
-  signature: Signature // signature of the Multisub update by the multisub owner to protect against malicious gateway
+  author?: Author // the curator's profile, same schema as publication.author
+  communities: CommunityListEntry[]
+  timestamp: number // seconds
+  protocolVersion: '1.0.0'
+  signature: Signature // any key can sign, including the curator's personal author key
 }
-MultisubCommunity { // (not yet implemented) this metadata is set by the owner of the Multisub, not the owner of the community
-  address: Address
+CommunityListEntry { // this metadata is set by the curator of the CommunityList, not the owner of the community
+  publicKey: string // IPNS public key of the community
+  name?: string // optional crypto domain (e.g. 'memes.bso')
   title?: string
   description?: string
   languages?: string[] // client can detect language and hide/show community based on it
   locations?: string[] // client can detect location and hide/show community based on it
   features?: string[] // client can detect user's SFW setting and hide/show community based on it
   tags?: string[] // arbitrary keywords used for search
-}
-PKCDefaults { // fetched once when app first load, a dictionary of default settings (not yet implemented)
-  multisubAddresses: {[multisubName: string]: Address}
-  // PKC has 3 default multisubs
-  multisubAddresses.all: Address // the default communities to show at url pkc.bso/p/all
-  multisubAddresses.crypto: Address // the communities to show at url pkc.bso/p/crypto
-  multisubAddresses.search: Address // list of thousands of semi-curated communities to "search" for in the client (only search the Multisub metadata, don't load each community)
 }
 ```
 
@@ -388,10 +382,10 @@ PubsubSignature {
 
 - [PKC API](#pkc-api)
   - [`PKC(pkcOptions)`](#pkcpkcoptions)
-  - [`pkc.getMultisub(multisubAddress)`](#pkcgetmultisubmultisubaddress) *(not yet implemented)*
+  - [`pkc.getCommunityList({cid})`](#pkcgetcommunitylistcid)
   - [`pkc.getCommunity({address})`](#pkcgetcommunityaddress)
   - [`pkc.getComment({cid})`](#pkcgetcommentcid)
-  - [`pkc.createMultisub(createMultisubOptions)`](#pkccreatemultisubcreatemultisuboptions) *(not yet implemented)*
+  - [`pkc.createCommunityList(createCommunityListOptions)`](#pkccreatecommunitylistcreatecommunitylistoptions)
   - [`pkc.createCommunity(createCommunityOptions)`](#pkccreatecommunitycreatecommunityoptions)
   - [`pkc.createCommunityEdit(createCommunityEditOptions)`](#pkccreatecommunityeditcreatecommunityeditoptions)
   - [`pkc.createComment(createCommentOptions)`](#pkccreatecommentcreatecommentoptions)
@@ -631,29 +625,28 @@ const helia = pkc.clients.libp2pJsClients['main'].heliaNode
 helia.libp2p.services.pubsub.subscribe('my-topic')
 ```
 
-### `pkc.getMultisub(multisubAddress)` *(not yet implemented)*
+### `pkc.getCommunityList({cid})`
 
-> Get a multisub by its `Address`. A multisub is a list of communities curated by the creator of the multisub. E.g. `'pkc.bso/#/m/john.bso'` would display a feed of the multisub communities curated by `'john.bso'` (multisub `Address` `'john.bso'`).
+> Get a `CommunityList` by its CID. A `CommunityList` is an immutable, signed list of communities curated by its author, used for default feeds and client-side community search. See [docs/protocol/community-lists.md](docs/protocol/community-lists.md).
 
 #### Parameters
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| multisubAddress | `string` | The `Address` of the multisub |
+| cid | `string` | The CID of the community list |
+| abortSignal | `AbortSignal` | Optional. Cancels the fetch. Rejects with `ERR_GET_COMMUNITY_LIST_ABORTED`. |
 
 #### Returns
 
 | Type | Description |
 | -------- | -------- |
-| `Promise<Multisub>` | A `Multisub` instance. |
+| `Promise<CommunityList>` | A `CommunityList` instance. |
 
 #### Example
 
 ```js
-const multisubAddress = '12D3KooW...' // or 'john.bso'
-const multisub = await pkc.getCommunity({address: multisubAddress})
-const multisubCommunityAddresses = multisub.map(community => community.address)
-console.log(multisubCommunityAddresses)
+const communityList = await pkc.getCommunityList({cid: 'QmZbc...'})
+console.log(communityList.communities.map(entry => entry.address))
 ```
 
 ### `pkc.getCommunity({address})`
@@ -745,57 +738,55 @@ Prints:
 */
 ```
 
-### `pkc.createMultisub(createMultisubOptions)` *(not yet implemented)*
+### `pkc.createCommunityList(createCommunityListOptions)`
 
-> Create a multisub instance. A multisub is a list of communities curated by the creator of the multisub. E.g. `'pkc.bso/#/m/john.bso'` would display a feed of the multisub communities curated by `'john.bso'` (multisub `Address` `'john.bso'`).
+> Create a `CommunityList` instance: an immutable, signed IPFS file of curated communities, addressed by CID (see [docs/protocol/community-lists.md](docs/protocol/community-lists.md)). With `{signer, ...props}` the instance can `publish()`; with `{cid}` it can `update()`/`stop()`. Publishing a revision means creating a new list and publishing a new CID; clients never auto-follow between versions.
 
 #### Parameters
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| createMultisubOptions | `CreateMultisubOptions` | Options for the `Multisub` instance |
+| createCommunityListOptions | `CreateCommunityListOptions` | Options for the `CommunityList` instance |
 
-##### CreateMultisubOptions
+##### CreateCommunityListOptions
 
-An object which may have the following keys:
+Either `{cid}` to load an existing list, or an object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| address | `string` or `undefined` | `Address` of the multisub |
-| signer | `Signer` or `undefined` | (Multisub owners only) Optional `Signer` of the community to create a multisub with a specific private key |
-| title | `string` or `undefined` | Title of the multisub |
-| description | `string` or `undefined` | Description of the multisub |
-| communities | `MultisubCommunity[]` or `undefined` | List of `MultisubCommunity` of the multisub |
+| signer | `Signer` | `Signer` that signs the list; any key works, including the curator's personal author key. The caller persists it |
+| title | `string` or `undefined` | Title of the community list |
+| description | `string` or `undefined` | Description of the community list |
+| author | `Author` or `undefined` | The curator's profile, same schema as `publication.author` |
+| communities | `CommunityListEntry[]` | Entries of the list; duplicate `publicKey` entries throw |
+| timestamp | `number` or `undefined` | Seconds, defaults to now |
 
 #### Returns
 
 | Type | Description |
 | -------- | -------- |
-| `Promise<Multisub>` | A `Multisub` instance |
+| `Promise<CommunityList>` | A `CommunityList` instance |
 
 #### Example
 
 ```js
-const multisubOptions = {signer}
-const multisub = await pkc.createMultisub(multisubOptions)
-
-// edit the multisub info in the database (only in Node and if multisub.signer is defined)
-await multisub.edit({
-  address: 'funny-communities.bso',
+// curate and publish a list (requires a node that can `ipfs add`: a kubo RPC client or a PKC RPC server)
+const communityList = await pkc.createCommunityList({
+  signer,
   title: 'Funny communities',
   description: 'The funniest communities',
+  author: {displayName: 'John'},
+  communities: [
+    {publicKey: '12D3KooW...', name: 'funny.bso', title: 'Funny things', tags: ['funny']},
+    {publicKey: '12D3KooX...'}
+  ]
 })
+const cid = await communityList.publish()
 
-// add a list of communities to the multisub in the database (only in Node and if multisub.signer is defined)
-const multisubCommunity1 = {address: 'funny.bso', title: 'Funny things', tags: ['funny']}
-const multisubCommunity2 = {address: 'even-more-funny.bso'}
-await multisub.edit({communities: [multisubCommunity1, multisubCommunity2]})
-
-// start publishing updates to your multisub (only in Node and if multisub.signer is defined)
-await multisub.start()
-
-// stop publishing updates to your multisub
-await multisub.stop()
+// load an existing list with events (the instance stops itself once there is nothing left to settle)
+const loaded = await pkc.createCommunityList({cid})
+loaded.on('update', () => console.log(loaded.title, loaded.author?.nameResolved))
+await loaded.update()
 ```
 
 ### `pkc.createCommunity(createCommunityOptions)`

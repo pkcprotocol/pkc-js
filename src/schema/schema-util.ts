@@ -1,5 +1,7 @@
 import { ModQueuePageIpfsSchema, PageIpfsSchema } from "../pages/schema.js";
 import type { PageIpfs } from "../pages/types.js";
+import { CommunityListIpfsLooseSchema, CommunityListIpfsSchema } from "../community-list/schema.js";
+import type { CommunityListIpfsType } from "../community-list/types.js";
 import { PKCError } from "../pkc-error.js";
 import type { messages } from "../errors.js";
 import {
@@ -144,6 +146,21 @@ export function parseCommentIpfsSchemaWithPKCErrorIfItFails(commentIpfsJson: z.i
     );
     if (!parseRes.success) throw new PKCError("ERR_INVALID_COMMENT_IPFS_SCHEMA", { zodError: parseRes.error, commentIpfsJson });
     else return <CommentIpfsType>commentIpfsJson;
+}
+
+export function parseCommunityListSchemaWithPKCErrorIfItFails(
+    communityListJson: z.infer<typeof CommunityListIpfsSchema>
+): CommunityListIpfsType {
+    const parseRes = _safeParseWithoutLettingNonZodThrowsEscape(
+        CommunityListIpfsLooseSchema,
+        communityListJson,
+        "ERR_INVALID_COMMUNITY_LIST_SCHEMA",
+        {
+            communityListJson
+        }
+    );
+    if (!parseRes.success) throw new PKCError("ERR_INVALID_COMMUNITY_LIST_SCHEMA", { zodError: parseRes.error, communityListJson });
+    else return <CommunityListIpfsType>communityListJson;
 }
 
 export function parseCommentUpdateSchemaWithPKCErrorIfItFails(commentUpdateJson: z.infer<typeof CommentUpdateSchema>): CommentUpdateType {

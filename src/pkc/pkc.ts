@@ -141,6 +141,9 @@ import type { Libp2pJsClient } from "../helia/libp2pjsClient.js";
 import type { AuthorNameRpcParam, CidRpcParam, RpcFetchCidResult } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { cleanWireAuthor, normalizeCreatePublicationAuthor } from "../publications/publication-author.js";
+import { CommunityList } from "../community-list/community-list.js";
+import { CreateCommunityListWithCidOptionsSchema, CreateNewCommunityListOptionsSchema } from "../community-list/schema.js";
+import type { CreateCommunityListOptions, CreateCommunityListWithCidOptions } from "../community-list/types.js";
 import type Publication from "../publications/publication.js";
 import { stripNameResolvedFromCrosspost } from "../publications/comment/crosspost-runtime.js";
 import { IndexedTrackedInstanceRegistry, TrackedInstanceRegistry } from "./tracked-instance-registry.js";
@@ -202,6 +205,9 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     // Publications that are mid-publish. A plain Set rather than a TrackedInstanceRegistry because
     // a publication has no stable key to look it up by, and destroy() only ever iterates them.
     _publishingPublications = new Set<Publication>();
+    // CommunityList instances mid-update(). Immutable records need no shared-instance registry;
+    // destroy() only ever iterates these to stop them.
+    _updatingCommunityLists = new Set<CommunityList>();
     private _communityFsWatchAbort?: AbortController;
     private _destroyAbortController?: AbortController;
 
@@ -549,6 +555,89 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             abortSignal?.removeEventListener("abort", abortListener);
             comment.removeListener("error", errorListener);
             await comment.stop();
+        }
+    }
+
+    // CommunityList: an immutable, signed IPFS file addressed by CID (docs/protocol/community-lists.md).
+    // {signer, ...props} creates a publishable list; {cid} creates one that can update()
+    async createCommunityList(options: CreateCommunityListOptions): Promise<CommunityList> {
+        if (options && typeof options === "object" && "cid" in options) {
+            const parseRes = CreateCommunityListWithCidOptionsSchema.safeParse(options);
+            if (!parseRes.success)
+                throw new PKCError("ERR_INVALID_CREATE_COMMUNITY_LIST_OPTIONS_SCHEMA", { zodError: parseRes.error, options });
+            const communityList = new CommunityList(this);
+            communityList._initWithCidOnly(parseRes.data.cid);
+            return communityList;
+        }
+        const parseRes = CreateNewCommunityListOptionsSchema.safeParse(options);
+        if (!parseRes.success)
+            throw new PKCError("ERR_INVALID_CREATE_COMMUNITY_LIST_OPTIONS_SCHEMA", { zodError: parseRes.error, options });
+        const parsedOptions = parseRes.data;
+        const signer = await this.createSigner(parsedOptions.signer);
+        const cleanedAuthor = cleanWireAuthor(normalizeCreatePublicationAuthor(parsedOptions.author));
+        const communityList = new CommunityList(this);
+        communityList._initUnsignedProps({
+            signer,
+            title: parsedOptions.title,
+            description: parsedOptions.description,
+            author: cleanedAuthor,
+            communities: parsedOptions.communities,
+            timestamp: typeof parsedOptions.timestamp === "number" ? parsedOptions.timestamp : timestamp(),
+            protocolVersion: parsedOptions.protocolVersion || env.PROTOCOL_VERSION
+        });
+        return communityList;
+    }
+
+    // One-shot fetch + verify. Does not wait for the author.nameResolved verdict (same as getComment);
+    // the verdict lands in the pkc-wide cache so evented instances pick it up
+    async getCommunityList(
+        getCommunityListArgs: CreateCommunityListWithCidOptions & { abortSignal?: AbortSignal }
+    ): Promise<CommunityList> {
+        const { abortSignal, ...cidArgs } = getCommunityListArgs;
+        const parseRes = CreateCommunityListWithCidOptionsSchema.safeParse(cidArgs);
+        if (!parseRes.success)
+            throw new PKCError("ERR_INVALID_CREATE_COMMUNITY_LIST_OPTIONS_SCHEMA", { zodError: parseRes.error, getCommunityListArgs });
+        const cid = parseRes.data.cid;
+        if (abortSignal?.aborted) throw new PKCError("ERR_GET_COMMUNITY_LIST_ABORTED", { cid, abortReason: abortSignal.reason });
+        const communityList = await this.createCommunityList(parseRes.data);
+
+        let lastUpdateError: Error | undefined;
+        const errorListener = (err: Error) => (lastUpdateError = err);
+        communityList.on("error", errorListener);
+
+        let abortError: PKCError | undefined;
+        let abortReject: ((err: PKCError) => void) | undefined;
+        const abortListener = () => {
+            abortError = new PKCError("ERR_GET_COMMUNITY_LIST_ABORTED", { cid, abortReason: abortSignal?.reason, lastUpdateError });
+            abortReject?.(abortError);
+        };
+        const abortPromise = new Promise<never>((_, reject) => {
+            abortReject = reject;
+        });
+        // pTimeout attaches its own handler, but only once we hand it the race below. Give it one up
+        // front so an abort landing before that never surfaces as an unhandled rejection.
+        void abortPromise.catch(() => {});
+        // The signal outlives this call, so the listener is removed in the `finally` on every outcome
+        abortSignal?.addEventListener("abort", abortListener);
+
+        const timeoutMs = this._timeouts["generic-ipfs"];
+        try {
+            await pTimeout(Promise.race([communityList._loadCommunityListIpfsWithRetries(abortSignal), abortPromise]), {
+                milliseconds: timeoutMs,
+                message: lastUpdateError || new TimeoutError(`pkc.getCommunityList({cid: ${cid}}) timed out after ${timeoutMs}ms`)
+            });
+            if (!communityList.signature) throw Error("Failed to load CommunityList");
+            communityList._kickOffBackgroundAuthorNameResolution();
+            return communityList;
+        } catch (e) {
+            // Abort wins over whatever the list happened to emit: the caller cancelled on purpose
+            if (abortError) throw abortError;
+            if (lastUpdateError) throw lastUpdateError;
+            throw e;
+        } finally {
+            abortSignal?.removeEventListener("abort", abortListener);
+            communityList.removeListener("error", errorListener);
+            await communityList.stop();
         }
     }
 
@@ -1300,6 +1389,10 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         this._publishingPublications.clear();
 
         for (const comment of listUpdatingComments(this)) await comment.stop();
+
+        for (const communityList of [...this._updatingCommunityLists])
+            await communityList.stop().catch((e) => log.error("Error stopping CommunityList during destroy", e));
+        this._updatingCommunityLists.clear();
 
         for (const community of listUpdatingCommunities(this)) await community.stop();
 
