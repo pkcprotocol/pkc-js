@@ -85,9 +85,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             await publishWithExpectedResult({ publication: commentModeration, expectedChallengeSuccess: true });
 
-            await new Promise<void>((resolve) => commentToMod.once("update", () => resolve()));
-            expect(commentToMod.removed).to.be.true; // should process only removed since it's the known field to the sub
-            expect((commentToMod as any).extraProp).to.be.undefined;
+            // Do not assert on the first "update" event: this describe is concurrent and its siblings moderate the same
+            // comment, and since #333 the community wakes its publish loop on every accepted publication, so the first
+            // CommentUpdate after this verification can come from a cycle that read the DB before this moderation landed
+            // (observed in CI: a record carrying only the sibling's `locked`). Poll for the field instead, like below.
             const challengeRequest = await challengeRequestPromise;
             expect(challengeRequest.commentModeration.extraProp).to.equal("1234");
             await pkc.createCommentModeration(JSON.parse(JSON.stringify(commentModeration))); // Just to test if create will throw because of extra prop
