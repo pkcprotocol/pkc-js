@@ -18,10 +18,11 @@
 // BENCH_MODE (default | active | nobump), BENCH_ITERATIONS (3; iteration 0 writes every postUpdates file
 // for the first time, later ones overwrite), BENCH_STUB_KUBO=1 (swap the daemon for the immediate stub of
 // page-generation-bench, which is how the IPFS share of the cycle is attributed: same board, same code,
-// only the client differs).
+// only the client differs), BENCH_DATA_PATH (where the community's database goes; the PKC default puts it
+// in the working directory, which is the wrong place for the multi-GB database of a large board).
 import { performance } from "node:perf_hooks";
 import path from "node:path";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { mockPKC } from "../../dist/node/test/test-util.js";
 import {
     adjustPostUpdatesBucketsIfNeeded,
@@ -161,7 +162,7 @@ const stubKuboClient = () => {
 };
 
 async function main() {
-    const pkc = await mockPKC();
+    const pkc = await mockPKC(process.env.BENCH_DATA_PATH ? { dataPath: process.env.BENCH_DATA_PATH } : undefined);
     const community = await pkc.createCommunity();
     const iterations = [];
     try {
@@ -197,9 +198,17 @@ async function main() {
 
         const seedStart = performance.now();
         const { replyTotal } = seedBoard(community);
+        const dbMB = databaseMB(community);
         const posts = Number(process.env.BENCH_POSTS);
         console.log(
-            JSON.stringify({ event: "seeded", posts, replies: replyTotal, comments: posts + replyTotal, seedMs: Math.round(performance.now() - seedStart) })
+            JSON.stringify({
+                event: "seeded",
+                posts,
+                replies: replyTotal,
+                comments: posts + replyTotal,
+                seedMs: Math.round(performance.now() - seedStart),
+                dbMB
+            })
         );
 
         for (let i = 0; i < ITERATIONS; i++) {
@@ -329,6 +338,8 @@ async function main() {
                   : "accumulates every row",
             posts: Number(process.env.BENCH_POSTS),
             comments: iterations[0]?.comments,
+            seededDbMB: dbMB,
+            finalDbMB: databaseMB(community),
             iterations: ITERATIONS,
             medianCycleMs: medianOf("cycleMs"),
             medianCommentUpdatesMs: medianOf("commentUpdatesMs"),
@@ -349,6 +360,18 @@ async function main() {
         await community.stop().catch(() => {});
         await community.delete().catch(() => {});
         await pkc.destroy();
+    }
+}
+
+// The community's database on disk, its write-ahead log included.
+function databaseMB(community) {
+    const file = community._dbHandler["_db"]?.name;
+    if (!file || file === ":memory:") return undefined;
+    try {
+        const bytes = statSync(file).size + (existsSync(`${file}-wal`) ? statSync(`${file}-wal`).size : 0);
+        return Math.round((bytes / 1024 / 1024) * 10) / 10;
+    } catch {
+        return undefined;
     }
 }
 
