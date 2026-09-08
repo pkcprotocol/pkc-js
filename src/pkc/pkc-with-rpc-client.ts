@@ -5,7 +5,13 @@ import { parseCreateRpcCommunityFunctionArgumentSchemaWithPKCErrorIfItFails } fr
 import { CreateRpcCommunityFunctionArgumentSchema } from "../community/schema.js";
 import { RpcLocalCommunity } from "../community/rpc-local-community.js";
 import { RpcRemoteCommunity } from "../community/rpc-remote-community.js";
-import type { RpcLocalCommunityJson, RpcLocalCommunityUpdateResultType, RpcRemoteCommunityJson } from "../community/types.js";
+import type {
+    CommunityIncludeFields,
+    CreateNewLocalCommunityUserOptions,
+    RpcLocalCommunityJson,
+    RpcLocalCommunityUpdateResultType,
+    RpcRemoteCommunityJson
+} from "../community/types.js";
 import { z } from "zod";
 import { PKCError } from "../pkc-error.js";
 import { rejectWhenAbortSignalFires, rejectWhenCommunityStopsOrAborts, throwIfAbortSignalAborted } from "../util.js";
@@ -137,6 +143,27 @@ export class PKCWithRpcClient extends PKC {
                 await community._attachExportsSubscription();
                 return community;
             } else if (isCommunityRpcLocal) {
+                // Fast path: caller only wants cheap in-memory fields (currently just `started`).
+                // Skip the subscribe → update() → wait → stop() cycle and do a single request/response
+                // that reads `started` from the daemon's in-memory registry. See issue #175.
+                const include = (parsedRpcOptions as { include?: CommunityIncludeFields }).include;
+                if (include?.length && include.every((f) => f === "started")) {
+                    try {
+                        const community = new RpcLocalCommunity(this);
+                        community.setAddress(effectiveAddress!);
+                        const startedResult = await this._pkcRpcClient!.createCommunity({
+                            name: community.name,
+                            publicKey: community.publicKey,
+                            include
+                        });
+                        community.started = startedResult.started;
+                        return community; // read-only snapshot: never subscribed, nothing to clean up
+                    } catch (e) {
+                        // Version skew: an old daemon rejects `include` or returns the full record shape
+                        // (parse fails) — fall through to the full createCommunity path below.
+                        log.trace("include:[started] fast path unsupported, falling back to full createCommunity", e);
+                    }
+                }
                 // No jsonified data — do a fresh fetch
                 const community = new RpcLocalCommunity(this);
                 community.setAddress(effectiveAddress!);
@@ -184,8 +211,10 @@ export class PKCWithRpcClient extends PKC {
                 await this._setCommunityIpfsOnInstanceIfPossible(remoteCommunity, parsedRpcOptions);
                 return remoteCommunity;
             }
-            // We're creating a new local community
-            const communityPropsAfterCreation = await this._pkcRpcClient!.createCommunity(parsedRpcOptions);
+            // We're creating a new local community (control flow above excludes remote/identifier cases)
+            const communityPropsAfterCreation = await this._pkcRpcClient!.createCommunity(
+                parsedRpcOptions as CreateNewLocalCommunityUserOptions
+            );
             log(
                 `Created new local-RPC community (${communityPropsAfterCreation.localCommunity.address}) with props:`,
                 JSON.parse(JSON.stringify(communityPropsAfterCreation))
