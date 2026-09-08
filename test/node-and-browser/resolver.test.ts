@@ -431,7 +431,10 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
         await pkc.destroy();
     });
 
-    it(`Returns null when all resolvers throw errors`, async () => {
+    // Issue #353. "Every resolver errored" and "the resolvers agree there is no record" used to collapse into the
+    // same null. They are different facts with different remedies, so the loop now throws for the first and keeps
+    // returning null only for the second. The per-resolver errors ride along in details, keyed by resolver key.
+    it(`Throws ERR_ALL_NAME_RESOLVERS_FAILED with a per-resolver error map when all resolvers throw`, async () => {
         const pkc = await mockPKCV2({
             remotePKC: true,
             mockResolve: false,
@@ -457,6 +460,46 @@ describeSkipIfRpc(`nameResolver error edge cases`, async () => {
             }
         });
 
+        try {
+            await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.bso" });
+            expect.fail("Should have thrown");
+        } catch (e: any) {
+            expect(e.code).to.equal("ERR_ALL_NAME_RESOLVERS_FAILED");
+            expect(e.details.address).to.equal("test.bso");
+            // keyed by resolverKey, not a flattened string, so a caller can tell which resolver failed and how
+            expect(Object.keys(e.details.resolverErrors).sort()).to.deep.equal(["failing-1", "failing-2"]);
+            expect(e.details.resolverErrors["failing-1"].provider).to.equal("provider-1");
+            expect(String(e.details.resolverErrors["failing-1"].error)).to.include("resolver 1 failed");
+            expect(String(e.details.resolverErrors["failing-2"].error)).to.include("resolver 2 failed");
+        }
+        await pkc.destroy();
+    });
+
+    it(`Returns null when one resolver throws and the rest find no record`, async () => {
+        const pkc = await mockPKCV2({
+            remotePKC: true,
+            mockResolve: false,
+            pkcOptions: {
+                nameResolvers: [
+                    {
+                        key: "failing-1",
+                        canResolve: () => true,
+                        resolve: async () => {
+                            throw Error("resolver 1 failed");
+                        },
+                        provider: "provider-1"
+                    },
+                    {
+                        key: "empty-1",
+                        canResolve: () => true,
+                        resolve: async (): Promise<undefined> => undefined,
+                        provider: "provider-2"
+                    }
+                ]
+            }
+        });
+
+        // One resolver actually answered "no record", so this is not an all-failed outcome.
         const resolved = await pkc._clientsManager.resolveCommunityNameIfNeeded({ communityName: "test.bso" });
         expect(resolved).to.be.null;
         await pkc.destroy();

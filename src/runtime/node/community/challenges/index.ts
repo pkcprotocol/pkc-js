@@ -4,6 +4,7 @@ import {
     shouldExcludeChallengeSuccess,
     addToRateLimiter
 } from "./exclude/index.js";
+import type { AuthorIdentityMatcher, NameIdentityFailure } from "../local-community/author-identity.js";
 
 // all challenges included with pkc-js, in PKC.challenges
 import textMath from "./pkc-js-challenges/text-math.js";
@@ -80,10 +81,15 @@ type ChallengeVerificationPending = {
     deferredChallenges?: DeferredChallenge[];
     partialResults?: (Challenge | ChallengeResult | undefined)[];
     communityChallenges?: CommunityChallenge[];
+    // An exclude would have excused this author but for a domain identity the node could not verify. Travels
+    // back out with the pending challenges so it survives the challenge answer round-trip: the author may yet
+    // solve the challenge, and only if they end up rejected does this become the reason they see. Issue #353.
+    identityNameFailure?: NameIdentityFailure;
 };
 type ChallengeVerificationFailure = {
     challengeSuccess: false;
     challengeErrors: NonNullable<ChallengeVerificationMessageType["challengeErrors"]>;
+    identityNameFailure?: NameIdentityFailure;
 } & Pick<ChallengeResultAggregate, "aggregatedReason">;
 
 // Use structural typing for the pkc param to avoid circular import issues
@@ -227,13 +233,15 @@ const callGetChallenge = async ({
     communityChallengeSettings,
     challengeRequestMessage,
     challengeIndex,
-    community
+    community,
+    authorIdentityMatcher
 }: {
     challengeFile: ChallengeFile;
     communityChallengeSettings: CommunityChallengeSetting;
     challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
     challengeIndex: number;
     community: LocalCommunity;
+    authorIdentityMatcher: AuthorIdentityMatcher;
 }): Promise<{ challengeOrChallengeResult: Challenge | ChallengeResult }> => {
     let challengeOrChallengeResult: Challenge | ChallengeResult;
     try {
@@ -241,7 +249,8 @@ const callGetChallenge = async ({
             challengeSettings: communityChallengeSettings,
             challengeRequestMessage,
             challengeIndex,
-            community
+            community,
+            authorIdentityMatcher
         });
         validateChallengeOrChallengeResult({ challengeOrChallengeResult, challengeIndex, community });
     } catch (e) {
@@ -369,10 +378,12 @@ const canFailedChallengeStillBeExcluded = (
 
 const getPendingChallengesOrChallengeVerification = async ({
     challengeRequestMessage,
-    community
+    community,
+    authorIdentityMatcher
 }: {
     challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
     community: LocalCommunity;
+    authorIdentityMatcher: AuthorIdentityMatcher;
 }): Promise<ChallengeVerificationSuccess | ChallengeVerificationPending | ChallengeVerificationFailure> => {
     // if community has no challenges, no need to send a challenge
     if (!Array.isArray(community.settings?.challenges))
@@ -406,9 +417,19 @@ const getPendingChallengesOrChallengeVerification = async ({
     );
 
     // Phase 1: request-only excludes (parallel). Indexes excluded here never reach getChallenge.
+    // An exclude that would have excused this author but for a domain identity the node could not verify
+    // records why, so a later rejection can name the real cause instead of the challenge's own text (#353).
+    let identityNameFailure: NameIdentityFailure | undefined;
     await Promise.all(
         communityChallenges.map(async (communityChallenge, i) => {
-            if (await shouldExcludePublication(communityChallenge, challengeRequestMessage, community)) {
+            const excludeResult = await shouldExcludePublication(
+                communityChallenge,
+                challengeRequestMessage,
+                community,
+                authorIdentityMatcher
+            );
+            identityNameFailure ??= excludeResult.nameFailure;
+            if (excludeResult.shouldExclude) {
                 decided[i] = true;
                 return;
             }
@@ -455,7 +476,8 @@ const getPendingChallengesOrChallengeVerification = async ({
                         communityChallengeSettings: community.settings.challenges[i],
                         challengeRequestMessage,
                         challengeIndex: i,
-                        community
+                        community,
+                        authorIdentityMatcher
                     })
                 ).challengeOrChallengeResult;
                 decided[i] = true;
@@ -494,7 +516,8 @@ const getPendingChallengesOrChallengeVerification = async ({
                 communityChallengeSettings: community.settings.challenges[firstUndecided],
                 challengeRequestMessage,
                 challengeIndex: firstUndecided,
-                community
+                community,
+                authorIdentityMatcher
             })
         ).challengeOrChallengeResult;
         decided[firstUndecided] = true;
@@ -554,13 +577,15 @@ const getPendingChallengesOrChallengeVerification = async ({
         const { aggregatedReason: _unusedOnSuccess, ...successAgg } = agg;
         return { challengeSuccess, pendingApprovalSuccess, ...successAgg };
     }
-    if (challengeSuccess === false) return { challengeSuccess, challengeErrors, aggregatedReason: agg.aggregatedReason };
+    if (challengeSuccess === false)
+        return { challengeSuccess, challengeErrors, aggregatedReason: agg.aggregatedReason, identityNameFailure };
     return {
         pendingChallenges,
         pendingApprovalSuccess,
         deferredChallenges: deferredChallenges.length > 0 ? deferredChallenges : undefined,
         partialResults: results,
-        communityChallenges
+        communityChallenges,
+        identityNameFailure
     };
 };
 
@@ -571,7 +596,8 @@ const getChallengeVerificationFromChallengeAnswers = async ({
     challengeRequestMessage,
     deferredChallenges,
     partialResults,
-    communityChallenges
+    communityChallenges,
+    authorIdentityMatcher
 }: {
     pendingChallenges: PendingChallenge[];
     challengeAnswers: DecryptedChallengeAnswer["challengeAnswers"];
@@ -580,6 +606,7 @@ const getChallengeVerificationFromChallengeAnswers = async ({
     deferredChallenges?: DeferredChallenge[];
     partialResults?: (Challenge | ChallengeResult | undefined)[];
     communityChallenges?: CommunityChallenge[];
+    authorIdentityMatcher: AuthorIdentityMatcher;
 }): Promise<ChallengeVerificationSuccess | ChallengeVerificationFailure> => {
     if (!Array.isArray(community.settings?.challenges)) throw Error("community.settings?.challenges is not defined");
     const challengeCount = community.settings.challenges.length;
@@ -676,7 +703,8 @@ const getChallengeVerificationFromChallengeAnswers = async ({
                             communityChallengeSettings: community.settings!.challenges![i],
                             challengeRequestMessage,
                             challengeIndex: i,
-                            community
+                            community,
+                            authorIdentityMatcher
                         })
                     ).challengeOrChallengeResult;
                     decided[i] = true;
@@ -715,7 +743,8 @@ const getChallengeVerificationFromChallengeAnswers = async ({
                     communityChallengeSettings: community.settings!.challenges![firstUndecided],
                     challengeRequestMessage,
                     challengeIndex: firstUndecided,
-                    community
+                    community,
+                    authorIdentityMatcher
                 })
             ).challengeOrChallengeResult;
             decided[firstUndecided] = true;
@@ -765,11 +794,13 @@ export type GetChallengeVerificationResult = Pick<ChallengeVerificationMessageTy
 const getChallengeVerification = async ({
     challengeRequestMessage,
     community,
-    getChallengeAnswers
+    getChallengeAnswers,
+    authorIdentityMatcher
 }: {
     challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
     community: LocalCommunity;
     getChallengeAnswers: GetChallengeAnswers;
+    authorIdentityMatcher: AuthorIdentityMatcher;
 }): Promise<GetChallengeVerificationResult> => {
     if (!challengeRequestMessage) {
         throw Error(`getChallengeVerification invalid challengeRequestMessage argument '${challengeRequestMessage}'`);
@@ -782,8 +813,11 @@ const getChallengeVerification = async ({
     }
     if (!Array.isArray(community.settings?.challenges)) throw Error("community.settings?.challenges is not defined");
 
-    const res = await getPendingChallengesOrChallengeVerification({ challengeRequestMessage, community });
+    const res = await getPendingChallengesOrChallengeVerification({ challengeRequestMessage, community, authorIdentityMatcher });
     let pendingApprovalSuccess = "pendingApprovalSuccess" in res ? res.pendingApprovalSuccess : false;
+    // Captured before the challenge answer round-trip below, which builds a fresh aggregate and would
+    // otherwise drop it. Applied at the end, and only to a failure. Issue #353.
+    const identityNameFailure = "identityNameFailure" in res ? res.identityNameFailure : undefined;
 
     let challengeVerification: Pick<ChallengeVerificationMessageType, "challengeSuccess" | "challengeErrors"> & ChallengeResultAggregate;
     // was able to verify without asking author for challenges
@@ -796,7 +830,8 @@ const getChallengeVerification = async ({
             challengeRequestMessage,
             deferredChallenges: res.deferredChallenges,
             partialResults: res.partialResults,
-            communityChallenges: res.communityChallenges
+            communityChallenges: res.communityChallenges,
+            authorIdentityMatcher
         });
         if ("pendingApprovalSuccess" in verificationFromPending) {
             pendingApprovalSuccess = pendingApprovalSuccess || verificationFromPending.pendingApprovalSuccess;
@@ -813,6 +848,13 @@ const getChallengeVerification = async ({
             challengeVerification.aggregatedCommentUpdate = res.aggregatedCommentUpdate;
         if ("aggregatedReason" in res && res.aggregatedReason) challengeVerification.aggregatedReason = res.aggregatedReason;
     }
+
+    // An unverifiable domain identity that was decisive for an exclude outranks whatever the challenge the
+    // author then failed had to say: the challenge's text describes the symptom ("only the owner can post
+    // here"), this describes the cause. Only applied on failure, and only when the exclude would otherwise
+    // have excused them, so a publisher who was going to be rejected anyway learns nothing extra. Issue #353.
+    if (challengeVerification.challengeSuccess === false && identityNameFailure)
+        challengeVerification.aggregatedReason = identityNameFailure.reason;
 
     // store the publication result and author address in mem cache for rateLimit exclude challenge settings
     addToRateLimiter(community.settings?.challenges, challengeRequestMessage, challengeVerification.challengeSuccess);

@@ -53,6 +53,8 @@ import { DUPLICATE_PUBLICATION_ERRORS } from "./defaults.js";
 import { challengeExchangePubsubTopic } from "./comment-updates.js";
 import { storePublication } from "./publication-store.js";
 import { checkPublicationValidity, respondWithErrorIfSignatureOfPublicationIsInvalid } from "./publication-validation.js";
+import { createAuthorIdentityMatcher } from "./author-identity.js";
+import type { AuthorIdentityMatcher } from "./author-identity.js";
 
 export function cleanUpChallengeAnswerPromise(community: LocalCommunity, challengeRequestIdString: string) {
     community._challengeAnswerPromises.delete(challengeRequestIdString);
@@ -253,10 +255,11 @@ export async function publishIdempotentDuplicateVerification(
 export async function storePublicationAndEncryptForChallengeVerification(
     community: LocalCommunity,
     request: DecryptedChallengeRequestMessageType,
+    authorIdentityMatcher: AuthorIdentityMatcher,
     pendingApproval?: boolean,
     challengeAggregate?: ChallengeResultAggregate
 ): Promise<(DecryptedChallengeVerification & Required<Pick<DecryptedChallengeVerificationMessageType, "encrypted">>) | undefined> {
-    const commentAfterAddingToIpfs = await storePublication(community, request, pendingApproval, challengeAggregate);
+    const commentAfterAddingToIpfs = await storePublication(community, request, authorIdentityMatcher, pendingApproval, challengeAggregate);
     if (!commentAfterAddingToIpfs) return undefined;
     const authorSignerAddress = await getPKCAddressFromPublicKey(commentAfterAddingToIpfs.comment.signature.publicKey);
     const authorDomain = getAuthorNameFromWire(commentAfterAddingToIpfs.comment.author);
@@ -301,6 +304,7 @@ export async function publishChallengeVerification(
     community: LocalCommunity,
     challengeResult: Pick<ChallengeVerificationMessageType, "challengeErrors" | "challengeSuccess" | "reason">,
     request: DecryptedChallengeRequestMessageType,
+    authorIdentityMatcher: AuthorIdentityMatcher,
     pendingApproval?: boolean,
     challengeAggregate?: ChallengeResultAggregate
 ) {
@@ -316,7 +320,13 @@ export async function publishChallengeVerification(
             | undefined;
 
         try {
-            toEncrypt = await storePublicationAndEncryptForChallengeVerification(community, request, pendingApproval, challengeAggregate);
+            toEncrypt = await storePublicationAndEncryptForChallengeVerification(
+                community,
+                request,
+                authorIdentityMatcher,
+                pendingApproval,
+                challengeAggregate
+            );
         } catch (e) {
             const error = e as PKCError;
             if (DUPLICATE_PUBLICATION_ERRORS.has(error.message)) {
@@ -470,6 +480,10 @@ type ParsedChallengeRequest = {
     decryptedRequestWithCommunityAuthor: DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
     publication: PublicationFromDecryptedChallengeRequest;
     communityAuthor: ReturnType<LocalCommunity["_dbHandler"]["queryCommunityAuthor"]>;
+    // One matcher for the whole exchange: validation, the excludes, the challenges and the storage step all
+    // ask about the same publication's author, and the wire name is a maxAge 0 network resolve. Scoped to the
+    // request so a resolve can never grant authority after a role or a TXT record changed. Issues #353, #354.
+    authorIdentityMatcher: AuthorIdentityMatcher;
 };
 
 // Decrypt, parse, derive the publication, and verify its signature. Database validation is a
@@ -582,7 +596,15 @@ async function validatePublicationOrRespondWithFailure({
         authorCommunity: communityAuthor
     });
 
-    const publicationInvalidityReason = await checkPublicationValidity(community, decryptedRequestMsg, publication, communityAuthor);
+    const authorIdentityMatcher = createAuthorIdentityMatcher({ community, publication });
+
+    const publicationInvalidityReason = await checkPublicationValidity(
+        community,
+        decryptedRequestMsg,
+        publication,
+        authorIdentityMatcher,
+        communityAuthor
+    );
     if (publicationInvalidityReason) {
         if (DUPLICATE_PUBLICATION_ERRORS.has(publicationInvalidityReason)) {
             const sig = publication.signature.signature;
@@ -609,7 +631,7 @@ async function validatePublicationOrRespondWithFailure({
         return undefined;
     }
 
-    return { decryptedRequestMsg, decryptedRequestWithCommunityAuthor, publication, communityAuthor };
+    return { decryptedRequestMsg, decryptedRequestWithCommunityAuthor, publication, communityAuthor, authorIdentityMatcher };
 }
 
 // Runs the challenge exchange (challenges -> answers) for the request, returning the verification result.
@@ -618,7 +640,7 @@ async function runChallengeExchangeIfNeeded(
     parsed: ParsedChallengeRequest,
     log: Logger
 ): Promise<(Awaited<ReturnType<typeof getChallengeVerification>> & { reason?: string }) | undefined> {
-    const { decryptedRequestWithCommunityAuthor } = parsed;
+    const { decryptedRequestWithCommunityAuthor, authorIdentityMatcher } = parsed;
 
     const answerPromiseKey = decryptedRequestWithCommunityAuthor.challengeRequestId.toString();
     const getChallengeAnswers: GetChallengeAnswers = async (challenges) => {
@@ -659,7 +681,8 @@ async function runChallengeExchangeIfNeeded(
         challengeVerification = await getChallengeVerification({
             challengeRequestMessage: decryptedRequestWithCommunityAuthor,
             community,
-            getChallengeAnswers
+            getChallengeAnswers,
+            authorIdentityMatcher
         });
     } catch (e) {
         if (e instanceof PKCError && e.code === "ERR_COMMUNITY_TIMED_OUT_WAITING_FOR_CHALLENGE_ANSWER") {
@@ -706,6 +729,7 @@ async function runVerificationAndStorePublication(
         community,
         challengeResultForPublish,
         parsed.decryptedRequestMsg,
+        parsed.authorIdentityMatcher,
         challengeVerification.pendingApproval,
         aggregate
     );

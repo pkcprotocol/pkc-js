@@ -774,12 +774,17 @@ export class CommunityClientsManager extends PKCClientsManager {
                 }
             })
             .catch((e) => {
-                if (e instanceof PKCError && (e.code === "ERR_NO_RESOLVER_FOR_NAME" || e.code === "ERR_DOMAIN_TXT_RECORD_NOT_FOUND")) {
-                    // Definitive: either no resolver can handle this TLD, or the domain has no community TXT record.
+                if (
+                    e instanceof PKCError &&
+                    (e.code === "ERR_DOMAIN_TXT_RECORD_NOT_FOUND" || e.code === "ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS")
+                ) {
+                    // The resolvers answered and the answer contradicts the claim: the domain has no
+                    // community TXT record, or it has one that is not a key. Definitive. Issue #353.
                     setNameResolvedAndEmitUpdate(false);
                 } else {
                     log.trace("Background name resolution failed for", name, e);
-                    // Transient failure -- leave nameResolved as undefined
+                    // We never got an answer (every resolver errored, or the resolve timed out, or no resolver
+                    // handles this TLD). nameResolved stays undefined: "we could not find out" is not "false".
                 }
             });
     }
@@ -855,7 +860,15 @@ export class CommunityClientsManager extends PKCClientsManager {
             }
 
             // When loaded by raw IPNS key, verify the record's name claim in background (once)
-            if (!isDomain && this._community.name && this._community.publicKey && typeof this._community.nameResolved !== "boolean") {
+            if (
+                !isDomain &&
+                this._community.name &&
+                this._community.publicKey &&
+                typeof this._community.nameResolved !== "boolean" &&
+                // Skip a name no configured resolver can handle: the verdict stays undefined either way, and
+                // attempting it would re-run on every fetch cycle since undefined is also the retry marker.
+                this.canResolveName(this._community.name)
+            ) {
                 this._resolveNameInBackground(this._community.name);
             }
 

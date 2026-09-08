@@ -937,6 +937,11 @@ export class BaseClientsManager {
         const persistentCache = this._getNameResolutionCache();
         let value: string | undefined;
         let anyResolverCanHandle = false;
+        // Whether any resolver that could handle the name actually produced an answer (a record, or a
+        // definitive "no record"). Distinguishes "the resolvers agree there is nothing here" from "we never
+        // got an answer because every one of them errored". See issue #353.
+        let anyResolverAnswered = false;
+        const resolverErrors: Record<string, { provider: string; error: Error }> = {};
 
         for (const nameResolver of nameResolvers) {
             if (!nameResolver.canResolve({ name })) continue;
@@ -951,6 +956,7 @@ export class BaseClientsManager {
             });
             if (cached) {
                 value = cached.publicKey;
+                anyResolverAnswered = true;
                 break;
             }
 
@@ -969,8 +975,10 @@ export class BaseClientsManager {
                 if (abortSignal?.aborted) throwIfAbortSignalAborted(abortSignal);
                 if (isAbortError(error)) throw error;
                 log.trace(`Resolver ${nameResolver.key} failed for ${name}`, error);
+                resolverErrors[nameResolver.key] = { provider: nameResolver.provider, error };
                 continue;
             }
+            anyResolverAnswered = true;
             this.postResolveNameResolverSuccess({ address: name, resolveType, resolverKey: nameResolver.key, resolvedValue: value });
 
             if (value) {
@@ -996,7 +1004,23 @@ export class BaseClientsManager {
             throw new PKCError("ERR_NO_RESOLVER_FOR_NAME", { address: name });
         }
 
+        // Every resolver that could handle this name errored, so we never learned anything about it. This is
+        // NOT the same as null (the resolvers answered and there is no record), and callers act on it
+        // differently: null is a definitive verdict, this is "ask again later". Issue #353.
+        if (!value && !anyResolverAnswered) {
+            throw new PKCError("ERR_ALL_NAME_RESOLVERS_FAILED", { address: name, resolverErrors });
+        }
+
         return value || null;
+    }
+
+    // Can any configured resolver handle this name? Pure and synchronous (canResolve is a pure predicate), so
+    // callers that only want to populate a verdict can skip names they know cannot be resolved instead of
+    // attempting them and caching the failure. Issue #353.
+    canResolveName(name: string): boolean {
+        const nameResolvers = this._pkc.nameResolvers;
+        if (!nameResolvers || nameResolvers.length === 0) return false;
+        return nameResolvers.some((nameResolver) => nameResolver.canResolve({ name }));
     }
 
     async resolveCommunityNameIfNeeded({
@@ -1050,6 +1074,10 @@ export class BaseClientsManager {
         const toResolve: Array<{ authorName: string; signaturePublicKey: string; cacheKey: string }> = [];
         for (const { authorName, signaturePublicKey } of authors) {
             if (!isStringDomain(authorName)) continue;
+            // No resolver here can handle this TLD, so we can never find out. Skip rather than attempt and
+            // cache a verdict: attempting would re-run (and re-log) on every update cycle forever, and the
+            // honest verdict for "we never asked" is undefined, not false. Issue #353.
+            if (!this.canResolveName(authorName)) continue;
             const cacheKey = sha256(authorName + signaturePublicKey);
             if (seen.has(cacheKey)) continue;
             seen.add(cacheKey);
@@ -1069,23 +1097,25 @@ export class BaseClientsManager {
                     cache: { maxAge: 3600 }
                 });
                 if (typeof resolved !== "string") {
-                    // null result: either no TXT record (definitive) or all resolvers errored (transient).
-                    // _resolveViaNameResolvers cannot distinguish these today, so leave the verification cache
-                    // undefined so the next pass retries. Failing-shut here would risk permanently rejecting an author after a brief outage.
-                    return false;
+                    // The resolvers answered and there is no record. Definitive: the name does not belong to
+                    // this signer, so cache false. An all-resolvers-errored outcome no longer arrives here, it
+                    // throws ERR_ALL_NAME_RESOLVERS_FAILED and is left undefined for retry below. Issue #353.
+                    verificationCache.set(entry.cacheKey, false);
+                    return true; // newly set
                 }
                 const signerAddress = await getPKCAddressFromPublicKey(entry.signaturePublicKey);
                 verificationCache.set(entry.cacheKey, resolved === signerAddress);
                 return true; // newly set
             } catch (e) {
                 if (isAbortError(e)) return false;
-                if (e instanceof PKCError && e.code === "ERR_NO_RESOLVER_FOR_NAME") {
-                    // Definitive: no resolver in this PKC instance handles this TLD. Cache as false.
+                if (e instanceof PKCError && e.code === "ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS") {
+                    // The resolvers answered: the record exists and is not a key. Definitive non-match.
                     verificationCache.set(entry.cacheKey, false);
                     return true; // newly set
                 }
                 log.error("Failed to resolve author name in background", entry.authorName, e);
-                // Transient failure — leave undefined for retry on next update
+                // We never got an answer (every resolver errored, or the resolve timed out). "We could not find
+                // out" is undefined, never false — a brief outage must not brand an author as an impostor.
                 return false;
             }
         };

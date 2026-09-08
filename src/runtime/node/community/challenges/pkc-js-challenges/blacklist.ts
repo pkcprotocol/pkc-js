@@ -119,7 +119,8 @@ const urlsAddressesSet = new UrlsAddressesSet();
 const getChallenge = async ({
     challengeSettings,
     challengeRequestMessage,
-    community
+    community,
+    authorIdentityMatcher
 }: GetChallengeArgsInput): Promise<ChallengeResultInput> => {
     // add a custom error message to display to the author
     const error = challengeSettings?.options?.error;
@@ -132,15 +133,20 @@ const getChallenge = async ({
     const publication = derivePublicationFromChallengeRequest(challengeRequestMessage);
     // Match on the signer, not on the publisher-controlled author.address: a listed domain only counts when the
     // publication is signed by the key that domain resolves to (issue #267)
-    const identityMatcher = createAuthorIdentityMatcher({ community, publication });
+    // Shared across the whole challenge request when core supplies it, so the author's domain is resolved once.
+    const identityMatcher = authorIdentityMatcher ?? createAuthorIdentityMatcher({ community, publication });
+    // A listed domain the node cannot resolve stays a non-match, so this challenge fails open: an unverifiable
+    // blacklist entry lets the publication through. Deliberately unchanged here, see issue #356.
     const listed =
-        (await identityMatcher.matchesAnyIdentity(addressesSet)) ||
-        (await identityMatcher.matchesAnyIdentity(
-            await urlsAddressesSet.getAddresses(
-                getCommunityAddressFromRecord(publication as unknown as Record<string, unknown>),
-                challengeSettings?.options?.urls
+        (await identityMatcher.matchesAnyIdentity(addressesSet)).matched ||
+        (
+            await identityMatcher.matchesAnyIdentity(
+                await urlsAddressesSet.getAddresses(
+                    getCommunityAddressFromRecord(publication as unknown as Record<string, unknown>),
+                    challengeSettings?.options?.urls
+                )
             )
-        ));
+        ).matched;
     if (listed) {
         return {
             success: false,

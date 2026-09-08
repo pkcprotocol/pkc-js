@@ -27,6 +27,8 @@ import {
     retryKuboIpfsAddAndProvide
 } from "../../../util.js";
 import { communityIdentityPublicKey } from "./local-community/identity.js";
+import { createAuthorIdentityMatcher } from "./local-community/author-identity.js";
+import { derivePublicationFromChallengeRequest } from "../../../util.js";
 import {
     prepareAnchorPublish as prepareAnchorPublishFreeFunction,
     publishAnchorRecord as publishAnchorRecordFreeFunction
@@ -517,7 +519,15 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // community instance to set up parent comments. Not on master's public API surface,
     // but treated as one by those tests.
     async storePublication(request: DecryptedChallengeRequestMessageType, pendingApproval?: boolean) {
-        return storePublication(this, request, pendingApproval);
+        // Standalone entry point with no surrounding challenge request, so it builds its own matcher rather
+        // than sharing the request-scoped one (issue #354's sharing only applies inside a real exchange).
+        return storePublication(this, request, this._authorIdentityMatcherForRequest(request), pendingApproval);
+    }
+
+    private _authorIdentityMatcherForRequest(request: DecryptedChallengeRequestMessageType) {
+        const publication = derivePublicationFromChallengeRequest(request);
+        if (!publication) throw Error("Challenge request carries no publication to build an author identity matcher from");
+        return createAuthorIdentityMatcher({ community: this, publication });
     }
 
     // Method facades for helpers stubbed/called as methods by garbage.collection and
@@ -575,7 +585,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         challengeResult: Parameters<typeof publishChallengeVerification>[1],
         request: Parameters<typeof publishChallengeVerification>[2]
     ) {
-        return publishChallengeVerification(this, challengeResult, request);
+        return publishChallengeVerification(this, challengeResult, request, this._authorIdentityMatcherForRequest(request));
     }
 
     async _publishIdempotentDuplicateVerification(
