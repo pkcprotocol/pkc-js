@@ -229,11 +229,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(comment.author.address).to.equal("plebbit.bso");
         });
 
-        itSkipIfRpc("nameResolved stays undefined when the resolver returns null (transient null preserves retry semantics)", async () => {
-            // The resolver canResolve returns true but resolve returns undefined: this is a "transient null"
-            // (could be no TXT record OR a network blip), so pkc-js leaves the verification cache undefined
-            // for retry on the next update — it does NOT cache `false`. This is itSkipIfRpc because the
-            // custom resolver below is local to the client and the RPC server uses its own resolver.
+        itSkipIfRpc("nameResolved is false when the resolver answers that the name has no record", async () => {
+            // The resolver canResolve returns true and resolve returns undefined: the resolvers ran and agree
+            // there is no record, which contradicts the claim, so the verdict is a definitive false. Before
+            // #353 this was indistinguishable from "every resolver errored" and both were left undefined.
+            // This is itSkipIfRpc because the custom resolver below is local to the client and the RPC server
+            // uses its own resolver.
             let resolverCalledResolve!: () => void;
             const resolverCalled = new Promise<void>((resolve) => {
                 resolverCalledResolve = resolve;
@@ -269,7 +270,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await new Promise((r) => setTimeout(r, 0));
             await comment.stop();
 
-            expect(comment.author.nameResolved).to.be.undefined;
+            expect(comment.author.nameResolved).to.equal(false);
             expect(comment.author.address).to.equal("hello.scam");
 
             await transientPKC.destroy();
@@ -606,7 +607,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         // stays local to the client and the server has its own (unrestricted) resolvers, so the
         // ERR_NO_RESOLVER_FOR_NAME path isn't reached server-side and there's no way to assert this
         // behavior against an RPC server we don't control.
-        itSkipIfRpc("nameResolved is false when reader has no resolver for the author's TLD", async () => {
+        itSkipIfRpc("nameResolved stays undefined when the reader has no resolver for the author's TLD", async () => {
             // Create a comment with .xyz TLD using default pkc (which accepts all TLDs)
             const xyzComment = await createStaticCommunityRecordForComment({
                 pkc: pkc,
@@ -616,8 +617,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 }
             });
 
-            // Create a reader pkc with a restricted resolver (only .eth/.bso) so .xyz triggers
-            // ERR_NO_RESOLVER_FOR_NAME — the definitive-false path.
+            // Create a reader pkc with a restricted resolver (only .eth/.bso). Nothing here can answer for
+            // .xyz, so the reader never finds out and the verdict stays undefined. Caching false would let a
+            // viewer who simply has not configured a .xyz resolver display an honest author as unverified,
+            // and because undefined doubles as the retry marker the lookup is skipped outright rather than
+            // attempted every cycle. Issue #353.
             const readerPKC = await config.pkcInstancePromise({
                 stubStorage: false,
                 mockResolve: false,
@@ -635,12 +639,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await comment.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: comment,
-                predicate: async () => comment.author?.nameResolved === false
+                predicate: async () => Boolean(comment.content)
             });
+            // Yield so any background resolution pass would have settled before we assert on its absence.
+            await new Promise((r) => setTimeout(r, 0));
             await comment.stop();
 
-            // Comment should load successfully with nameResolved=false, not throw
-            expect(comment.author.nameResolved).to.equal(false);
+            // Comment should load successfully, with no verdict about a name this reader cannot check
+            expect(comment.author.nameResolved).to.be.undefined;
             expect(comment.author.address).to.equal("testuser.xyz");
 
             await readerPKC.destroy();
