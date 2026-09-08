@@ -4,6 +4,8 @@ import {
     shouldExcludeChallengeSuccess,
     addToRateLimiter
 } from "./exclude/index.js";
+import { derivePublicationFromChallengeRequest } from "../../../../util.js";
+import { createAuthorIdentityMatcher } from "../local-community/author-identity.js";
 import type { AuthorIdentityMatcher, NameIdentityFailure } from "../local-community/author-identity.js";
 
 // all challenges included with pkc-js, in PKC.challenges
@@ -227,6 +229,37 @@ const loadChallengeFile = async ({
     return { challengeFile };
 };
 
+// Fallback for a standalone caller that did not bring the request-scoped matcher. A real challenge request
+// goes through handleChallengeRequest, which builds one matcher for the whole exchange so the author's domain
+// is resolved once (issue #354); this only covers direct invocations.
+const NO_IDENTITY_MATCH = { matched: false } as const;
+
+const matcherForChallengeRequest = ({
+    community,
+    challengeRequestMessage
+}: {
+    community: LocalCommunity;
+    challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+}): AuthorIdentityMatcher => {
+    const publication = derivePublicationFromChallengeRequest(challengeRequestMessage) as
+        | { signature?: { publicKey?: string } }
+        | undefined;
+    // A real exchange has already verified the publication's signature by this point, so the signer is always
+    // derivable. A direct caller may pass a publication mock without one; nothing can refer to an author we
+    // cannot identify, so answer "no match" rather than throwing from deep inside the challenge runner.
+    if (typeof publication?.signature?.publicKey !== "string")
+        return {
+            signerAddress: "",
+            wireName: undefined,
+            matchesIdentity: async () => NO_IDENTITY_MATCH,
+            matchesAnyIdentity: async () => NO_IDENTITY_MATCH
+        };
+    return createAuthorIdentityMatcher({
+        community,
+        publication: publication as Parameters<typeof createAuthorIdentityMatcher>[0]["publication"]
+    });
+};
+
 // invoke getChallenge() with shared error handling and result validation
 const callGetChallenge = async ({
     challengeFile,
@@ -383,8 +416,11 @@ const getPendingChallengesOrChallengeVerification = async ({
 }: {
     challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
     community: LocalCommunity;
-    authorIdentityMatcher: AuthorIdentityMatcher;
+    // Supplied by handleChallengeRequest so one matcher serves the whole exchange. Optional for standalone
+    // callers (tests, a challenge author driving this directly), which get a matcher scoped to this call.
+    authorIdentityMatcher?: AuthorIdentityMatcher;
 }): Promise<ChallengeVerificationSuccess | ChallengeVerificationPending | ChallengeVerificationFailure> => {
+    const identityMatcher = authorIdentityMatcher ?? matcherForChallengeRequest({ community, challengeRequestMessage });
     // if community has no challenges, no need to send a challenge
     if (!Array.isArray(community.settings?.challenges))
         return {
@@ -422,12 +458,7 @@ const getPendingChallengesOrChallengeVerification = async ({
     let identityNameFailure: NameIdentityFailure | undefined;
     await Promise.all(
         communityChallenges.map(async (communityChallenge, i) => {
-            const excludeResult = await shouldExcludePublication(
-                communityChallenge,
-                challengeRequestMessage,
-                community,
-                authorIdentityMatcher
-            );
+            const excludeResult = await shouldExcludePublication(communityChallenge, challengeRequestMessage, community, identityMatcher);
             identityNameFailure ??= excludeResult.nameFailure;
             if (excludeResult.shouldExclude) {
                 decided[i] = true;
@@ -477,7 +508,7 @@ const getPendingChallengesOrChallengeVerification = async ({
                         challengeRequestMessage,
                         challengeIndex: i,
                         community,
-                        authorIdentityMatcher
+                        authorIdentityMatcher: identityMatcher
                     })
                 ).challengeOrChallengeResult;
                 decided[i] = true;
@@ -517,7 +548,7 @@ const getPendingChallengesOrChallengeVerification = async ({
                 challengeRequestMessage,
                 challengeIndex: firstUndecided,
                 community,
-                authorIdentityMatcher
+                authorIdentityMatcher: identityMatcher
             })
         ).challengeOrChallengeResult;
         decided[firstUndecided] = true;
@@ -606,9 +637,21 @@ const getChallengeVerificationFromChallengeAnswers = async ({
     deferredChallenges?: DeferredChallenge[];
     partialResults?: (Challenge | ChallengeResult | undefined)[];
     communityChallenges?: CommunityChallenge[];
-    authorIdentityMatcher: AuthorIdentityMatcher;
+    // See getPendingChallengesOrChallengeVerification: production passes the request-scoped matcher.
+    authorIdentityMatcher?: AuthorIdentityMatcher;
 }): Promise<ChallengeVerificationSuccess | ChallengeVerificationFailure> => {
     if (!Array.isArray(community.settings?.challenges)) throw Error("community.settings?.challenges is not defined");
+    const identityMatcher =
+        authorIdentityMatcher ??
+        (challengeRequestMessage
+            ? matcherForChallengeRequest({ community, challengeRequestMessage })
+            : // No request to derive an author from, so nothing can refer to them.
+              {
+                  signerAddress: "",
+                  wireName: undefined,
+                  matchesIdentity: async () => NO_IDENTITY_MATCH,
+                  matchesAnyIdentity: async () => NO_IDENTITY_MATCH
+              });
     const challengeCount = community.settings.challenges.length;
 
     // Run verify() for every pending challenge in parallel.
@@ -704,7 +747,7 @@ const getChallengeVerificationFromChallengeAnswers = async ({
                             challengeRequestMessage,
                             challengeIndex: i,
                             community,
-                            authorIdentityMatcher
+                            authorIdentityMatcher: identityMatcher
                         })
                     ).challengeOrChallengeResult;
                     decided[i] = true;
@@ -744,7 +787,7 @@ const getChallengeVerificationFromChallengeAnswers = async ({
                     challengeRequestMessage,
                     challengeIndex: firstUndecided,
                     community,
-                    authorIdentityMatcher
+                    authorIdentityMatcher: identityMatcher
                 })
             ).challengeOrChallengeResult;
             decided[firstUndecided] = true;
@@ -800,7 +843,8 @@ const getChallengeVerification = async ({
     challengeRequestMessage: DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
     community: LocalCommunity;
     getChallengeAnswers: GetChallengeAnswers;
-    authorIdentityMatcher: AuthorIdentityMatcher;
+    // See getPendingChallengesOrChallengeVerification: production passes the request-scoped matcher.
+    authorIdentityMatcher?: AuthorIdentityMatcher;
 }): Promise<GetChallengeVerificationResult> => {
     if (!challengeRequestMessage) {
         throw Error(`getChallengeVerification invalid challengeRequestMessage argument '${challengeRequestMessage}'`);
@@ -813,7 +857,12 @@ const getChallengeVerification = async ({
     }
     if (!Array.isArray(community.settings?.challenges)) throw Error("community.settings?.challenges is not defined");
 
-    const res = await getPendingChallengesOrChallengeVerification({ challengeRequestMessage, community, authorIdentityMatcher });
+    const identityMatcher = authorIdentityMatcher ?? matcherForChallengeRequest({ community, challengeRequestMessage });
+    const res = await getPendingChallengesOrChallengeVerification({
+        challengeRequestMessage,
+        community,
+        authorIdentityMatcher: identityMatcher
+    });
     let pendingApprovalSuccess = "pendingApprovalSuccess" in res ? res.pendingApprovalSuccess : false;
     // Captured before the challenge answer round-trip below, which builds a fresh aggregate and would
     // otherwise drop it. Applied at the end, and only to a failure. Issue #353.
@@ -831,7 +880,7 @@ const getChallengeVerification = async ({
             deferredChallenges: res.deferredChallenges,
             partialResults: res.partialResults,
             communityChallenges: res.communityChallenges,
-            authorIdentityMatcher
+            authorIdentityMatcher: identityMatcher
         });
         if ("pendingApprovalSuccess" in verificationFromPending) {
             pendingApprovalSuccess = pendingApprovalSuccess || verificationFromPending.pendingApprovalSuccess;

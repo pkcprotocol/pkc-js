@@ -4,6 +4,8 @@ import {
     shouldExcludePublication,
     shouldExcludeChallengeSuccess
 } from "../../dist/node/runtime/node/community/challenges/exclude/index.js";
+import { createAuthorIdentityMatcher } from "../../dist/node/runtime/node/community/local-community/author-identity.js";
+import { derivePublicationFromChallengeRequest } from "../../dist/node/util.js";
 import { addToRateLimiter } from "../../dist/node/runtime/node/community/challenges/exclude/rate-limiter.js";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
@@ -30,17 +32,55 @@ type ShouldExcludeChallengeCommentCidsChallenge = Parameters<typeof shouldExclud
 type ShouldExcludeChallengeCommentCidsRequest = Parameters<typeof shouldExcludeChallengeCommentCids>[1];
 type ShouldExcludeChallengeCommentCidsPKC = Parameters<typeof shouldExcludeChallengeCommentCids>[2];
 
+// Mirrors production: one matcher per request, built from the request's publication (#354). Many cases here
+// use publication mocks with no signature at all, which a real matcher cannot derive a signer from, so those
+// get a matcher that never matches — exactly what an identity exclude should do for an unidentifiable author.
+const matcherForRequest = (request: Record<string, unknown>, community?: Record<string, unknown>) => {
+    const publication = derivePublicationFromChallengeRequest(request as unknown as ChallengeRequestArg) as
+        | { signature?: { publicKey?: string } }
+        | undefined;
+    if (typeof publication?.signature?.publicKey !== "string")
+        return {
+            signerAddress: "",
+            wireName: undefined as string | undefined,
+            matchesIdentity: async () => ({ matched: false as const }),
+            matchesAnyIdentity: async () => ({ matched: false as const })
+        };
+    return createAuthorIdentityMatcher({
+        community: (community ?? {}) as unknown as CommunityArg,
+        publication: publication as unknown as Parameters<typeof createAuthorIdentityMatcher>[0]["publication"]
+    });
+};
+
 // Wrapper functions to reduce type assertion boilerplate
-const testShouldExcludePublication = (
+const testShouldExcludePublication = async (
     communityChallenge: Record<string, unknown>,
     request: Record<string, unknown>,
     community?: Record<string, unknown>
 ): Promise<boolean> => {
-    return shouldExcludePublication(
+    const result = await shouldExcludePublication(
         communityChallenge as unknown as CommunityChallengeArg,
         request as unknown as ChallengeRequestArg,
-        (community ?? undefined) as unknown as CommunityArg
+        (community ?? undefined) as unknown as CommunityArg,
+        matcherForRequest(request, community)
     );
+    return result.shouldExclude;
+};
+
+// The reason an exclude did not excuse the author, when the only thing in its way was a domain identity the
+// community could not verify. Undefined for every other kind of non-match, including an impostor. Issue #353.
+const testShouldExcludeNameFailure = async (
+    communityChallenge: Record<string, unknown>,
+    request: Record<string, unknown>,
+    community?: Record<string, unknown>
+) => {
+    const result = await shouldExcludePublication(
+        communityChallenge as unknown as CommunityChallengeArg,
+        request as unknown as ChallengeRequestArg,
+        (community ?? undefined) as unknown as CommunityArg,
+        matcherForRequest(request, community)
+    );
+    return result.nameFailure;
 };
 
 const testAddToRateLimiter = (

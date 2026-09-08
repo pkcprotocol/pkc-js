@@ -65,7 +65,7 @@ describe("Community rejects publications with unsupported author TLDs", () => {
         await publishWithExpectedResult({
             publication: comment,
             expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN
+            expectedReason: messages.ERR_COMMUNITY_HAS_NO_RESOLVER_FOR_AUTHOR_NAME_TLD
         });
     });
 
@@ -87,7 +87,7 @@ describe("Community rejects publications with unsupported author TLDs", () => {
         await publishWithExpectedResult({
             publication: vote,
             expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN
+            expectedReason: messages.ERR_COMMUNITY_HAS_NO_RESOLVER_FOR_AUTHOR_NAME_TLD
         });
     });
 
@@ -109,7 +109,7 @@ describe("Community rejects publications with unsupported author TLDs", () => {
         await publishWithExpectedResult({
             publication: commentEdit,
             expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_FAILED_TO_RESOLVE_AUTHOR_DOMAIN
+            expectedReason: messages.ERR_COMMUNITY_HAS_NO_RESOLVER_FOR_AUTHOR_NAME_TLD
         });
     });
 
