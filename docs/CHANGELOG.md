@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.101](https://github.com/pkcprotocol/pkc-js/compare/v0.0.100...v0.0.101) (2026-09-08)
+
+### Bug Fixes
+
+* **community:** bind excludes, roles and address lists to the signer and drop exclude.address ([#294](https://github.com/pkcprotocol/pkc-js/issues/294)) ([1c8fb8e](https://github.com/pkcprotocol/pkc-js/commit/1c8fb8e09e05b1429b6411641b3bbf00ed44c371)), closes [#295](https://github.com/pkcprotocol/pkc-js/issues/295) [#333](https://github.com/pkcprotocol/pkc-js/issues/333)
+
 ## [0.0.100](https://github.com/pkcprotocol/pkc-js/compare/v0.0.99...v0.0.100) (2026-09-07)
 
 ### Bug Fixes
