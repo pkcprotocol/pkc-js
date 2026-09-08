@@ -11,6 +11,8 @@
 // BENCH_ITERATIONS (3), BENCH_SEED (1). The script also runs unchanged on master and on the pre-rewrite branch
 // (it detects the generator's signature), which is how the before/after numbers in the PR were taken.
 import { performance } from "node:perf_hooks";
+import { sha256 as jsSha256 } from "js-sha256";
+import { base58btc } from "multiformats/bases/base58";
 import path from "node:path";
 import { existsSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -42,7 +44,14 @@ const NO_STATEMENT_CACHE = process.env.BENCH_NO_STATEMENT_CACHE === "1";
 let seed = Number(process.env.BENCH_SEED) > 0 ? Number(process.env.BENCH_SEED) : 1;
 const NO_BUMP_FIXTURE = path.resolve(process.cwd(), "test/fixtures/page-sorts/active-no-bump-keyword.js");
 const CONTENT = "x".repeat(200);
-const SIGNATURE = { type: "ed25519", signature: "sig", publicKey: "pk", signedPropertyNames: [] };
+// publicKey is a real 32-byte ed25519 key in base64, the length and shape production carries: parsing a
+// published page derives every comment author's address from it, and a placeholder throws there.
+const SIGNATURE = {
+    type: "ed25519",
+    signature: "sig",
+    publicKey: Buffer.alloc(32, 7).toString("base64"),
+    signedPropertyNames: []
+};
 
 const random = () => {
     // xorshift32, deterministic across runs and code states
@@ -52,7 +61,16 @@ const random = () => {
     return ((seed >>> 0) % 1_000_000) / 1_000_000;
 };
 const randomInt = (min, max) => min + Math.floor(random() * (max - min + 1));
-const fakeCid = (n) => `Qm${n.toString(36).padStart(44, "0")}`;
+// A real CIDv0 string, not a "Qm" + padding placeholder: the published community record is schema-parsed
+// before it goes out, and the schema rejects a cid that does not decode. Deterministic (sha256 of the
+// counter) and the same 46 characters, so page byte sizes are unchanged.
+const fakeCid = (n) => {
+    const bytes = new Uint8Array(34);
+    bytes[0] = 0x12; // sha2-256
+    bytes[1] = 0x20; // 32 bytes
+    bytes.set(new Uint8Array(jsSha256.arrayBuffer(`pkc-bench-${n}`)), 2);
+    return base58btc.encode(bytes).slice(1); // CIDv0 is base58btc with no multibase prefix
+};
 
 async function main() {
     const pkc = await mockPKC();
