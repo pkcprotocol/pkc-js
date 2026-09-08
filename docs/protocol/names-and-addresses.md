@@ -40,6 +40,49 @@ Domains are resolved via the `nameResolvers` plugin system configured on the PKC
     `nameResolved`".
 -   Resolution happens on the RPC server for browser clients, RPC clients don't need `nameResolvers` configured locally.
 
+## What `nameResolved` means
+
+> `nameResolved` is `false` **only** when a resolver actually answered and the answer contradicts the claim.
+> It is `undefined` whenever no answer was obtained, for any reason. `true` only on a matching answer.
+
+`false` is an accusation: it says this name is not that key. Never make it on evidence you do not have. A
+resolver outage, a timeout, or a TLD this client has no resolver for all mean "we could not find out", and
+that is `undefined`, which is also the marker that lets a later pass retry.
+
+| What happened                                   | `community.nameResolved`                          | `author.nameResolved`            |
+| ----------------------------------------------- | ------------------------------------------------- | -------------------------------- |
+| resolved to the expected key                    | `true`                                            | `true`                           |
+| resolved to a **different** key                 | `true` (key migration, identity follows the name) | `false`                          |
+| resolved to a non-anchor hop of its own chain   | `false`                                           | n/a                              |
+| resolvers answered, no TXT record               | `false`                                           | `false`                          |
+| one resolver errored, a later one answered      | as the answering resolver says                    | as the answering resolver says   |
+| **every** resolver that handles the TLD errored | `undefined`                                       | `undefined`                      |
+| no resolver configured for that TLD             | `undefined`, and never attempted                  | `undefined`, and never attempted |
+| timed out / aborted                             | `undefined`                                       | `undefined`                      |
+| record resolved to a non-IPNS string            | `false`                                           | `false`                          |
+| `resolveAuthorNames: false`                     | n/a (it gates author resolution only)             | `undefined`                      |
+| address is a raw key, no domain                 | `undefined`                                       | `undefined`                      |
+
+The community row for a key change is the one exception to the rule: a migration **redefines** the claim
+rather than contradicting it. `_applyKeyMigration` repoints `community.publicKey` at the key the name now
+resolves to, wipes every record from the old key as potentially compromised, and tells the application through
+an `ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY` error event rather than through the flag.
+
+`_resolveViaNameResolvers` is what makes the distinction possible. It returns `null` when the resolvers ran and
+found no record, and throws `ERR_ALL_NAME_RESOLVERS_FAILED` (with each resolver's error in `details`, keyed by
+resolver key) when every resolver that could handle the name errored. Before issue #353 both collapsed into the
+same `null`, so neither could be treated as definitive without risking the other. `pkc.resolveAuthorName`
+propagates that throw rather than answering `null`, over RPC included.
+
+A name no configured resolver can handle is skipped outright by a synchronous `canResolveName` check rather
+than attempted and cached: the verdict would be `undefined` either way, and since `undefined` is also the retry
+marker, attempting it would re-run and re-log on every update cycle forever.
+
+Publication validation is a separate question from the verdict, and its policy is unchanged: `checkAuthorIdentity`
+refuses any publication whose wire `author.name` it cannot verify against the signer, whatever the reason and
+whatever the publication type. What changed is that it now says which of the four things went wrong. See
+[challenge-flow.md](challenge-flow.md), "Author identity in excludes, roles and address lists".
+
 ## Caching responsibility
 
 **pkc-js owns name-resolution caching. Resolvers should be thin network wrappers.**
@@ -72,7 +115,7 @@ Defaults applied at each call site:
 
 ### Negative caching
 
-The persistent cache stores only successful resolutions. Failures are not persisted; the next caller retries. The in-memory verification cache (`PKC._memCaches.nameResolvedCache`) caches `(name + signaturePublicKey) → boolean` for sync hot-path lookups by `Comment._setAuthorNameResolvedFromCache` and friends; it stores `false` only for definitive non-matches and the definitive `ERR_NO_RESOLVER_FOR_NAME` case, never for transient errors.
+The persistent cache stores only successful resolutions. Failures are not persisted; the next caller retries. The in-memory verification cache (`PKC._memCaches.nameResolvedCache`) caches `(name + signaturePublicKey) → boolean` for sync hot-path lookups by `Comment._setAuthorNameResolvedFromCache` and friends; it stores `false` only where the table above says `false`, which means only when a resolver answered, and leaves the entry unset whenever no answer was obtained so the next pass retries.
 
 ## RPC-Side Resolution
 

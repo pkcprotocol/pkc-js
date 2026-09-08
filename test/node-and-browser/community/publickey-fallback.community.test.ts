@@ -111,12 +111,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await community.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: community,
-                predicate: async () => typeof community.updatedAt === "number" && typeof community.nameResolved === "boolean"
+                predicate: async () => typeof community.updatedAt === "number"
             });
+            // Yield so a background resolution pass would have settled before asserting on its absence.
+            await new Promise((r) => setTimeout(r, 0));
 
             expect(community.updatedAt).to.be.a("number");
-            // nameResolved should be false because .sol can't be resolved
-            expect(community.nameResolved).to.equal(false);
+            // No configured resolver handles .sol, so this client never finds out whether the name points at
+            // this community: the verdict is undefined, not false. It also never asks, since undefined doubles
+            // as the retry marker and an attempt would repeat on every fetch cycle forever. Issue #353.
+            expect(community.nameResolved).to.be.undefined;
 
             await community.stop();
             await testPKC.destroy();
@@ -347,7 +351,9 @@ describe(`publicKey fallback - .sol community loading`, () => {
                 });
 
                 expect(community.updatedAt).to.be.a("number");
-                expect(community.nameResolved).to.equal(false);
+                // No resolver handles .sol, so the client never learns whether the name points here. Undefined,
+                // not false: it did not ask and cannot answer. Issue #353.
+                expect(community.nameResolved).to.be.undefined;
 
                 await community.stop();
                 await testPKC.destroy();

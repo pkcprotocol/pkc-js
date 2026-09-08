@@ -360,6 +360,45 @@ describeSkipIfRpc("exclude/role identity: resolver-independent cases (resolveAut
         });
     });
 
+    // Issue #353, the one call site that was not a rejection. The pseudonymity feature never anonymizes a mod,
+    // and it decided who is a mod with the same matcher. A resolver failure therefore used to publish a
+    // moderator's comment under an alias: no error, the wrong outcome, and irreversible once stored.
+    describe("pseudonymity does not anonymize a moderator whose domain could not be verified", () => {
+        let community: LocalCommunity;
+        beforeAll(async () => {
+            community = await harness.createStartedCommunity({
+                roles: { [harness.ownerDomain]: { role: "moderator" } },
+                features: { pseudonymityMode: "per-author" },
+                settings: { challenges: [] }
+            });
+        });
+
+        afterAll(() => {
+            harness.resolverShouldThrow.value = false;
+        });
+
+        it("publishes the moderator's own comment unanonymized while the resolver works", async () => {
+            harness.resolverShouldThrow.value = false;
+            const post = await publishPost(harness, community, {
+                signer: ownerSigner,
+                name: harness.ownerDomain,
+                expectedChallengeSuccess: true
+            });
+            // Mods are exempt from pseudonymity, so the stored comment keeps their own signing key.
+            expect(post.signature.publicKey).to.equal(ownerSigner.publicKey);
+        });
+
+        it("refuses the publication rather than storing it under an alias when the resolver is down", async () => {
+            harness.resolverShouldThrow.value = true;
+            await publishPost(harness, community, {
+                signer: ownerSigner,
+                name: harness.ownerDomain,
+                expectedChallengeSuccess: false,
+                expectedReason: messages.ERR_COMMUNITY_FAILED_TO_RESOLVE_AUTHOR_NAME
+            });
+        });
+    });
+
     // Issue #353's decisive-only rule: the resolver failure becomes the reason only when it is what stood
     // between the author and being excused. A publisher who was going to be rejected anyway learns nothing.
     describe("a resolver failure that changed nothing stays quiet", () => {
