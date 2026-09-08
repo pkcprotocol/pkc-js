@@ -1306,7 +1306,7 @@ An object which may have the following keys:
 | suggested | `CommunitySuggested` or `undefined` | The suggested client settings for the community |
 | flairs | `{[key: 'post' or 'author']: Flair[]}` or `undefined` | The list of flairs (colored labels for comments or authors) authors or mods can choose from |
 | settings | `CommunitySettings` or `undefined` | The private community.settings property of the community, not shared in the community IPNS |
-| pageSorts | `CommunityPageSorts` or `undefined` | What the community publishes about its configured page sorts (`settings.pages`), keyed by sort name per scope: `{ posts?: {[sortName]: { name?, description?, publicOptions? }}, replies?: ... }`. `publicOptions` is the full option set the sort runs with (reserved options included) minus `privateOptions`, so a client can re-sort a page locally with `sortPageComments`. Absent when `settings.pages` is unset |
+| pageSorts | `CommunityPageSorts` or `undefined` | What the community publishes about its configured page sorts (`settings.pages`), keyed by sort name per scope: `{ posts?: {[sortName]: { name?, description?, publicOptions? }}, replies?: ... }`. `publicOptions` is the full option set the sort runs with (reserved options included) minus `privateOptions`, so a client that installed the same package can re-sort a page locally with its `score` (see "Client side" in [docs/protocol/page-sorts.md](docs/protocol/page-sorts.md)). Absent when `settings.pages` is unset |
 
 ##### CommunitySettings
 

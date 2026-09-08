@@ -279,9 +279,9 @@ export const PageSortFileSchema = z.looseObject({
     //
     // `requireReplies`: the file also receives `replies`, every descendant of the scored comment that survives the
     // sort's exclusion options, as one flat list of page entries (parentCid and depth are on each comment for a file
-    // that wants the tree). The community builds it from the database; a client passes what it walked from the reply
-    // pages, and sortPageComments throws ERR_PAGE_SORT_REPLIES_REQUIRED when it did not. A file without the flag never
-    // sees `replies` and costs nothing beyond the entry itself.
+    // that wants the tree). The community builds it from the database; a client re-sorting a page passes what it
+    // walked from the reply pages. A file without the flag never sees `replies` and costs nothing beyond the entry
+    // itself.
     requireReplies: z.boolean().optional(),
     score: z.function({
         input: [
@@ -306,7 +306,7 @@ export const PageSortFileFactorySchema = z.function({ input: [PageSortFileFactor
 // What a community publishes about each configured sort (community.pageSorts), keyed by sortName. Mirrors
 // community.challenges[i]: enough for a client to tell the built-in `active` from a package that reuses the
 // name, and to re-sort locally with the same package when the board fits in one chunk (docs/protocol/page-sorts.md,
-// "Client-side re-sorting").
+// "Client side").
 export const CommunityPageSortSchema = z.looseObject({
     name: z.string().optional(), // the PKC.pageSorts key for name: entries; omitted for path: entries
     description: PageSortFileSchema.shape.description,

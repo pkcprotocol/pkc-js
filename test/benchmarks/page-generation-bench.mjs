@@ -31,6 +31,9 @@ const COLD = process.env.BENCH_COLD === "1";
 // the row with its wire replies) runs the way the sync loop does, then the posts pages are generated; time and the
 // sampled peak heap are reported per phase and over the cycle.
 const PIPELINE = process.env.BENCH_PIPELINE === "1";
+// BENCH_NO_STATEMENT_CACHE=1 prepares every statement on every call, the way the code did before the per-connection
+// statement cache (issue #351), so the cache's share of the cycle can be measured with BENCH_PIPELINE=1.
+const NO_STATEMENT_CACHE = process.env.BENCH_NO_STATEMENT_CACHE === "1";
 let seed = Number(process.env.BENCH_SEED) > 0 ? Number(process.env.BENCH_SEED) : 1;
 const NO_BUMP_FIXTURE = path.resolve(process.cwd(), "test/fixtures/page-sorts/active-no-bump-keyword.js");
 const CONTENT = "x".repeat(200);
@@ -77,10 +80,13 @@ async function main() {
             await community._dbHandler.initDbIfNeeded();
         }
 
+        if (NO_STATEMENT_CACHE) community._dbHandler["_prepareCached"] = (sql) => community._dbHandler["_db"].prepare(sql);
+
         const seedStart = performance.now();
         const { replyTotal } = seedBoard(community);
         const seedMs = performance.now() - seedStart;
         console.log(JSON.stringify({ event: "seeded", posts: POSTS, replies: replyTotal, seedMs: Math.round(seedMs) }));
+        reportStorage(community);
 
         if (PIPELINE) {
             for (let i = 0; i < ITERATIONS; i++) {
@@ -94,6 +100,7 @@ async function main() {
                 const updates = await updateCommentsThatNeedToBeUpdated(community);
                 community._dbHandler.markCommentsAsPublishedToPostUpdates(updates.map((u) => u.newCommentUpdate.cid));
                 const updatesMs = performance.now() - updatesStart;
+                if (i === 0) reportStorage(community); // commentUpdates rows exist now, so every index has its final size
                 const updatesHeapPeak = heapPeak;
                 const updatesPageBytes = addedBytes;
                 const postsStart = performance.now();
@@ -173,6 +180,27 @@ async function main() {
         await community.delete();
         await pkc.destroy();
     }
+}
+
+// What every table and index of the seeded board takes on disk, from sqlite's dbstat: the cost of the indexes added
+// for the update cycle (issue #351) next to the tables they index. Percent is of the whole database file.
+function reportStorage(community) {
+    const db = community._dbHandler["_db"];
+    const rows = db.prepare("SELECT name, SUM(pgsize) AS bytes FROM dbstat GROUP BY name ORDER BY bytes DESC").all();
+    const total = rows.reduce((sum, row) => sum + row.bytes, 0);
+    const kinds = new Map(db.prepare("SELECT name, type FROM sqlite_schema").all().map((row) => [row.name, row.type]));
+    console.log(
+        JSON.stringify({
+            event: "storage",
+            totalMB: Math.round((total / 1024 / 1024) * 10) / 10,
+            objects: rows.map((row) => ({
+                name: row.name,
+                type: kinds.get(row.name) ?? "internal",
+                MB: Math.round((row.bytes / 1024 / 1024) * 100) / 100,
+                pct: Math.round((row.bytes / total) * 1000) / 10
+            }))
+        })
+    );
 }
 
 export function seedBoard(community) {

@@ -1,7 +1,7 @@
 import { pathToFileURL } from "node:url";
 import { PKCError } from "../../../../pkc-error.js";
 import { PageSortFileFactorySchema } from "../../../../community/schema.js";
-import { validatePageSortFile } from "../../../../pages/page-sort-client.js";
+import { validatePageSortFile } from "../../../../pages/page-sort-scoring.js";
 import {
     DEFAULT_RESERVED_OPTIONS,
     parseReservedPageSortOptions,

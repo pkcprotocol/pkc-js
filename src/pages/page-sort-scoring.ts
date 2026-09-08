@@ -1,34 +1,19 @@
-import { PKCError } from "../pkc-error.js";
-import { PageSortFileFactorySchema, PageSortFileSchema } from "../community/schema.js";
+import { PageSortFileSchema } from "../community/schema.js";
 import { getEquivalentCommunityAddresses } from "../util.js";
-import { parseReservedPageSortOptions, type ParsedReservedPageSortOptions } from "./page-sort-options.js";
-import type { CommunityPageSortSetting, PageSortFile, PageSortFileFactory, PageSortFileFactoryInput } from "../community/types.js";
+import type { ParsedReservedPageSortOptions } from "./page-sort-options.js";
+import type { PageSortFile } from "../community/types.js";
 import type { PageIpfs, PageSortExclusionOptionName, PageSortReplyEntry } from "./types.js";
 
-// Client-side page sorting (issue #73, docs/protocol/page-sorts.md "Client-side re-sorting"). Browser-safe: no
-// database, only what a page entry carries. The community publishes every option a sort runs with in
-// community.pageSorts[sortName].publicOptions, so a client holding a page and the package registered under
-// community.pageSorts[sortName].name can reproduce the community's own order, or apply any other sort it has.
+// Scoring a comment set with a page sort file (issue #73): the reserved exclusions, pinned placement and the maxAge
+// window pkc-js applies around a file's `score`, and the file validation the registry runs. Used by the page generator;
+// nothing here touches the database, only what a page entry carries.
 
 type PageComment = PageIpfs["comments"][number];
 
-// Build the PageSortFile of a package: what a client does with PKC.pageSorts[name], and what the community does with
-// a resolved settings.pages entry. A factory takes only the entry; there is no community database in either place.
-export function instantiatePageSortFile({
-    factory,
-    pageSortSettings
-}: {
-    factory: PageSortFileFactoryInput;
-    pageSortSettings: CommunityPageSortSetting;
-}): PageSortFile {
-    PageSortFileFactorySchema.parse(factory); // a function, or the schema says why not
-    return validatePageSortFile((factory as PageSortFileFactory)({ pageSortSettings }));
-}
-
 // Validate what a factory returned, once, and hand back the file with its own functions rather than the schema's
 // per-call wrappers: `score` runs once per comment per sort, and the wrapper re-validated its argument object (the
-// whole `replies` list included, for a requireReplies file) on every call (issue #351). The generator and
-// sortPageComments check the score's type themselves.
+// whole `replies` list included, for a requireReplies file) on every call (issue #351). The generator checks the
+// score's type itself.
 export function validatePageSortFile(rawFile: unknown): PageSortFile {
     const validated = PageSortFileSchema.parse(rawFile);
     const raw = rawFile as PageSortFile;
@@ -39,7 +24,7 @@ export function validatePageSortFile(rawFile: unknown): PageSortFile {
     };
 }
 
-// The reserved exclusions as a client applies them to page entries. Mirrors the SQL clauses in DbHandler
+// The reserved exclusions applied to page entries in JS (the `replies` a requireReplies file receives). Mirrors the SQL clauses in DbHandler
 // (exclusionClauses): a comment is removed when commentUpdate.removed is true, deleted when its author's edit says so,
 // disapproved when commentUpdate.approved is false, pending when commentUpdate.pendingApproval is true.
 export function applyPageSortExclusions<T extends PageSortReplyEntry>({
@@ -181,47 +166,4 @@ export function scorePageCommentsWithFile({
             ...(descendantsOf ? { replies: descendantsOf(commentUpdate.cid) } : {})
         });
     };
-}
-
-// What a UI holds: either the wire entries of a PageIpfs, or the parsed page comments of community.posts.pages /
-// comment.replies.pages, which keep the wire entry under `raw`. Sorting returns the same shape it was given.
-type SortablePageComment = PageComment | { raw: PageComment };
-
-const toWireEntry = (entry: SortablePageComment): PageComment => ("raw" in entry ? entry.raw : entry);
-
-// Sort a page's comments the way the community would for `file` under `options`: the full option set the sort runs
-// with (community.pageSorts[sortName].publicOptions, or the same merge a community does). Applies the reserved
-// exclusions, pinned placement and the window, then the file's `score`, dropping the comments it declines. A file with
-// requireReplies needs `replies`: every descendant of the page's comments the caller walked from the reply pages, as
-// one flat list; the exclusions are applied to it here, so the file sees the same survivors the community's SQL gives.
-export function sortPageComments<T extends SortablePageComment>({
-    comments,
-    file,
-    options,
-    baseTimestamp,
-    communityAddress,
-    replies
-}: {
-    comments: T[];
-    file: PageSortFile;
-    options: Record<string, string>;
-    baseTimestamp: number;
-    communityAddress?: string;
-    replies?: PageSortReplyEntry[]; // page entries are a superset of the lean entry, pass them as walked
-}): T[] {
-    if (file.requireReplies && !replies) throw new PKCError("ERR_PAGE_SORT_REPLIES_REQUIRED", { sortName: file.sortName });
-    const reserved = parseReservedPageSortOptions(options);
-    const byCid = new Map(comments.map((entry) => [toWireEntry(entry).commentUpdate.cid, entry]));
-    const included = applyPageSortExclusions({ comments: comments.map(toWireEntry), exclusions: reserved.exclusions, communityAddress });
-    const { pinned, unpinned } = partitionPageCommentsForSort({ comments: included, reserved, baseTimestamp });
-    const survivingReplies = replies
-        ? applyPageSortExclusions({ comments: replies, exclusions: reserved.exclusions, communityAddress })
-        : undefined;
-    const ordered = orderPageCommentsByScore({
-        pinned,
-        unpinned,
-        sortName: file.sortName,
-        scoreOf: scorePageCommentsWithFile({ file, options, baseTimestamp, replies: survivingReplies })
-    });
-    return ordered.map((entry) => byCid.get(entry.commentUpdate.cid)!);
 }

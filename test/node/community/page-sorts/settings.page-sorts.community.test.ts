@@ -10,11 +10,13 @@ import {
 } from "../../../../dist/node/test/test-util.js";
 import { PKCError } from "../../../../dist/node/pkc-error.js";
 import { DbHandler } from "../../../../dist/node/runtime/node/community/db-handler.js";
+import { pkcJsPageSorts } from "../../../../dist/node/runtime/node/community/page-sorts/index.js";
 import { timestamp } from "../../../../dist/node/util.js";
 import {
     createCommunityWithDefaultDb,
     regenerateAllCommentUpdates,
     seedComments,
+    MOST_REPLIES_SORT_PATH,
     NO_BUMP_KEYWORD_SORT_PATH,
     THROWING_SORT_PATH
 } from "./page-sorts-test-util.js";
@@ -86,6 +88,41 @@ describeSkipIfRpc.concurrent("settings.pages: validation", () => {
             "ERR_PAGE_SORT_DUPLICATE_SORT_NAME"
         );
         expect(error.details).to.include({ sortName: "active" });
+    });
+
+    it("rejects two registered names whose files export the same sortName, as an aggregated failure on the second entry", async () => {
+        // The registry is keyed by the name an entry references, not by what the file declares: two PKC.pageSorts keys
+        // can point at files that both export sortName "hot", and only the sortName is a key under posts.pages.
+        pkc.settings.pageSorts = { ...pkc.settings.pageSorts, "hot-alias": pkcJsPageSorts.hot };
+        try {
+            const community = (await pkc.createCommunity()) as LocalCommunity;
+            const error = await expectEditToFail(
+                community,
+                { posts: [{ name: "hot" }, { name: "hot-alias" }] },
+                "ERR_PAGE_SORT_DUPLICATE_SORT_NAME"
+            );
+            expect(error.details).to.include({ sortName: "hot", scope: "posts", pageSortIndex: 1, pageSortName: "hot-alias" });
+        } finally {
+            delete pkc.settings.pageSorts!["hot-alias"];
+        }
+    });
+
+    it("createCommunity rejects two entries resolving to the same sortName before anything is on disk", async () => {
+        let caught: unknown;
+        try {
+            await pkc.createCommunity({
+                settings: { pages: { replies: [{ name: "best" }, { path: MOST_REPLIES_SORT_PATH }, { name: "best" }] } }
+            });
+        } catch (e) {
+            caught = e;
+        }
+        expect(caught).to.be.instanceOf(PKCError);
+        const error = caught as PKCError;
+        expect(error.code).to.equal("ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED_FOR_PAGE_SORTS");
+        const failures = error.details.failures as { scope: string; pageSortIndex: number; error: PKCError }[];
+        expect(failures.map((f) => [f.scope, f.pageSortIndex, f.error.code])).to.deep.equal([
+            ["replies", 2, "ERR_PAGE_SORT_DUPLICATE_SORT_NAME"]
+        ]);
     });
 
     it("rejects a reply-scoped sort under posts and a post-scoped sort under replies", async () => {

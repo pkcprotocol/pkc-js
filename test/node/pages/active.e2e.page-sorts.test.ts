@@ -10,11 +10,11 @@ import {
     resolveWhenConditionIsTrue,
     waitTillPostInCommunityPages
 } from "../../../dist/node/test/test-util.js";
-import { sortPageComments, instantiatePageSortFile, pageSorts as builtInPageSorts } from "../../../dist/node/index.js";
+import { pageSorts as builtInPageSorts } from "../../../dist/node/index.js";
 import { timestamp } from "../../../dist/node/util.js";
 import { DEFAULT_RESERVED_OPTIONS } from "../../../dist/node/pages/page-sort-options.js";
 import activeNoBumpKeywordPageSort from "../../fixtures/page-sorts/active-no-bump-keyword.js";
-import { walkRepliesOfPage } from "../../node-and-browser/pages/page-sorts-client-test-util.js";
+import { resortPageLikeAUi, walkRepliesOfPage } from "../../node-and-browser/pages/page-sorts-client-test-util.js";
 
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
@@ -34,9 +34,10 @@ async function loadActivePosts(community: RemoteCommunity | LocalCommunity): Pro
 
 // The built-in `active` end to end (issue #73): a reply to an older post moves it ahead of a newer post in the
 // community's `active` pages, across every chunk, and a client holding those pages reproduces the order from the
-// CommentUpdate alone (`lastReplyTimestamp`), with the built-in from PKC.pageSorts. The second test is the
-// client-installed-package case: a UI applies its own reply-dependent sort to a board that never configured it, by
-// walking each thread's flat reply pages into `replies`.
+// CommentUpdate alone (`lastReplyTimestamp`), by applying the built-in's `score` itself (pkc-js exports no sorter;
+// resortPageLikeAUi is the doc's worked example). The second test is the client-installed-package case: a UI applies
+// its own reply-dependent sort to a board that never configured it, by walking each thread's flat reply pages into
+// `replies`.
 describe("built-in active sort end to end", () => {
     let publisherPKC: PKC;
     let publisherCommunity: LocalCommunity;
@@ -153,13 +154,11 @@ describe("built-in active sort end to end", () => {
             it("a client reproduces the community's active order with the built-in from PKC.pageSorts and the scope's default options", () => {
                 // An unconfigured community publishes no pageSorts: its keys are the built-ins with the scope's reserved defaults
                 expect(remoteCommunity.pageSorts).to.be.undefined;
-                const file = instantiatePageSortFile({ factory: builtInPageSorts.active, pageSortSettings: { name: "active" } });
-                const resorted = sortPageComments({
+                const resorted = resortPageLikeAUi({
                     comments: [...activePosts].reverse(),
-                    file,
-                    options: DEFAULT_RESERVED_OPTIONS.posts,
-                    baseTimestamp: timestamp(),
-                    communityAddress: remoteCommunity.address
+                    factory: builtInPageSorts.active,
+                    pageSortSettings: { name: "active", options: DEFAULT_RESERVED_OPTIONS.posts },
+                    baseTimestamp: timestamp()
                 });
                 // Ties (same bump second) keep the community's order, which the reversed input does not preserve, so compare by bump time
                 expect(resorted.map(bumpTimeOf)).to.deep.equal(activePosts.map(bumpTimeOf));
@@ -167,10 +166,6 @@ describe("built-in active sort end to end", () => {
             });
 
             it("a UI applies its own reply-dependent package to a board that never configured it, by walking the flat reply pages", async () => {
-                const file = instantiatePageSortFile({
-                    factory: activeNoBumpKeywordPageSort as PageSortFileFactoryInput,
-                    pageSortSettings: { name: "activeNoBumpKeyword", options: { noBumpKeywords: "sage" } }
-                });
                 const replies = await walkRepliesOfPage({ comments: activePosts, pkc: remotePKC });
                 // The bump reply plus the filler reply the forced chunking published; both under the older post
                 expect(replies.map((entry) => entry.comment.content)).to.include("bumps the older post");
@@ -179,13 +174,14 @@ describe("built-in active sort end to end", () => {
                 const olderInPage = activePosts.find((post) => post.cid === older.cid)!;
                 expect(olderInPage.replies?.pageCids.newFlat, "the walk took the flat chain").to.be.a("string");
 
-                const options = { ...DEFAULT_RESERVED_OPTIONS.posts, noBumpKeywords: "sage" };
-                const byPackage = sortPageComments({
+                const byPackage = resortPageLikeAUi({
                     comments: [...activePosts].reverse(),
-                    file,
-                    options,
+                    factory: activeNoBumpKeywordPageSort as PageSortFileFactoryInput,
+                    pageSortSettings: {
+                        name: "activeNoBumpKeyword",
+                        options: { ...DEFAULT_RESERVED_OPTIONS.posts, noBumpKeywords: "sage" }
+                    },
                     baseTimestamp: timestamp(),
-                    communityAddress: remoteCommunity.address,
                     replies
                 });
                 // No reply carries the keyword, so the package agrees with the built-in

@@ -27,7 +27,7 @@ import {
     partitionPageCommentsForSort,
     scorePageCommentsWithFile,
     stripRepliesFromPageComment
-} from "../../../pages/page-sort-client.js";
+} from "../../../pages/page-sort-scoring.js";
 import type { PageSortScope } from "../../../community/types.js";
 import Logger from "../../../logger.js";
 import type { CommunityIpfsType } from "../../../community/types.js";
@@ -457,8 +457,8 @@ export class PageGenerator {
         return chunks;
     }
 
-    // Apply one sort to a loaded comment set: pinned placement, the maxAge window (both shared with the client-side
-    // sorter so a client reproduces the same set), then the file's `score` per comment, which drops what it declines.
+    // Apply one sort to a loaded comment set: pinned placement, the maxAge window, then the file's `score` per
+    // comment, which drops what it declines.
     // The exclusions were already applied by the SQL that loaded the set, and to `replies` (the scope's descendants,
     // loaded once per generation and only for a file that declares requireReplies).
     sortComments(
@@ -506,8 +506,7 @@ export class PageGenerator {
     }
 
     // The reply set requireReplies sorts score over: one unfiltered query per generation, shared by every such sort,
-    // each filtering it with its own exclusion options in JS (the same filter a client applies before sortPageComments
-    // scores). Nothing runs unless a sort asks.
+    // each filtering it with its own exclusion options in JS. Nothing runs unless a sort asks.
     private _createRepliesLoader(load: () => PageSortReplyEntry[]): (sort: ResolvedPageSort) => PageSortReplyEntry[] {
         let all: PageSortReplyEntry[] | undefined;
         const filtered = new Map<string, PageSortReplyEntry[]>();

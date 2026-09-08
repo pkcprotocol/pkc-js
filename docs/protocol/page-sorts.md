@@ -193,8 +193,8 @@ The contract:
 
 - **One scorer, run in two places.** `score` is a per-comment, synchronous function of what a page entry
   carries: the comment and its CommentUpdate. The community calls it once per comment per generation, and a
-  client calls the same function to re-sort a page it holds (see [Client side](#client-side)), which is
-  how a client reproduces the community's order. Higher scores sort first. The CommentUpdate arrives with
+  client that installed the package calls the same function to re-sort a page it holds (see
+  [Client side](#client-side)), which is how a client reproduces the community's order. Higher scores sort first. The CommentUpdate arrives with
   its nested `replies` stripped: a file never sees the preloaded reply slice, so it cannot mistake it for
   the reply set.
 - **Ties keep the community's order.** Equal scores keep the order the comments were loaded in, which is the
@@ -217,8 +217,8 @@ The contract:
   passes the entries it walked as they are. The community loads the set once per generation with one
   unfiltered query (the whole community for a post sort, the post's subtree for a reply sort), every
   `requireReplies` sort filters it with its own exclusion options and slices each comment's subtree from
-  it. On a client the caller walks the reply pages and passes the list, or `sortPageComments` throws
-  `ERR_PAGE_SORT_REPLIES_REQUIRED`. A file without the flag never receives `replies` and costs nothing
+  it. On a client the caller walks the reply pages and passes each comment its descendants. A file
+  without the flag never receives `replies` and costs nothing
   beyond the entry itself: re-sorting is then a per-entry computation with no reply fetching anywhere,
   which is what every built-in is, `active` included. A reply-dependent sort has no way to know the list is
   complete; a client that walked only part of a thread gets a wrong order, not an error.
@@ -276,33 +276,47 @@ integrates with configurable sorts. Nothing here needs a community database; eve
 
 ### Re-sorting a page locally
 
-pkc-js ships the sorter; the package is looked up by name:
+pkc-js exports no sorter and nothing about re-sorting is part of the protocol: the package's `score` is
+the whole contract. A UI that wants to re-sort a page installs the package the community names in
+`community.pageSorts[scope][sortName].name` (or a built-in from `PKC.pageSorts`) and applies its `score`
+itself. What that takes, in full:
 
 ```ts
-import PKC, { sortPageComments, instantiatePageSortFile } from "@pkcprotocol/pkc-js";
-import activePageSort from "@pkcprotocol/active-page-sort";
-
-const pkc = await PKC({ pageSorts: { "@pkcprotocol/active-page-sort": activePageSort } }); // what the community names
+import PKC from "@pkcprotocol/pkc-js";
+import activePageSort from "@pkcprotocol/active-page-sort"; // installed by the UI, looked up by the published name
 
 const sortName = Object.keys(community.posts.pages)[0]; // the community's default
 const published = community.pageSorts?.posts?.[sortName]; // undefined on an unconfigured community
-const factory = (published?.name && pkc.settings.pageSorts?.[published.name]) ?? PKC.pageSorts[published?.name ?? sortName];
-const file = instantiatePageSortFile({ factory, pageSortSettings: { name: published?.name ?? sortName, options: published?.publicOptions } });
+const registry = { "@pkcprotocol/active-page-sort": activePageSort, ...PKC.pageSorts };
+const factory = registry[published?.name ?? sortName];
+const options = published?.publicOptions ?? {}; // the option set the sort ran with, reserved options included
+const file = factory({ pageSortSettings: { name: published?.name ?? sortName, options } });
+const baseTimestamp = Math.round(Date.now() / 1000);
 
-const ordered = sortPageComments({
-    comments: community.posts.pages[sortName].comments, // parsed page comments, or the wire entries; same shape back
-    file,
-    options: published?.publicOptions ?? {},           // the merged reserved options: this is the filter the community applied
-    baseTimestamp: Math.round(Date.now() / 1000),
-    communityAddress: community.address,
-    replies                                             // only for a file with requireReplies; see below
+// `score` gets the CommentUpdate without its nested `replies`; null declines the comment; ties keep the page's order
+const scored = community.posts.pages[sortName].comments.map((pageComment, index) => {
+    const { replies, ...commentUpdate } = pageComment.raw.commentUpdate;
+    const score = file.score({
+        comment: pageComment.raw.comment,
+        commentUpdate,
+        options,
+        baseTimestamp,
+        ...(file.requireReplies ? { replies: descendantsOf(pageComment.cid) } : {}) // walked by the UI, see below
+    });
+    return { pageComment, index, score, pinned: commentUpdate.pinned === true };
 });
+const byScore = (a, b) => b.score - a.score || a.index - b.index;
+const kept = scored.filter((entry) => entry.score !== null);
+const ordered =
+    options.pinnedFirst === "false"
+        ? kept.sort(byScore)
+        : [...kept.filter((entry) => entry.pinned).sort(byScore), ...kept.filter((entry) => !entry.pinned).sort(byScore)];
 ```
 
-- `sortPageComments` applies the reserved options exactly as the community does (the `exclude*` flags,
-  `pinnedFirst`, the `maxAge` window against `baseTimestamp`), then the file's `score`, dropping what it
-  declines. Pass the `publicOptions` of the sort you want to reproduce; to apply a different sort, pass
-  that sort's options (or the community's for a same-scope built-in) and its file.
+- The page already holds only the comments that passed the sort's reserved options (the `exclude*` flags,
+  the `maxAge` window), so a client re-applies nothing but the pinned placement. Pass the `publicOptions`
+  of the sort you want to reproduce; to apply a different sort, pass that sort's options (or the
+  community's for a same-scope built-in) and its file.
 - To re-sort with a built-in, instantiate it from `PKC.pageSorts` (`hot`, `new`, `active`, `topDay`, ...).
   `top*` windows come from the file's `defaultOptions`, so passing `{}` as options applies them; a community
   that changed a window publishes the change in `publicOptions`. No built-in requires replies: `active`
@@ -322,11 +336,11 @@ const ordered = sortPageComments({
   thread's reply pages into one flat list and passes it as `replies`: a flat reply sort (`newFlat`,
   `oldFlat`, published by default) lists a post's whole subtree in one chain of pages; without one, walk
   the nested sort's pages and every reply's own reply pages recursively, since a nested reply carries its
-  own `replies.pages` and `nextCid`. `sortPageComments` applies the exclusions to the list and slices each
-  comment's subtree from it, so pass the descendants of every comment on the page together. How many
-  threads to walk and when to stop is the UI's policy; pkc-js exports no walker, the worked example is
-  `test/node-and-browser/pages/page-sorts-client-test-util.ts`. A file without `requireReplies` needs none
-  of this.
+  own `replies.pages` and `nextCid`. The UI hands each comment its own descendants from that list (by
+  `parentCid`), the entries as walked, since a page entry is a superset of `PageSortReplyEntry`. How many
+  threads to walk and when to stop is the UI's policy; the worked example of both the walk and the
+  re-sort is `test/node-and-browser/pages/page-sorts-client-test-util.ts`. A file without
+  `requireReplies` needs none of this.
 - Flat reply pages are one level; `newFlat` and `oldFlat` only need the entry's own timestamp.
 - `community.pageSorts[].name` is untrusted data: look it up in your own registry, never import from it.
 
