@@ -11,11 +11,13 @@ import { getAuthorNameFromWire } from "../../../../publications/publication-auth
 import { deriveDbReplies } from "../../util.js";
 import type {
     CommentsTableRow,
+    CommentUpdatesRow,
     CommentUpdatesTableRowInsert,
     CommentUpdateType,
     DbRepliesSortEntry
 } from "../../../../publications/comment/types.js";
 import type { LocalCommunity } from "../local-community.js";
+import type { CalculatedCommentUpdate, CommunityAuthorMemo } from "../db-handler.js";
 import type { CommentUpdateToWriteToDbAndPublishToIpfs } from "./defaults.js";
 import { rmUnneededMfsPaths } from "./cleanup.js";
 import { wirePagesFromGeneration } from "../page-generator.js";
@@ -57,8 +59,14 @@ export async function calculateNewCommentUpdate(opts: {
     // the aggregate read compare as "older" forever, wedging it out of the update pipeline.
     // Worst case of the earlier stamp is one redundant recalculation next cycle.
     batchStartTimestamp: number;
+    // The update cycle reads these for a whole depth batch at once (issue #352); a caller updating one comment
+    // leaves them out and they are read here
+    precomputed?: {
+        calculated: CalculatedCommentUpdate;
+        storedCommentUpdate: Pick<CommentUpdatesRow, "updatedAt" | "postUpdatesBucket" | "replies"> | undefined;
+    };
 }): Promise<CommentUpdateToWriteToDbAndPublishToIpfs> {
-    const { community, comment, batchStartTimestamp } = opts;
+    const { community, comment, batchStartTimestamp, precomputed } = opts;
     const log = Logger("pkc-js:local-community:_calculateNewCommentUpdate");
 
     // If we're here that means we're gonna calculate the new update and publish it
@@ -66,9 +74,12 @@ export async function calculateNewCommentUpdate(opts: {
 
     // This comment will have the local new CommentUpdate, which we will publish to IPFS fiels
     // It includes new author.community as well as updated values in CommentUpdate (except for replies field)
-    const storedCommentUpdate = community._dbHandler.queryCommentUpdateTimestampBucketReplies({ cid: comment.cid });
-    const authorDomain = getAuthorNameFromWire(comment.author);
-    const calculatedCommentUpdate = community._dbHandler.queryCalculatedCommentUpdate({ comment, authorDomain });
+    const storedCommentUpdate = precomputed
+        ? precomputed.storedCommentUpdate
+        : community._dbHandler.queryCommentUpdateTimestampBucketReplies({ cid: comment.cid });
+    const calculatedCommentUpdate =
+        precomputed?.calculated ??
+        community._dbHandler.queryCalculatedCommentUpdate({ comment, authorDomain: getAuthorNameFromWire(comment.author) });
     log.trace(
         "Calculated comment update for comment",
         comment.cid,
@@ -204,60 +215,34 @@ export async function updateCommentsThatNeedToBeUpdated(community: LocalCommunit
     community._communityUpdateTrigger = true;
     log(`Will update ${commentsToUpdate.length} comments in this update loop for community (${community.address})`);
 
-    // Group by postCid
-    const commentsByPostCid = groupBy(commentsToUpdate, (x) => x.postCid);
+    // Deepest depth first across the whole board: a comment's counts, last reply and reply pages read its children's
+    // CommentUpdates, so every child is calculated and written before any parent. Within a depth the fields of every
+    // comment are read in one batched pass (issue #352) and the author aggregates are memoised for the cycle, then
+    // the reply pages, signing and the depth's single upsert follow.
+    const commentsByDepth = groupBy(commentsToUpdate, (comment) => comment.depth);
+    const depthsDeepestFirst = keys(commentsByDepth).sort((a, b) => Number(b) - Number(a));
+    const authorMemo: CommunityAuthorMemo = new Map();
     const allCommentUpdateRows: CommentUpdateToWriteToDbAndPublishToIpfs[] = [];
-
-    // Process different post trees in parallel
-    const postLimit = pLimit(10); // Process up to 10 post trees concurrently
-
-    const postProcessingPromises = Object.entries(commentsByPostCid).map(([postCid, commentsForPost]) =>
-        postLimit(async () => {
-            try {
-                // Group by depth
-                const commentsByDepth = groupBy(commentsForPost, (x) => x.depth);
-                const depthsKeySorted = keys(commentsByDepth).sort((a, b) => Number(b) - Number(a)); // Sort depths from highest to lowest
-
-                const postUpdateRows: CommentUpdateToWriteToDbAndPublishToIpfs[] = [];
-
-                // Process each depth level in sequence within this post tree
-                for (const depthKey of depthsKeySorted) {
-                    const commentsAtDepth = commentsByDepth[depthKey];
-
-                    // Process all comments at this depth in parallel
-                    const depthLimit = pLimit(50);
-
-                    // Calculate updates for all comments at this depth in parallel
-                    const depthUpdatePromises = commentsAtDepth.map((comment) =>
-                        depthLimit(async () => await calculateNewCommentUpdate({ community, comment, batchStartTimestamp }))
-                    );
-
-                    // Wait for all comments at this depth to be calculated
-                    const depthResults = await Promise.all(depthUpdatePromises);
-
-                    // Batch write all updates for this depth to the database
-                    community._dbHandler.upsertCommentUpdates(depthResults.map((r) => r.newCommentUpdateToWriteToDb));
-
-                    // Add to our results
-                    postUpdateRows.push(...depthResults);
-                }
-
-                return postUpdateRows;
-            } catch (error) {
-                log.error(`Failed to process post tree ${postCid}:`, error);
-                throw error;
-            }
-        })
-    );
-
-    // Wait for all post trees to be processed
-    const postResults = await Promise.all(postProcessingPromises);
-
-    // Collect all results
-    for (const result of postResults) {
-        allCommentUpdateRows.push(...result);
+    const limit = pLimit(50);
+    for (const depthKey of depthsDeepestFirst) {
+        const commentsAtDepth = commentsByDepth[depthKey];
+        const calculated = community._dbHandler.queryCalculatedCommentUpdates({ comments: commentsAtDepth, authorMemo });
+        const stored = community._dbHandler.queryCommentUpdateTimestampBucketRepliesByCids(commentsAtDepth.map((comment) => comment.cid));
+        const depthResults = await Promise.all(
+            commentsAtDepth.map((comment) =>
+                limit(() =>
+                    calculateNewCommentUpdate({
+                        community,
+                        comment,
+                        batchStartTimestamp,
+                        precomputed: { calculated: calculated.get(comment.cid)!, storedCommentUpdate: stored.get(comment.cid) }
+                    })
+                )
+            )
+        );
+        community._dbHandler.upsertCommentUpdates(depthResults.map((result) => result.newCommentUpdateToWriteToDb));
+        allCommentUpdateRows.push(...depthResults);
     }
-
     return allCommentUpdateRows;
 }
 

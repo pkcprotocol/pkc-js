@@ -177,7 +177,7 @@ export const CommunityAuthorSchema = z.looseObject({
 // `flairs` is intentionally NOT here: a challenge may seed `author.community.flairs` as
 // lowest-priority, and a mod publishing commentModeration.author.flairs overrides it
 // (the override happens automatically via the spread in queryCalculatedCommentUpdate, since
-// queryCommunityAuthorForCommentUpdate only includes `flairs` as a key when a mod has set it).
+// the batched author aggregate of queryCalculatedCommentUpdates only includes `flairs` as a key when a mod has set it).
 // Challenges may also add NEW keys (e.g. countryCode) — those flow through as lowest-priority extras.
 // `satisfies` ties each entry to a real CommunityAuthor key so renaming a field surfaces a stale entry at compile time.
 export const CommunityAuthorChallengeReservedFieldNames = [

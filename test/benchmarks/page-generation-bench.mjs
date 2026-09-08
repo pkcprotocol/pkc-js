@@ -5,11 +5,14 @@
 //   node --max-old-space-size=12288 test/benchmarks/page-generation-bench.mjs
 //
 // Env: BENCH_POSTS (default 20000), BENCH_MIN_REPLIES / BENCH_MAX_REPLIES (10 / 100, uniform per post),
+// BENCH_POSTS_PER_AUTHOR (25: the board has POSTS / 25 authors, every comment drawn from that pool, so the per-author
+// aggregates of the update cycle cost what they cost on a live board, issue #352),
 // BENCH_MODE = default | active | nobump (settings.pages; default = unset, what master generates too),
 // BENCH_ITERATIONS (3), BENCH_SEED (1). The script also runs unchanged on master and on the pre-rewrite branch
 // (it detects the generator's signature), which is how the before/after numbers in the PR were taken.
 import { performance } from "node:perf_hooks";
 import path from "node:path";
+import { existsSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { mockPKC } from "../../dist/node/test/test-util.js";
 import env from "../../dist/node/version.js";
@@ -19,6 +22,8 @@ const POSTS = Number(process.env.BENCH_POSTS) > 0 ? Number(process.env.BENCH_POS
 const MIN_REPLIES = Number(process.env.BENCH_MIN_REPLIES) >= 0 ? Number(process.env.BENCH_MIN_REPLIES) : 10;
 const MAX_REPLIES = Number(process.env.BENCH_MAX_REPLIES) >= 0 ? Number(process.env.BENCH_MAX_REPLIES) : 100;
 const MODE = process.env.BENCH_MODE || "default";
+const POSTS_PER_AUTHOR = Number(process.env.BENCH_POSTS_PER_AUTHOR) > 0 ? Number(process.env.BENCH_POSTS_PER_AUTHOR) : 25;
+const AUTHORS = Math.max(1, Math.ceil(POSTS / POSTS_PER_AUTHOR));
 const ITERATIONS = Number(process.env.BENCH_ITERATIONS) > 0 ? Number(process.env.BENCH_ITERATIONS) : 3;
 // Production posts embed their preloaded reply pages (the DB `replies` column lists each parent's children per
 // preloaded sort, and the generator rebuilds the trees from the reply rows a batch of posts at a time, issue #351).
@@ -85,8 +90,7 @@ async function main() {
         const seedStart = performance.now();
         const { replyTotal } = seedBoard(community);
         const seedMs = performance.now() - seedStart;
-        console.log(JSON.stringify({ event: "seeded", posts: POSTS, replies: replyTotal, seedMs: Math.round(seedMs) }));
-        reportStorage(community);
+        console.log(JSON.stringify({ event: "seeded", posts: POSTS, replies: replyTotal, authors: AUTHORS, seedMs: Math.round(seedMs) }));
 
         if (PIPELINE) {
             for (let i = 0; i < ITERATIONS; i++) {
@@ -94,34 +98,45 @@ async function main() {
                 if (global.gc) global.gc();
                 const heapBefore = process.memoryUsage().heapUsed;
                 let heapPeak = heapBefore;
-                const sampler = setInterval(() => (heapPeak = Math.max(heapPeak, process.memoryUsage().heapUsed)), 50);
+                let rssPeak = process.memoryUsage().rss;
+                const sampler = setInterval(() => {
+                    const usage = process.memoryUsage();
+                    heapPeak = Math.max(heapPeak, usage.heapUsed);
+                    rssPeak = Math.max(rssPeak, usage.rss);
+                }, 50);
+                const cpuBefore = process.cpuUsage();
                 addedBytes = 0;
                 const updatesStart = performance.now();
                 const updates = await updateCommentsThatNeedToBeUpdated(community);
                 community._dbHandler.markCommentsAsPublishedToPostUpdates(updates.map((u) => u.newCommentUpdate.cid));
                 const updatesMs = performance.now() - updatesStart;
-                if (i === 0) reportStorage(community); // commentUpdates rows exist now, so every index has its final size
                 const updatesHeapPeak = heapPeak;
                 const updatesPageBytes = addedBytes;
                 const postsStart = performance.now();
                 await community._pageGenerator.generateCommunityPosts({ preloadedPageSizeBytes: 1024 * 1024 });
                 const postsMs = performance.now() - postsStart;
                 clearInterval(sampler);
+                const cpu = process.cpuUsage(cpuBefore);
                 console.log(
                     JSON.stringify({
                         event: "pipeline",
                         i,
                         comments: updates.length,
+                        authors: AUTHORS,
                         updatesMs: Math.round(updatesMs),
                         updatesHeapPeakDeltaMB: Math.round((updatesHeapPeak - heapBefore) / 1024 / 1024),
                         replyPageMB: Math.round(updatesPageBytes / 1024 / 1024),
                         postsMs: Math.round(postsMs),
                         cycleMs: Math.round(updatesMs + postsMs),
                         cycleHeapPeakDeltaMB: Math.round((heapPeak - heapBefore) / 1024 / 1024),
+                        rssPeakMB: Math.round(rssPeak / 1024 / 1024),
+                        cpuUserMs: Math.round(cpu.user / 1000),
+                        cpuSystemMs: Math.round(cpu.system / 1000),
                         postsPageMB: Math.round((addedBytes - updatesPageBytes) / 1024 / 1024)
                     })
                 );
             }
+            reportStorage(community);
             return;
         }
 
@@ -135,7 +150,13 @@ async function main() {
             const heapBefore = process.memoryUsage().heapUsed;
             // Peak heap while generating, sampled: what a sort configuration needs at once, garbage included
             let heapPeakSampled = heapBefore;
-            const sampler = setInterval(() => (heapPeakSampled = Math.max(heapPeakSampled, process.memoryUsage().heapUsed)), 50);
+            let rssPeak = process.memoryUsage().rss;
+            const sampler = setInterval(() => {
+                const usage = process.memoryUsage();
+                heapPeakSampled = Math.max(heapPeakSampled, usage.heapUsed);
+                rssPeak = Math.max(rssPeak, usage.rss);
+            }, 50);
+            const cpuBefore = process.cpuUsage();
             addedBytes = 0;
             const start = performance.now();
             const result = legacySignature
@@ -143,6 +164,7 @@ async function main() {
                 : await generator.generateCommunityPosts({ preloadedPageSizeBytes: budget });
             const ms = performance.now() - start;
             clearInterval(sampler);
+            const cpu = process.cpuUsage(cpuBefore);
             const heapPeak = Math.max(heapPeakSampled, process.memoryUsage().heapUsed);
             const sortKeys =
                 result &&
@@ -157,10 +179,14 @@ async function main() {
                     ms: Math.round(ms),
                     sorts: sortKeys,
                     heapPeakDeltaMB: Math.round((heapPeak - heapBefore) / 1024 / 1024),
+                    rssPeakMB: Math.round(rssPeak / 1024 / 1024),
+                    cpuUserMs: Math.round(cpu.user / 1000),
+                    cpuSystemMs: Math.round(cpu.system / 1000),
                     pageMB: Math.round(addedBytes / 1024 / 1024)
                 })
             );
         }
+        reportStorage(community);
         const sorted = [...times].sort((a, b) => a - b);
         const median = sorted[Math.floor(sorted.length / 2)];
         console.log(
@@ -182,17 +208,26 @@ async function main() {
     }
 }
 
-// What every table and index of the seeded board takes on disk, from sqlite's dbstat: the cost of the indexes added
-// for the update cycle (issue #351) next to the tables they index. Percent is of the whole database file.
+// What every table and index takes at the end of a run, from sqlite's dbstat: the cost of the indexes added for the
+// update cycle (issue #351) next to the tables they index. Percent is of the pages in use.
 function reportStorage(community) {
     const db = community._dbHandler["_db"];
+    const file = db.name; // ":memory:" or the path
+    let fileMB;
+    if (file && file !== ":memory:")
+        try {
+            fileMB = Math.round(((statSync(file).size + (existsSync(`${file}-wal`) ? statSync(`${file}-wal`).size : 0)) / 1024 / 1024) * 10) / 10;
+        } catch {
+            fileMB = undefined;
+        }
     const rows = db.prepare("SELECT name, SUM(pgsize) AS bytes FROM dbstat GROUP BY name ORDER BY bytes DESC").all();
     const total = rows.reduce((sum, row) => sum + row.bytes, 0);
     const kinds = new Map(db.prepare("SELECT name, type FROM sqlite_schema").all().map((row) => [row.name, row.type]));
     console.log(
         JSON.stringify({
             event: "storage",
-            totalMB: Math.round((total / 1024 / 1024) * 10) / 10,
+            fileMB, // the database file plus its WAL on disk
+            totalMB: Math.round((total / 1024 / 1024) * 10) / 10, // pages in use per dbstat
             objects: rows.map((row) => ({
                 name: row.name,
                 type: kinds.get(row.name) ?? "internal",
@@ -218,10 +253,11 @@ export function seedBoard(community) {
         commentRows = [];
         updateRows = [];
     };
+    let authorCounter = 0;
     const comment = ({ cid, parentCid, postCid, depth, timestamp, content, title }) => ({
         cid,
-        authorSignerAddress: `author-${cid}`,
-        author: { address: `author-${cid}` },
+        authorSignerAddress: `author-${authorCounter % AUTHORS}`,
+        author: { address: `author-${authorCounter++ % AUTHORS}` },
         parentCid,
         postCid,
         communityPublicKey: community.signer.address,
