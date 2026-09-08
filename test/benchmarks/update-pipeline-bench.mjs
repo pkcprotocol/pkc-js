@@ -8,8 +8,10 @@
 //   npm run build && node --expose-gc --max-old-space-size=4096 test/benchmarks/update-pipeline-bench.mjs
 //
 // The iteration body is syncIpnsWithDb's body inlined so every phase can be timed on its own; keep it in
-// step with ipns-publishing.ts when that function changes. Every kubo RPC method the cycle touches is
-// wrapped, so the per-method table below the phases says how much of the cycle is the daemon.
+// step with ipns-publishing.ts when that function changes. The postUpdates MFS writes land in the
+// CommentUpdates phase on a code state that streams them and in the record phase on one that does not.
+// Every kubo RPC method the cycle touches is wrapped, so the per-method table below the phases says how
+// much of the cycle is the daemon.
 //
 // Env: BENCH_POSTS (default 300 here, not the 20000 of page-generation-bench: every post is a real MFS
 // write), BENCH_MIN_REPLIES / BENCH_MAX_REPLIES (10 / 100), BENCH_POSTS_PER_AUTHOR (25), BENCH_SEED (1),
@@ -25,10 +27,7 @@ import {
     adjustPostUpdatesBucketsIfNeeded,
     updateCommentsThatNeedToBeUpdated
 } from "../../dist/node/runtime/node/community/local-community/comment-updates.js";
-import {
-    requireCommunityUpdateIfModQueueChanged,
-    updateCommunityIpnsIfNeeded
-} from "../../dist/node/runtime/node/community/local-community/ipns-publishing.js";
+import * as ipnsPublishing from "../../dist/node/runtime/node/community/local-community/ipns-publishing.js";
 import { cleanUpIpfsRepoIfDue, purgeDisapprovedCommentsOlderThan } from "../../dist/node/runtime/node/community/local-community/cleanup.js";
 import { providePubsubTopicRoutingCidsIfNeeded } from "../../dist/node/runtime/node/community/local-community/pubsub.js";
 import { calculateStringSizeSameAsIpfsAddCidV0 } from "../../dist/node/util.js";
@@ -43,6 +42,10 @@ const ITERATIONS = Number(process.env.BENCH_ITERATIONS) > 0 ? Number(process.env
 // Whether this code state hands the rows over batch by batch (the publish cycle then keeps only the posts'
 // rows and the cids) or accumulates and returns every one of them.
 const STREAMS_UPDATES = updateCommentsThatNeedToBeUpdated.length > 1;
+// Whether this code state writes each slice's postUpdates files as it goes (the cycle then keeps nothing
+// but the cids) or collects every post row first and writes them in one pass at record-build time.
+const STREAMS_POST_UPDATES = typeof ipnsPublishing.updateCommentsAndWritePostUpdates === "function";
+const { requireCommunityUpdateIfModQueueChanged, updateCommunityIpnsIfNeeded } = ipnsPublishing;
 const MODE = process.env.BENCH_MODE || "default";
 const STUB_KUBO = process.env.BENCH_STUB_KUBO === "1";
 const NO_BUMP_FIXTURE = path.resolve(process.cwd(), "test/fixtures/page-sorts/active-no-bump-keyword.js");
@@ -230,10 +233,10 @@ async function main() {
             await time("provideMs", () => providePubsubTopicRoutingCidsIfNeeded(community));
             await time("bucketsMs", () => adjustPostUpdatesBucketsIfNeeded(community));
             await time("purgeMs", () => purgeDisapprovedCommentsOlderThan(community));
-            // What the cycle keeps from the CommentUpdates it writes: the posts' rows, which become MFS
-            // files, and the cid of every comment updated. The publish path collects exactly this through
-            // the per-batch consumer; a code state without that consumer (arity 1) returns every row and
-            // holds all of them, which is the state this measures against.
+            // What the cycle keeps from the CommentUpdates it writes. Newest state: nothing but the cids,
+            // since each slice's postUpdates files are written as the slice is calculated. Before that:
+            // the posts' rows, collected through the per-slice consumer. Before that again (arity 1):
+            // every row of the board, which is the state the memory numbers are measured against.
             let postRows = [];
             let updatedCids = [];
             const collect = (rows) => {
@@ -244,15 +247,22 @@ async function main() {
             };
             let allRows;
             await time("commentUpdatesMs", async () => {
+                if (STREAMS_POST_UPDATES) {
+                    updatedCids = await ipnsPublishing.updateCommentsAndWritePostUpdates(community);
+                    return;
+                }
                 if (STREAMS_UPDATES) return updateCommentsThatNeedToBeUpdated(community, collect);
                 allRows = await updateCommentsThatNeedToBeUpdated(community);
                 collect(allRows);
             });
             const heapAfterCommentUpdates = process.memoryUsage().heapUsed;
             requireCommunityUpdateIfModQueueChanged(community);
-            await time("publishRecordMs", () =>
-                STREAMS_UPDATES ? updateCommunityIpnsIfNeeded(community, postRows, updatedCids) : updateCommunityIpnsIfNeeded(community, allRows)
-            );
+            await time("publishRecordMs", () => {
+                if (STREAMS_POST_UPDATES) return updateCommunityIpnsIfNeeded(community, updatedCids);
+                return STREAMS_UPDATES
+                    ? updateCommunityIpnsIfNeeded(community, postRows, updatedCids)
+                    : updateCommunityIpnsIfNeeded(community, allRows);
+            });
             await time("repoGcMs", () => cleanUpIpfsRepoIfDue(community));
             const cycleMs = performance.now() - cycleStart;
 
@@ -262,7 +272,7 @@ async function main() {
             // both after a full gc. This is the memory the cycle carries from the first CommentUpdate to
             // the IPNS publish, and everything generated afterwards peaks on top of it.
             const commentsUpdated = updatedCids.length;
-            const retainedBytes = STREAMS_UPDATES ? retainedSizeOfUpdates(postRows) + updatedCids.length * 48 : retainedSizeOfUpdates(allRows);
+            const retainedBytes = allRows ? retainedSizeOfUpdates(allRows) : retainedSizeOfUpdates(postRows) + updatedCids.length * 48;
             let heapHeldByUpdatesMB;
             let heapLiveAfterCycleDeltaMB;
             if (global.gc) {
@@ -312,7 +322,11 @@ async function main() {
             event: "result",
             mode: MODE,
             kubo: STUB_KUBO ? "stubbed" : "real",
-            codeState: STREAMS_UPDATES ? "streams comment updates" : "accumulates every row",
+            codeState: STREAMS_POST_UPDATES
+                ? "streams comment updates and postUpdates files"
+                : STREAMS_UPDATES
+                  ? "streams comment updates, collects post rows"
+                  : "accumulates every row",
             posts: Number(process.env.BENCH_POSTS),
             comments: iterations[0]?.comments,
             iterations: ITERATIONS,

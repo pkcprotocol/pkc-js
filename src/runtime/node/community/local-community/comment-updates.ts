@@ -23,6 +23,11 @@ import { rmUnneededMfsPaths } from "./cleanup.js";
 import { wirePagesFromGeneration } from "../page-generator.js";
 import { reportFailedPageSorts } from "../page-sorts/index.js";
 
+// A cycle that recalculated any comment must have recalculated at least one post: a reply's update
+// dirties its whole ancestry, and only a post has a postUpdates file. A cycle that ends with no post
+// file to write is a bug in the flagging query, not an empty cycle.
+export const NO_POST_UPDATES_TO_PUBLISH_ERROR = "No comment updates of posts to publish to postUpdates directory. This is a critical bug";
+
 // The topic this community uses for the challenge exchange, ignoring whether the exchange is
 // currently enabled. There is no fallback to community.address anymore (issue #229): absence of
 // pubsubTopic on the wire means the exchange is disabled, so the address must never stand in for a
@@ -200,20 +205,22 @@ export async function validateCommentUpdateSignature(
     }
 }
 
+// How many comments of a depth are calculated, signed and upserted before the next slice starts.
+const COMMENT_UPDATE_SLICE_SIZE = 2000;
+
 export async function updateCommentsThatNeedToBeUpdated(community: LocalCommunity): Promise<CommentUpdateToWriteToDbAndPublishToIpfs[]>;
 export async function updateCommentsThatNeedToBeUpdated(
     community: LocalCommunity,
-    onCommentUpdatesWritten: (rows: CommentUpdateToWriteToDbAndPublishToIpfs[]) => void
+    onCommentUpdatesWritten: (rows: CommentUpdateToWriteToDbAndPublishToIpfs[]) => void | Promise<void>
 ): Promise<void>;
 export async function updateCommentsThatNeedToBeUpdated(
     community: LocalCommunity,
-    // Called with each depth's rows as soon as they are written to the DB, deepest depth first. A caller
+    // Called with each slice of rows as soon as they are written to the DB, deepest depth first. A caller
     // that passes it decides what to keep and nothing is accumulated here, which is how the publish cycle
     // avoids holding every comment's whole CommentUpdate (the inline reply pages are the bulk of a row)
-    // from the first depth until the record is published: it keeps the posts' rows, which become MFS
-    // files, and the cid of every other comment. A caller that wants every row, such as a test walking a
-    // small board, omits it.
-    onCommentUpdatesWritten?: (rows: CommentUpdateToWriteToDbAndPublishToIpfs[]) => void
+    // from the first slice until the record is published: it writes the slice's posts to MFS and keeps
+    // their cids. A caller that wants every row, such as a test walking a small board, omits it.
+    onCommentUpdatesWritten?: (rows: CommentUpdateToWriteToDbAndPublishToIpfs[]) => void | Promise<void>
 ): Promise<CommentUpdateToWriteToDbAndPublishToIpfs[] | void> {
     const log = Logger(`pkc-js:local-community:_updateCommentsThatNeedToBeUpdated`);
 
@@ -240,58 +247,55 @@ export async function updateCommentsThatNeedToBeUpdated(
     const limit = pLimit(50);
     for (const depthKey of depthsDeepestFirst) {
         const commentsAtDepth = commentsByDepth[depthKey];
-        const calculated = community._dbHandler.queryCalculatedCommentUpdates({ comments: commentsAtDepth, authorMemo });
-        const stored = community._dbHandler.queryCommentUpdateTimestampBucketRepliesByCids(commentsAtDepth.map((comment) => comment.cid));
-        const depthResults = await Promise.all(
-            commentsAtDepth.map((comment) =>
-                limit(() =>
-                    calculateNewCommentUpdate({
-                        community,
-                        comment,
-                        batchStartTimestamp,
-                        precomputed: { calculated: calculated.get(comment.cid)!, storedCommentUpdate: stored.get(comment.cid) }
-                    })
+        // A depth is calculated in slices so a consumer can take each one and let it go: a board's posts
+        // are one depth, and holding all of their CommentUpdates at once is what made the cycle's memory
+        // grow with the board (issue #355). The slice is large enough that the per-depth batched reads of
+        // issue #352 still pay for themselves — at 500 the phase cost 28% more, at 2000 it is unchanged.
+        for (let index = 0; index < commentsAtDepth.length; index += COMMENT_UPDATE_SLICE_SIZE) {
+            const slice = commentsAtDepth.slice(index, index + COMMENT_UPDATE_SLICE_SIZE);
+            const calculated = community._dbHandler.queryCalculatedCommentUpdates({ comments: slice, authorMemo });
+            const stored = community._dbHandler.queryCommentUpdateTimestampBucketRepliesByCids(slice.map((comment) => comment.cid));
+            const sliceResults = await Promise.all(
+                slice.map((comment) =>
+                    limit(() =>
+                        calculateNewCommentUpdate({
+                            community,
+                            comment,
+                            batchStartTimestamp,
+                            precomputed: { calculated: calculated.get(comment.cid)!, storedCommentUpdate: stored.get(comment.cid) }
+                        })
+                    )
                 )
-            )
-        );
-        community._dbHandler.upsertCommentUpdates(depthResults.map((result) => result.newCommentUpdateToWriteToDb));
-        // Slicing a depth into smaller batches (down to 500) was measured on a 56k-comment board (#355) and moved
-        // neither the peak nor the live heap of the cycle, under a 4 GiB and under a 700 MiB heap alike,
-        // while a 500-comment slice cost the phase 28% in time: the per-depth reads of issue #352 are what
-        // pay for themselves here. A depth is calculated whole.
-        if (onCommentUpdatesWritten) onCommentUpdatesWritten(depthResults);
-        else allCommentUpdateRows!.push(...depthResults);
+            );
+            community._dbHandler.upsertCommentUpdates(sliceResults.map((result) => result.newCommentUpdateToWriteToDb));
+            if (onCommentUpdatesWritten) await onCommentUpdatesWritten(sliceResults);
+            else allCommentUpdateRows!.push(...sliceResults);
+        }
     }
     return allCommentUpdateRows;
 }
 
-export async function syncPostUpdatesWithIpfs(
+// Writes one slice of a cycle's post CommentUpdates into the postUpdates MFS directory: the purge
+// filter, the writes, the directory flush and the post-write purge re-check. Split out of
+// syncPostUpdatesWithIpfs so the publish cycle can hand each slice over as it is calculated and then
+// drop it, instead of holding every post's CommentUpdate (its inline reply page is the bulk of a row)
+// until the whole board has been recalculated (issue #355). Marking the comments as published stays
+// with the caller: it happens once, for the posts and the replies together, when the cycle's writes
+// are done. Returns how many files were written.
+export async function writePostUpdatesToMfs(
     community: LocalCommunity,
-    commentUpdateRowsToPublishToIpfs: CommentUpdateToWriteToDbAndPublishToIpfs[],
-    // The cid of every comment this cycle updated, posts and replies alike: all of them are marked as
-    // published once the posts' files are in MFS, and only the posts have a file to write. The cycle
-    // passes the cids it collected instead of the rows they came from, which is what lets it drop every
-    // reply's CommentUpdate as soon as it is written to the DB. Defaults to the given rows' own cids.
-    cidsUpdatedInThisCycle: string[] = commentUpdateRowsToPublishToIpfs.map((row) => row.newCommentUpdate.cid)
-) {
+    postCommentUpdateRows: (CommentUpdateToWriteToDbAndPublishToIpfs & { localMfsPath: string })[]
+): Promise<number> {
     const log = Logger("pkc-js:local-community:sync:_syncPostUpdatesFilesystemWithIpfs");
 
     const postUpdatesDirectory = `/${community.address}`;
-    const commentUpdatesWithLocalPath = commentUpdateRowsToPublishToIpfs.filter(
-        (row): row is CommentUpdateToWriteToDbAndPublishToIpfs & { localMfsPath: string } => typeof row.localMfsPath === "string"
-    );
-
-    if (commentUpdatesWithLocalPath.length === 0)
-        throw Error("No comment updates of posts to publish to postUpdates directory. This is a critical bug");
 
     // Drop post updates whose comment was purged after this sync cycle captured it. A concurrent
     // purge (storeCommentModeration) deletes the comment from the DB and removes its postUpdates MFS
     // entry; writing the captured update back here would resurrect the purged post in postUpdates, and
     // since it is gone from the DB nothing would ever clean it up again. See pkc-js issue #142.
-    const liveCommentUpdates = commentUpdatesWithLocalPath.filter((row) =>
-        community._dbHandler.commentExistsInDb(row.newCommentUpdate.cid)
-    );
-    const purgedMidSyncCount = commentUpdatesWithLocalPath.length - liveCommentUpdates.length;
+    const liveCommentUpdates = postCommentUpdateRows.filter((row) => community._dbHandler.commentExistsInDb(row.newCommentUpdate.cid));
+    const purgedMidSyncCount = postCommentUpdateRows.length - liveCommentUpdates.length;
     if (purgedMidSyncCount > 0)
         log(`Skipping ${purgedMidSyncCount} post CommentUpdate(s) for community ${community.address} whose comment was purged mid-sync`);
 
@@ -352,7 +356,6 @@ export async function syncPostUpdatesWithIpfs(
         postUpdatesDirectoryCid = await kuboRpc._client.files.flush(postUpdatesDirectory);
     }
 
-    const postUpdatesDirectoryCidString = postUpdatesDirectoryCid?.toString();
     log(
         "Community",
         community.address,
@@ -360,8 +363,28 @@ export async function syncPostUpdatesWithIpfs(
         liveCommentUpdates.length,
         "post CommentUpdates",
         "with MFS postUpdates directory",
-        postUpdatesDirectoryCidString
+        postUpdatesDirectoryCid?.toString()
     );
+    return liveCommentUpdates.length;
+}
+
+// One cycle's worth of post CommentUpdates in one call: what the publish cycle did before it started
+// streaming them (issue #355), and what a caller holding a whole cycle's rows still wants.
+export async function syncPostUpdatesWithIpfs(
+    community: LocalCommunity,
+    commentUpdateRowsToPublishToIpfs: CommentUpdateToWriteToDbAndPublishToIpfs[],
+    // The cid of every comment this cycle updated, posts and replies alike: all of them are marked as
+    // published once the posts' files are in MFS, and only the posts have a file to write. Defaults to
+    // the given rows' own cids.
+    cidsUpdatedInThisCycle: string[] = commentUpdateRowsToPublishToIpfs.map((row) => row.newCommentUpdate.cid)
+) {
+    const postCommentUpdateRows = commentUpdateRowsToPublishToIpfs.filter(
+        (row): row is CommentUpdateToWriteToDbAndPublishToIpfs & { localMfsPath: string } => typeof row.localMfsPath === "string"
+    );
+
+    if (postCommentUpdateRows.length === 0) throw Error(NO_POST_UPDATES_TO_PUBLISH_ERROR);
+
+    await writePostUpdatesToMfs(community, postCommentUpdateRows);
     community._dbHandler.markCommentsAsPublishedToPostUpdates(cidsUpdatedInThisCycle);
 }
 

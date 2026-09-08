@@ -528,8 +528,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // start.community integration tests. Internal production callers in lifecycle.ts
     // and the facade above go through these methods (not the bare imports) so test
     // stubs intercept correctly.
-    async updateCommunityIpnsIfNeeded(args: { commentUpdateRowsToPublishToIpfs: Parameters<typeof updateCommunityIpnsIfNeeded>[1] }) {
-        return updateCommunityIpnsIfNeeded(this, args.commentUpdateRowsToPublishToIpfs);
+    async updateCommunityIpnsIfNeeded(args: { cidsUpdatedInThisCycle: Parameters<typeof updateCommunityIpnsIfNeeded>[1] }) {
+        return updateCommunityIpnsIfNeeded(this, args.cidsUpdatedInThisCycle);
     }
 
     async _addOldPageCidsToCidsToUnpin(

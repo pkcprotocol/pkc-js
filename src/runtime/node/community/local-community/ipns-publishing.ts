@@ -23,10 +23,11 @@ import type { CommentUpdateType } from "../../../../publications/comment/types.j
 import type { LocalCommunity } from "../local-community.js";
 import type { CommentUpdateToWriteToDbAndPublishToIpfs } from "./defaults.js";
 import {
+    NO_POST_UPDATES_TO_PUBLISH_ERROR,
     adjustPostUpdatesBucketsIfNeeded,
     challengeExchangePubsubTopic,
-    syncPostUpdatesWithIpfs,
-    updateCommentsThatNeedToBeUpdated
+    updateCommentsThatNeedToBeUpdated,
+    writePostUpdatesToMfs
 } from "./comment-updates.js";
 import { cleanUpIpfsRepoIfDue, purgeDisapprovedCommentsOlderThan, unpinStaleCids } from "./cleanup.js";
 import { providePubsubTopicRoutingCidsIfNeeded } from "./pubsub.js";
@@ -148,10 +149,10 @@ type CommunityRecordBuild = {
     editIdsToIncludeInNextUpdate: (string | undefined)[];
 };
 
-// Phase 1: gather DB stats, sync post updates to MFS, compute the new (unsigned) community record + posts/modQueue.
+// Phase 1: gather DB stats, mark this cycle's CommentUpdates as published, compute the new (unsigned)
+// community record + posts/modQueue. The posts' MFS files were written as they were calculated.
 async function calculateNextCommunityRecord(
     community: LocalCommunity,
-    commentUpdateRowsToPublishToIpfs: CommentUpdateToWriteToDbAndPublishToIpfs[],
     cidsUpdatedInThisCycle: string[],
     log: Logger
 ): Promise<CommunityRecordBuild> {
@@ -162,15 +163,10 @@ async function calculateNextCommunityRecord(
 
     const stats = community._dbHandler.queryCommunityStats();
 
-    // No MFS-timeout recovery branch here on purpose. Until kubo 0.43.0 an MFS timeout meant the
-    // daemon was permanently wedged (ipfs/kubo#10842), so we nuked /<address> and forced a full
-    // republish. 0.43.0 both removes the wedge and makes a timeout an ordinary, recoverable event:
-    // GC and in-flight MFS writes now hold each other off, so "a single write can pause for the
-    // length of a GC and, with a short client timeout, look like it timed out and then succeed on
-    // retry". Nuking a community's whole postUpdates tree over that would turn a few seconds of
-    // contention into a full republish. Let the error propagate and let the retries do their job.
-    if (cidsUpdatedInThisCycle.length > 0)
-        await syncPostUpdatesWithIpfs(community, commentUpdateRowsToPublishToIpfs, cidsUpdatedInThisCycle);
+    // The posts' files are already in MFS: updateCommentsAndWritePostUpdates wrote each slice as it was
+    // calculated. Marking stays here, where the whole-cycle sync used to run, so a cycle that fails
+    // before this point leaves every comment flagged for the next one.
+    if (cidsUpdatedInThisCycle.length > 0) community._dbHandler.markCommentsAsPublishedToPostUpdates(cidsUpdatedInThisCycle);
 
     const newPostUpdates = await community._calculateNewPostUpdates();
     const newModQueue = await community._pageGenerator.generateModQueuePages();
@@ -397,13 +393,34 @@ async function publishCommunityRecordToIpns(
     });
 }
 
-export async function updateCommunityIpnsIfNeeded(
-    community: LocalCommunity,
-    // The posts' rows only: they are the ones with a postUpdates MFS file. Every other comment updated in
-    // this cycle is represented by its cid alone.
-    commentUpdateRowsToPublishToIpfs: CommentUpdateToWriteToDbAndPublishToIpfs[],
-    cidsUpdatedInThisCycle: string[] = commentUpdateRowsToPublishToIpfs.map((row) => row.newCommentUpdate.cid)
-) {
+// Recalculates every CommentUpdate this cycle owes and streams the posts' files into MFS slice by slice,
+// keeping nothing but the cids: a slice's rows are written and dropped before the next one is calculated,
+// so the cycle's memory no longer grows with the board (issue #355). Returns the cid of every comment it
+// updated, which the record build marks as published.
+export async function updateCommentsAndWritePostUpdates(community: LocalCommunity): Promise<string[]> {
+    // No MFS-timeout recovery branch here on purpose. Until kubo 0.43.0 an MFS timeout meant the
+    // daemon was permanently wedged (ipfs/kubo#10842), so we nuked /<address> and forced a full
+    // republish. 0.43.0 both removes the wedge and makes a timeout an ordinary, recoverable event:
+    // GC and in-flight MFS writes now hold each other off, so "a single write can pause for the
+    // length of a GC and, with a short client timeout, look like it timed out and then succeed on
+    // retry". Nuking a community's whole postUpdates tree over that would turn a few seconds of
+    // contention into a full republish. Let the error propagate and let the retries do their job.
+    const cidsUpdatedInThisCycle: string[] = [];
+    let postRowsSeen = 0;
+    await updateCommentsThatNeedToBeUpdated(community, async (rows) => {
+        for (const row of rows) cidsUpdatedInThisCycle.push(row.newCommentUpdate.cid);
+        const postRows = rows.filter(
+            (row): row is CommentUpdateToWriteToDbAndPublishToIpfs & { localMfsPath: string } => typeof row.localMfsPath === "string"
+        );
+        if (postRows.length === 0) return;
+        postRowsSeen += postRows.length;
+        await writePostUpdatesToMfs(community, postRows);
+    });
+    if (cidsUpdatedInThisCycle.length > 0 && postRowsSeen === 0) throw Error(NO_POST_UPDATES_TO_PUBLISH_ERROR);
+    return cidsUpdatedInThisCycle;
+}
+
+export async function updateCommunityIpnsIfNeeded(community: LocalCommunity, cidsUpdatedInThisCycle: string[]) {
     const log = Logger("pkc-js:local-community:start:updateCommunityIpnsIfNeeded");
 
     community._calculateLatestUpdateTrigger();
@@ -422,7 +439,7 @@ export async function updateCommunityIpnsIfNeeded(
     // pending-purge flush armed for the next cycle in that case (issue #336).
     const cycleStartedAtMs = Date.now();
     try {
-        const build = await calculateNextCommunityRecord(community, commentUpdateRowsToPublishToIpfs, cidsUpdatedInThisCycle, log);
+        const build = await calculateNextCommunityRecord(community, cidsUpdatedInThisCycle, log);
         const newCommunityRecord = await validateAndSignCommunityRecord(community, build);
         await publishCommunityRecordToIpns(community, build, newCommunityRecord, cycleStartedAtMs);
     } catch (e) {
@@ -442,20 +459,9 @@ export async function syncIpnsWithDb(community: LocalCommunity) {
         community._setStartedStateWithEmission("publishing-ipns");
         community._clientsManager.updateKuboRpcState("publishing-ipns", kuboRpc.url);
         await purgeDisapprovedCommentsOlderThan(community);
-        // Keep only what the rest of the cycle needs from the CommentUpdates it just wrote: the posts'
-        // rows, which become postUpdates MFS files, and the cid of every comment updated, which is
-        // marked as published once the record is out. Holding every comment's whole CommentUpdate until
-        // then made the cycle's memory grow with the board (inline reply pages are the bulk of a row).
-        const postCommentUpdateRows: CommentUpdateToWriteToDbAndPublishToIpfs[] = [];
-        const cidsUpdatedInThisCycle: string[] = [];
-        await updateCommentsThatNeedToBeUpdated(community, (rows) => {
-            for (const row of rows) {
-                cidsUpdatedInThisCycle.push(row.newCommentUpdate.cid);
-                if (typeof row.localMfsPath === "string") postCommentUpdateRows.push(row);
-            }
-        });
+        const cidsUpdatedInThisCycle = await updateCommentsAndWritePostUpdates(community);
         requireCommunityUpdateIfModQueueChanged(community);
-        await updateCommunityIpnsIfNeeded(community, postCommentUpdateRows, cidsUpdatedInThisCycle);
+        await updateCommunityIpnsIfNeeded(community, cidsUpdatedInThisCycle);
         await cleanUpIpfsRepoIfDue(community);
     } catch (e) {
         //@ts-expect-error
