@@ -371,6 +371,10 @@ export class BaseClientsManager {
                     url,
                     status: res?.status,
                     statusText: res?.statusText,
+                    // A 304 carries the matched entity-tag and the cache countdown; the community
+                    // update loop uses both for conditional-request memory and poll pacing (#328)
+                    responseEtag: res?.headers?.get("etag"),
+                    responseCacheControl: res?.headers?.get("cache-control"),
                     fetchError: String(e),
                     fetchErrorCode: nodeError?.code,
                     fetchErrorErrno: nodeError?.errno,
@@ -516,9 +520,19 @@ export class BaseClientsManager {
             e.details = { ...e.details, url, loadOpts, wasRequestAborted: loadOpts.abortController.signal.aborted };
 
             this.postFetchGatewayFailure(gateway, loadOpts, <PKCError>e);
-            this._pkc._stats
-                .recordGatewayFailure(gateway, loadOpts.recordIpfsType)
-                .catch((err) => log.error("failed to report gateway error", err));
+            // A 304 or an "already loaded this record" abort is the gateway HEALTHILY confirming
+            // the record we hold — recording it as a failure made every idle poll poison the
+            // gateway's score in the sorting stats (issue #328). Everything else stays a failure.
+            const gatewayConfirmedCurrentRecord =
+                (<PKCError>e).details?.status === 304 || String((<PKCError>e).code).startsWith("ERR_GATEWAY_ABORTING_LOADING");
+            if (gatewayConfirmedCurrentRecord)
+                this._pkc._stats
+                    .recordGatewaySuccess(gateway, loadOpts.recordIpfsType, Date.now() - timeBefore)
+                    .catch((err) => log.error("Failed to report gateway success", err));
+            else
+                this._pkc._stats
+                    .recordGatewayFailure(gateway, loadOpts.recordIpfsType)
+                    .catch((err) => log.error("failed to report gateway error", err));
             return { error: <PKCError>e };
         }
     }
@@ -621,13 +635,27 @@ export class BaseClientsManager {
     // directly at the /ipfs/ CID, i.e. the key that signs the content).
     async resolveIpnsToCidP2P(
         ipnsName: string,
-        loadOpts: { timeoutMs: number; abortSignal?: AbortSignal }
+        // `nocache: true` forces a network revalidation even on the libp2p-js resolver (whose
+        // default below is to let its gossip-fed routing-layer cache serve, issue #301). The
+        // community update loop sets it on safety-net ticks, which exist precisely for pushed
+        // records the cache never received. It is spread AFTER the per-client default, so the
+        // caller's value wins.
+        loadOpts: { timeoutMs: number; abortSignal?: AbortSignal; nocache?: boolean }
     ): Promise<{ cid: string; ipnsHops: string[] }> {
         const log = Logger("pkc-js:clients-manager:resolveIpnsToCidP2P");
         throwIfAbortSignalAborted(loadOpts.abortSignal);
         // recursive: false so the resolver returns the IMMEDIATE value of each record (so we can
         // walk /ipns/ -> /ipns/ hops ourselves); see performIpnsResolve below.
-        const ipnsResolveOpts = { nocache: true, recursive: false, ...loadOpts };
+        // nocache differs by client (issue #301). The libp2p-js resolver keeps its routing-layer
+        // cache fresh from gossipsub pushes and honors the record's ttl, so letting it serve from
+        // cache is what turns the update loop's 1s cadence into pushes plus one revalidation per
+        // ttl instead of a multi-peer fetch race per community per second. Kubo keeps
+        // nocache: true (pre-existing behavior): its namesys cache is not fed by pkc's pubsub
+        // subscriptions, so serving from it could hand back records up to a full record ttl stale.
+        // Mirrors getIpfsClientWithKuboRpcClientFunctions' precedence: kubo wins when present.
+        const resolvingViaLibp2pJsClient =
+            keys(this._pkc.clients.kuboRpcClients).length === 0 && keys(this._pkc.clients.libp2pJsClients).length > 0;
+        const ipnsResolveOpts = { nocache: !resolvingViaLibp2pJsClient, recursive: false, ...loadOpts };
         const ipfsClient = this.getIpfsClientWithKuboRpcClientFunctions();
 
         const performIpnsResolve = async () => {
@@ -763,8 +791,17 @@ export class BaseClientsManager {
                 "_helia" in kuboRpcOrHelia && loadOpts.bitswapSessionSeedScopeIpnsPubsubTopic
                     ? { bitswapSessionSeedScopeIpnsPubsubTopic: loadOpts.bitswapSessionSeedScopeIpnsPubsubTopic }
                     : undefined;
+            // The caller's signal goes to cat() as well as to the pTimeout below: pTimeout only
+            // abandons the promise on abort, and a helia cat left running would keep opening bitswap
+            // sessions and retrying "no providers" until its own timeout fired, long after the
+            // comment/community/pkc that asked for it was stopped (issue #345).
             const rawData = await all(
-                ipfsClient.cat(cidV0, { length: loadOpts.maxFileSizeBytes, timeout: `${loadOpts.timeoutMs}ms`, ...seedScopeOptions })
+                ipfsClient.cat(cidV0, {
+                    length: loadOpts.maxFileSizeBytes,
+                    timeout: `${loadOpts.timeoutMs}ms`,
+                    signal: loadOpts.abortSignal,
+                    ...seedScopeOptions
+                })
             );
             const data = uint8ArrayConcat(rawData);
             const fileContent = uint8ArrayToString(data);

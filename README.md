@@ -536,12 +536,12 @@ An object which may have the following keys:
 
 | Name | Type | Default | Description |
 | ---- | ---- | ------- | ----------- |
-| ipfsGatewayUrls | `string[]` or `undefined` | `['https://ipfsgateway.xyz', 'https://gateway.plebpubsub.xyz', 'https://gateway.forumindex.com']` | Optional URLs of IPFS gateways |
+| ipfsGatewayUrls | `string[]` or `undefined` | `['https://ipfsgateway.xyz', 'https://gateway.plebpubsub.xyz', 'https://gateway.forumindex.com']` | Optional URLs of IPFS gateways. Gateway readers have no push channel: a new community record only becomes visible when the gateway's IPNS cache for that name expires (the record's ttl, `publishInterval` = 20s by default, or the operator's `Ipns.MaxCacheTTL` if lower) and pkc-js re-polls at that moment, so expect up to one ttl of update latency (about 10s on average) against sub-second delivery over `kuboRpcClientsOptions` or `libp2pJsClientsOptions`, which receive records over IPNS-over-pubsub. Prefer those transports when the environment allows it and use gateways as a fallback. |
 | kuboRpcClientsOptions | `(string \| KuboRpcClientOptions)[]` or `undefined` | `undefined` | Optional URLs of Kubo IPFS APIs or [KuboRpcClientOptions](https://www.npmjs.com/package/kubo-rpc-client#options). Use `'http://localhost:5001/api/v0'` to point at a local Kubo node. Cannot be combined with `libp2pJsClientsOptions`. |
 | pubsubKuboRpcClientsOptions | `(string \| KuboRpcClientOptions)[]` or `undefined` | `[{url: 'https://pubsubprovider.xyz/api/v0'}, {url: 'https://plebpubsub.xyz/api/v0'}]` | Optional URLs or [KuboRpcClientOptions](https://www.npmjs.com/package/kubo-rpc-client#options) used for pubsub publishing when `kuboRpcClientsOptions` isn't available, like in the browser |
 | pkcRpcClientsOptions | `string[]` or `undefined` | `undefined` | Optional websocket URLs of PKC RPC servers, required to run a community from a browser/electron/webview |
 | httpRoutersOptions | `string[]` or `undefined` | `['https://peers.pleb.bot', 'https://routing.lol', 'https://peers.forumindex.com', 'https://peers.plebpubsub.xyz', 'https://routerofbitsocial.xyz', 'https://bsotracker.online']` | URLs of HTTP delegated-routing endpoints used by `libp2pJsClientsOptions` for content/peer routing and IPNS lookups. Each URL must start with `http://` or `https://`. |
-| libp2pJsClientsOptions | `Array<{key: string, libp2pOptions?: Partial<Libp2pOptions>, heliaOptions?: Partial<HeliaOptions>, blockstoreOptions?: {maxBytes?: number, lowWaterRatio?: number}}>` or `undefined` | `undefined` | Optional in-process libp2p/Helia client. When set, replaces `kuboRpcClientsOptions` and `pubsubKuboRpcClientsOptions` (which are then ignored). At most one entry; `key` is a unique identifier. `libp2pOptions` is forwarded to [Helia's libp2p](https://github.com/ipfs/helia) (e.g. `connectionGater`, `services`, transports), `heliaOptions` to [`createHelia`](https://github.com/ipfs/helia) (e.g. `blockstore`, `blockBrokers`). Requires `httpRoutersOptions` to be set. By default WebRTC and WebTransport dials are rejected so nodes (notably in the browser) connect over WebSocket(/WSS); pass your own `libp2pOptions.connectionGater` to override this (it fully replaces the default gater). `blockstoreOptions` tunes the block cache described below. |
+| libp2pJsClientsOptions | `Array<{key: string, libp2pOptions?: Partial<Libp2pOptions>, heliaOptions?: Partial<HeliaOptions>, blockstoreOptions?: {maxBytes?: number, lowWaterRatio?: number}}>` or `undefined` | `undefined` | Optional in-process libp2p/Helia client. When set, replaces `kuboRpcClientsOptions` and `pubsubKuboRpcClientsOptions` (which are then ignored). At most one entry; `key` is a unique identifier. `libp2pOptions` is forwarded to [Helia's libp2p](https://github.com/ipfs/helia) (e.g. `connectionGater`, `services`, transports), `heliaOptions` to [Helia](https://github.com/ipfs/helia) (e.g. `blockstore`, `blockBrokers`; a caller-supplied `blockBrokers` replaces the default bitswap broker, and `http` is not supported since the client is composed without Helia's HTTP components). Requires `httpRoutersOptions` to be set. By default WebRTC and WebTransport dials are rejected so nodes (notably in the browser) connect over WebSocket(/WSS); pass your own `libp2pOptions.connectionGater` to override this (it fully replaces the default gater). `blockstoreOptions` tunes the block cache described below. |
 | dataPath | `string` or `undefined` | `.pkc` folder in the current working directory | (Node only) Optional folder path to create/resume the user and community databases |
 | resolveAuthorNames | `boolean` or `undefined` | `true` | Optionally disable resolving crypto domain author names, which can be done lazily later to save time |
 | nameResolvers | `NameResolver[]` or `undefined` | `undefined` | Custom resolvers for crypto domain names. Each resolver: `{key, resolve, canResolve, provider, destroy?}`. |
@@ -1351,6 +1351,8 @@ await community.start()
 
 > Start polling the network for new posts published in the community, update itself and emit the 'update' event. Only usable if community.address exists.
 
+Attach your `update` and `error` listeners before calling `update()`, as in the examples below. Some events can be delivered while `update()` is still resolving (for example the initial snapshot of a community that is already updating, or a warm-start update on the default transport), so a listener attached afterwards can miss them. The one exception is events the server emitted while subscribing over PKC RPC (fresh subscriptions made by `community.update()`, `comment.update()`, `publish()`, and `community.start()`): those are delivered on a later tick, so even a listener attached immediately after the awaited call resolves, before yielding to the event loop, still receives them. This also means properties populated by those events (for example `community.updatedAt` after `update()`) may not be set yet when the call resolves; react to the events rather than reading properties synchronously afterwards. If a community has no `error` listener of its own, its errors bubble up to the `pkc` instance's `error` event instead.
+
 #### Example
 
 ```js
@@ -1363,6 +1365,9 @@ community.on('update', (updatedCommunityInstance) => {
 
   // if you want to stop polling for new updates after only the first one
   community.stop()
+})
+community.on('error', (error) => {
+  console.error(error)
 })
 community.update()
 ```

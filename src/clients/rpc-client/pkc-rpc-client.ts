@@ -70,6 +70,22 @@ import {
 
 const log = Logger("pkc-js:PKCRpcClient");
 
+// The subset of ws (Node) and the native WebSocket (browser) that destroy() needs to wait for a close
+interface RawWebSocket {
+    readonly readyState: number;
+    addEventListener(type: "close", listener: () => void, options?: { once: boolean }): void;
+}
+const WEBSOCKET_READY_STATE_CLOSED = 3;
+const DESTROY_SOCKET_CLOSE_TIMEOUT_MS = 5_000;
+
+// Captured at module load so the deferred attach-and-replay (attachSubscriptionHandlersDeferred)
+// keeps working when a downstream app enables fake timers: vitest/jest replace the GLOBAL
+// setTimeout after modules are imported, so this bound reference stays the real timer and
+// subscriptions never become silently inert under un-advanced fake timers. The deferral still
+// runs on a macrotask, so environments that throttle timers (e.g. hidden browser tabs) may delay
+// the attach and the buffered replay accordingly.
+const scheduleMacrotask: typeof setTimeout = setTimeout.bind(globalThis);
+
 export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     state: "stopped" | "connecting" | "failed" | "connected";
     communities: string[];
@@ -181,7 +197,9 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
             });
 
             this._webSocketClient.on("close", () => {
-                log.error("connection with web socket has been closed", this._websocketServerUrl);
+                // destroy() already awaited this close and logged it; a log here would land after
+                // destroy() resolved (#325)
+                if (!this._destroyRequested) log.error("connection with web socket has been closed", this._websocketServerUrl);
                 this._openConnectionPromise = undefined;
                 this.setState("stopped");
             });
@@ -270,7 +288,12 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         try {
             if (this._webSocketClient instanceof WebSocketClient) {
                 this._webSocketClient.setAutoReconnect(false);
+                // Wait for the socket to actually close so nothing (in particular no log line) runs on our
+                // behalf after destroy() has resolved (#325)
+                const socketClosed = this._waitForSocketClose();
                 this._webSocketClient.close();
+                await socketClosed;
+                log("Closed websocket connection to", this._websocketServerUrl);
             }
         } catch (e) {
             log.error("Failed to close websocket", e);
@@ -278,6 +301,21 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
 
         this._openConnectionPromise = undefined;
         this.setState("stopped");
+    }
+
+    // Resolves once the raw socket under rpc-websockets has fully closed, right away if there is none.
+    // Bounded so a peer that never completes the close handshake cannot hang destroy(); rpc-websockets
+    // exposes the raw socket as `.socket` (ws in Node, the native WebSocket in browsers), both of which
+    // support addEventListener.
+    private async _waitForSocketClose(): Promise<void> {
+        const socket = (this._webSocketClient as unknown as { socket?: RawWebSocket }).socket;
+        if (!socket || socket.readyState === WEBSOCKET_READY_STATE_CLOSED) return;
+        const closed = new Promise<void>((resolve) => socket.addEventListener("close", () => resolve(), { once: true }));
+        try {
+            await pTimeout(closed, { milliseconds: DESTROY_SOCKET_CLOSE_TIMEOUT_MS });
+        } catch {
+            log.error("Websocket did not close within", DESTROY_SOCKET_CLOSE_TIMEOUT_MS, "ms of destroy()", this._websocketServerUrl);
+        }
     }
 
     toJSON() {
@@ -352,7 +390,90 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         if (rest && Object.keys(rest).length > 0) Object.assign(target, rest);
     }
 
+    subscriptionActive(subscriptionId: number): boolean {
+        return Boolean(this._subscriptionEvents[subscriptionId]);
+    }
+
+    // Attach a subscription's notification handlers and replay its buffered notifications in a
+    // macrotask, so events the server emitted at subscribe time (before the JSON-RPC subscribe
+    // response) still reach a listener attached synchronously after the subscribing call resolves
+    // (#299/#314). A microtask is not enough: it is enqueued before the promise-resolution jobs
+    // that unwind the awaits, so it would still run before the caller's continuation. Attaching
+    // the handlers inside the same deferred task keeps delivery ordered: notifications arriving in
+    // the window find no listeners, so they are buffered and the replay drains everything in
+    // arrival order. Opt-in per call site because some subscribers (e.g. the exports subscription
+    // in rpc-local-community.ts) deliberately rely on the synchronous replay ordering.
+    attachSubscriptionHandlersDeferred(opts: {
+        subscriptionId: number;
+        // Return true if the caller no longer owns this subscription (stopped, restarted)
+        isStale: () => boolean;
+        attach: (subscription: EventEmitter) => void;
+        // Containment for a handler throw escaping the replay; pre-deferral the throw rejected
+        // the subscribing call, post-deferral nothing awaits it, so the helper owns the shared
+        // policy (log, surface via emitError, then stop) rather than each call site copying it.
+        // Without this the throw would escape the timer as an uncaughtException.
+        replayErrorContainment: {
+            // The noun used in the log lines, e.g. "community", "comment", "publication"
+            entityName: string;
+            log: ReturnType<typeof Logger>;
+            // Typically (error) => this.emit("error", error) on the subscribing instance
+            emitError: (error: Error) => void;
+            // The teardown matching the entity's blast radius (e.g. stopWithoutRpcCall for a
+            // started community, where full stop() would halt it node-wide over RPC)
+            stop: () => Promise<void>;
+        };
+    }) {
+        scheduleMacrotask(() => {
+            const ownsSubscription = () => !opts.isStale() && this.subscriptionActive(opts.subscriptionId);
+            // The subscription may have been unsubscribed or the connection destroyed in the meantime
+            if (!ownsSubscription()) return;
+            try {
+                opts.attach(this.getSubscription(opts.subscriptionId));
+                this._emitPendingMessagesWhile(opts.subscriptionId, ownsSubscription);
+            } catch (e) {
+                this._containReplayError(e, opts.replayErrorContainment);
+            }
+        }, 0);
+    }
+
+    private _containReplayError(
+        e: unknown,
+        containment: { entityName: string; log: ReturnType<typeof Logger>; emitError: (error: Error) => void; stop: () => Promise<void> }
+    ) {
+        const { entityName, log: siteLog, emitError, stop } = containment;
+        siteLog.error(`Error thrown while replaying buffered subscribe-time notifications, stopping the ${entityName}`, e);
+        // Surface the contained throw before stopping: without the emit the only signal is a
+        // debug-namespace log and a silent stop. The emit itself can throw (with no listeners
+        // anywhere the pkc bubbling re-throws), so it stays contained too.
+        try {
+            emitError(e instanceof Error ? e : new Error(String(e)));
+        } catch (emitFailure) {
+            siteLog.error("No listener received the replay error", emitFailure);
+        }
+        stop().catch((stopError) => siteLog.error(`Failed to stop the ${entityName} after a replay error`, stopError));
+    }
+
+    // Replay the buffered notifications one message at a time, re-checking ownership between
+    // messages: a replayed handler may call stop(), whose synchronous prefix clears the caller's
+    // subscription id (directly, or through the mirror cleanup chain), and the remaining buffered
+    // notifications must then be dropped instead of delivered into a stopping instance. The
+    // messages delivered before the stop are consumed; the leftovers stay buffered for
+    // unsubscribe() to discard.
+    private _emitPendingMessagesWhile(subscriptionId: number, shouldDeliver: () => boolean) {
+        const pendingMessages = this._pendingSubscriptionMsgs[subscriptionId];
+        if (!pendingMessages) return;
+        while (pendingMessages.length > 0) {
+            if (!shouldDeliver()) return;
+            const message = pendingMessages.shift();
+            this._subscriptionEvents[subscriptionId].emit(message?.params?.event, message);
+        }
+        delete this._pendingSubscriptionMsgs[subscriptionId];
+    }
+
     emitAllPendingMessages(subscriptionId: number) {
+        // The replay may be deferred to a later task (#299), so the subscription can be
+        // unsubscribed or the connection destroyed before it runs
+        if (!this._pendingSubscriptionMsgs[subscriptionId]) return;
         this._pendingSubscriptionMsgs[subscriptionId].forEach((message) =>
             this._subscriptionEvents[subscriptionId].emit(message?.params?.event, message)
         );

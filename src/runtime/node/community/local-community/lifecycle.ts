@@ -84,7 +84,7 @@ export async function initBeforeStarting(community: LocalCommunity) {
     if (!community._challengeAnswerPromises)
         community._challengeAnswerPromises = new LRUCache<string, Promise<DecryptedChallengeAnswer["challengeAnswers"]>>({
             max: 1000,
-            ttl: 600000
+            ttl: community._challengeExchangeTtlMs
         });
     if (!community._challengeAnswerResolveReject)
         community._challengeAnswerResolveReject = new LRUCache<
@@ -92,17 +92,17 @@ export async function initBeforeStarting(community: LocalCommunity) {
             { resolve: (answers: DecryptedChallengeAnswer["challengeAnswers"]) => void; reject: (error: Error) => void }
         >({
             max: 1000,
-            ttl: 600000
+            ttl: community._challengeExchangeTtlMs
         });
     if (!community._ongoingChallengeExchanges)
         community._ongoingChallengeExchanges = new LRUCache<string, boolean>({
             max: 1000,
-            ttl: 600000
+            ttl: community._challengeExchangeTtlMs
         });
     if (!community._duplicatePublicationAttempts)
         community._duplicatePublicationAttempts = new LRUCache<string, number>({
             max: 1000,
-            ttl: 600000
+            ttl: community._challengeExchangeTtlMs
         });
     await community._dbHandler.initDbIfNeeded();
 }
@@ -444,7 +444,9 @@ export async function stop(community: LocalCommunity) {
         }
 
         try {
-            await unpinStaleCids(community);
+            // Bypass the unpin grace period: this is the process's last chance to unpin, and a
+            // community that never starts again would otherwise leak its queued pins forever.
+            await unpinStaleCids(community, { bypassGracePeriod: true });
         } catch (e) {
             log.error("Failed to unpin stale cids and remove mfs paths before stopping", e);
         }
@@ -469,6 +471,7 @@ export async function stop(community: LocalCommunity) {
         untrackStartedCommunity(community._pkc, community);
         processStartedCommunities.untrack(community);
         community._duplicatePublicationAttempts?.clear();
+        community._inFlightPublicationExchanges.clear();
         await community._dbHandler.rollbackAllTransactions();
         await community._dbHandler.unlockCommunityState();
         await community._updateStartedValue();
@@ -559,7 +562,9 @@ export async function deleteCommunity(community: LocalCommunity) {
     if (community.statsCid) community._cidsToUnPin.add(community.statsCid);
 
     try {
-        await unpinStaleCids(community);
+        // Bypass the unpin grace period: the community is being deleted, nothing will ever run a
+        // later unpin pass for it.
+        await unpinStaleCids(community, { bypassGracePeriod: true });
     } catch (e) {
         log.error("Failed to unpin stale cids before deleting", e);
     }

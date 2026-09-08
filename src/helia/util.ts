@@ -3,6 +3,9 @@ import type { PeerId, PeerInfo, PeerUpdate } from "@libp2p/interface";
 import type { Multiaddr } from "@multiformats/multiaddr";
 import { CID } from "multiformats/cid";
 import { ipnsSelector } from "ipns/selector";
+import { ipnsValidator } from "ipns/validator";
+import { unmarshalIPNSRecord } from "ipns";
+import type { IPNSRecord } from "ipns";
 import { equals as uint8ArrayEquals } from "uint8arrays/equals";
 import Logger from "../logger.js";
 import { PKCError } from "../pkc-error.js";
@@ -860,4 +863,82 @@ export async function cacheIpnsRecordInPubsubLocalStore({
         if (ipnsSelector(routingKey, [currentRecord, marshalledRecord]) === 0) return;
     }
     await localStore.put(routingKey, marshalledRecord);
+}
+
+// When a cached record carries no ttl field, fall back to pkc's own publish cadence: communities
+// publish their IPNS records with ttl = publishInterval * 1 (20s by default, see
+// ipns-publishing.ts and issue #328), so this matches what a well-formed community record would
+// have carried.
+const DEFAULT_CACHED_IPNS_RECORD_TTL_MS = 20_000;
+
+// Deterministic per-name jitter over the cached record's serve window (issue #307). A directory
+// app fetches all N of its community records in the same second and they all carry the same ttl,
+// so without jitter all N cache entries expire in the same instant and every name misses the
+// cache in the same update-loop pass: N=64 launches 250-320 near-simultaneous /libp2p/fetch
+// streams against a 64-stream outbound cap, once per ttl window. Scaling each name's effective
+// ttl by a factor derived from its routing key (FNV-1a, uniform-ish in [0.75, 1.0)) de-correlates
+// the expiries while never serving a record beyond its own ttl. Deterministic per name on
+// purpose: a factor re-rolled per read would make freshness flappy and bias the effective ttl
+// toward the floor as reads accumulate.
+export function ipnsCacheTtlJitterFactor(routingKey: Uint8Array): number {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < routingKey.length; i++) {
+        hash ^= routingKey[i];
+        hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return 0.75 + (hash / 0x1_0000_0000) * 0.25;
+}
+
+// Read the record cached at the pubsub routing layer and return it only while it may still be
+// served WITHOUT a network revalidation (issue #301). Freshness follows the IPNS spec's ttl
+// semantics: a record may be served from cache for `ttl` after it was last confirmed current.
+// "Last confirmed current" is the LATER of:
+// - the localStore write time (`created`): refreshed whenever a NEWER record lands, via a
+//   gossipsub push (handleRecord) or a direct fetch (cacheIpnsRecordInPubsubLocalStore);
+// - `lastNetworkValidatedAtMs`, the caller-tracked time of the last network fetch that validated
+//   a record for this name. This half matters for an IDLE name: a network refetch that returns
+//   bytes identical to the cache never refreshes `created` (both localStore.put and
+//   cacheIpnsRecordInPubsubLocalStore deliberately skip identical writes), so without it every
+//   resolve after the first ttl expiry would go back to the network forever, reintroducing the
+//   per-second churn this cache exists to stop.
+// The record's signature and validity window are re-checked on every read (a cached record can
+// pass its EOL while sitting in the store); an invalid, expired, or stale record yields
+// undefined so the caller falls through to the network path.
+//
+// `pushChannelHealthy` (issue #330) widens the serve window past the record's ttl: when the
+// caller can attest that the name's push channel is demonstrably alive (the topic has gossipsub
+// subscribers and a signature-valid record arrived within the watchdog window), the
+// ipns-pubsub-router spec's model applies — the network keeps a subscribed node current via
+// pushes, rebroadcasts, and fetch-on-join, so a timer-driven revalidation buys nothing — and the
+// cached record is served for as long as it stays signature-valid and inside its EOL. The ttl
+// check below is the DEGRADED mode, exactly the pre-#330 behavior, for a name whose push channel
+// is unhealthy (no subscribers, or the watchdog tripped).
+export async function readFreshCachedIpnsRecordFromPubsubLocalStore({
+    localStore,
+    routingKey,
+    lastNetworkValidatedAtMs,
+    pushChannelHealthy
+}: {
+    localStore: IpnsPubsubLocalStore;
+    routingKey: Uint8Array;
+    lastNetworkValidatedAtMs?: number;
+    pushChannelHealthy?: boolean;
+}): Promise<IPNSRecord | undefined> {
+    if (!(await localStore.has(routingKey))) return undefined;
+    const { record: recordBytes, created } = await localStore.get(routingKey);
+    try {
+        await ipnsValidator(routingKey, recordBytes);
+    } catch {
+        // signature no longer checks out or the record passed its EOL while cached
+        return undefined;
+    }
+    const record = unmarshalIPNSRecord(recordBytes);
+    if (pushChannelHealthy === true) return record; // issue #330: freshness is the push channel's job
+    const ttlMs = record.ttl !== undefined ? Number(record.ttl / 1_000_000n) : DEFAULT_CACHED_IPNS_RECORD_TTL_MS;
+    // Effective ttl is jittered per name (issue #307) so names cached together don't all miss
+    // the cache together; the factor only ever shortens the window, never extends it.
+    const effectiveTtlMs = ttlMs * ipnsCacheTtlJitterFactor(routingKey);
+    const lastConfirmedCurrentAtMs = Math.max(created.getTime(), lastNetworkValidatedAtMs ?? 0);
+    if (Date.now() - lastConfirmedCurrentAtMs >= effectiveTtlMs) return undefined;
+    return record;
 }

@@ -33,7 +33,8 @@ import type {
     CommentWithinRepliesPostsPageJson,
     CreateCommentOptions,
     CommentPubsubMessagePublication,
-    CommentOptionsToSign
+    CommentOptionsToSign,
+    CommentUpdateType
 } from "../publications/comment/types.js";
 import pTimeout from "p-timeout";
 
@@ -44,6 +45,7 @@ import {
     cleanUpBeforePublishing,
     _signPubsubMsg,
     signChallengeVerification,
+    signCommentUpdate,
     signCommunity
 } from "../signer/signatures.js";
 import { BasePages, PostsPages, RepliesPages } from "../pages/pages.js";
@@ -58,7 +60,13 @@ import {
     TIMEFRAMES_TO_SECONDS
 } from "../pages/util.js";
 import { importSignerIntoKuboNode } from "../runtime/node/util.js";
-import { getIpfsKeyFromPrivateKey, getPeerIdFromPrivateKey, getPKCAddressFromPublicKeySync } from "../signer/util.js";
+import {
+    convertBase58IpnsNameToBase36Cid,
+    getIpfsKeyFromPrivateKey,
+    getPeerIdFromPrivateKey,
+    getPKCAddressFromPublicKeySync
+} from "../signer/util.js";
+import { peerIdFromString } from "@libp2p/peer-id";
 import { CommentEdit } from "../publications/comment-edit/comment-edit.js";
 import type { CreateCommentEditOptions } from "../publications/comment-edit/types.js";
 import { Buffer } from "buffer";
@@ -113,6 +121,26 @@ function getMockResolverRecord(records: MockResolverRecords | undefined, name: s
     return { found: false, value: undefined };
 }
 
+// A "self-resolving" mock domain: `<ipns name in CIDv1 base36>.bso`, e.g. `k51qzi5uqu5d....bso`.
+// The label is the address's own IPNS name in kubo's base36 form (all lowercase, so it survives
+// domain-name handling), and the default mock resolver maps it back to the base58 peer id with
+// peerIdFromString, which accepts both encodings. This lets a test publish a community under a
+// FRESH key and still load it through a domain name, including over RPC, where the server's mock
+// resolver is fixed at startup and cannot learn a record the test just minted (issue #323).
+export function selfResolvingMockNameForAddress(address: string): string {
+    return `${convertBase58IpnsNameToBase36Cid(address)}.bso`;
+}
+
+function resolveSelfResolvingMockName(name: string): string | undefined {
+    const match = /^(k[a-z0-9]{40,})\.(bso|eth)$/.exec(name);
+    if (!match) return undefined;
+    try {
+        return peerIdFromString(match[1]).toString();
+    } catch {
+        return undefined;
+    }
+}
+
 export function createMockNameResolver({
     records,
     includeDefaultRecords = false,
@@ -140,6 +168,9 @@ export function createMockNameResolver({
 
                 const defaultRecord = includeDefaultRecords ? getMockResolverRecord(defaultMockResolverRecords, name) : undefined;
                 if (defaultRecord?.found) return defaultRecord.value ? { publicKey: defaultRecord.value } : undefined;
+
+                const selfResolvedPublicKey = resolveSelfResolvingMockName(name);
+                if (selfResolvedPublicKey) return { publicKey: selfResolvedPublicKey };
                 return undefined;
             }),
         provider
@@ -1526,9 +1557,11 @@ export async function mockPKCWithHeliaConfig(opts?: MockPKCOptions) {
         const heliaLibp2pJsClient = heliaPKC.clients.libp2pJsClients[Object.keys(heliaPKC.clients.libp2pJsClients)[0]];
         heliaLibp2pJsClient.heliaWithKuboRpcClientFunctions.pubsub = mockedPubsubClient.pubsub; // that should work for publishing/subscribing
         const originalStop = heliaLibp2pJsClient._helia.stop.bind(heliaLibp2pJsClient._helia);
+        // helia 7's stop() resolves to the node itself (fluent API), so pass that through
         heliaLibp2pJsClient._helia.stop = async () => {
-            await originalStop();
+            const stopped = await originalStop();
             await mockedPubsubClient.destroy();
+            return stopped;
         };
     }
 
@@ -1681,7 +1714,12 @@ export async function createNewIpns() {
     // ONLY controls the helper's own post-publish name.resolve() sanity check (which syncs Kubo's
     // cache for RPC tests) — it does NOT change what name.publish does. Set it false when
     // publishing a hop whose target isn't resolvable yet, so that resolve check doesn't fail.
-    const publishToIpnsValue = async (value: string, opts?: { verifyResolves?: boolean }) => {
+    // `ttl` (kubo duration string, e.g. "10s") overrides kubo's default record ttl, which is 5
+    // MINUTES on kubo 0.43, not the 20s a LocalCommunity publishes (publishInterval * 1, #328). The
+    // ttl bounds how long the libp2p-js resolver may serve a name from its routing-layer cache
+    // without revalidating (issue #301/#307), so any test that must observe a cache expiry
+    // inside its own timeout has to shorten it here instead of waiting out kubo's default.
+    const publishToIpnsValue = async (value: string, opts?: { verifyResolves?: boolean; ttl?: string }) => {
         const verifyResolves = opts?.verifyResolves ?? true;
         // Wrapped in retry because Kubo can transiently ETIMEDOUT in CI
         await new Promise<void>((resolve, reject) => {
@@ -1695,7 +1733,8 @@ export async function createNewIpns() {
                 try {
                     await ipfsClient._client.name.publish(value, {
                         key: signer.address,
-                        allowOffline: true
+                        allowOffline: true,
+                        ...(opts?.ttl ? { ttl: opts.ttl } : {})
                     });
                     resolve();
                 } catch (error) {
@@ -1737,9 +1776,9 @@ export async function createNewIpns() {
         });
     };
 
-    const publishToIpns = async (content: string) => {
+    const publishToIpns = async (content: string, opts?: { verifyResolves?: boolean; ttl?: string }) => {
         const cid = await addStringToIpfs(content);
-        await publishToIpnsValue(cid);
+        await publishToIpnsValue(cid, opts);
     };
 
     return {
@@ -1822,7 +1861,11 @@ async function getTemplateCommunityRecord(pkc: PKC): Promise<CommunityIpfsType> 
     return result;
 }
 
-export async function publishCommunityRecordWithExtraProp(opts?: { includeExtraPropInSignedPropertyNames: boolean; extraProps: Object }) {
+export async function publishCommunityRecordWithExtraProp(opts?: {
+    includeExtraPropInSignedPropertyNames?: boolean;
+    extraProps?: Object;
+    ttl?: string;
+}) {
     const ipnsObj = await createNewIpns();
     const communityRecord = JSON.parse(JSON.stringify(await getTemplateCommunityRecord(ipnsObj.pkc)));
     communityRecord.pubsubTopic = ipnsObj.signer.address;
@@ -1838,7 +1881,7 @@ export async function publishCommunityRecordWithExtraProp(opts?: { includeExtraP
         Logger("pkc-js:test-util:publishCommunityRecordWithExtraProp")
     );
 
-    await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
+    await ipnsObj.publishToIpns(JSON.stringify(communityRecord), opts?.ttl ? { ttl: opts.ttl } : undefined);
 
     return { communityRecord, ipnsObj };
 }
@@ -1939,6 +1982,150 @@ export async function createStaticCommunityRecordForComment(opts?: {
     } finally {
         await ipnsObj.pkc.destroy();
         if (shouldDestroyCommentPKC) await commentPKC.destroy();
+    }
+}
+
+// Publish a STATIC community under a fresh IPNS key whose preloaded posts page embeds one post
+// (author-signed CommentIpfs + a CommentUpdate signed by the community key) and whose postUpdates
+// points at a real UnixFS folder on the test Kubo holding that post's CommentUpdate at
+// <folderCid>/<postCid>/update. The record is published exactly once and nothing ever publishes
+// to this key again, so an update loop watching it is deterministic: no gossip arrivals from
+// concurrent suites, no new records — the literal "community is not publishing new community
+// records" scenario the state-order suites pin. Built for those suites (PR #311 flake class,
+// issue #323): the shared live communities (signers[0]) receive publishes from every
+// concurrently-running suite, and since the update loop became arrival-driven each of those
+// publishes starts a fetch cycle at a random moment, racing any exact state-sequence assertion.
+//
+// Options:
+// - withReplyInPostPages: also embed one depth-1 reply (its own author-signed CommentIpfs plus a
+//   community-signed CommentUpdate) in the post CommentUpdate's preloaded `replies.pages.best`,
+//   with no `pageCids`, i.e. the "post has a single preloaded page" shape. Returned as `replyCid`.
+// - withSelfResolvingName: give the record a `name` that the default mock resolver maps back to
+//   this fresh key (see selfResolvingMockNameForAddress), returned as `communityName`, so the
+//   community can be loaded by domain name, including through an RPC server whose mock resolver
+//   records were fixed at startup.
+// updateInterval for the PKC instance an exact-state test attaches to a static community. The
+// static fixture removes arrival-driven cycles, but the community update loop also re-runs on a
+// timer: the libp2p-js path parks for updateInterval * (0.75..1.25) between cycles (the #311
+// safety net), gateways poll every updateInterval. The test-wide default of 500ms leaves a
+// 375-625ms window between the community record landing and the comment's CommentUpdate fetch
+// finishing; on a slow runner (Firefox CI) that fetch outlasted the window and the timer cycle's
+// fetching-ipns was mirrored into the comment's clients as an extra fetching-community-ipns.
+// A static community never needs a second cycle, so make the timer unreachable inside the test.
+export const updateIntervalForExactStateTests = 60_000;
+
+export async function publishStaticCommunityWithPostInPages(opts?: { withReplyInPostPages?: boolean; withSelfResolvingName?: boolean }) {
+    const ipnsObj = await createNewIpns();
+    const communityAddress = ipnsObj.signer.address;
+    // ipnsObj.pkc is handed to the caller on success (it is the caller's to destroy). On any
+    // failure before that nobody else holds it, so destroy it here instead of leaking it.
+    const destroyIpnsPkcAndRethrow = async (e: unknown): Promise<never> => {
+        await ipnsObj.pkc.destroy();
+        throw e;
+    };
+    const commentPKC = await mockPKCNoDataPathWithOnlyKuboClient().catch(destroyIpnsPkcAndRethrow);
+
+    // Author-sign a comment against the in-memory community identity (no network fetch of the
+    // community record, same trick as createStaticCommunityRecordForComment), add the exact
+    // CommentIpfs serialization to IPFS, and sign a minimal CommentUpdate with the community key.
+    // The SAME serialization is added to IPFS and embedded in the page, so the cid the page
+    // verifier recomputes from the embedded comment matches commentUpdate.cid.
+    const createStaticPageComment = async (
+        createOptions: Omit<Parameters<typeof commentPKC.createComment>[0], "signer" | "communityAddress">,
+        depth: number
+    ) => {
+        const commentToPublish = await commentPKC.createComment({
+            ...createOptions,
+            signer: await commentPKC.createSigner(),
+            communityAddress
+        });
+        if (!commentToPublish.raw.pubsubMessageToPublish) {
+            (commentToPublish as unknown as Record<string, unknown>)["_community"] = {
+                address: communityAddress,
+                publicKey: communityAddress,
+                encryption: encryptionForSigner(ipnsObj.signer),
+                pubsubTopic: communityAddress
+            };
+            await commentToPublish._signPublicationWithCommunityFields();
+        }
+        const commentIpfs = { ...commentToPublish.raw.pubsubMessageToPublish, depth };
+        if (!commentIpfs.protocolVersion) throw Error("The comment to embed in the static community must carry a protocolVersion");
+        const commentIpfsJson = JSON.stringify(commentIpfs);
+        const commentCid = await addStringToIpfs(commentIpfsJson);
+        const commentUpdateWithoutSignature = {
+            cid: commentCid,
+            upvoteCount: 0,
+            downvoteCount: 0,
+            replyCount: 0,
+            updatedAt: timestamp(),
+            protocolVersion: commentIpfs.protocolVersion
+        };
+        return { commentIpfs, commentIpfsJson, commentCid, commentUpdateWithoutSignature };
+    };
+
+    try {
+        const post = await createStaticPageComment(
+            { title: `Static post in pages - ${Date.now()}`, content: `Static content - ${Date.now()}` },
+            0
+        );
+        const commentCid = post.commentCid;
+
+        let replyCid: string | undefined;
+        let postCommentUpdateWithoutSignature: Omit<CommentUpdateType, "signature"> = post.commentUpdateWithoutSignature;
+        if (opts?.withReplyInPostPages) {
+            const reply = await createStaticPageComment(
+                { parentCid: commentCid, postCid: commentCid, content: `Static reply in post pages - ${Date.now()}` },
+                1
+            );
+            replyCid = reply.commentCid;
+            const replyCommentUpdate = {
+                ...reply.commentUpdateWithoutSignature,
+                signature: await signCommentUpdate({ update: reply.commentUpdateWithoutSignature, signer: ipnsObj.signer })
+            };
+            postCommentUpdateWithoutSignature = {
+                ...post.commentUpdateWithoutSignature,
+                replyCount: 1,
+                childCount: 1,
+                lastChildCid: replyCid,
+                lastReplyTimestamp: reply.commentIpfs.timestamp,
+                replies: {
+                    pages: { best: { comments: [{ comment: JSON.parse(reply.commentIpfsJson), commentUpdate: replyCommentUpdate }] } }
+                }
+            };
+        }
+        const commentUpdate = {
+            ...postCommentUpdateWithoutSignature,
+            signature: await signCommentUpdate({ update: postCommentUpdateWithoutSignature, signer: ipnsObj.signer })
+        };
+
+        // postUpdates folder on the test Kubo: <folderCid>/<postCid>/update.
+        const kuboClient = ipnsObj.pkc._clientsManager.getDefaultKuboRpcClient()._client;
+        let folderCid: string | undefined;
+        for await (const addedEntry of kuboClient.addAll([{ path: `${commentCid}/update`, content: JSON.stringify(commentUpdate) }], {
+            wrapWithDirectory: true
+        }))
+            if (addedEntry.path === "") folderCid = addedEntry.cid.toString();
+        if (!folderCid) throw Error("Failed to derive the postUpdates folder cid from the wrapped kubo add");
+
+        const communityName = opts?.withSelfResolvingName ? selfResolvingMockNameForAddress(communityAddress) : undefined;
+        const communityRecord = <CommunityIpfsType>{
+            ...(await getTemplateCommunityRecord(ipnsObj.pkc)),
+            posts: { pages: { hot: { comments: [{ comment: JSON.parse(post.commentIpfsJson), commentUpdate }] } } },
+            postUpdates: { "86400": folderCid },
+            pubsubTopic: communityAddress,
+            encryption: encryptionForSigner(ipnsObj.signer),
+            updatedAt: timestamp()
+        };
+        if (communityName) communityRecord.name = communityName;
+        else delete communityRecord.name;
+        communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer });
+        await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
+
+        return { communityAddress, communityName, commentCid, replyCid, communityRecord, ipnsObj };
+    } catch (e) {
+        return destroyIpnsPkcAndRethrow(e);
+    } finally {
+        await commentPKC.destroy();
     }
 }
 

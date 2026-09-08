@@ -23,9 +23,8 @@
 // entry must exist, still be updating, with its mirror listener count back at the baseline.
 import { describe, beforeAll, afterAll, expect } from "vitest";
 import path from "path";
-import net from "node:net";
 import PKC from "../../../dist/node/index.js";
-import PKCWsServer from "../../../dist/node/rpc/src/index.js";
+import { createInProcessRpcServer, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
 import {
     createMockedCommunityIpns,
     createMockNameResolver,
@@ -44,24 +43,7 @@ import type { PKCError } from "../../../dist/node/pkc-error.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
 
-type PKCWsServerType = Awaited<ReturnType<typeof PKCWsServer.PKCWsServer>>;
-
 const RPC_AUTH_KEY = "test-community-subscription-churn";
-
-const getAvailablePort = async (): Promise<number> =>
-    new Promise<number>((resolve, reject) => {
-        const server = net.createServer();
-        server.unref();
-        server.on("error", reject);
-        server.listen(0, () => {
-            const address = server.address();
-            if (!address || typeof address === "string") {
-                server.close(() => reject(new Error("Failed to allocate a TCP port for the RPC test server")));
-                return;
-            }
-            server.close(() => resolve(address.port));
-        });
-    });
 
 const pollUntil = async (predicate: () => boolean, ms: number, label: string): Promise<void> => {
     const startedAt = Date.now();
@@ -168,21 +150,9 @@ describe("RPC community update subscription survives concurrent sibling churn (#
             nameResolvers: [createMockNameResolver({ records: resolverRecords })]
         });
 
-        const rpcPort = await getAvailablePort();
-        rpcUrl = `ws://localhost:${rpcPort}`;
-
-        rpcServer = await PKCWsServer.PKCWsServer({
-            port: rpcPort,
-            authKey: RPC_AUTH_KEY,
-            pkcOptions: {
-                kuboRpcClientsOptions: ["http://localhost:15001/api/v0"],
-                httpRoutersOptions: [],
-                dataPath: serverPKC.dataPath
-            }
-        });
+        ({ rpcServer, rpcUrl } = await createInProcessRpcServer({ serverPKC, authKey: RPC_AUTH_KEY }));
 
         const server = rpcServer as unknown as Record<string, Function>;
-        server._initPKC(serverPKC);
         // Same shape as test/server/pkc-ws-server.js: newOptions already carries the previous pkc's
         // nameResolvers (the server preserves them in setSettings), so resolver keys stay stable
         server._createPKCInstanceFromSetSettings = async (newOptions: InputPKCOptions) =>

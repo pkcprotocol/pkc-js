@@ -1,8 +1,43 @@
-import type { createHelia } from "helia";
+import type { createHeliaLight } from "helia";
+import type { HeliaWithLibp2p } from "@helia/libp2p";
+import type { ServiceMap } from "@libp2p/interface";
 import type { KuboRpcClient } from "../types.js";
-import type { PubsubRoutingComponents } from "@helia/ipns/routing";
+import type { PubsubRoutingComponents } from "@helia/ipns";
 import type { GossipSub } from "@libp2p/gossipsub";
 import type { Fetch } from "@libp2p/fetch";
+import type { Identify } from "@libp2p/identify";
+import type { IPNSRecord } from "ipns";
+
+// A validated IPNS record newer than the locally held one just landed in the routing-layer cache
+// for `pubsubTopic` — via a gossipsub push (handleRecord), the direct-fetch cache write, or a
+// fallback router.get() fetch. All three converge on the pubsub router's localStore.put, which is
+// where these arrivals are observed (issue #308).
+export interface IpnsRecordArrival {
+    pubsubTopic: string;
+    record: IPNSRecord;
+}
+export type IpnsRecordArrivalListener = (arrival: IpnsRecordArrival) => void;
+
+// Push-channel health state for IPNS resolution (issue #330), one per libp2p-js client. A
+// topic's push channel is healthy while it has gossipsub subscribers and a signature-valid
+// record arrived within `watchdogMs`; healthy names serve resolves from the cached record past
+// its ttl instead of revalidating over the network once per ttl window. Exposed on the client as
+// `_ipnsPushChannel` so tests can shrink the watchdog window and inspect arrivals.
+export interface IpnsPushChannelState {
+    watchdogMs: number;
+    // per-topic time of the last signature-valid, sequence-current record obtained from the
+    // network: a gossiped message (identical rebroadcast bytes included), an accepted-newer
+    // localStore write, or a validated fetch. "Sequence-current" means at least as new as
+    // `highestKnownSequenceByTopic` — a replay of an older record never advances this stamp.
+    lastValidRecordArrivalMs: Map<string, number>;
+    // per-topic highest record sequence seen from any validated source; the heartbeat guard
+    // that keeps a stale replay (signature-valid but older, see ipns-push-channel-watchdog
+    // tests) from holding the watchdog window open
+    highestKnownSequenceByTopic: Map<string, bigint>;
+    // topics registered by name.resolve, with the routing key the raw-message listener validates
+    // gossiped records against before stamping an arrival
+    routingKeyByTopic: Map<string, Uint8Array>;
+}
 
 export interface HeliaWithKuboRpcClientFunctions extends Pick<NonNullable<KuboRpcClient["_client"]>, "add" | "cat" | "pubsub" | "stop"> {
     add: KuboRpcClient["_client"]["add"];
@@ -18,6 +53,19 @@ export interface HeliaWithKuboRpcClientFunctions extends Pick<NonNullable<KuboRp
     ): ReturnType<KuboRpcClient["_client"]["cat"]>;
     pubsub: KuboRpcClient["_client"]["pubsub"];
     stop: KuboRpcClient["_client"]["stop"];
+    // Push signal for IPNS names (issue #308), pkc-only with no kubo-rpc-client equivalent: the
+    // community update loop subscribes per IPNS pubsub topic to react to pushed records instead
+    // of polling name.resolve every second. Listeners fire AFTER the record is validated and
+    // persisted in the routing-layer cache, so a resolve issued from a listener observes it.
+    ipnsRecordArrivals: {
+        subscribe(args: { pubsubTopic: string; listener: IpnsRecordArrivalListener }): void;
+        unsubscribe(args: { pubsubTopic: string; listener: IpnsRecordArrivalListener }): void;
+    };
+    // Push-channel health probe (issue #330), pkc-only: true while the topic has gossipsub
+    // subscribers and a signature-valid record for it arrived within the watchdog window. The
+    // update loop uses it to skip its forced safety-net network revalidation — the watchdog
+    // directly observes the "push that never arrived" condition the force existed for.
+    isIpnsPushChannelHealthy(args: { pubsubTopic: string }): boolean;
     // Test-only override of BITSWAP_SESSION_STALLED_GET_FAILOVER_MS, read by cat() at each block
     // get. The issue #189 guard test (at most one routing query per DAG) sets it beyond its own
     // timeout: on slow CI runners a block can legitimately stall, and the failover's broadcast
@@ -26,22 +74,26 @@ export interface HeliaWithKuboRpcClientFunctions extends Pick<NonNullable<KuboRp
     _bitswapSessionStalledGetFailoverMs?: number;
 }
 
-type baseHelia = Awaited<ReturnType<typeof createHelia>>;
-
 // `getMeshPeers` is on the @libp2p/gossipsub concrete class but the package's public `GossipSub`
 // interface omits it (it lives in the non-exported `./gossipsub` subpath). We use it for the
 // publish gate, so add it to the typed shape here rather than casting at every call site.
 type GossipSubWithMeshPeers = GossipSub & { getMeshPeers(topic: string): string[] };
 
-export interface HeliaWithLibp2pPubsub extends baseHelia {
-    libp2p: baseHelia["libp2p"] & {
-        services: baseHelia["libp2p"]["services"] & {
-            pubsub: PubsubRoutingComponents["libp2p"]["services"]["pubsub"] & GossipSubWithMeshPeers;
-            // The libp2p fetch service (`/libp2p/fetch/0.0.1`) is configured in helia-for-pkc.ts
-            // (`fetch: libp2pFetch()`) and powers @helia/ipns's pubsub fast-path. We call it
-            // directly to fetch IPNS records from known providers/subscribers, so type it here
-            // rather than casting at the call site.
-            fetch: Fetch;
-        };
-    };
+// The libp2p services helia-for-pkc.ts actually configures. helia's own composition types the
+// node with DefaultLibp2pServices (dht, relay, upnp, autoNAT, keychain, ...) but our `services`
+// map fully replaces that default, so those would type-check and be undefined at runtime. The
+// ServiceMap index signature covers the per-router `delegatedRoutingN` entries and anything a
+// caller adds via libp2pOptions.services, as `unknown` (i.e. narrow before use).
+export interface PkcLibp2pServices extends ServiceMap {
+    identify: Identify;
+    pubsub: PubsubRoutingComponents["libp2p"]["services"]["pubsub"] & GossipSubWithMeshPeers;
+    // The libp2p fetch service (`/libp2p/fetch/0.0.1`) is configured in helia-for-pkc.ts
+    // (`fetch: libp2pFetch()`) and powers @helia/ipns's pubsub fast-path. We call it
+    // directly to fetch IPNS records from known providers/subscribers, so type it here
+    // rather than casting at the call site.
+    fetch: Fetch;
 }
+
+// createHeliaLight + withLibp2p (+ withBitswap, which adds no members): the composition
+// helia-for-pkc.ts builds, without helia's HTTP components.
+export type HeliaWithLibp2pPubsub = ReturnType<typeof createHeliaLight> & HeliaWithLibp2p<PkcLibp2pServices>;

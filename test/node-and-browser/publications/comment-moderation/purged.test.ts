@@ -34,6 +34,34 @@ const roles = [
     { role: "mod", signer: signers[3] }
 ];
 
+// One libp2p node for every suite-level pkc in this file (issue #253). Under remote-libp2pjs,
+// mockPKCWithHeliaConfig generates a random libp2pJsClients key per call, so the five concurrent
+// depth suites (each with a beforeAll pkc plus per-test instances) stack a dozen-plus full
+// helia/libp2p nodes inside one browser tab. The CI forensics on issue #253 showed that under
+// that load, pubsub delivery between individual tab nodes and the test kubo goes dark for
+// 20-120s stretches (the community answered every challenge request within ~100ms while the
+// publishing client received nothing), and one such blackout anywhere in a suite's serial
+// beforeAll pipeline blows the 120s hook budget. A fixed key makes every pkcInstancePromise()
+// pkc share one refcounted libp2p node, the topology a real app has. The random component keeps
+// the key unique per browser page in case another file's realm ever shares this environment.
+// The "Should not be able to load" tests are unaffected: their differentPKC instances are
+// created via mockPKCNoDataPathWithOnlyKuboClient and must stay isolated (a shared blockstore
+// would serve the purged comment locally).
+const SHARED_LIBP2PJS_CLIENT_KEY = `purged-shared-libp2pjs-${Math.random()}`;
+const sharedLibp2pJsClientArgs = (config: ReturnType<typeof getAvailablePKCConfigsToTestAgainst>[number]) =>
+    config.testConfigCode === "remote-libp2pjs"
+        ? {
+              pkcOptions: {
+                  libp2pJsClientsOptions: [
+                      {
+                          key: SHARED_LIBP2PJS_CLIENT_KEY,
+                          libp2pOptions: { connectionGater: { denyDialMultiaddr: async () => false } }
+                      }
+                  ]
+              }
+          }
+        : undefined;
+
 // I suspect libp2p config is not emitting error
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     [0, 1, 2, 15, 30].map((commentDepth) => {
@@ -44,7 +72,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             let remotePKCIpfs: PKC;
             let updateCidOfCommunityWithPurgedComment: string;
             beforeAll(async () => {
-                pkc = await config.pkcInstancePromise();
+                pkc = await config.pkcInstancePromise(sharedLibp2pJsClientArgs(config));
                 remotePKCIpfs = await mockPKCNoDataPathWithOnlyKuboClientNoAdd(); // this instance is connected to the same IPFS node as the sub
                 const community = await pkc.getCommunity({ address: communityAddress });
                 const commentToPurgeTemp = await publishCommentWithDepth({ depth: commentDepth, community: community }); // reason why we publish in a different pkc instance so it doesn't get added to local kubo node
@@ -240,7 +268,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             it(`Purged comment with depth ${commentDepth} don't show in community.posts`, async () => {
-                const pkc = await config.pkcInstancePromise();
+                const pkc = await config.pkcInstancePromise(sharedLibp2pJsClientArgs(config));
                 const community = await pkc.createCommunity({ address: commentToPurge.communityAddress });
 
                 await community.update();

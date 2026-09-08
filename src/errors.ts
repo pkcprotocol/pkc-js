@@ -160,6 +160,7 @@ export enum messages {
     ERR_INVALID_COMMUNITY_EDIT_CHALLENGE_REQUEST_TO_ENCRYPT_SCHEMA = "RPC client sent an invalid schema for challenge request with communityEdit",
     ERR_COMMUNITY_EDIT_OPTIONS_SCHEMA = "User sent a community edit options with invalid schema",
     ERR_INVALID_CHALLENGE_ANSWERS = "User sent challenge answers with invalid schema",
+    ERR_CHALLENGE_ANSWER_ALREADY_PUBLISHED = "publishChallengeAnswers was called again for a challenge exchange whose answer has already been published or is being published. Each challenge is answered once",
     ERR_INVALID_CREATE_PKC_WS_SERVER_OPTIONS_SCHEMA = "Invalid create arguments for PKC WS RPC server",
     ERR_INVALID_CREATE_PKC_ARGS_SCHEMA = "User sent arguments with invalid schema in an attempt to create a PKC instance",
     ERR_INVALID_CREATE_COMMUNITY_WITH_RPC_ARGS_SCHEMA = "User provided invalid schema of arguments for pkc.createCommunity while connected to RPC",
@@ -254,6 +255,7 @@ export enum messages {
 
     // Community rejections of pubsub messages
     ERR_CHALLENGE_ANSWER_WITH_NO_CHALLENGE_REQUEST = "Received a challenge answer without a prior challenge request",
+    ERR_COMMUNITY_TIMED_OUT_WAITING_FOR_CHALLENGE_ANSWER = "The community did not receive a challenge answer within the challenge exchange ttl",
     ERR_REUSED_PUBSUB_MSG_SIGNER = "Reusing a pubsub message signer is forbidden",
     ERR_PUBSUB_MSG_TIMESTAMP_IS_OUTDATED = "The timestamp of the pubsub message is outdated",
 
@@ -398,6 +400,7 @@ export enum messages {
     ERR_RPC_CLIENT_TRYING_TO_EDIT_REMOTE_COMMUNITY = "RPC client is attempting to edit remote community",
     ERR_RPC_CLIENT_TRYING_TO_DELETE_REMOTE_COMMUNITY = "RPC client is attempting to delete remote community",
     ERR_RPC_CLIENT_TRYING_TO_USE_ANCHOR_METHOD_ON_NON_LOCAL_COMMUNITY = "RPC client is attempting to prepare or publish an anchor record for a community this node does not host locally",
+    ERR_RPC_CLIENT_NO_ACTIVE_PUBLISH_SUBSCRIPTION = "Cannot publish challenge answers over PKC RPC: there is no active publish subscription. The challenge exchange has concluded, the publication was stopped, or publish() was never called",
     ERR_GENERIC_RPC_CLIENT_CALL_ERROR = "RPC client received an unknown error when executing call over websocket",
     ERR_RPC_CALL_TIMED_OUT = "RPC client call timed out without receiving a response from the RPC server",
     ERR_RPC_CLIENT_CHALLENGE_NAME_NOT_AVAILABLE_ON_SERVER = "The challenge name is not available on the RPC server. Available challenges are listed in details.availableChallenges",

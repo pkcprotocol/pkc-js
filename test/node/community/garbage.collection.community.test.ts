@@ -249,9 +249,72 @@ describe("local community garbage collection", () => {
             }
         });
 
-        await unpinStaleCids(community as unknown as LocalCommunity);
+        // bypassGracePeriod: this test is about tolerating already-removed pins, not scheduling
+        await unpinStaleCids(community as unknown as LocalCommunity, { bypassGracePeriod: true });
 
         expect(kuboClient._client.pin.rm.mock.calls.length).to.equal(2);
+        expect(community._cidsToUnPin.size).to.equal(0);
+    });
+
+    // Issue #305: a client that resolved the previous community/comment update can still be fetching
+    // its page cids when the next generation supersedes them. Unpinning them right away lets a
+    // repo.gc that lands in that window delete the blocks mid-fetch (observed as
+    // ERR_FETCH_CID_P2P_TIMEOUT in CI). Superseded cids must therefore stay pinned for a grace
+    // period before unpinStaleCids actually removes the pin.
+    it("keeps freshly queued cids pinned during the grace period and unpins them once it elapses", async () => {
+        const thirtyOneMinutesMs = 31 * 60 * 1000; // longer than UNPIN_GRACE_PERIOD_MS in cleanup.ts
+        vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-01-01T00:00:00Z") });
+        try {
+            const { community, kuboClient } = createTestCommunity();
+            community._cidsToUnPin = new Set([VALID_CID_A, VALID_CID_B]);
+
+            await unpinStaleCids(community as unknown as LocalCommunity);
+
+            // Within the grace period nothing gets unpinned; the cids stay queued for a later pass.
+            expect(kuboClient.pinRmCalls).to.deep.equal([]);
+            expect(community._cidsToUnPin.size).to.equal(2);
+
+            vi.setSystemTime(Date.now() + thirtyOneMinutesMs);
+
+            await unpinStaleCids(community as unknown as LocalCommunity);
+
+            expect(new Set(kuboClient.pinRmCalls)).to.deep.equal(new Set([VALID_CID_A, VALID_CID_B]));
+            expect(community._cidsToUnPin.size).to.equal(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("flushes the grace period for the whole queue when a purge is pending in _blocksToRm", async () => {
+        const { community, kuboClient } = createTestCommunity();
+        // VALID_CID_A is purged content queued for a forced block.rm; VALID_CID_B is a merely
+        // superseded cid. A pending purge flushes both: records generated before the purge (old
+        // update cids, old page cids) still reference the purged content, so nothing may stay pinned,
+        // and the purged cid itself could not wait anyway since kubo refuses to rm a pinned block.
+        community._cidsToUnPin = new Set([VALID_CID_A, VALID_CID_B]);
+        community._blocksToRm = [VALID_CID_A];
+
+        await unpinStaleCids(community as unknown as LocalCommunity);
+
+        expect(new Set(kuboClient.pinRmCalls)).to.deep.equal(new Set([VALID_CID_A, VALID_CID_B]));
+        expect(community._cidsToUnPin.size).to.equal(0);
+    });
+
+    it("still flushes the grace period when the purge landed mid-sync and _blocksToRm already drained", async () => {
+        const { community, kuboClient } = createTestCommunity();
+        // A purge that lands after a cycle's unpin pass gets its blocks removed by that same cycle's
+        // block.rm, so by the next unpin pass _blocksToRm is empty again; the flush must still happen
+        // via the pending-purge flag set when the purge queued its cids.
+        await addAllCidsUnderPurgedCommentToBeRemoved(
+            community as unknown as LocalCommunity,
+            { commentTableRow: { cid: VALID_CID_A } } as unknown as PurgedCommentTableRows
+        );
+        community._cidsToUnPin.add(VALID_CID_B); // superseded pre-purge, still references purged content
+        community._blocksToRm = []; // drained by the previous cycle's block.rm
+
+        await unpinStaleCids(community as unknown as LocalCommunity);
+
+        expect(new Set(kuboClient.pinRmCalls)).to.deep.equal(new Set([VALID_CID_A, VALID_CID_B]));
         expect(community._cidsToUnPin.size).to.equal(0);
     });
 

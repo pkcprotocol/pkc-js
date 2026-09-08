@@ -34,6 +34,14 @@ jobs:
           node-version: 22
           cache: 'npm'
 
+      # Node 22 bundles npm 10.9.x, which prunes lockfile entries that npm 11 writes
+      # and requires (e.g. the version-less placeholder for an unpublished platform
+      # optional). release-it's version bump rewrites package-lock.json with this npm,
+      # so it must match the npm 11.13.0 pinned in CI-pkc-protocol-test.yml or each
+      # release desyncs the lockfile and breaks that job's `npm ci` on master
+      # (see the 0.0.91 release commit, which stripped the entry 4f1e9ff79 added).
+      - run: npm i -g npm@11.13.0
+
       - run: npm ci
       - run: npm run build
 

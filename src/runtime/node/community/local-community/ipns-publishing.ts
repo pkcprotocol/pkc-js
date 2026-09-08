@@ -274,7 +274,8 @@ async function validateAndSignCommunityRecord(community: LocalCommunity, build: 
 async function publishCommunityRecordToIpns(
     community: LocalCommunity,
     build: CommunityRecordBuild,
-    newCommunityRecord: CommunityIpfsType
+    newCommunityRecord: CommunityIpfsType,
+    cycleStartedAtMs: number
 ): Promise<void> {
     const { log, newIpns, newModQueue, editIdsToIncludeInNextUpdate } = build;
     const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
@@ -300,7 +301,13 @@ async function publishCommunityRecordToIpns(
     if (!community.signer.ipnsKeyName) throw Error("IPNS key name is not defined");
     // after kubo 0.40 implements fetching IPNS record from local blockstore, we don't need line below anymore
     if (community._firstUpdateAfterStart) await community._resolveIpnsAndLogIfPotentialProblematicSequence();
-    const ttl = `${community._pkc.publishInterval * 3}ms`; // default publish interval is 20s, so default ttl is 60s
+    // ttl = one publish cadence (20s at the default publishInterval). The record's ttl is the
+    // staleness every cache in the world is entitled to serve — kubo gateways cache resolves
+    // for exactly this long (default Ipns.MaxCacheTTL is unbounded) — so declaring 3x our own
+    // update cadence, as this used to, meant gateway readers could lag three generations
+    // behind (issue #328). One cadence bounds cache staleness at roughly one generation while
+    // costing caches at most one extra resolve per publish.
+    const ttl = `${community._pkc.publishInterval * 1}ms`;
     const lastPublishedIpnsRecordData = <any | undefined>await community._dbHandler.keyvGet(STORAGE_KEYS[STORAGE_KEYS.LAST_IPNS_RECORD]);
     const decodedIpnsRecord: any | undefined = lastPublishedIpnsRecordData
         ? cborg.decode(new Uint8Array(Object.values(lastPublishedIpnsRecordData)))
@@ -322,7 +329,13 @@ async function publishCommunityRecordToIpns(
     addOldPageCidsToCidsToUnpin(community, community.raw.communityIpfs?.modQueue, newIpns.modQueue).catch((err) =>
         log.error("Failed to add old page cids of community.modQueue to _cidsToUnpin", err)
     );
-    await unpinStaleCids(community);
+    // Queue the record this publish just superseded BEFORE the flush below (issue #336): it was
+    // generated while any comment a pending purge just deleted was still in the DB, so the purge
+    // guarantee extends to it, and queueing it after unpinStaleCids would leave it to sit out the
+    // issue #305 grace period pinned. The new record is already added, pinned and IPNS-published
+    // at this point, so the old cid is safely superseded.
+    if (community.updateCid && community.updateCid !== file.path) community._cidsToUnPin.add(community.updateCid);
+    await unpinStaleCids(community, { cycleStartedAtMs });
     if (community._blocksToRm.length > 0) {
         const removedBlocks = await removeBlocksFromKuboNode({
             ipfsClient: community._clientsManager.getDefaultKuboRpcClient()._client,
@@ -333,7 +346,6 @@ async function publishCommunityRecordToIpns(
         log("Removed blocks", removedBlocks, "from kubo node");
         community._blocksToRm = community._blocksToRm.filter((blockCid) => !removedBlocks.includes(blockCid));
     }
-    if (community.updateCid) community._cidsToUnPin.add(community.updateCid); // add old cid of community to be unpinned
     const configuredPubsubTopic = community.pubsubTopic;
     // A pubsubTopic edit is applied to the instance through the published record, so while the exchange
     // is disabled it would be swallowed: the record omits the topic by design. Land it on the configured
@@ -368,7 +380,8 @@ async function publishCommunityRecordToIpns(
         Object.assign(community, remainingEditProps);
     }
 
-    community._communityUpdateTrigger = false;
+    // The update trigger was consumed at the start of this cycle in updateCommunityIpnsIfNeeded, so a
+    // write that landed during the publish keeps it set for the next cycle.
     community._firstUpdateAfterStart = false;
 
     try {
@@ -402,9 +415,25 @@ export async function updateCommunityIpnsIfNeeded(
 
     if (!community._communityUpdateTrigger) return; // No reason to update
 
-    const build = await calculateNextCommunityRecord(community, commentUpdateRowsToPublishToIpfs, log);
-    const newCommunityRecord = await validateAndSignCommunityRecord(community, build);
-    await publishCommunityRecordToIpns(community, build, newCommunityRecord);
+    // Consume the trigger BEFORE the record's DB snapshot below, not after the publish. A write that
+    // lands while this cycle is in flight (a vote, a comment edit, a mod-queue comment, a moderation)
+    // is not in the record being built; it sets the trigger again and that must survive into the
+    // next cycle. Clearing at the end of the cycle swallowed it, and the loop's wake-up check does
+    // not look at votes or edits, so the write waited a full publishInterval. A failed cycle re-arms
+    // the trigger below so the loop retries on its next pass, as it did when the clear came last.
+    community._communityUpdateTrigger = false;
+    // Stamped before the record's DB snapshot below: a purge that lands after this point may
+    // reference the record this cycle publishes, and unpinStaleCids uses the stamp to keep the
+    // pending-purge flush armed for the next cycle in that case (issue #336).
+    const cycleStartedAtMs = Date.now();
+    try {
+        const build = await calculateNextCommunityRecord(community, commentUpdateRowsToPublishToIpfs, log);
+        const newCommunityRecord = await validateAndSignCommunityRecord(community, build);
+        await publishCommunityRecordToIpns(community, build, newCommunityRecord, cycleStartedAtMs);
+    } catch (e) {
+        community._communityUpdateTrigger = true;
+        throw e;
+    }
 }
 
 export async function syncIpnsWithDb(community: LocalCommunity) {

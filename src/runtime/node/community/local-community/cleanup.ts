@@ -1,4 +1,5 @@
 import pLimit from "p-limit";
+import retry from "retry";
 import Logger from "../../../../logger.js";
 import { genToArray, removeMfsFilesSafely, statMfsPathSafely } from "../../../../util.js";
 import type { DbRepliesSortEntry } from "../../../../publications/comment/types.js";
@@ -6,13 +7,51 @@ import type { PurgedCommentTableRows } from "../db-handler-types.js";
 import type { LocalCommunity } from "../local-community.js";
 import { calculateLocalMfsPathForCommentUpdate } from "./comment-updates.js";
 
+// pin.ls probe with the same retry policy as statMfsPathSafely (3 retries, 1s/2s/4s backoff). It
+// does not distinguish transient errors (`fetch failed`, ECONNRESET, ETIMEDOUT...) from deterministic
+// ones (ECONNREFUSED, 401...): those cost ~7s on the community start path before rethrowing, which
+// matches every other Kubo RPC helper in util.ts. "is not pinned" is the expected "needs a repin"
+// signal and is never retried.
+async function _pinLsWithRetries({
+    kuboRpcClient,
+    cid,
+    log,
+    inputNumOfRetries
+}: {
+    kuboRpcClient: ReturnType<LocalCommunity["_clientsManager"]["getDefaultKuboRpcClient"]>;
+    cid: string;
+    log: Logger;
+    inputNumOfRetries?: number;
+}): Promise<void> {
+    const numOfRetries = inputNumOfRetries ?? 3;
+    return new Promise<void>((resolve, reject) => {
+        const operation = retry.operation({ retries: numOfRetries, factor: 2, minTimeout: 1000 });
+        operation.attempt(async (currentAttempt) => {
+            try {
+                await genToArray(kuboRpcClient._client.pin.ls({ paths: cid }));
+                resolve();
+            } catch (error) {
+                if ((error as Error).message?.includes("is not pinned")) {
+                    reject(error);
+                    return;
+                }
+                log.error(`Failed attempt ${currentAttempt}/${numOfRetries + 1} to check whether ${cid} is pinned:`, error);
+                if (operation.retry(error as Error)) return;
+                reject(operation.mainError() || error);
+            }
+        });
+    });
+}
+
 export async function repinCommentsIPFSIfNeeded(community: LocalCommunity) {
     const log = Logger("pkc-js:local-community:start:_repinCommentsIPFSIfNeeded");
     const latestCommentCid = community._dbHandler.queryLatestCommentCid(); // latest comment ordered by id
     if (!latestCommentCid) return;
     const kuboRpcOrHelia = community._clientsManager.getDefaultKuboRpcClient();
     try {
-        await genToArray(kuboRpcOrHelia._client.pin.ls({ paths: latestCommentCid.cid }));
+        // Retries on transient Kubo connection errors so a daemon blip doesn't fail community.start(),
+        // same as the files.stat probe in repinCommentUpdateIfNeeded.
+        await _pinLsWithRetries({ kuboRpcClient: kuboRpcOrHelia, cid: latestCommentCid.cid, log });
         return; // the comment is already pinned, we assume the rest of the comments are so too
     } catch (e) {
         if (!(<Error>e).message.includes("is not pinned")) throw e;
@@ -42,11 +81,72 @@ export async function repinCommentsIPFSIfNeeded(community: LocalCommunity) {
     log(`${unpinnedCommentsFromDb.length} comments' IPFS have been repinned`);
 }
 
-export async function unpinStaleCids(community: LocalCommunity) {
+// How long a superseded cid stays pinned after landing in _cidsToUnPin (issue #305). A client that
+// resolved the previous CommunityUpdate/CommentUpdate can still be walking its page cids when the
+// next generation supersedes them; the pin is the only thing standing between those blocks and a
+// repo.gc, and in CI a GC landed 129ms after the unpin, deleting a replies page mid-fetch
+// (ERR_FETCH_CID_P2P_TIMEOUT). Thirty minutes comfortably outlasts a paging session (page fetches
+// time out at 30s per cid) while bounding the extra pin debt to one generation's worth of churn.
+export const UNPIN_GRACE_PERIOD_MS = 30 * 60 * 1000;
+
+// First time each queued cid was seen by unpinStaleCids, per community. Deliberately not persisted:
+// _cidsToUnPin round-trips through the DB as a plain cid array, and re-stamping restored entries on
+// the first pass after a restart just grants them a fresh grace period, which is the conservative
+// direction. WeakMap so a stopped community's tracking dies with it.
+const cidsToUnpinFirstSeenAtMsByCommunity = new WeakMap<LocalCommunity, Map<string, number>>();
+
+// Communities with a purge whose unpin flush has not completed yet, mapped to when the purge
+// landed. A purge can land mid-sync, after that cycle's unpinStaleCids already ran and before its
+// block.rm drains _blocksToRm, so "is _blocksToRm non-empty right now" alone can miss the flush;
+// this survives until a flush pass drains the unpin queue in a cycle whose record was generated
+// AFTER the purge landed. The timestamp matters (issue #336): a purge landing while a publish
+// cycle is in flight can reference the record that cycle is publishing, whose cid only enters
+// _cidsToUnPin when the NEXT cycle supersedes it — so a flush in the in-flight cycle must not
+// disarm the flag, or that record sits pinned under the issue #305 grace with nothing left to
+// flush it.
+const communitiesWithPendingPurgeFlush = new WeakMap<LocalCommunity, number>();
+
+export async function unpinStaleCids(
+    community: LocalCommunity,
+    // cycleStartedAtMs: when the calling publish cycle snapshotted the DB for the record it
+    // published. Used to decide whether a completed purge flush may disarm the pending-purge
+    // flag: only a cycle whose record was generated after the purge landed can have every
+    // pre-purge cid in its queue (issue #336). Callers outside the publish cycle leave it unset,
+    // which conservatively keeps the flag armed for the next publish cycle.
+    options: { bypassGracePeriod?: boolean; cycleStartedAtMs?: number } = {}
+) {
     const log = Logger("pkc-js:local-community:sync:unpinStaleCids");
 
     if (community._cidsToUnPin.size > 0) {
         const sizeBefore = community._cidsToUnPin.size;
+
+        let firstSeenAtMs = cidsToUnpinFirstSeenAtMsByCommunity.get(community);
+        if (!firstSeenAtMs) cidsToUnpinFirstSeenAtMsByCommunity.set(community, (firstSeenAtMs = new Map()));
+        for (const cid of firstSeenAtMs.keys()) if (!community._cidsToUnPin.has(cid)) firstSeenAtMs.delete(cid);
+
+        const now = Date.now();
+        for (const cid of community._cidsToUnPin) if (!firstSeenAtMs.has(cid)) firstSeenAtMs.set(cid, now);
+
+        // _blocksToRm is fed only by the purge flows, so a non-empty queue means a purge is pending,
+        // and that flushes the grace period for the ENTIRE unpin queue, not just the purged cids
+        // themselves: every record generated before the purge still references the purged content (a
+        // superseded community update embeds the whole comment tree, superseded page cids list the
+        // purged comment), and the purge guarantee that the community node stops pinning that content
+        // outranks the reader grace of issue #305. The purged cids also could not wait anyway: their
+        // blocks get force-removed right after this function in updateCommunityIpnsIfNeeded, and kubo
+        // refuses to rm a pinned block.
+        const purgeFlushArmedAtMs = communitiesWithPendingPurgeFlush.get(community);
+        const flushGraceForPendingPurge = purgeFlushArmedAtMs !== undefined || community._blocksToRm.length > 0;
+        const cidsToUnpinNow = Array.from(community._cidsToUnPin.values()).filter(
+            (cid) =>
+                options.bypassGracePeriod || flushGraceForPendingPurge || now - (firstSeenAtMs.get(cid) ?? now) >= UNPIN_GRACE_PERIOD_MS
+        );
+        if (cidsToUnpinNow.length === 0) {
+            log.trace(
+                `All ${sizeBefore} stale cids of community (${community.address}) are within their unpin grace period, keeping them pinned for now`
+            );
+            return;
+        }
 
         // Create a concurrency limiter with a limit of 50
         const limit = pLimit(50);
@@ -54,15 +154,17 @@ export async function unpinStaleCids(community: LocalCommunity) {
         const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
         // Process all unpinning in parallel with concurrency limit
         await Promise.all(
-            Array.from(community._cidsToUnPin.values()).map((cid) =>
+            cidsToUnpinNow.map((cid) =>
                 limit(async () => {
                     try {
                         await kuboRpc._client.pin.rm(cid, { recursive: true });
                         community._cidsToUnPin.delete(cid);
+                        firstSeenAtMs.delete(cid);
                     } catch (e) {
                         const error = <Error>e;
                         if (error.message.startsWith("not pinned")) {
                             community._cidsToUnPin.delete(cid);
+                            firstSeenAtMs.delete(cid);
                         } else {
                             log.trace("Failed to unpin cid", cid, "on community", community.address, "due to error", error);
                         }
@@ -70,6 +172,19 @@ export async function unpinStaleCids(community: LocalCommunity) {
                 })
             )
         );
+
+        // In flush mode every queued cid was eligible, so an empty queue means the flush completed; a
+        // non-empty one means some pin.rm failed and the flag must survive for the next pass. A
+        // completed flush disarms the flag only when this cycle's record was generated after the
+        // purge landed: a purge landing mid-cycle can reference the record the in-flight cycle
+        // published, which enters the queue only when the next cycle supersedes it, so that next
+        // cycle must still flush (issue #336).
+        if (flushGraceForPendingPurge && community._cidsToUnPin.size === 0) {
+            const cycleObservedPurge =
+                purgeFlushArmedAtMs === undefined ||
+                (options.cycleStartedAtMs !== undefined && options.cycleStartedAtMs > purgeFlushArmedAtMs);
+            if (cycleObservedPurge) communitiesWithPendingPurgeFlush.delete(community);
+        }
 
         log.trace(`unpinned ${sizeBefore - community._cidsToUnPin.size} stale cids from ipfs node for community (${community.address})`);
     }
@@ -265,6 +380,11 @@ export async function addAllCidsUnderPurgedCommentToBeRemoved(
     community: LocalCommunity,
     purgedCommentAndCommentUpdate: PurgedCommentTableRows
 ) {
+    // Every purge flow funnels through here, and the flag makes the next unpinStaleCids pass flush
+    // the grace period for the whole queue even when the purge lands mid-sync (see unpinStaleCids).
+    // The timestamp lets the flush tell whether the cycle it ran in generated its record before or
+    // after this purge landed (issue #336).
+    communitiesWithPendingPurgeFlush.set(community, Date.now());
     community._cidsToUnPin.add(purgedCommentAndCommentUpdate.commentTableRow.cid);
     community._blocksToRm.push(purgedCommentAndCommentUpdate.commentTableRow.cid);
     if (typeof purgedCommentAndCommentUpdate.commentUpdateTableRow?.postUpdatesBucket === "number") {

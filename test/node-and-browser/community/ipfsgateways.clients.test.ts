@@ -1,10 +1,10 @@
 import { beforeAll, afterAll, expect } from "vitest";
 import signers from "../../fixtures/signers.js";
 import {
-    publishRandomPost,
     getAvailablePKCConfigsToTestAgainst,
     createStaticCommunityRecordForComment,
-    resolveWhenConditionIsTrue
+    resolveWhenConditionIsTrue,
+    publishStaticCommunityWithPostInPages
 } from "../../../dist/node/test/test-util.js";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
@@ -31,7 +31,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         });
 
         it(`Correct order of ipfsGateways state when updating a community that was created with pkc.createCommunity({address})`, async () => {
-            const community = await gatewayPKC.createCommunity({ address: signers[0].address });
+            // A STATIC community (fresh key, published once) instead of the shared live signers[0]:
+            // this asserts the WHOLE state sequence with deep.equal, and every concurrently-running
+            // suite publishes to signers[0]; since the update loop is arrival-driven (issue #308)
+            // each of those publishes starts a fetch cycle at a random moment, inserting states
+            // mid-assertion (the PR #311 CI flake class, issue #323).
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
+            const community = await gatewayPKC.createCommunity({ address: staticCommunity.communityAddress });
 
             const expectedStates = ["fetching-ipns", "stopped"];
 
@@ -46,11 +52,23 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             await community.stop();
 
             expect(actualStates).to.deep.equal(expectedStates);
+            await staticCommunity.ipnsObj.pkc.destroy();
         });
 
         it(`Correct order of ipfsGateways state when updating a community that was created with pkc.getCommunity({address: address})`, async () => {
-            const community = await gatewayPKC.getCommunity({ address: signers[0].address });
-            await publishRandomPost({ communityAddress: community.address, pkc: gatewayPKC });
+            // A STATIC community (fresh key, published once) instead of the shared live signers[0]:
+            // this asserts the WHOLE state sequence with deep.equal, and every concurrently-running
+            // suite publishes to signers[0]; since the update loop is arrival-driven (issue #308)
+            // each of those publishes starts a fetch cycle at a random moment, inserting states
+            // mid-assertion (the PR #311 CI flake class, issue #323).
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
+            const community = await gatewayPKC.getCommunity({ address: staticCommunity.communityAddress });
+            // getCommunity already loaded the only record this key will ever carry. Forget it so the
+            // update loop's first cycle treats the record as new and emits "update" (same as the
+            // kuboRpc/libp2pJs sibling), instead of publishing a random post to force a new record,
+            // which a static community by definition cannot do.
+            delete community.raw.communityIpfs;
+            delete community.updateCid;
 
             const expectedStates = ["fetching-ipns", "stopped"];
 
@@ -66,6 +84,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             await community.stop();
 
             expect(actualStates).to.deep.equal(expectedStates);
+            await staticCommunity.ipnsObj.pkc.destroy();
         });
 
         it(`Correct order of ipfs gateway state when we update a community and it's not publishing new community records`, async () => {

@@ -499,12 +499,22 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             const post = await pkc.getComment({ cid: postCid });
             const errors: PKCError[] = [];
-            post.on("error", (err) => errors.push(err as PKCError));
+            // Captured synchronously inside the emission: _changeCommentStateEmitEventEmitStateChangeEvent
+            // sets the new updatingState BEFORE emitting the error, and nothing can interleave within
+            // the same emission turn. Sampling post.updatingState after the awaited condition instead
+            // is racy on the live signers[0] community: the next community update (gossip-arrival-
+            // driven since issue #308) may already have flipped the state to a fetching phase by the
+            // time the await resumes (the PR #311 CI flake).
+            let updatingStateAtFirstError: string | undefined;
+            post.on("error", (err) => {
+                errors.push(err as PKCError);
+                updatingStateAtFirstError ??= post.updatingState;
+            });
             await post.update();
             await mockPostToFailToLoadFromPostUpdates(post);
 
             await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => errors.length === 1, eventName: "error" });
-            expect(post.updatingState).to.equal("waiting-retry"); // failing to load ipfs path is not critical error
+            expect(updatingStateAtFirstError).to.equal("waiting-retry"); // failing to load ipfs path is not critical error
 
             await post.stop();
             expect(post.state).to.equal("stopped");
@@ -520,12 +530,19 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             const post = await pkc.getComment({ cid: postCid });
             const errors: PKCError[] = [];
-            post.on("error", (err) => errors.push(err as PKCError));
+            // Same capture-at-emission rationale as the postUpdates-failure test above: sampling
+            // after the await races the next (arrival-driven) community cycle, which sets
+            // waiting-retry over the failed state before the assertion runs (the PR #311 CI flake).
+            let updatingStateAtFirstError: string | undefined;
+            post.on("error", (err) => {
+                errors.push(err as PKCError);
+                updatingStateAtFirstError ??= post.updatingState;
+            });
             await post.update();
             await mockPostToHaveCommunityWithNoPostUpdates(post);
 
             await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => errors.length === 1, eventName: "error" });
-            expect(post.updatingState).to.equal("failed");
+            expect(updatingStateAtFirstError).to.equal("failed");
 
             await post.stop();
             expect(post.state).to.equal("stopped");

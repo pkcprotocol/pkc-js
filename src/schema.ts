@@ -2,7 +2,7 @@ import { z } from "zod";
 import { parseIpfsRawOptionToIpfsOptions } from "./util.js";
 import { UserAgentSchema } from "./schema/schema.js";
 import version from "./version.js";
-import type { libp2pDefaults } from "helia";
+import type { libp2pDefaults } from "@helia/libp2p";
 import { createHelia } from "helia";
 import type { KuboRpcClientCreateOption } from "./util.js";
 import type { ChallengeFileFactoryInput } from "./community/types.js";
@@ -78,7 +78,9 @@ const ParsedKuboRpcClientOptionsSchema = z.custom<z.output<typeof TransformKuboR
 
 // I guess {libp2pOptions, heliaOptions, key} for now, this way we can experiment with passing any config to libp2pJsClientOptions. we can test different libp2p transport and stuff like that
 
-type heliaOptions = Parameters<typeof createHelia>[0];
+// `http` is excluded: the libp2p-js client composes helia without its HTTP components (public
+// trustless gateways / delegated routers) and would silently ignore it. See helia-for-pkc.ts.
+type heliaOptions = Omit<NonNullable<Parameters<typeof createHelia>[0]>, "http">;
 type libp2pDefaultOptions = ReturnType<typeof libp2pDefaults>;
 // helia-for-pkc spreads `libp2pOptions.services` ON TOP of its own explicit service map, so
 // callers may pass any subset of the default services — or additional ones (e.g. tests injecting
@@ -100,7 +102,14 @@ export const PKCUserOptionBaseSchema = z.object({
         .object({
             key: z.string().min(1),
             libp2pOptions: z.custom<libp2pOptions>().default({}),
-            heliaOptions: z.custom<Partial<heliaOptions>>().default({}),
+            // `http` is excluded at the type level (see heliaOptions) and rejected here at runtime too,
+            // since z.custom() alone would let a JS caller pass it and have it silently ignored.
+            heliaOptions: z
+                .custom<Partial<heliaOptions>>()
+                .refine((options) => !("http" in options), {
+                    message: "heliaOptions.http is not supported: the libp2p-js client is composed without Helia's HTTP components"
+                })
+                .default({}),
             // Size cap for the libp2p-js block cache. Defaults per runtime (see
             // runtime/{node,browser}/blockstore.ts) and is ignored when heliaOptions.blockstore is
             // supplied, since the caller then owns block storage entirely.

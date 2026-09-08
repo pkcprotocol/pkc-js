@@ -133,6 +133,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
             challengeVerification?: DecryptedChallengeVerificationMessageType;
             challengeRequestPublishTimestamp?: number; // in seconds
             challengeAnswerPublishTimestamp?: number; // in seconds
+            // Set synchronously when publishChallengeAnswers claims this exchange, before the answer is
+            // encrypted, signed and published; cleared if that publish fails so the user can retry.
+            // Together with challengeAnswer it makes a second publishChallengeAnswers call reject (#349).
+            challengeAnswerPublishInFlight?: boolean;
             signer?: Signer; // could be undefined if we're publishing over an RPC
             challengeRequestPublishError?: Error;
             challengeAnswerPublishError?: Error;
@@ -307,12 +311,15 @@ class Publication extends TypedEmitter<PublicationEvents> {
             }
         });
         if (this._rpcPublishSubscriptionId) {
+            // Cleared synchronously before the awaited unsubscribe so the deferred
+            // attach-and-replay timer from _publishWithRpc (#314) sees the teardown immediately
+            const subscriptionId = this._rpcPublishSubscriptionId;
+            this._rpcPublishSubscriptionId = undefined;
             try {
-                await this._pkc._pkcRpcClient!.unsubscribe(this._rpcPublishSubscriptionId);
+                await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
             } catch (e) {
                 log.error("Failed to unsubscribe from publication publish", e);
             }
-            this._rpcPublishSubscriptionId = undefined;
         }
     }
 
@@ -386,6 +393,14 @@ class Publication extends TypedEmitter<PublicationEvents> {
             ...msg,
             ...decryptedChallenge
         };
+        // The guard at the top of this method ran before the awaits above. A copy of the same CHALLENGE
+        // delivered through another pubsub provider can have passed it in the meantime and be the one
+        // that recorded the challenge. Nothing can interleave between here and the write below, so
+        // re-checking now is enough to drop the copy before it touches the state or emits (#349).
+        if (Object.values(this._challengeExchanges).some((exchange) => exchange.challenge)) {
+            log.trace("Received a copy of a challenge that was already handled, ignoring it");
+            return;
+        }
         this._challengeExchanges[msg.challengeRequestId.toString()].challenge = decryptedChallengeMsg;
 
         this._updatePublishingStateWithEmission("waiting-challenge-answers");
@@ -461,11 +476,6 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     this.emit("error", <PKCError>e);
                     return;
                 }
-
-                if (decryptedChallengeVerification.comment) {
-                    await this._verifyDecryptedChallengeVerificationAndUpdateCommentProps(decryptedChallengeVerification);
-                    log("Updated the props of this instance with challengeverification.encrypted");
-                }
             }
         } else {
             newPublishingState = "failed";
@@ -482,7 +492,22 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
         const challengeVerificationMsg = { ...msg, ...decryptedChallengeVerification };
 
+        // Same re-check as in _handleIncomingChallengePubsubMessage: the guard at the top ran before the
+        // awaits, and a copy of this CHALLENGEVERIFICATION from another provider may have recorded the
+        // verdict since. The verdict is recorded here, synchronously after the last await above and
+        // before the comment props are updated from it, so a copy is dropped before it re-verifies the
+        // comment or emits "update" with nothing changed; "challengeverification" and the post-publish
+        // cleanup run once per exchange as well (#349).
+        if (this._challengeExchanges[msg.challengeRequestId.toString()].challengeVerification) {
+            log.trace("Received a copy of a challenge verification that was already handled, ignoring it");
+            return;
+        }
         this._challengeExchanges[msg.challengeRequestId.toString()].challengeVerification = challengeVerificationMsg;
+
+        if (decryptedChallengeVerification?.comment) {
+            await this._verifyDecryptedChallengeVerificationAndUpdateCommentProps(decryptedChallengeVerification);
+            log("Updated the props of this instance with challengeverification.encrypted");
+        }
 
         Object.values(this._challengeExchanges).forEach((exchange) => this._updatePubsubState("stopped", exchange.providerUrl));
 
@@ -561,7 +586,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
             challengeAnswers: challengeAnswers
         });
 
-        if (this._pkc._pkcRpcClient && typeof this._rpcPublishSubscriptionId === "number") {
+        if (this._pkc._pkcRpcClient) {
+            // Route on the RPC client alone: with an RPC client the challenge exchange runs
+            // server-side and the local-pubsub branch below can never succeed (RPC-mode
+            // _challengeExchanges carry no signer). A missing subscription id means the exchange
+            // is over, so say that instead of the misleading errors the local branch would throw
+            if (typeof this._rpcPublishSubscriptionId !== "number")
+                throw new PKCError("ERR_RPC_CLIENT_NO_ACTIVE_PUBLISH_SUBSCRIPTION", { publishingState: this.publishingState });
             return this._pkc._pkcRpcClient.publishChallengeAnswers({
                 subscriptionId: this._rpcPublishSubscriptionId,
                 challengeAnswers: toEncryptAnswers.challengeAnswers
@@ -573,29 +604,48 @@ class Publication extends TypedEmitter<PublicationEvents> {
         if (challengeExchangesWithChallenge.length > 1) throw Error("We should only have one challenge exchange with challenge");
 
         const challengeExchange = challengeExchangesWithChallenge[0];
+        const challengeRequestIdString = challengeExchange.challengeRequest.challengeRequestId.toString();
+
+        // Each challenge is answered once. A second call, whether after the first answer was published or
+        // while it is still being encrypted and signed, would put a second CHALLENGEANSWER on the topic;
+        // the community rejects or errors on it, and for a locally hosted community that error would
+        // propagate back here and mark a publication the community accepts as failed (#349). The claim
+        // is made before the first await so two calls in the same tick cannot both pass.
+        if (challengeExchange.challengeAnswer || challengeExchange.challengeAnswerPublishInFlight)
+            throw new PKCError("ERR_CHALLENGE_ANSWER_ALREADY_PUBLISHED", {
+                challengeRequestId: challengeRequestIdString,
+                publishingState: this.publishingState
+            });
+        challengeExchange.challengeAnswerPublishInFlight = true;
 
         assert(this._community, "Local pkc-js needs publication._community to be defined to publish challenge answer");
 
         if (!challengeExchange.signer) throw Error("Signer is undefined for this challenge exchange");
-        const encryptedChallengeAnswers = await encryptEd25519AesGcm(
-            JSON.stringify(toEncryptAnswers),
-            challengeExchange.signer.privateKey,
-            this._community.encryption.publicKey
-        );
+        let answerMsgToPublish: ChallengeAnswerMessageType;
+        try {
+            const encryptedChallengeAnswers = await encryptEd25519AesGcm(
+                JSON.stringify(toEncryptAnswers),
+                challengeExchange.signer.privateKey,
+                this._community.encryption.publicKey
+            );
 
-        const toSignAnswer: Omit<ChallengeAnswerMessageType, "signature"> = cleanUpBeforePublishing({
-            type: "CHALLENGEANSWER",
-            challengeRequestId: challengeExchange.challengeRequest.challengeRequestId,
-            encrypted: encryptedChallengeAnswers,
-            userAgent: this._pkc.userAgent,
-            protocolVersion: env.PROTOCOL_VERSION,
-            timestamp: timestamp()
-        });
+            const toSignAnswer: Omit<ChallengeAnswerMessageType, "signature"> = cleanUpBeforePublishing({
+                type: "CHALLENGEANSWER",
+                challengeRequestId: challengeExchange.challengeRequest.challengeRequestId,
+                encrypted: encryptedChallengeAnswers,
+                userAgent: this._pkc.userAgent,
+                protocolVersion: env.PROTOCOL_VERSION,
+                timestamp: timestamp()
+            });
 
-        const answerMsgToPublish = <ChallengeAnswerMessageType>{
-            ...toSignAnswer,
-            signature: await signChallengeAnswer({ challengeAnswer: toSignAnswer, signer: challengeExchange.signer })
-        };
+            answerMsgToPublish = <ChallengeAnswerMessageType>{
+                ...toSignAnswer,
+                signature: await signChallengeAnswer({ challengeAnswer: toSignAnswer, signer: challengeExchange.signer })
+            };
+        } catch (e) {
+            challengeExchange.challengeAnswerPublishInFlight = false;
+            throw e;
+        }
 
         // TODO should be handling multiple providers with publishing challenge answer?
         // For now, let's just publish to the provider that got us the challenge and its request
@@ -608,6 +658,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             } catch (e) {
                 this._challengeExchanges[challengeExchange.challengeRequest.challengeRequestId.toString()].challengeAnswerPublishError =
                     e as Error | PKCError;
+                challengeExchange.challengeAnswerPublishInFlight = false;
                 this._updatePublishingStateWithEmission("failed");
                 this._updatePubsubState("stopped", challengeExchange.providerUrl);
                 throw e;
@@ -622,6 +673,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             } catch (e) {
                 this._challengeExchanges[challengeExchange.challengeRequest.challengeRequestId.toString()].challengeAnswerPublishError =
                     e as Error | PKCError;
+                challengeExchange.challengeAnswerPublishInFlight = false;
                 this._updatePublishingStateWithEmission("failed");
                 this._updatePubsubState("stopped", challengeExchange.providerUrl);
                 throw e;
@@ -840,6 +892,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
         if (Object.keys(this._challengeExchanges).length !== maxNumOfChallengeExchanges) return false;
 
         return Object.values(this._challengeExchanges).every((exchange) => {
+            // An exchange that received a challenge or a verification is alive: the community is
+            // talking to us on it, however old its request is. Request age only measures silence
+            // (issue #340).
+            if (exchange.challenge || exchange.challengeVerification) return false;
             if (exchange.challengeRequestPublishError || exchange.challengeAnswerPublishError) return true;
             const doneWaitingForChallenge =
                 typeof exchange.challengeRequestPublishTimestamp === "number" &&
@@ -886,15 +942,22 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this._unregisterFromPkcOncePublishWorkSettles();
         this._setStateWithEmission("stopped");
         if (this._rpcPublishSubscriptionId) {
+            // Cleared synchronously before the awaited unsubscribe so the deferred
+            // attach-and-replay timer from _publishWithRpc (#314) sees the teardown immediately
+            const subscriptionId = this._rpcPublishSubscriptionId;
+            this._rpcPublishSubscriptionId = undefined;
             try {
-                await this._pkc._pkcRpcClient!.unsubscribe(this._rpcPublishSubscriptionId);
+                await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
             } catch (e) {
                 log.error("Failed to unsubscribe from publication publish", e);
             }
-            this._rpcPublishSubscriptionId = undefined;
             this._setRpcClientState("stopped");
-        } else if (typeof this._community?.pubsubTopic === "string") {
-            // the client is publishing to pubsub without using PKC RPC
+        } else if (!this._pkc._pkcRpcClient && typeof this._community?.pubsubTopic === "string") {
+            // The client is publishing to pubsub without using PKC RPC. Routed on the RPC
+            // client's absence, not just the subscription id: with an RPC client the id may
+            // already be cleared (the challengeverification handler clears it synchronously
+            // before its awaited unsubscribe), and this branch can never succeed in RPC mode -
+            // _updatePubsubState needs a default pubsub provider and an RPC-mode PKC has none
             await this._clientsManager.pubsubUnsubscribe(this._community.pubsubTopic, this._handleChallengeExchange);
             Object.values(this._challengeExchanges).forEach((exchange) => this._updatePubsubState("stopped", exchange.providerUrl));
         }
@@ -987,16 +1050,30 @@ class Publication extends TypedEmitter<PublicationEvents> {
         const { subscriptionId } = await publishFn.bind(rpcClient)(this.toJSONPubsubRequestToEncrypt());
         this._rpcPublishSubscriptionId = subscriptionId;
 
-        this._pkc._pkcRpcClient
-            .getSubscription(this._rpcPublishSubscriptionId)
-            .on("challengerequest", this._handleIncomingChallengeRequestFromRpc.bind(this))
-            .on("challenge", this._handleIncomingChallengeFromRpc.bind(this))
-            .on("challengeanswer", this._handleIncomingChallengeAnswerFromRpc.bind(this))
-            .on("challengeverification", this._handleIncomingChallengeVerificationFromRpc.bind(this))
-            .on("publishingstatechange", this._handleIncomingPublishingStateFromRpc.bind(this))
-            .on("statechange", this._handleIncomingStateFromRpc.bind(this))
-            .on("error", this._handleIncomingErrorFromRpc.bind(this));
-        this._pkc._pkcRpcClient.emitAllPendingMessages(this._rpcPublishSubscriptionId);
+        // Deferred so a listener attached synchronously after `await publish()` resolves still
+        // receives events the server emitted before the publish response (#314); see
+        // attachSubscriptionHandlersDeferred for the mechanism
+        rpcClient.attachSubscriptionHandlersDeferred({
+            subscriptionId,
+            isStale: () => this._rpcPublishSubscriptionId !== subscriptionId,
+            attach: (subscription) =>
+                subscription
+                    .on("challengerequest", this._handleIncomingChallengeRequestFromRpc.bind(this))
+                    .on("challenge", this._handleIncomingChallengeFromRpc.bind(this))
+                    .on("challengeanswer", this._handleIncomingChallengeAnswerFromRpc.bind(this))
+                    .on("challengeverification", this._handleIncomingChallengeVerificationFromRpc.bind(this))
+                    .on("publishingstatechange", this._handleIncomingPublishingStateFromRpc.bind(this))
+                    .on("statechange", this._handleIncomingStateFromRpc.bind(this))
+                    .on("error", this._handleIncomingErrorFromRpc.bind(this)),
+            // Pre-deferral a replay throw rejected publish(); the helper contains it (log,
+            // surface as an "error" event, stop)
+            replayErrorContainment: {
+                entityName: "publication",
+                log: Logger("pkc-js:publication:publish:_publishWithRpc"),
+                emitError: (error) => this.emit("error", error),
+                stop: () => this.stop()
+            }
+        });
     }
 
     private _changePublicationStateEmitEventEmitStateChangeEvent<
@@ -1215,9 +1292,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         currentPubsubProviderIndex += 1;
                     }
                     const decryptedRequest = this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequest;
-                    this._updatePubsubState("waiting-challenge", providerUrl);
-
-                    this._updatePublishingStateWithEmission("waiting-challenge");
+                    // The first request's challenge can land while the retry's publish call is still
+                    // in flight; the publication is then already waiting for answers (or verified) and
+                    // must not be moved back to "waiting-challenge" (issue #340).
+                    if (!this._didWeReceiveChallengeOrChallengeVerification()) {
+                        this._updatePubsubState("waiting-challenge", providerUrl);
+                        this._updatePublishingStateWithEmission("waiting-challenge");
+                    }
 
                     log(`Published a challenge request of publication`, this.getType(), "with provider", providerUrl);
                     this.emit("challengerequest", decryptedRequest);
@@ -1236,6 +1317,14 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 // The enclosing `else` narrowed `this.state` to exclude "stopped", but stop() during the
                 // awaited wait above can have set it since, so widen back to the field's declared type.
                 if ((this.state as Publication["state"]) === "stopped") return;
+                // A challenge (or the verification itself) can arrive during the wait above. That
+                // exchange is live and the no-response watchdog has nothing left to decide: the
+                // publication stays subscribed for its verification, exactly like a publication whose
+                // challenge arrived before any retry (issue #340).
+                if (this._didWeReceiveChallengeOrChallengeVerification()) {
+                    log(`Received a challenge or challenge verification while waiting for retried providers, will keep the exchange alive`);
+                    return;
+                }
                 if (this._isAllAttemptsExhausted(providers.length)) {
                     await this._postSucessOrFailurePublishing();
                     const allAttemptsFailedError = new PKCError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {

@@ -333,6 +333,22 @@ export async function syncPostUpdatesWithIpfs(
         postUpdatesDirectoryCid = await kuboRpc._client.files.flush(postUpdatesDirectory);
     }
 
+    // The filter above still leaves a window: a purge landing between it and the writes has already
+    // run its own MFS cleanup, so the write resurrects the purged post's update file with nothing
+    // left to remove it (the comment is gone from the DB and _mfsPathsToRemove is drained). A purge
+    // always deletes from the DB before removing MFS paths, so any purge whose rm preceded one of
+    // the writes is visible to this re-check. If the rm here fails the paths stay queued in
+    // _mfsPathsToRemove and the rmUnneededMfsPaths call above retries them next sync. See issue #304.
+    const rowsPurgedDuringWrites = liveCommentUpdates.filter((row) => !community._dbHandler.commentExistsInDb(row.newCommentUpdate.cid));
+    if (rowsPurgedDuringWrites.length > 0) {
+        log(
+            `${rowsPurgedDuringWrites.length} post CommentUpdate(s) of community ${community.address} were purged during the MFS writes. Removing their MFS entries`
+        );
+        for (const row of rowsPurgedDuringWrites) community._mfsPathsToRemove.add(row.localMfsPath);
+        await rmUnneededMfsPaths(community);
+        postUpdatesDirectoryCid = await kuboRpc._client.files.flush(postUpdatesDirectory);
+    }
+
     const postUpdatesDirectoryCidString = postUpdatesDirectoryCid?.toString();
     log(
         "Community",

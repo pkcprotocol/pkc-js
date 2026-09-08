@@ -1018,16 +1018,31 @@ export class Comment
         }
         this._setStateWithEmission("updating");
 
-        this._pkc
-            ._pkcRpcClient!.getSubscription(this._updateRpcSubscriptionId)
-            .on("update", this._handleUpdateEventFromRpc.bind(this))
-            .on("comment", this._handleCommentEventFromRpc.bind(this))
-            .on("runtimeupdate", this._handleRuntimeUpdateEventFromRpc.bind(this))
-            .on("updatingstatechange", this._handleUpdatingStateChangeFromRpc.bind(this))
-            .on("statechange", this._handleStateChangeFromRpc.bind(this))
-            .on("error", this._handleErrorEventFromRpc.bind(this));
-
-        this._pkc._pkcRpcClient!.emitAllPendingMessages(this._updateRpcSubscriptionId);
+        const subscriptionId = this._updateRpcSubscriptionId;
+        // Deferred so a listener attached synchronously after `await update()` resolves still
+        // receives events the server emitted at subscribe time (#314); see
+        // attachSubscriptionHandlersDeferred for the mechanism
+        this._pkc._pkcRpcClient!.attachSubscriptionHandlersDeferred({
+            subscriptionId,
+            isStale: () => this._updateRpcSubscriptionId !== subscriptionId,
+            attach: (subscription) =>
+                subscription
+                    .on("update", this._handleUpdateEventFromRpc.bind(this))
+                    .on("comment", this._handleCommentEventFromRpc.bind(this))
+                    .on("runtimeupdate", this._handleRuntimeUpdateEventFromRpc.bind(this))
+                    .on("updatingstatechange", this._handleUpdatingStateChangeFromRpc.bind(this))
+                    .on("statechange", this._handleStateChangeFromRpc.bind(this))
+                    .on("error", this._handleErrorEventFromRpc.bind(this)),
+            // Pre-deferral a replay throw rejected update(); the helper contains it (log, surface
+            // as an "error" event, stop) so the comment does not stay "updating" with a
+            // half-initialized subscription
+            replayErrorContainment: {
+                entityName: "comment",
+                log,
+                emitError: (error) => this.emit("error", error),
+                stop: () => this.stop()
+            }
+        });
     }
 
     _useUpdatePropsFromUpdatingStartedCommunityIfPossible() {
@@ -1217,12 +1232,16 @@ export class Comment
         if (!this.cid) return;
         this._commentIpfsloadingOperation?.stop();
         if (this._updateRpcSubscriptionId) {
+            // Clear the id synchronously, before the awaited unsubscribe round trip, so the
+            // deferred attach-and-replay timer from _updateViaRpc (#314) sees the stop immediately
+            // instead of replaying buffered events into a stopping comment
+            const subscriptionId = this._updateRpcSubscriptionId;
+            this._updateRpcSubscriptionId = undefined;
             try {
-                await this._pkc._pkcRpcClient!.unsubscribe(this._updateRpcSubscriptionId);
+                await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
             } catch (e) {
                 log.error("Failed to unsubscribe from commentUpdate", e);
             }
-            this._updateRpcSubscriptionId = undefined;
             this._setRpcClientState("stopped");
             untrackUpdatingComment(this._pkc, this);
         }

@@ -2,19 +2,21 @@ import { base32 } from "multiformats/bases/base32";
 import { CID } from "multiformats/cid";
 import * as Digest from "multiformats/hashes/digest";
 import * as raw from "multiformats/codecs/raw";
-import type { AbortOptions, AwaitIterable } from "interface-store";
+import type { AbortOptions } from "@libp2p/interface";
+
+// interface-store 8 no longer exports AwaitIterable; it is the same shape it always was
+type AwaitIterable<T> = Iterable<T> | AsyncIterable<T>;
 import Logger from "../logger.js";
 
 const log = Logger("pkc-js:libp2p-js:blockstore");
 
 /**
- * The dependency tree contains more than one copy of multiformats (helia 6's internals are still on
- * 13 while our tree is on 14), and blockstore-core ships its own nested interface-blockstore. A CID
- * handed to us by helia is therefore not the same class as a CID we construct, and the packages'
- * `Blockstore`/`Pair` types are not mutually assignable.
- *
- * This wrapper sidesteps all of it by typing structurally: the only thing it ever needs from a CID
- * is the multihash bytes, and every backend we use (blockstore-core, blockstore-fs, blockstore-idb)
+ * The dependency tree has historically carried more than one copy of multiformats (helia 6's
+ * internals were on 13 while our tree was on 14) and of interface-blockstore, making a CID handed
+ * to us by helia a different class from a CID we construct, and the packages' `Blockstore`/`Pair`
+ * types not mutually assignable. helia 7 unified the copies, but the wrapper keeps typing
+ * structurally so a future skew can't break it: the only thing it ever needs from a CID is the
+ * multihash bytes, and every backend we use (blockstore-core, blockstore-fs, blockstore-idb)
  * addresses blocks by exactly those bytes and ignores the codec.
  */
 export interface BlockstoreCid {

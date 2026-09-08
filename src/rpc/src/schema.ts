@@ -9,7 +9,9 @@ import type { InputPKCOptions } from "../../types.js";
 // Setting up WS
 
 const WsServerClassOptions = z.object({
-    port: z.number().int().positive().optional(),
+    // 0 asks the OS for an ephemeral port (no reserve-then-rebind race); read the bound port from
+    // the server's http server after the "listening" event
+    port: z.number().int().nonnegative().optional(),
     server: z.custom<HTTPServer | HTTPSServer>().optional()
 });
 

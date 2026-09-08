@@ -1,5 +1,86 @@
 # Changelog
 
+## [0.0.100](https://github.com/pkcprotocol/pkc-js/compare/v0.0.99...v0.0.100) (2026-09-07)
+
+### Bug Fixes
+
+* **publication:** drop duplicate challenge deliveries and reject a second challenge answer ([#349](https://github.com/pkcprotocol/pkc-js/issues/349)) ([#350](https://github.com/pkcprotocol/pkc-js/issues/350)) ([2522fae](https://github.com/pkcprotocol/pkc-js/commit/2522fae41550c5bc7508f995d5d0893bfe727b64)), closes [#340](https://github.com/pkcprotocol/pkc-js/issues/340)
+
+### Performance
+
+* **community:** pace gateway polls on max-age, fix If-None-Match, publish 20s record ttl ([#338](https://github.com/pkcprotocol/pkc-js/issues/338)) ([bdec5c3](https://github.com/pkcprotocol/pkc-js/commit/bdec5c3f1d079afda8cb402505b70276d1cda096)), closes [#328](https://github.com/pkcprotocol/pkc-js/issues/328) [#328](https://github.com/pkcprotocol/pkc-js/issues/328) [#328](https://github.com/pkcprotocol/pkc-js/issues/328) [#328](https://github.com/pkcprotocol/pkc-js/issues/328)
+
+## [0.0.99](https://github.com/pkcprotocol/pkc-js/compare/v0.0.98...v0.0.99) (2026-09-06)
+
+### Bug Fixes
+
+* answer overlapping challenge requests once and keep a challenged exchange alive ([#228](https://github.com/pkcprotocol/pkc-js/issues/228) [#340](https://github.com/pkcprotocol/pkc-js/issues/340)) ([#341](https://github.com/pkcprotocol/pkc-js/issues/341)) ([5556ae3](https://github.com/pkcprotocol/pkc-js/commit/5556ae34a6dfac473fe13597386e43ad5942d240))
+* **helia:** end in-flight block fetches on caller abort and pkc.destroy() ([#345](https://github.com/pkcprotocol/pkc-js/issues/345)) ([77d0e5a](https://github.com/pkcprotocol/pkc-js/commit/77d0e5abe42fb192e721df2f8e9f1b346e7c953b)), closes [#325](https://github.com/pkcprotocol/pkc-js/issues/325)
+
+## [0.0.98](https://github.com/pkcprotocol/pkc-js/compare/v0.0.97...v0.0.98) (2026-09-04)
+
+### Bug Fixes
+
+* **community:** wake the publish loop on votes, comment edits and mod-queue comments ([#333](https://github.com/pkcprotocol/pkc-js/issues/333)) ([7963bfd](https://github.com/pkcprotocol/pkc-js/commit/7963bfd547e795e5e7df44b75177f05be74eb4dd)), closes [#226](https://github.com/pkcprotocol/pkc-js/issues/226) [#334](https://github.com/pkcprotocol/pkc-js/issues/334) [#335](https://github.com/pkcprotocol/pkc-js/issues/335) [#226](https://github.com/pkcprotocol/pkc-js/issues/226)
+
+## [0.0.97](https://github.com/pkcprotocol/pkc-js/compare/v0.0.96...v0.0.97) (2026-09-04)
+
+### Bug Fixes
+
+* **community:** flush the pre-purge update cid even when the purge lands mid-publish-cycle ([#336](https://github.com/pkcprotocol/pkc-js/issues/336)) ([#337](https://github.com/pkcprotocol/pkc-js/issues/337)) ([60963d5](https://github.com/pkcprotocol/pkc-js/commit/60963d502ad5178c9615ba7ac5dbb060d9675713)), closes [#305](https://github.com/pkcprotocol/pkc-js/issues/305)
+
+## [0.0.96](https://github.com/pkcprotocol/pkc-js/compare/v0.0.95...v0.0.96) (2026-09-03)
+
+### Bug Fixes
+
+* **community:** announce key migration to joiners attaching in the recordless window ([#323](https://github.com/pkcprotocol/pkc-js/issues/323) [#332](https://github.com/pkcprotocol/pkc-js/issues/332)) ([#327](https://github.com/pkcprotocol/pkc-js/issues/327)) ([6232a2f](https://github.com/pkcprotocol/pkc-js/commit/6232a2fe7f501c8b60e38b9495deaaf8a1ffca08))
+
+## [0.0.95](https://github.com/pkcprotocol/pkc-js/compare/v0.0.94...v0.0.95) (2026-09-03)
+
+### Performance
+
+* **helia:** serve subscribed IPNS names from cache while the push channel is healthy ([#330](https://github.com/pkcprotocol/pkc-js/issues/330)) ([#331](https://github.com/pkcprotocol/pkc-js/issues/331)) ([0125580](https://github.com/pkcprotocol/pkc-js/commit/012558033e786d2d546ec7f5f5971e0474257a99)), closes [#329](https://github.com/pkcprotocol/pkc-js/issues/329) [#329](https://github.com/pkcprotocol/pkc-js/issues/329) [#329](https://github.com/pkcprotocol/pkc-js/issues/329) [301/#307](https://github.com/301/pkc-js/issues/307) [308/#311](https://github.com/308/pkc-js/issues/311) [#311](https://github.com/pkcprotocol/pkc-js/issues/311)
+
+## [0.0.94](https://github.com/pkcprotocol/pkc-js/compare/v0.0.93...v0.0.94) (2026-09-03)
+
+### Bug Fixes
+
+* **rpc:** make client and server destroy() wait for their websockets to close ([#326](https://github.com/pkcprotocol/pkc-js/issues/326)) ([8af4868](https://github.com/pkcprotocol/pkc-js/commit/8af4868e75ca84627291036dc2007fe9b3b97176)), closes [#325](https://github.com/pkcprotocol/pkc-js/issues/325)
+
+### Performance
+
+* **community:** drive kubo/helia updates from gossip pushes instead of a 1s poll ([#308](https://github.com/pkcprotocol/pkc-js/issues/308) [#307](https://github.com/pkcprotocol/pkc-js/issues/307)) ([#311](https://github.com/pkcprotocol/pkc-js/issues/311)) ([bf7aedb](https://github.com/pkcprotocol/pkc-js/commit/bf7aedbe6e4038d9f937f0ead66b186519551f55)), closes [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#145](https://github.com/pkcprotocol/pkc-js/issues/145) [#138](https://github.com/pkcprotocol/pkc-js/issues/138) [#312](https://github.com/pkcprotocol/pkc-js/issues/312) [#312](https://github.com/pkcprotocol/pkc-js/issues/312)
+
+## [0.0.93](https://github.com/pkcprotocol/pkc-js/compare/v0.0.92...v0.0.93) (2026-09-02)
+
+### Bug Fixes
+
+* **rpc:** deliver subscribe-time errors to late listeners across update, publish, and start ([#299](https://github.com/pkcprotocol/pkc-js/issues/299)) ([#313](https://github.com/pkcprotocol/pkc-js/issues/313)) ([eff51d0](https://github.com/pkcprotocol/pkc-js/commit/eff51d08705d74f45957b007f62b5706d16d5576)), closes [#314](https://github.com/pkcprotocol/pkc-js/issues/314) [#314](https://github.com/pkcprotocol/pkc-js/issues/314) [#314](https://github.com/pkcprotocol/pkc-js/issues/314) [#314](https://github.com/pkcprotocol/pkc-js/issues/314) [#316](https://github.com/pkcprotocol/pkc-js/issues/316) [#315](https://github.com/pkcprotocol/pkc-js/issues/315) [#316](https://github.com/pkcprotocol/pkc-js/issues/316)
+
+## [0.0.92](https://github.com/pkcprotocol/pkc-js/compare/v0.0.91...v0.0.92) (2026-09-01)
+
+### Bug Fixes
+
+* **community:** defer unpinning superseded cids so repo.gc cannot race clients still fetching them ([#306](https://github.com/pkcprotocol/pkc-js/issues/306)) ([871703c](https://github.com/pkcprotocol/pkc-js/commit/871703c2a3294228582b15cf08e3d0fa6c6dc653)), closes [#305](https://github.com/pkcprotocol/pkc-js/issues/305)
+
+## [0.0.91](https://github.com/pkcprotocol/pkc-js/compare/v0.0.90...v0.0.91) (2026-08-31)
+
+### Bug Fixes
+
+* **community:** rm purged post's postUpdates MFS entry when the purge lands mid-sync ([#304](https://github.com/pkcprotocol/pkc-js/issues/304)) ([#303](https://github.com/pkcprotocol/pkc-js/issues/303)) ([5f06b97](https://github.com/pkcprotocol/pkc-js/commit/5f06b971aa3e5f248a42eec5013c16864fb2374a)), closes [#253](https://github.com/pkcprotocol/pkc-js/issues/253) [#142](https://github.com/pkcprotocol/pkc-js/issues/142)
+
+## [0.0.90](https://github.com/pkcprotocol/pkc-js/compare/v0.0.89...v0.0.90) (2026-08-31)
+
+### Performance
+
+* **helia:** serve repeat IPNS resolves from the gossip-fed record cache, not a refetch ([#301](https://github.com/pkcprotocol/pkc-js/issues/301)) ([#302](https://github.com/pkcprotocol/pkc-js/issues/302)) ([18432cd](https://github.com/pkcprotocol/pkc-js/commit/18432cd5c5fe13ae7982a8ad31d7ed08ae06ebfe))
+
+## [0.0.89](https://github.com/pkcprotocol/pkc-js/compare/v0.0.88...v0.0.89) (2026-08-30)
+
+### Bug Fixes
+
+* **deps:** upgrade helia to v7 and bump libp2p/ipfs ecosystem deps ([#293](https://github.com/pkcprotocol/pkc-js/issues/293)) ([e533cf9](https://github.com/pkcprotocol/pkc-js/commit/e533cf9ebd662340e8cd2b882f1b69217168dd42)), closes [#292](https://github.com/pkcprotocol/pkc-js/issues/292)
+
 ## [0.0.88](https://github.com/pkcprotocol/pkc-js/compare/v0.0.87...v0.0.88) (2026-08-26)
 
 ### Bug Fixes

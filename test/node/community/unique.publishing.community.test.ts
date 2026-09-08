@@ -397,7 +397,12 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
         };
     };
 
-    it("rejects duplicate comment publications", async () => {
+    // These three drive _publishChallengeVerification directly for a publication that is already
+    // stored, i.e. a duplicate first seen at the storage boundary. That only happens when an
+    // overlapping exchange for the same signed publication stored it after this one passed
+    // validation (#228), so the answer is the existing record, not a failure, and it does not spend
+    // the post-storage idempotent retry (_duplicatePublicationAttempts).
+    it("answers a comment found duplicate at storage with the existing comment (#228)", async () => {
         const { publication: commentPub, instance: commentInstance } = await createCommentPublicationInstanceWithSignature();
         const { challengeVerifications, dispose } = captureChallengeVerifications();
 
@@ -420,21 +425,22 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
         await publishViaMockedSubAndAssert({
             publication: duplicateCommentInstance,
             request: duplicateRequest,
-            expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_DUPLICATE_COMMENT
+            expectedChallengeSuccess: true
         });
 
         expect(challengeVerifications.length).to.equal(2);
         const duplicateEvent = challengeVerifications[1];
-        expect(duplicateEvent.challengeSuccess).to.be.false;
-        expect(duplicateEvent.reason).to.equal(messages.ERR_DUPLICATE_COMMENT);
+        expect(duplicateEvent.challengeSuccess).to.be.true;
+        expect(duplicateEvent.reason).to.be.undefined;
+        expect(duplicateEvent.commentUpdate?.cid).to.equal(dbMock.comments[0].cid, "Duplicate should be answered with the stored cid");
         expect(dbMock.comments.length).to.equal(1, "Duplicate comment should not be stored");
         expect(dbMock.hasCommentWithSignatureEncoded(commentPub.signature.signature)).to.be.true;
+        expect(getDuplicateAttempts(community, commentPub.signature.signature)).to.equal(0);
 
         dispose();
     });
 
-    it("rejects duplicate comment edits", async () => {
+    it("answers a comment edit found duplicate at storage with success (#228)", async () => {
         const { signer: originalCommentSigner, publication: commentPub } = await createCommentPublicationInstanceWithSignature();
         const commentRequest = makeCommentRequest(commentPub, 10);
         await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
@@ -466,18 +472,19 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
         await publishViaMockedSubAndAssert({
             publication: duplicateEditInstance,
             request: duplicateEditRequest,
-            expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_DUPLICATE_COMMENT_EDIT
+            expectedChallengeSuccess: true
         });
 
         expect(challengeVerifications.length).to.equal(2);
         const duplicateEvent = challengeVerifications[1];
-        expect(duplicateEvent.challengeSuccess).to.be.false;
-        expect(duplicateEvent.reason).to.equal(messages.ERR_DUPLICATE_COMMENT_EDIT);
+        expect(duplicateEvent.challengeSuccess).to.be.true;
+        expect(duplicateEvent.reason).to.be.undefined;
+        expect(dbMock.commentEdits.length).to.equal(1, "Duplicate edit should not be stored");
+        expect(getDuplicateAttempts(community, editPublication.signature.signature)).to.equal(0);
         dispose();
     });
 
-    it("rejects duplicate comment moderations", async () => {
+    it("answers a comment moderation found duplicate at storage with success (#228)", async () => {
         const { publication: commentPub } = await createCommentPublicationInstanceWithSignature();
         const commentRequest = makeCommentRequest(commentPub, 20);
         await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
@@ -511,14 +518,15 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
         await publishViaMockedSubAndAssert({
             publication: duplicateModerationInstance,
             request: duplicateModRequest,
-            expectedChallengeSuccess: false,
-            expectedReason: messages.ERR_DUPLICATE_COMMENT_MODERATION
+            expectedChallengeSuccess: true
         });
 
         expect(challengeVerifications.length).to.equal(2);
         const duplicateEvent = challengeVerifications[1];
-        expect(duplicateEvent.challengeSuccess).to.be.false;
-        expect(duplicateEvent.reason).to.equal(messages.ERR_DUPLICATE_COMMENT_MODERATION);
+        expect(duplicateEvent.challengeSuccess).to.be.true;
+        expect(duplicateEvent.reason).to.be.undefined;
+        expect(dbMock.commentModerations.length).to.equal(1, "Duplicate moderation should not be stored");
+        expect(getDuplicateAttempts(community, moderationPublication.signature.signature)).to.equal(0);
         dispose();
     });
 

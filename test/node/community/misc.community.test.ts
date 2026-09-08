@@ -407,11 +407,19 @@ describe.concurrent(`community.clients (Local)`, async () => {
             const recordedStates: string[] = [];
 
             community.clients.pkcRpcClients[rpcUrl].on("statechange", (newState) => recordedStates.push(newState));
+            // The stopped notification follows the update event over the websocket with no fixed
+            // bound, so wait for the state itself rather than a flat publishInterval / 2, which a
+            // loaded runner outlasts (PR #327 CI).
+            const stoppedStateRecorded = new Promise<void>((resolve) =>
+                community.clients.pkcRpcClients[rpcUrl].on("statechange", (newState) => {
+                    if (newState === "stopped") resolve();
+                })
+            );
 
             await community.start();
 
             await new Promise((resolve) => community.once("update", resolve));
-            await new Promise((resolve) => setTimeout(resolve, pkc.publishInterval / 2)); // until stopped state is transmitted
+            await stoppedStateRecorded;
 
             expect(recordedStates).to.deep.equal(["publishing-ipns", "stopped"]);
 

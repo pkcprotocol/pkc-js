@@ -19,3 +19,9 @@ Concise protocol reference for AI agents and contributors. Each doc covers one d
 | [db-community-address-migration.md](db-community-address-migration.md) | DB v37 migration: subplebbitAddress → communityPublicKey/communityName, CID preservation |
 | [data-path-migration.md](data-path-migration.md) | Directory layout migration for downstream apps: `.plebbit/` → `.pkc/`, `subplebbits/` → `communities/` |
 | [import-performance.md](import-performance.md) | Import/startup cost (issue #120): how to benchmark it, where the time goes, optimization checklist + history |
+
+## External specs
+
+| Spec | Why it matters here |
+|------|---------------------|
+| [IPFS path-gateway spec](https://specs.ipfs.tech/http-gateways/path-gateway/) | The contract our ipfs-gateway transport polls against: `ETag` format and `If-None-Match`/304 revalidation, `Cache-Control: max-age` = remaining IPNS record TTL, `X-Ipfs-Roots`, HEAD + `only-if-cached` probes, and `?format=ipns-record` for fetching the verifiable IPNS record itself. Read before touching the gateway fetch path in `src/clients/base-client-manager.ts` or the gateway branch of `src/community/community-client-manager.ts`. |

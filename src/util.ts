@@ -75,22 +75,33 @@ export function throwIfAbortSignalAborted(signal?: AbortSignal): void {
     throw createAbortError();
 }
 
-// Sleep for `ms`, resolving early if `signal` aborts. The abort listener is detached on BOTH
-// outcomes (timer elapsed or aborted), so it never leaks on a long-lived signal — `{ once: true }`
-// alone only removes it when abort fires, which leaks one listener per call on the normal
-// timer-elapsed path (see issues #145, #146). Used by the community update loops' inter-iteration
-// sleep and the comment parallel-connect timer.
-export function sleepUntilTimeoutOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
-    return new Promise<void>((resolve) => {
+// Sleep for `ms`, resolving early if `signal` aborts or `wake` is called. The timer and abort
+// listener are detached on EVERY outcome (timer elapsed, aborted, or woken), so nothing leaks on
+// a long-lived signal — `{ once: true }` alone only removes the abort listener when abort fires,
+// which leaks one listener per call on the normal timer-elapsed path (see issues #145, #146).
+// `wake` is idempotent and safe to call after the sleep already settled. Single implementation of
+// this settle pattern so hardening it reaches every caller (the event-driven update loop's park
+// included) instead of only one hand-rolled copy.
+export function interruptibleSleep({ ms, signal }: { ms: number; signal?: AbortSignal }): { promise: Promise<void>; wake: () => void } {
+    let wake: () => void = () => undefined;
+    const promise = new Promise<void>((resolve) => {
         if (signal?.aborted) return resolve();
-        const onAbortOrTimeout = () => {
+        const settle = () => {
             clearTimeout(timer);
-            signal?.removeEventListener("abort", onAbortOrTimeout);
+            signal?.removeEventListener("abort", settle);
             resolve();
         };
-        const timer = setTimeout(onAbortOrTimeout, ms);
-        signal?.addEventListener("abort", onAbortOrTimeout, { once: true });
+        const timer = setTimeout(settle, ms);
+        signal?.addEventListener("abort", settle, { once: true });
+        wake = settle;
     });
+    return { promise, wake };
+}
+
+// Sleep for `ms`, resolving early if `signal` aborts. Used by the community update loops'
+// inter-iteration sleep and the comment parallel-connect timer.
+export function sleepUntilTimeoutOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
+    return interruptibleSleep({ ms, signal }).promise;
 }
 
 // Race `promise` against `signal` aborting, rejecting with an AbortError if the signal fires first.
@@ -739,7 +750,7 @@ export async function waitForUpdateInCommunityInstanceWithErrorAndTimeout(opts: 
         if (abortError) throw abortError;
         if (community.state !== "started") await community.update();
         if (abortError) throw abortError; // abort may have landed while update() was in flight
-        if (criticalError) throw criticalError; // Non-retriable error may have fired synchronously during update (e.g. RPC emitAllPendingMessages replay)
+        if (criticalError) throw criticalError; // Non-retriable error may have fired while update() was in flight
         await pTimeout(Promise.race([updatePromise, nonRetriableErrorPromise, abortPromise]), {
             milliseconds: timeoutMs,
             message:

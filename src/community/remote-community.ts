@@ -484,6 +484,13 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         // Update to new key and IPNS routing props
         this.publicKey = newPublicKey;
         this.ipnsName = newPublicKey;
+        // The resolved delegation chain described the OLD key's record; keeping it would leave the
+        // update loop's IPNS arrival subscriptions (derived from ipnsHops, preferred over ipnsName)
+        // watching the old key's gossip topics, so the migrated key's record pushes could not wake
+        // the loop (issue #308). Default to the single-hop chain, the same shape
+        // fetchNewUpdateForCommunity seeds for a fresh ipnsName; the next successful resolve
+        // replaces it with the full walked chain.
+        this.ipnsHops = [newPublicKey];
         this.ipnsPubsubTopic = ipnsNameToIpnsOverPubsubTopic(newPublicKey);
         this.ipnsPubsubTopicRoutingCid = pubsubTopicToDhtKey(this.ipnsPubsubTopic);
         this._assertHasIdentity();
@@ -802,6 +809,20 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             this._updatingCommunityInstanceWithListeners.community._clientsManager
                 .startUpdatingLoop()
                 .catch((err) => log.error("Failed to start update loop of community", err));
+        }
+
+        // The construction-time warm start only sees a migration when the tracked instance holds a
+        // record, but a key migration clears the record and re-fetches, so a joiner attaching in
+        // that migrated-but-recordless window (or constructed before the instance existed at all)
+        // reaches this point still keyed to its stale publicKey with no announcement pending. The
+        // recordless instance emits nothing until the new key's record lands — silently adopted by
+        // the mirror, never announced — leaving the joiner without the migration error forever
+        // (issue #332, the remainder of #197/#289). Announce it here, the first point where the
+        // mismatch is visible on this path, with the same observable sequence as the first loader:
+        // cleared update, then the error, then the replayed record below if one already landed.
+        if (this.publicKey && communityInstance.publicKey && this.publicKey !== communityInstance.publicKey) {
+            this._pendingWarmStartKeyMigration = { previousPublicKey: this.publicKey, newPublicKey: communityInstance.publicKey };
+            this._announcePendingWarmStartKeyMigrationIfAny();
         }
 
         // Replay the updating instance's current record through the mirror's own update handler.

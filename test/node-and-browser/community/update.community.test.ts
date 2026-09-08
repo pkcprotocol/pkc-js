@@ -103,7 +103,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await community.update();
             await publishRandomPost({ communityAddress: community.address, pkc: pkc }); // Invoke an update
             await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => oldUpdatedAt !== community.updatedAt });
-            expect(oldUpdatedAt).to.not.equal(community.updatedAt);
+            // Strictly greater, not merely different: a community that served an OLDER record
+            // would satisfy `!==` and hide a regression. Strict monotonicity was previously
+            // asserted only on local communities (test/node/community/update.community.test.ts),
+            // never on the remote subscriber path this test covers.
+            expect(community.updatedAt, "the updating community must reach a NEWER record").to.be.a("number");
+            if (typeof oldUpdatedAt === "number")
+                expect(community.updatedAt, "updatedAt must never go backwards on an updating community").to.be.greaterThan(oldUpdatedAt);
             expect(community.address).to.equal("plebbit.bso");
             await community.stop();
         });
@@ -600,6 +606,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const originalAddress = community.address;
             const newKey = signers[1].address;
 
+            // The resolved delegation chain describes the OLD key's record and must not survive a
+            // migration: the update loop's IPNS arrival subscriptions are derived from ipnsHops
+            // (preferred over ipnsName), so a stale chain keeps the loop watching the old key's
+            // gossip topics and the new key's record pushes cannot wake it (issue #308).
+            community.ipnsHops = [originalAddress, "someterminalhopname"];
+
             community._clearDataForKeyMigration(newKey);
 
             // All data fields should be cleared
@@ -630,6 +642,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // Key updated
             expect(community.publicKey).to.equal(newKey);
             expect(community.ipnsName).to.equal(newKey);
+            // Same default-single-hop shape fetchNewUpdateForCommunity uses for a fresh ipnsName;
+            // the next successful resolve replaces it with the full walked chain.
+            expect(community.ipnsHops).to.deep.equal([newKey]);
 
             // Calling twice doesn't crash
             community._clearDataForKeyMigration(newKey);
