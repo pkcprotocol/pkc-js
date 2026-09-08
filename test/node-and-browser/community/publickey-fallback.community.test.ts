@@ -156,6 +156,70 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await testPKC.destroy();
         });
 
+        // Issue #353. Nothing drove this path with a throwing resolver before: every nameResolved=false test
+        // used a resolver that returned no record, so the two were never told apart on the community side.
+        it(`update() succeeds via publicKey and leaves nameResolved undefined when every resolver errors`, async () => {
+            const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
+
+            const testPKC = await config.pkcInstancePromise({
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            key: "always-failing",
+                            resolveFunction: async () => {
+                                throw new Error("resolver is down");
+                            }
+                        })
+                    ]
+                }
+            });
+
+            const community = await testPKC.createCommunity({ name: "outage.eth", publicKey: communityAddress });
+            await community.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
+            });
+            await new Promise((r) => setTimeout(r, 0));
+
+            expect(community.updatedAt).to.be.a("number");
+            // A brief outage must not brand this community's name as not resolving: we never got an answer.
+            expect(community.nameResolved).to.be.undefined;
+
+            await community.stop();
+            await testPKC.destroy();
+        });
+
+        it(`update() sets nameResolved=false when the name resolves to something that is not a key`, async () => {
+            const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
+
+            const testPKC = await config.pkcInstancePromise({
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            key: "garbage-record",
+                            resolveFunction: async () => ({ publicKey: "not-an-ipns-address" })
+                        })
+                    ]
+                }
+            });
+
+            const community = await testPKC.createCommunity({ name: "garbage.eth", publicKey: communityAddress });
+            await community.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number" && typeof community.nameResolved === "boolean"
+            });
+
+            // The resolvers answered: there is a record and it is not this community's key. Definitive.
+            expect(community.nameResolved).to.equal(false);
+
+            await community.stop();
+            await testPKC.destroy();
+        });
+
         it(`update() succeeds via publicKey and nameResolved=true when name resolves correctly`, async () => {
             // Use "plebbit.bso" from defaultMockResolverRecords so both RPC server and client resolve it
             const communityAddress = signers[3].address; // plebbit.bso resolves to signers[3]
