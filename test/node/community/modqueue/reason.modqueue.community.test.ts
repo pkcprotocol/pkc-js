@@ -51,7 +51,7 @@ describeSkipIfRpc("commentUpdate.reason from a challenge in the pending-approval
                     {
                         name: "reason-challenge",
                         pendingApproval: true,
-                        exclude: [{ role: ["moderator", "admin", "owner"] }]
+                        exclude: [{ roles: ["moderator", "admin", "owner"] }]
                     }
                 ]
             }

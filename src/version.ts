@@ -8,7 +8,7 @@ const userAgent = UserAgentSchema.parse(`/pkc-js:${pkcJsVersion}/`);
 
 export default {
     PKC_JS_VERSION: pkcJsVersion,
-    DB_VERSION: 41,
+    DB_VERSION: 42,
     PROTOCOL_VERSION: protocolVersion,
     USER_AGENT: userAgent
 };

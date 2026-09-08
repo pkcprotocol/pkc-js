@@ -27,6 +27,7 @@ import {
 } from "../../../../signer/signatures.js";
 import { getPKCAddressFromPublicKey } from "../../../../signer/util.js";
 import { getAuthorNameFromWire } from "../../../../publications/publication-author.js";
+import { createAuthorIdentityMatcher } from "./author-identity.js";
 import { getCommunityNameFromWire, getCommunityPublicKeyFromWire } from "../../../../publications/publication-community.js";
 import { CommentEditReservedFields } from "../../../../publications/comment-edit/schema.js";
 import { CommentPubsubMessageReservedFields } from "../../../../publications/comment/schema.js";
@@ -56,25 +57,14 @@ export async function isPublicationAuthorPartOfRoles(
     rolesToCheckAgainst: CommunityRoleNameUnion[]
 ): Promise<boolean> {
     if (!community.roles) return false;
-    // is the author of publication a moderator?
-    const signerAddress = await getPKCAddressFromPublicKey(publication.signature.publicKey);
-    if (rolesToCheckAgainst.includes(community.roles[signerAddress]?.role as CommunityRoleNameUnion)) return true;
-
-    const authorName = getAuthorNameFromWire(publication.author);
-    if (typeof authorName === "string") {
-        if (rolesToCheckAgainst.includes(community.roles[authorName]?.role as CommunityRoleNameUnion)) return true;
-        if (community._pkc.resolveAuthorNames && isStringDomain(authorName)) {
-            const { resolvedAuthorName: resolvedSignerAddress } = await community._clientsManager.resolveAuthorNameIfNeeded({
-                authorName,
-                abortSignal: AbortSignal.timeout(community._pkc._timeouts["resolve-author-name"]),
-                // Mod authority must reflect current state — bypass cache.
-                cache: { maxAge: 0 }
-            });
-            if (resolvedSignerAddress !== signerAddress) return false;
-            if (rolesToCheckAgainst.includes(community.roles[resolvedSignerAddress]?.role as CommunityRoleNameUnion)) return true;
-        }
-    }
-    return false;
+    // Role keys are key-derived addresses or domains. Either way the match is bound to the publication's signer
+    // (a domain key must be the wire author.name and resolve to the signer), never to the claimed author.address.
+    // Resolver failures are a non-match, not an error, so the publisher gets a clean rejection (issue #267).
+    const roleKeys = Object.keys(community.roles).filter((roleKey) =>
+        rolesToCheckAgainst.includes(community.roles![roleKey].role as CommunityRoleNameUnion)
+    );
+    if (roleKeys.length === 0) return false;
+    return createAuthorIdentityMatcher({ community, publication }).matchesAnyIdentity(roleKeys);
 }
 
 export async function respondWithErrorIfSignatureOfPublicationIsInvalid(

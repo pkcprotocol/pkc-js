@@ -214,7 +214,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
         it("moderators are excluded from role-based challenges in per-post mode", async () => {
             const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-post",
-                challengeExclude: [{ role: ["moderator"] }]
+                challengeExclude: [{ roles: ["moderator"] }]
             });
 
             try {
@@ -571,7 +571,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
         it("moderators are excluded from role-based challenges in per-reply mode", async () => {
             const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-reply",
-                challengeExclude: [{ role: ["moderator"] }]
+                challengeExclude: [{ roles: ["moderator"] }]
             });
 
             try {
@@ -749,7 +749,7 @@ describeSkipIfRpc("Challenge exclusion with pseudonymity mode", () => {
         it("moderators are excluded from role-based challenges in per-author mode", async () => {
             const context = await createCommunityWithChallengeExclusion({
                 pseudonymityMode: "per-author",
-                challengeExclude: [{ role: ["moderator"] }]
+                challengeExclude: [{ roles: ["moderator"] }]
             });
 
             try {

@@ -11,7 +11,20 @@ import type { GetChallengeAnswers } from "../../dist/node/runtime/node/community
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
 import { isPlainObject } from "remeda";
-import { PKC, communities, authors, communityAuthors, challengeAnswers, challengeCommentCids, results } from "./fixtures/fixtures.ts";
+import {
+    PKC,
+    communities,
+    authors,
+    communityAuthors,
+    challengeAnswers,
+    challengeCommentCids,
+    results,
+    mockClientsManager,
+    mockResolverRecords,
+    mockSignatureForAuthor
+} from "./fixtures/fixtures.ts";
+import signers from "../fixtures/signers.js";
+import { getPKCAddressFromPublicKeySync } from "../../dist/node/signer/util.js";
 
 // Type for challenge verification results (union of success, pending, failure)
 type ChallengeVerificationResult = Awaited<ReturnType<typeof getPendingChallengesOrChallengeVerification>>;
@@ -35,6 +48,15 @@ const parsePubsubMsgFixture = (json: Record<string, unknown>): Record<string, un
 // sometimes use random addresses because the rate limiter
 // is based on author addresses and doesn't reset between tests
 const getRandomAddress = () => String(Math.random());
+
+// Issue #267: author identity is bound to signature.publicKey. Mock requests sign with a shared default signer and the
+// mock domains used by the whitelist/role configs below resolve to it.
+const DEFAULT_SIGNER = signers[8];
+const DEFAULT_SIGNATURE = { publicKey: DEFAULT_SIGNER.publicKey };
+mockResolverRecords["whitelisted-author.bso"] = DEFAULT_SIGNER.address;
+mockResolverRecords["mod-author.bso"] = DEFAULT_SIGNER.address;
+// the cascading suite signs with the comment fixture's key
+mockResolverRecords["whitelisted-user.bso"] = getPKCAddressFromPublicKeySync(validCommentIpfsFixture.signature.publicKey);
 
 describe("pkcJsChallenges", () => {
     let TextMathFactory = pkcJsChallenges["text-math"];
@@ -68,7 +90,8 @@ describe("getPendingChallengesOrChallengeVerification", () => {
                     ...requestFixture,
                     comment: {
                         ...validCommentIpfsFixture,
-                        author: { ...author, community: communityAuthors[author.address]?.[community.title] }
+                        author: { ...author, community: communityAuthors[author.address]?.[community.title] },
+                        signature: { ...validCommentIpfsFixture.signature, ...mockSignatureForAuthor(author) }
                     },
                     // some challenges could require including comment cids in other subs, like friendly community karma challenges
                     challengeCommentCids: challengeCommentCids[author.address],
@@ -115,18 +138,18 @@ describe("getPendingChallengesOrChallengeVerification", () => {
 type GetChallengeVerificationResult = Awaited<ReturnType<typeof getChallengeVerification>>;
 
 describe("getChallengeVerification", () => {
-    const author = { address: "Qm..." };
+    const author = { address: signers[2].address };
     const community: { settings: { challenges: Array<Record<string, unknown>> }; _pkc?: ReturnType<typeof PKC> } = {
         settings: {
             challenges: [
                 // add random exlcuded challenges to tests
-                { name: "fail", exclude: [{ address: [author.address] }] },
+                { name: "fail", exclude: [{ publicKeys: [author.address] }] },
                 // exlcude if other math challenge succeeds
                 { name: "text-math", exclude: [{ challenges: [3] }] },
-                { name: "fail", exclude: [{ address: [author.address] }] },
+                { name: "fail", exclude: [{ publicKeys: [author.address] }] },
                 // exlcude if other math challenge succeeds
                 { name: "text-math", exclude: [{ challenges: [1] }] },
-                { name: "fail", exclude: [{ address: [author.address] }] },
+                { name: "fail", exclude: [{ publicKeys: [author.address] }] },
                 {
                     name: "question",
                     options: {
@@ -138,7 +161,7 @@ describe("getChallengeVerification", () => {
         }
     };
     const challengeRequestMessage = {
-        comment: { author },
+        comment: { author, signature: { publicKey: signers[2].publicKey } },
         // define mock challenge answers in challenge request
         challengeAnswers: [undefined, undefined, undefined, undefined, undefined, "password"]
     } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
@@ -293,7 +316,7 @@ describe("getChallengeVerification", () => {
         } as unknown as LocalCommunity;
 
         const rateLimitChallengeRequestMessage = {
-            comment: { author: { address: getRandomAddress() } }
+            comment: { author: { address: getRandomAddress() }, signature: DEFAULT_SIGNATURE }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
         const shouldNotCall = async () => {
             throw Error("should not call");
@@ -344,7 +367,7 @@ describe("getChallengeVerification", () => {
         } as unknown as LocalCommunity;
 
         const throwChallengeRequestMessage = {
-            comment: { author: { address: getRandomAddress() } }
+            comment: { author: { address: getRandomAddress() }, signature: DEFAULT_SIGNATURE }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
         const shouldNotCall = async () => {
             throw Error("should not call");
@@ -559,33 +582,39 @@ describe("real-world config: AI moderation getChallenge() fires even when exclud
                             matches: '[{"propertyName":"author.name","regexp":"\\\\.(bso)$"}]',
                             error: "Posting requires a name ending with .bso"
                         },
-                        exclude: [{ role: ["moderator", "admin", "owner"] }, { challenges: [1] }, { challenges: [2] }]
+                        exclude: [{ roles: ["moderator", "admin", "owner"] }, { challenges: [1] }, { challenges: [2] }]
                     },
                     // C1: whitelist — succeeds if author address is whitelisted
                     {
                         name: "whitelist",
                         options: { addresses: "whitelisted-author.bso" },
-                        exclude: [{ role: ["moderator", "admin", "owner"] }, { challenges: [0] }, { challenges: [2] }]
+                        exclude: [{ roles: ["moderator", "admin", "owner"] }, { challenges: [0] }, { challenges: [2] }]
                     },
                     // C2: spam-blocker — pending iframe
                     {
                         name: "mock-spam-blocker",
-                        exclude: [{ challenges: [0] }, { challenges: [1] }, { role: ["owner", "admin", "moderator"] }]
+                        exclude: [{ challenges: [0] }, { challenges: [1] }, { roles: ["owner", "admin", "moderator"] }]
                     },
                     // C3: ai-moderation "allow" — calls OpenAI
                     {
                         name: "mock-ai-moderation-allow",
-                        exclude: [{ challenges: [0] }, { challenges: [1] }, { challenges: [4] }, { role: ["owner", "admin", "moderator"] }]
+                        exclude: [{ challenges: [0] }, { challenges: [1] }, { challenges: [4] }, { roles: ["owner", "admin", "moderator"] }]
                     },
                     // C4: ai-moderation "review" — calls OpenAI, pendingApproval
                     {
                         name: "mock-ai-moderation-review",
-                        exclude: [{ challenges: [0] }, { challenges: [1] }, { challenges: [3] }, { role: ["owner", "admin", "moderator"] }],
+                        exclude: [
+                            { challenges: [0] },
+                            { challenges: [1] },
+                            { challenges: [3] },
+                            { roles: ["owner", "admin", "moderator"] }
+                        ],
                         pendingApproval: true
                     }
                 ]
             },
-            _pkc: pkc
+            _pkc: pkc,
+            _clientsManager: mockClientsManager
         };
     };
 
@@ -595,7 +624,7 @@ describe("real-world config: AI moderation getChallenge() fires even when exclud
         // C1-C4 should all be excluded, so getChallenge() should NOT fire for them
         const community = createCommunity() as unknown as LocalCommunity;
         const request = {
-            comment: { author: { address: getRandomAddress(), name: "testuser.bso" } }
+            comment: { author: { address: getRandomAddress(), name: "testuser.bso" }, signature: DEFAULT_SIGNATURE }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
         const result = (await getPendingChallengesOrChallengeVerification({
@@ -618,7 +647,7 @@ describe("real-world config: AI moderation getChallenge() fires even when exclud
         // C0 excluded (by C1), C2-C4 excluded, so getChallenge() should NOT fire
         const community = createCommunity() as unknown as LocalCommunity;
         const request = {
-            comment: { author: { address: "whitelisted-author.bso" } }
+            comment: { author: { address: "whitelisted-author.bso" }, signature: DEFAULT_SIGNATURE }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
         const result = (await getPendingChallengesOrChallengeVerification({
@@ -641,7 +670,7 @@ describe("real-world config: AI moderation getChallenge() fires even when exclud
         // C0 fails, C1 fails → C2 pending (iframe) → C3, C4 should NOT run yet
         const community = createCommunity() as unknown as LocalCommunity;
         const request = {
-            comment: { author: { address: getRandomAddress(), name: "no-bso-name" } }
+            comment: { author: { address: getRandomAddress(), name: "no-bso-name" }, signature: DEFAULT_SIGNATURE }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
         const result = (await getPendingChallengesOrChallengeVerification({
@@ -678,24 +707,29 @@ describe("real-world config: AI moderation getChallenge() fires even when exclud
                             matches: '[{"propertyName":"author.name","regexp":"\\\\.(bso)$"}]',
                             error: "Posting requires a name ending with .bso"
                         },
-                        exclude: [{ role: ["moderator", "admin", "owner"] }, { challenges: [1] }, { challenges: [2] }]
+                        exclude: [{ roles: ["moderator", "admin", "owner"] }, { challenges: [1] }, { challenges: [2] }]
                     },
                     {
                         name: "whitelist",
                         options: { addresses: "whitelisted-author.bso" },
-                        exclude: [{ role: ["moderator", "admin", "owner"] }, { challenges: [0] }, { challenges: [2] }]
+                        exclude: [{ roles: ["moderator", "admin", "owner"] }, { challenges: [0] }, { challenges: [2] }]
                     },
                     {
                         name: "mock-spam-blocker",
-                        exclude: [{ challenges: [0] }, { challenges: [1] }, { role: ["owner", "admin", "moderator"] }]
+                        exclude: [{ challenges: [0] }, { challenges: [1] }, { roles: ["owner", "admin", "moderator"] }]
                     },
                     {
                         name: "mock-ai-moderation-allow",
-                        exclude: [{ challenges: [0] }, { challenges: [1] }, { challenges: [4] }, { role: ["owner", "admin", "moderator"] }]
+                        exclude: [{ challenges: [0] }, { challenges: [1] }, { challenges: [4] }, { roles: ["owner", "admin", "moderator"] }]
                     },
                     {
                         name: "mock-ai-moderation-review",
-                        exclude: [{ challenges: [0] }, { challenges: [1] }, { challenges: [3] }, { role: ["owner", "admin", "moderator"] }],
+                        exclude: [
+                            { challenges: [0] },
+                            { challenges: [1] },
+                            { challenges: [3] },
+                            { roles: ["owner", "admin", "moderator"] }
+                        ],
                         pendingApproval: true
                     }
                 ]
@@ -710,7 +744,7 @@ describe("real-world config: AI moderation getChallenge() fires even when exclud
         // The publication is doomed to fail anyway, so C3/C4 (the expensive AI-moderation calls) must not fire.
         const community = createCommunityWithFailingSpamBlocker() as unknown as LocalCommunity;
         const request = {
-            comment: { author: { address: getRandomAddress(), name: "no-bso-name" } }
+            comment: { author: { address: getRandomAddress(), name: "no-bso-name" }, signature: DEFAULT_SIGNATURE }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
         const result = (await getPendingChallengesOrChallengeVerification({
@@ -745,16 +779,16 @@ describe("request-only excludes fire before getChallenge()", () => {
                 challenges: [
                     {
                         name: "tracking-role-exclude",
-                        exclude: [{ role: ["moderator", "admin", "owner"] }]
+                        exclude: [{ roles: ["moderator", "admin", "owner"] }]
                     }
                 ]
             },
-            roles: { "mod-author.bso": { role: "moderator" } },
+            roles: { [DEFAULT_SIGNER.address]: { role: "moderator" } },
             _pkc: pkc
         } as unknown as LocalCommunity;
 
         const request = {
-            comment: { author: { address: "mod-author.bso" } }
+            comment: { author: { address: DEFAULT_SIGNER.address }, signature: DEFAULT_SIGNATURE }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
         const result = (await getPendingChallengesOrChallengeVerification({
@@ -793,7 +827,8 @@ describe("request-only excludes fire before getChallenge()", () => {
 
         const request = {
             comment: {
-                author: { address: getRandomAddress(), community: { postScore: 200 } }
+                author: { address: getRandomAddress(), community: { postScore: 200 } },
+                signature: DEFAULT_SIGNATURE
             }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
@@ -840,7 +875,7 @@ describe("incremental cycle-break", () => {
         } as unknown as LocalCommunity;
 
         const request = {
-            comment: { author: { address: getRandomAddress() } }
+            comment: { author: { address: getRandomAddress() }, signature: DEFAULT_SIGNATURE }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
         const result = (await getPendingChallengesOrChallengeVerification({
@@ -885,7 +920,7 @@ describe("incremental cycle-break", () => {
         } as unknown as LocalCommunity;
 
         const request = {
-            comment: { author: { address: getRandomAddress() } }
+            comment: { author: { address: getRandomAddress() }, signature: DEFAULT_SIGNATURE }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
         const result = (await getPendingChallengesOrChallengeVerification({
@@ -950,7 +985,7 @@ describe("deferred challenge resolution at verify time", () => {
         } as unknown as LocalCommunity;
 
         const request = {
-            comment: { author: { address: getRandomAddress() } }
+            comment: { author: { address: getRandomAddress() }, signature: DEFAULT_SIGNATURE }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
         const getChallengeAnswers: GetChallengeAnswers = async () => ["any-answer"];
@@ -976,7 +1011,7 @@ describe("deferred challenge resolution at verify time", () => {
         } as unknown as LocalCommunity;
 
         const request = {
-            comment: { author: { address: getRandomAddress() } }
+            comment: { author: { address: getRandomAddress() }, signature: DEFAULT_SIGNATURE }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
         const getChallengeAnswers: GetChallengeAnswers = async () => ["any-answer"];
@@ -1006,7 +1041,7 @@ describe("deferred challenge resolution at verify time", () => {
         } as unknown as LocalCommunity;
 
         const request = {
-            comment: { author: { address: getRandomAddress() } }
+            comment: { author: { address: getRandomAddress() }, signature: DEFAULT_SIGNATURE }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
         const result = (await getPendingChallengesOrChallengeVerification({
@@ -1087,6 +1122,7 @@ describe.skip("cascading challenge fallthrough (whitelist → mintpass → spam-
         const pkc = {
             getComment: () => {},
             createComment: () => {},
+            _timeouts: { "resolve-author-name": 1000 },
             settings: {
                 challenges: {
                     "mock-nft-check": mockNftCheckFactory,
@@ -1116,7 +1152,8 @@ describe.skip("cascading challenge fallthrough (whitelist → mintpass → spam-
                     }
                 ]
             },
-            _pkc: pkc
+            _pkc: pkc,
+            _clientsManager: mockClientsManager
         } as unknown as LocalCommunity;
     };
 
@@ -1301,7 +1338,7 @@ describe("real-world bitsocial config: production-faithful coverage", () => {
                             error: "Posting requires a name ending with .bso"
                         },
                         exclude: [
-                            { role: ["moderator", "admin", "owner"] },
+                            { roles: ["moderator", "admin", "owner"] },
                             { postScore: 3, replyScore: 0, firstCommentTimestamp: 2592000, rateLimit: 2 },
                             { challenges: [1] },
                             { challenges: [2] }
@@ -1310,14 +1347,14 @@ describe("real-world bitsocial config: production-faithful coverage", () => {
                     {
                         name: "whitelist",
                         options: { addresses: WHITELISTED_ADDRESS },
-                        exclude: [{ role: ["moderator", "admin", "owner"] }, { challenges: [0] }, { challenges: [2] }]
+                        exclude: [{ roles: ["moderator", "admin", "owner"] }, { challenges: [0] }, { challenges: [2] }]
                     },
                     {
                         name: "mock-spam-blocker",
                         exclude: [
                             { challenges: [0] },
                             { challenges: [1] },
-                            { role: ["owner", "admin", "moderator"] },
+                            { roles: ["owner", "admin", "moderator"] },
                             { publicationType: { commentModeration: true, communityEdit: true } }
                         ]
                     },
@@ -1327,7 +1364,7 @@ describe("real-world bitsocial config: production-faithful coverage", () => {
                             { challenges: [0] },
                             { challenges: [1] },
                             { challenges: [4] },
-                            { role: ["owner", "admin", "moderator"] },
+                            { roles: ["owner", "admin", "moderator"] },
                             { publicationType: { commentModeration: true, communityEdit: true } }
                         ]
                     },
@@ -1337,7 +1374,7 @@ describe("real-world bitsocial config: production-faithful coverage", () => {
                             { challenges: [0] },
                             { challenges: [1] },
                             { challenges: [3] },
-                            { role: ["owner", "admin", "moderator"] },
+                            { roles: ["owner", "admin", "moderator"] },
                             { publicationType: { commentModeration: true, communityEdit: true } }
                         ],
                         pendingApproval: true
@@ -1345,7 +1382,8 @@ describe("real-world bitsocial config: production-faithful coverage", () => {
                 ]
             },
             roles: { [MOD_ADDRESS]: { role: "moderator" } },
-            _pkc: pkc
+            _pkc: pkc,
+            _clientsManager: mockClientsManager
         };
     };
 
@@ -1358,7 +1396,7 @@ describe("real-world bitsocial config: production-faithful coverage", () => {
         publicationType?: "commentModeration" | "communityEdit";
     };
     const buildRequest = (variant: RequestVariant) => {
-        const req: Record<string, unknown> = { comment: { author: variant.author } };
+        const req: Record<string, unknown> = { comment: { author: variant.author, signature: DEFAULT_SIGNATURE } };
         if (variant.publicationType === "commentModeration") req.commentModeration = { commentCid: "Qm-mod-target" };
         if (variant.publicationType === "communityEdit") req.communityEdit = { communityAddress: "test.bso" };
         return req as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
@@ -1368,7 +1406,8 @@ describe("real-world bitsocial config: production-faithful coverage", () => {
         reset();
         // spam-blocker mode is irrelevant — should never be called
         const community = createCommunity({ spamBlocker: "fail" }) as unknown as LocalCommunity;
-        const request = buildRequest({ author: { address: MOD_ADDRESS, name: "regular" } });
+        // the mod publishes under its domain; the role key is matched through the signature (issue #267)
+        const request = buildRequest({ author: { address: MOD_ADDRESS } });
         const result = (await getPendingChallengesOrChallengeVerification({
             challengeRequestMessage: request,
             community

@@ -61,7 +61,7 @@ describeSkipIfRpc("challenge-supplied commentUpdate.reason on a regular comment"
                     {
                         name: "reason-challenge",
                         // no pendingApproval: the comment publishes as a regular comment
-                        exclude: [{ role: ["moderator", "admin", "owner"] }]
+                        exclude: [{ roles: ["moderator", "admin", "owner"] }]
                     }
                 ]
             },

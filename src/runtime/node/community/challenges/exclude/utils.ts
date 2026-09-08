@@ -1,4 +1,4 @@
-import type { CommunityIpfsType, CommunityRole, Exclude } from "../../../../../community/types.js";
+import type { Exclude } from "../../../../../community/types.js";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../../../../pubsub-messages/types.js";
 import { isRequestPubsubPublicationOfPost, isRequestPubsubPublicationOfReply } from "../../../../../util.js";
 
@@ -11,21 +11,6 @@ const testScore = (excludeScore: number | undefined, authorScore: number | undef
 // firstCommentTimestamp value first needs to be put through Date.now() - firstCommentTimestamp
 const testFirstCommentTimestamp = (excludeTime: number | undefined, authorFirstCommentTimestamp: number | undefined) =>
     excludeTime === undefined || getTimestampSecondsAgo(excludeTime) >= (authorFirstCommentTimestamp || Infinity);
-
-const testRole = (excludeRole: CommunityRole["role"][], authorAddress: string, communityRoles: CommunityIpfsType["roles"]) => {
-    if (excludeRole === undefined) {
-        return true; // No role exclusion rule, so this test passes
-    }
-    if (communityRoles === undefined) {
-        return false; // Can't verify roles, so assume user doesn't have excluded role
-    }
-    for (const roleName of excludeRole) {
-        if (communityRoles[authorAddress]?.role === roleName) {
-            return true;
-        }
-    }
-    return false;
-};
 
 const isVote = (request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor) => Boolean(request.vote);
 const isReply = (request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor) => isRequestPubsubPublicationOfReply(request);
@@ -71,6 +56,5 @@ export {
     isCommunityEdit,
     testPublicationType,
     testScore,
-    testFirstCommentTimestamp,
-    testRole
+    testFirstCommentTimestamp
 };

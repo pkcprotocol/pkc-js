@@ -44,7 +44,7 @@ describe(`Pending approval modqueue functionality`, async () => {
                         name: "question",
                         options: { question: "1+1=?", answer: "2" },
                         pendingApproval: true,
-                        exclude: [{ role: ["moderator"] }]
+                        exclude: [{ roles: ["moderator"] }]
                     }
                 ]
             }

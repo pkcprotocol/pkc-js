@@ -5,7 +5,7 @@
     "scripts": {
         "prebuild": "node config/generate-version.js",
         "check:pr-title": "node .github/workflows/check-pr-title-type.cjs",
-        "build": "npm run clean && run-s build:node build:browser verify:browser-imports build:node:bundle verify:bundle",
+        "build": "npm run clean && run-s build:node verify:module-import-order build:browser verify:browser-imports build:node:bundle verify:bundle",
         "build:node": "tsc --project config/tsconfig.json",
         "build:node:bundle": "node config/build-node-bundle.js",
         "verify:bundle": "node config/verify-bundle.js",
@@ -13,6 +13,7 @@
         "build:browser": "node config/build-browser",
         "build:browser:watch": "node config/build-browser --watch",
         "verify:browser-imports": "node config/verify-browser-imports.js",
+        "verify:module-import-order": "node config/verify-module-import-order.js",
         "build:watch": "npm-run-all build:node --parallel build:node:watch build:browser:watch",
         "test": "run-s test:node test:browser:chrome test:browser:firefox",
         "test:node": "node test/run-test-config.js --environment node --per-test-logs .tmp/per-test-logs-node test src/rpc/test",

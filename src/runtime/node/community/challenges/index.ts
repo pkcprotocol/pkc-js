@@ -408,7 +408,7 @@ const getPendingChallengesOrChallengeVerification = async ({
     // Phase 1: request-only excludes (parallel). Indexes excluded here never reach getChallenge.
     await Promise.all(
         communityChallenges.map(async (communityChallenge, i) => {
-            if (shouldExcludePublication(communityChallenge, challengeRequestMessage, community)) {
+            if (await shouldExcludePublication(communityChallenge, challengeRequestMessage, community)) {
                 decided[i] = true;
                 return;
             }
