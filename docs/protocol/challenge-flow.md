@@ -78,7 +78,7 @@ Exclude logic: `src/runtime/node/community/challenges/exclude/exclude.ts`
 | key-derived address (`exclude.publicKeys`, a raw `roles` key, a raw blacklist/whitelist entry) | it equals the address derived from `signature.publicKey`                                                                                                                                                                         |
 | domain (`exclude.names`, a domain `roles` key, a domain blacklist/whitelist entry)             | it equals the wire `author.name` **and** resolves to the signer address. Resolution happens at match time with `cache: { maxAge: 0 }`, regardless of `pkc.resolveAuthorNames`. A resolver failure is a non-match, never an error |
 
-There is no `exclude.address`; the schema rejects it. Private settings written before DB version 42 are migrated by `DbHandler._migrateOldSettings`, which splits the old `address` array by kind into `publicKeys` and `names`. See issue #267.
+There is no `exclude.address`, and `exclude.role` is now `exclude.roles`. The private settings schema (`CommunityChallengeSettingSchema`) rejects both old fields, so a stale owner config fails loudly instead of silently becoming an exclude that matches nobody. The public record schema (`CommunityChallengeSchema`) stays loose: a client on this version still loads records published by communities that have not upgraded, where the old fields pass through unused. Private settings written before DB version 42 are migrated by `DbHandler._migrateOldSettings`, which splits the old `address` array by kind into `publicKeys` and `names` and renames `role` to `roles`. See issue #267.
 
 ## ChallengeVerification Result
 

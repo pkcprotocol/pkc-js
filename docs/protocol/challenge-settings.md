@@ -94,7 +94,7 @@ All built-in challenges also accept an `error` option (custom error message), no
 
 ## Exclude identity fields
 
-`exclude.publicKeys` lists key-derived author addresses, matched against the publication signature. `exclude.names` lists author domains, resolved at match time and required to resolve to the signer. `exclude.address` was removed (issue #267): it matched the conflated runtime `author.address`, which a publisher controls. Old private settings are migrated at DB version 42, see `docs/protocol/challenge-flow.md`.
+`exclude.publicKeys` lists key-derived author addresses, matched against the publication signature. `exclude.names` lists author domains, resolved at match time and required to resolve to the signer. `exclude.address` was removed (issue #267): it matched the conflated runtime `author.address`, which a publisher controls. `exclude.role` was renamed to `exclude.roles`. Writing either old field to `settings.challenges` is rejected with `ERR_CHALLENGE_EXCLUDE_ADDRESS_FIELD_REMOVED` / `ERR_CHALLENGE_EXCLUDE_ROLE_FIELD_RENAMED`; old private settings are migrated at DB version 42, see `docs/protocol/challenge-flow.md`.
 
 ## Common Mistakes
 
