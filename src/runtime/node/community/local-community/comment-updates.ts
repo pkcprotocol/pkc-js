@@ -200,7 +200,21 @@ export async function validateCommentUpdateSignature(
     }
 }
 
-export async function updateCommentsThatNeedToBeUpdated(community: LocalCommunity): Promise<CommentUpdateToWriteToDbAndPublishToIpfs[]> {
+export async function updateCommentsThatNeedToBeUpdated(community: LocalCommunity): Promise<CommentUpdateToWriteToDbAndPublishToIpfs[]>;
+export async function updateCommentsThatNeedToBeUpdated(
+    community: LocalCommunity,
+    onCommentUpdatesWritten: (rows: CommentUpdateToWriteToDbAndPublishToIpfs[]) => void
+): Promise<void>;
+export async function updateCommentsThatNeedToBeUpdated(
+    community: LocalCommunity,
+    // Called with each depth's rows as soon as they are written to the DB, deepest depth first. A caller
+    // that passes it decides what to keep and nothing is accumulated here, which is how the publish cycle
+    // avoids holding every comment's whole CommentUpdate (the inline reply pages are the bulk of a row)
+    // from the first depth until the record is published: it keeps the posts' rows, which become MFS
+    // files, and the cid of every other comment. A caller that wants every row, such as a test walking a
+    // small board, omits it.
+    onCommentUpdatesWritten?: (rows: CommentUpdateToWriteToDbAndPublishToIpfs[]) => void
+): Promise<CommentUpdateToWriteToDbAndPublishToIpfs[] | void> {
     const log = Logger(`pkc-js:local-community:_updateCommentsThatNeedToBeUpdated`);
 
     // Must be captured before the flag query below reads the DB — see the batchStartTimestamp
@@ -210,7 +224,7 @@ export async function updateCommentsThatNeedToBeUpdated(community: LocalCommunit
     // Get all comments that need to be updated
     const commentsToUpdate = community._dbHandler.queryCommentsToBeUpdated();
 
-    if (commentsToUpdate.length === 0) return [];
+    if (commentsToUpdate.length === 0) return onCommentUpdatesWritten ? undefined : [];
 
     community._communityUpdateTrigger = true;
     log(`Will update ${commentsToUpdate.length} comments in this update loop for community (${community.address})`);
@@ -222,7 +236,7 @@ export async function updateCommentsThatNeedToBeUpdated(community: LocalCommunit
     const commentsByDepth = groupBy(commentsToUpdate, (comment) => comment.depth);
     const depthsDeepestFirst = keys(commentsByDepth).sort((a, b) => Number(b) - Number(a));
     const authorMemo: CommunityAuthorMemo = new Map();
-    const allCommentUpdateRows: CommentUpdateToWriteToDbAndPublishToIpfs[] = [];
+    const allCommentUpdateRows: CommentUpdateToWriteToDbAndPublishToIpfs[] | undefined = onCommentUpdatesWritten ? undefined : [];
     const limit = pLimit(50);
     for (const depthKey of depthsDeepestFirst) {
         const commentsAtDepth = commentsByDepth[depthKey];
@@ -241,14 +255,24 @@ export async function updateCommentsThatNeedToBeUpdated(community: LocalCommunit
             )
         );
         community._dbHandler.upsertCommentUpdates(depthResults.map((result) => result.newCommentUpdateToWriteToDb));
-        allCommentUpdateRows.push(...depthResults);
+        // Slicing a depth into smaller batches (down to 500) was measured on a 56k-comment board (#355) and moved
+        // neither the peak nor the live heap of the cycle, under a 4 GiB and under a 700 MiB heap alike,
+        // while a 500-comment slice cost the phase 28% in time: the per-depth reads of issue #352 are what
+        // pay for themselves here. A depth is calculated whole.
+        if (onCommentUpdatesWritten) onCommentUpdatesWritten(depthResults);
+        else allCommentUpdateRows!.push(...depthResults);
     }
     return allCommentUpdateRows;
 }
 
 export async function syncPostUpdatesWithIpfs(
     community: LocalCommunity,
-    commentUpdateRowsToPublishToIpfs: CommentUpdateToWriteToDbAndPublishToIpfs[]
+    commentUpdateRowsToPublishToIpfs: CommentUpdateToWriteToDbAndPublishToIpfs[],
+    // The cid of every comment this cycle updated, posts and replies alike: all of them are marked as
+    // published once the posts' files are in MFS, and only the posts have a file to write. The cycle
+    // passes the cids it collected instead of the rows they came from, which is what lets it drop every
+    // reply's CommentUpdate as soon as it is written to the DB. Defaults to the given rows' own cids.
+    cidsUpdatedInThisCycle: string[] = commentUpdateRowsToPublishToIpfs.map((row) => row.newCommentUpdate.cid)
 ) {
     const log = Logger("pkc-js:local-community:sync:_syncPostUpdatesFilesystemWithIpfs");
 
@@ -338,7 +362,7 @@ export async function syncPostUpdatesWithIpfs(
         "with MFS postUpdates directory",
         postUpdatesDirectoryCidString
     );
-    community._dbHandler.markCommentsAsPublishedToPostUpdates(commentUpdateRowsToPublishToIpfs.map((row) => row.newCommentUpdate.cid));
+    community._dbHandler.markCommentsAsPublishedToPostUpdates(cidsUpdatedInThisCycle);
 }
 
 export async function adjustPostUpdatesBucketsIfNeeded(community: LocalCommunity) {
