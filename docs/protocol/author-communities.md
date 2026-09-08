@@ -46,7 +46,7 @@ await community.edit({
                 name: "fail",
                 options: { error: "Only the owner can post to this profile." },
                 publicOptions: ["error"], // publish the rejection text, see "What a reader can actually tell"
-                exclude: [{ role: ["owner"] }]
+                exclude: [{ roles: ["owner"] }]
             }
         ]
     }
@@ -71,7 +71,7 @@ await community.edit({
                 options: { error: "Only the owner can post to this profile." },
                 publicOptions: ["error"],
                 exclude: [
-                    { role: ["owner"] },
+                    { roles: ["owner"] },
                     // no `vote`: votes stay rejected in this flavor too, see below
                     { publicationType: { reply: true, commentEdit: true, commentModeration: true, communityEdit: true } }
                 ]
@@ -79,7 +79,7 @@ await community.edit({
             {
                 name: "question",
                 options: { question: "...", answer: "..." },
-                exclude: [{ role: ["owner"] }]
+                exclude: [{ roles: ["owner"] }]
             }
         ]
     }
@@ -163,7 +163,7 @@ Owner-only posting is a property of an honest node's configuration.
 ### `roles` and `settings.challenges` are set in two different places
 
 `roles` is a top-level field on the **public signed record**, so it travels to readers and is what
-`exclude.role` matches against. `settings` is **private and local-only**. Both are passed through
+`exclude.roles` matches against. `settings` is **private and local-only**. Both are passed through
 `createCommunity` or `community.edit`, but only one of them is published. Setting the challenges
 without the roles is the most likely way to get this wrong, and it fails in a confusing direction:
 
@@ -180,17 +180,28 @@ rejected by their own `fail` challenge.
 
 ### The roles key
 
-`exclude.role` matches `community.roles[author.address]`, and `author.address` is `name || publicKey`.
-So the key must be whatever form the owner actually publishes under.
+`exclude.roles` does not look the publisher up by `author.address`. It walks the roles map and binds
+each key to the **signer** of the publication, the same way `isPublicationAuthorPartOfRoles` does for
+moderation authority (see the identity table in `challenge-flow.md`). Either form of the owner's
+identity is a valid key, and each one matches by its own rule:
 
-- A PKC address, an IPNS name and a community `publicKey` are all the **same base58btc peer ID**
-  (`12D3Koo...`). The key is therefore literally the string passed as `anchor.publicKey`. It is not
-  `signer.publicKey`, which is base64 raw key material.
-- If the owner publishes with `author.name` set to a domain, `author.address` is that **domain**, and
-  a peer-ID key silently fails to match. `exclude` matching is a bare map lookup with no name
-  resolution, unlike `isPublicationAuthorPartOfRoles`.
+- **The peer-ID key** (`author.publicKey`) matches when it equals the address derived from
+  `signature.publicKey`. That holds whatever `author.name` the owner sends, and it costs nothing: keys
+  are compared before any name is resolved, so an owner listed this way never waits on a resolver.
+- **The domain key** (`author.name`) matches only when the owner publishes with that exact name and
+  the name resolves, fresh, to the signer. Resolution runs regardless of `resolveAuthorNames` and
+  bypasses the cache, because a role grants authority and must reflect current state. An owner who
+  holds the domain but publishes without `author.name` does not match a domain-only map.
 
-**Put both forms in the roles map** so the owner matches either way:
+A PKC address, an IPNS name and a community `publicKey` are all the **same base58btc peer ID**
+(`12D3Koo...`), so the peer-ID key is literally the string passed as `anchor.publicKey`. It is not
+`signer.publicKey`, which is base64 raw key material. Wire fields and roles keys always carry the
+base58btc form. The base36 and base32 encodings of the same key (`k51...`, `bafz...`) only appear in
+gateway paths, and the address schema is a plain string, so a roles key copied from a gateway URL is
+accepted and never matches.
+
+Both keys can sit in the map side by side. The peer-ID key is what `createCommunity` gives an owner;
+the domain key is what an owner adds once they publish under a domain and want the record to show it:
 
 ```js
 roles: {
@@ -199,14 +210,11 @@ roles: {
 }
 ```
 
-The domain key inherits the weakness in [#267](https://github.com/pkcprotocol/pkc-js/issues/267):
-`exclude` compares a string the publisher partly controls, so a domain-keyed rule is only sound while
-`resolveAuthorNames` is on, which is the default. The peer-ID key has no such dependency, because
-`isStringDomain` forbids a raw address as an `author.name`.
-
-One further trap: the anchor schema accepts base36 and base32 CIDv1 peer-ID forms (`k51...`, `bafz...`)
-that are valid IPNS names but are not what the address derivation emits. A roles key written that way
-never matches.
+A resolver failure while matching a domain key is a non-match today: the node logs it at debug level,
+the owner's post falls through to the `fail` challenge and is rejected with the challenge's own text,
+so nothing tells a moderator that the node's `resolveAuthorNames` or `nameResolvers` are the problem.
+Surfacing that as a distinct error is tracked in
+[#353](https://github.com/pkcprotocol/pkc-js/issues/353).
 
 ## Declaring the profile to UIs
 
