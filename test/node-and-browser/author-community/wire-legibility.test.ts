@@ -27,7 +27,7 @@ const OWNER_ONLY_ERROR = "Only the owner can post to this profile.";
 // docs/protocol/author-communities.md. The feed-only default carries a simpler signal entirely, the
 // absence of pubsubTopic, tested below.
 const ownerOnlyExclude = [
-    { role: ["owner"] },
+    { roles: ["owner"] },
     { publicationType: { reply: true, commentEdit: true, commentModeration: true, communityEdit: true } }
 ];
 
@@ -73,7 +73,7 @@ function buildProfileRecord(challenge: Record<string, unknown> = ownerOnlyPublic
 // The feed-only default: settings.disablePubsubChallengeExchange makes the record omit pubsubTopic,
 // and the backing fail challenge excludes the owner alone rather than carving out replies.
 function buildFeedOnlyProfileRecord(): CommunityIpfsType {
-    const record = buildProfileRecord({ ...clone(ownerOnlyPublicChallenge), exclude: [{ role: ["owner"] }] });
+    const record = buildProfileRecord({ ...clone(ownerOnlyPublicChallenge), exclude: [{ roles: ["owner"] }] });
     delete record.pubsubTopic;
     return record;
 }
@@ -85,7 +85,7 @@ function buildFeedOnlyProfileRecord(): CommunityIpfsType {
 function readPostingExemptions(record: CommunityIpfsType): { nonOwnerPostsAreGated: boolean; owners: string[] } {
     const nonOwnerPostsAreGated = (record.challenges ?? []).some((challenge) => {
         const excludes = challenge.exclude ?? [];
-        const ownerIsExcused = excludes.some((exclude) => exclude.role?.includes("owner"));
+        const ownerIsExcused = excludes.some((exclude) => exclude.roles?.includes("owner"));
         const repliesAreExcused = excludes.some((exclude) => exclude.publicationType?.reply === true);
         const postsAreExcused = excludes.some((exclude) => exclude.publicationType?.post === true);
         return ownerIsExcused && repliesAreExcused && !postsAreExcused;

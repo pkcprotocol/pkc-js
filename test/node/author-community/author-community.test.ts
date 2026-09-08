@@ -18,10 +18,7 @@
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import fs from "fs";
 import path from "path";
-import net from "node:net";
-import { v4 as uuidv4 } from "uuid";
 import PKC from "../../../dist/node/index.js";
-import PKCWsServer from "../../../dist/node/rpc/src/index.js";
 import {
     createMockNameResolver,
     createSubWithNoChallenge,
@@ -46,8 +43,8 @@ import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/
 import type { CommunityChallengeSetting } from "../../../dist/node/community/types.js";
 import type { SignerType } from "../../../dist/node/signer/types.js";
 import type { DecryptedChallengeVerificationMessageType } from "../../../dist/node/pubsub-messages/types.js";
+import { createInProcessRpcServer, uniqueTmpDataPath } from "../../helpers/rpc-server-harness.js";
 
-type PKCWsServerType = Awaited<ReturnType<typeof PKCWsServer.PKCWsServer>>;
 type ProfileCommunity = LocalCommunity | RpcLocalCommunity;
 
 const OWNER_DOMAIN = "author-community-owner.bso";
@@ -57,24 +54,6 @@ const OWNER_DOMAIN = "author-community-owner.bso";
 const OTHER_OWNER_DOMAIN = "author-community-other-owner.bso";
 const OWNER_ONLY_ERROR = "Only the owner can post to this profile.";
 const RPC_AUTH_KEY = "test-author-community";
-
-const getAvailablePort = async (startPort = 39880): Promise<number> => {
-    for (let port = startPort; port < startPort + 100; port++) {
-        try {
-            return await new Promise<number>((resolve, reject) => {
-                const server = net.createServer();
-                server.unref();
-                server.on("error", reject);
-                server.listen(port, () => {
-                    server.close(() => resolve(port));
-                });
-            });
-        } catch {
-            continue;
-        }
-    }
-    throw new Error(`No available port found in range ${startPort}-${startPort + 99}`);
-};
 
 // The resolver reads this map at resolve time, so entries can be added after the pkc is built. Under
 // RPC the server pkc is in this same process, so it shares the map by reference.
@@ -91,20 +70,11 @@ async function createHarness(): Promise<{ pkc: PKCType; teardown: () => Promise<
     // A fresh dataPath per run. This suite creates communities on the server, so a fixed path would
     // accumulate them across runs, and any run that dies before afterAll leaves a started community
     // behind for the next server to resume at startup, which eventually times out the beforeAll hook.
-    const dataPath = path.join(process.cwd(), ".tmp", `pkc-rpc-author-community-${uuidv4()}`);
+    // The mock resolver goes on the server pkc here, since the shared harness injects the pkc as-is.
+    const dataPath = uniqueTmpDataPath("pkc-rpc-author-community");
     const serverPKC = await mockRpcServerPKC({ dataPath, nameResolvers });
-    const rpcPort = await getAvailablePort();
-    const rpcUrl = `ws://localhost:${rpcPort}`;
-    const rpcServer: PKCWsServerType = await PKCWsServer.PKCWsServer({
-        port: rpcPort,
-        authKey: RPC_AUTH_KEY,
-        pkcOptions: {
-            kuboRpcClientsOptions: ["http://localhost:15001/api/v0"],
-            httpRoutersOptions: [],
-            dataPath: serverPKC.dataPath
-        }
-    });
-    (rpcServer as unknown as Record<string, Function>)._initPKC(serverPKC);
+    const { rpcServer, rpcUrl } = await createInProcessRpcServer({ serverPKC, authKey: RPC_AUTH_KEY });
+    // The harness only binds and injects; publishing over RPC still needs the test relaxations.
     mockRpcServerForTests(rpcServer);
 
     const pkc = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
@@ -112,7 +82,7 @@ async function createHarness(): Promise<{ pkc: PKCType; teardown: () => Promise<
         pkc,
         teardown: async () => {
             await pkc.destroy();
-            await rpcServer.destroy();
+            await rpcServer.destroy(); // also destroys the injected serverPKC
             fs.rmSync(dataPath, { recursive: true, force: true });
         }
     };
@@ -129,7 +99,7 @@ function ownerOnlyChallenge(): CommunityChallengeSetting {
         // Options are private by default. Naming `error` here publishes that one value, so a reader sees
         // the rejection text without publishing anything. It is a hint, not proof: see the wire test below.
         publicOptions: ["error"],
-        exclude: [{ role: ["owner"] }]
+        exclude: [{ roles: ["owner"] }]
     };
 }
 
@@ -143,7 +113,7 @@ function replyAbleChallenge(): CommunityChallengeSetting {
     return {
         ...ownerOnlyChallenge(),
         exclude: [
-            { role: ["owner"] },
+            { roles: ["owner"] },
             { publicationType: { reply: true, commentEdit: true, commentModeration: true, communityEdit: true } }
         ]
     };
@@ -187,8 +157,8 @@ describe.sequential("author community: a community configured as a profile", () 
 
         // The default feed-only config from the protocol doc: the exchange is disabled, so every
         // publish in this suite goes through the local/RPC shortcut, where the challenge pipeline
-        // still runs. Both roles keys, because exclude.role matches community.roles[author.address]
-        // and author.address is `name || publicKey`. See "The roles key" in the protocol doc.
+        // still runs. Both roles keys: each is bound to the signer by its own rule, and the suite
+        // exercises both. See "The roles key" in the protocol doc.
         await community.edit({
             roles: { [anchorSigner.address]: { role: "owner" }, [OWNER_DOMAIN]: { role: "owner" } },
             settings: { ...community.settings, disablePubsubChallengeExchange: true, challenges: [ownerOnlyChallenge()] }
@@ -227,9 +197,10 @@ describe.sequential("author community: a community configured as a profile", () 
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
         });
 
-        // author.address becomes the domain once author.name is set, so this exercises the other roles
-        // key. checkAuthorIdentity resolves the domain and compares it against the signer first.
-        it("accepts the owner's post when they publish under their domain, matched on the domain roles key", async () => {
+        // With both keys in the map the peer-id key still matches first and no name is resolved, so
+        // this only proves the domain form does not break the owner. The domain-only block below is
+        // what exercises the domain key's own rule.
+        it("accepts the owner's post when they publish under their domain", async () => {
             const post = await generateMockPost({
                 communityAddress: community.address,
                 pkc,
@@ -356,7 +327,7 @@ describe.sequential("author community: a community configured as a profile", () 
             expect(published[0].exclude).to.deep.equal(ownerOnlyChallenge().exclude);
         });
 
-        it("publishes the roles map, which is what exclude.role is matched against", () => {
+        it("publishes the roles map, which is what exclude.roles is matched against", () => {
             expect(community.raw.communityIpfs!.roles).to.deep.equal({
                 [anchorSigner.address]: { role: "owner" },
                 [OWNER_DOMAIN]: { role: "owner" }
@@ -454,50 +425,62 @@ describe.sequential("author community: a community configured as a profile", () 
         });
     });
 
-    // The failure mode the protocol doc warns about: the excludes are configured and the roles map
-    // exists, but it is keyed on a form the owner does not publish under. Everything looks correct until
-    // the first post. This block is also what proves the challenge is genuinely wired up, since it is
-    // the one rejection that has to happen for the acceptance tests above to mean anything.
-    describe("a roles map keyed on the wrong form locks the owner out", () => {
-        let peerIdOnlyCommunity: ProfileCommunity;
+    // The one lock-out left after #267: the excludes are configured and the roles map exists, but it
+    // carries only the owner's domain, and the domain key matches only when the owner publishes under
+    // that exact name and it resolves to the signer. Everything looks correct until the first post
+    // sent without author.name. This block is also what proves the challenge is genuinely wired up,
+    // since it is the one owner rejection that has to happen for the acceptance tests above to mean
+    // anything.
+    describe("a roles map keyed on the domain alone", () => {
+        let domainOnlyCommunity: ProfileCommunity;
         let otherAnchor: SignerType;
 
         beforeAll(async () => {
             otherAnchor = await createSigner();
             resolverRecords.set(OTHER_OWNER_DOMAIN, otherAnchor.address);
 
-            peerIdOnlyCommunity = await createSubWithNoChallenge({ anchor: { publicKey: otherAnchor.address } }, pkc);
-            // Only the peer-id key. exclude.role does a bare map lookup with no name resolution, unlike
-            // isPublicationAuthorPartOfRoles, so publishing under a domain misses this entirely.
-            await peerIdOnlyCommunity.edit({
-                roles: { [otherAnchor.address]: { role: "owner" } },
-                settings: { ...peerIdOnlyCommunity.settings, challenges: [ownerOnlyChallenge()] }
+            domainOnlyCommunity = await createSubWithNoChallenge({ anchor: { publicKey: otherAnchor.address } }, pkc);
+            await domainOnlyCommunity.edit({
+                roles: { [OTHER_OWNER_DOMAIN]: { role: "owner" } },
+                settings: { ...domainOnlyCommunity.settings, challenges: [ownerOnlyChallenge()] }
             });
-            await startProfile(peerIdOnlyCommunity, otherAnchor);
+            await startProfile(domainOnlyCommunity, otherAnchor);
         });
 
         afterAll(async () => {
-            await peerIdOnlyCommunity.delete();
+            await domainOnlyCommunity.delete();
         });
 
-        it("rejects the owner's own post when they publish under a domain the roles map does not carry", async () => {
+        it("rejects the owner's own post when they publish without the name the roles map carries", async () => {
             const post = await generateMockPost({
-                communityAddress: peerIdOnlyCommunity.address,
+                communityAddress: domainOnlyCommunity.address,
                 pkc,
-                postProps: { signer: otherAnchor, author: { name: OTHER_OWNER_DOMAIN } }
+                postProps: { signer: otherAnchor }
             });
             const verification = await publishAndCaptureVerification(post);
             expect(verification.challengeSuccess).to.be.false;
             expect(verification.challengeErrors?.["0"]).to.equal(OWNER_ONLY_ERROR);
         });
 
-        it("accepts the same owner publishing without a name, which matches the peer-id key", async () => {
+        it("accepts the same owner publishing under the domain, which resolves to the signer", async () => {
             const post = await generateMockPost({
-                communityAddress: peerIdOnlyCommunity.address,
+                communityAddress: domainOnlyCommunity.address,
                 pkc,
-                postProps: { signer: otherAnchor }
+                postProps: { signer: otherAnchor, author: { name: OTHER_OWNER_DOMAIN } }
             });
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
+        });
+
+        // Rejected either by the author identity check or by the challenge, depending on where the
+        // signer mismatch is caught first; only the outcome matters here, so the reason is not pinned.
+        it("rejects an impostor claiming the domain, since the name must resolve to the signer", async () => {
+            const post = await generateMockPost({
+                communityAddress: domainOnlyCommunity.address,
+                pkc,
+                postProps: { author: { name: OTHER_OWNER_DOMAIN } }
+            });
+            const verification = await publishAndCaptureVerification(post);
+            expect(verification.challengeSuccess).to.be.false;
         });
     });
 });
