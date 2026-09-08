@@ -84,10 +84,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             // The whole board fits in one chunk, so every thread embeds its replies as the whole set; the walk reads them
             const replies = await walkRepliesOfPage({ comments: page.comments, pkc });
-            expect(replies.map((entry) => entry.comment.content).sort()).to.deep.equal([
-                PAGE_SORTS_TEST_COMMUNITY.noBumpKeyword,
-                "bumps a"
-            ]);
+            expect(replies.map((entry) => entry.comment.content).sort()).to.deep.equal(
+                [PAGE_SORTS_TEST_COMMUNITY.noBumpKeyword, "bumps a"].sort()
+            );
             const resorted = resortPageLikeAUi({
                 comments: shuffled(page.comments),
                 factory,
