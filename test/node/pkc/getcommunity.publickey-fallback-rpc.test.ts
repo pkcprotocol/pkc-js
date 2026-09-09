@@ -64,7 +64,9 @@ describe("pkc.getCommunity publicKey fallback over RPC", () => {
             expect(community.address).to.equal("test.sol");
             expect(community.publicKey).to.equal(communityAddress);
             expect(community.updatedAt).to.be.a("number");
-            expect(community.nameResolved).to.equal(false);
+            // The server's resolvers genuinely cannot handle .sol, so it never learns whether the name points
+            // here. Undefined, not false: false would assert the name does not resolve, on no evidence. #353
+            expect(community.nameResolved).to.be.undefined;
             expect(community.state).to.equal("stopped");
         } finally {
             await clientPKC.destroy();

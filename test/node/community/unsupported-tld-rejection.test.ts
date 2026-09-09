@@ -1,4 +1,5 @@
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
+import { describeSkipIfRpc, itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import {
     mockPKC,
     createMockNameResolver,
@@ -48,7 +49,12 @@ describe("Community rejects publications with unsupported author TLDs", () => {
         await pkc.destroy();
     });
 
-    it("rejects Comment with unsupported TLD (.xyz)", async () => {
+    // itSkipIfRpc: the restricted resolver above is configured on this client, but under RPC the community
+    // lives on the server and validates with the server's own (unrestricted) resolvers. There .xyz is handled
+    // and simply has no record, so the publication is refused for a different, equally correct reason
+    // (ERR_AUTHOR_NAME_HAS_NO_RECORD) and this file cannot assert one reason across both configs. Before #353
+    // split the reasons, both paths returned the same message and the difference was invisible.
+    itSkipIfRpc("rejects Comment with unsupported TLD (.xyz)", async () => {
         const unsupportedTldAddress = "user.xyz";
         const signer = await pkc.createSigner();
 
@@ -69,7 +75,7 @@ describe("Community rejects publications with unsupported author TLDs", () => {
         });
     });
 
-    it("rejects Vote with unsupported TLD (.xyz)", async () => {
+    itSkipIfRpc("rejects Vote with unsupported TLD (.xyz)", async () => {
         // even we as a rpc client, the rpc server shouldn't refuse to publish it even if it doesn't have .xyz resolver
         // rpc server should just trust the rpc client and publish it, the community owner will take care of validation
 
@@ -91,7 +97,7 @@ describe("Community rejects publications with unsupported author TLDs", () => {
         });
     });
 
-    it("rejects CommentEdit with unsupported TLD (.xyz)", async () => {
+    itSkipIfRpc("rejects CommentEdit with unsupported TLD (.xyz)", async () => {
         // even we as a rpc client, the rpc server shouldn't refuse to publish it even if it doesn't have .xyz resolver
         // rpc server should just trust the rpc client and publish it, the community owner will take care of validation
 
@@ -130,12 +136,16 @@ describe("Community rejects publications with unsupported author TLDs", () => {
     });
 });
 
+// describeSkipIfRpc: each case drives one resolver outcome through a resolver configured on this client. Under
+// RPC the community validates with the server's resolvers instead, which this test cannot reconfigure, so none
+// of these outcomes would be the one actually exercised.
+//
 // Issue #353. checkPublicationValidity resolves the wire author.name for every publication that carries one,
 // and its policy is unchanged: an author name it cannot verify against the signer is refused, whatever the
 // publication type. What changed is that the four ways that can happen no longer share one message, because
 // each asks the publisher to do something different: add a TXT record, fix the value in the one they have,
 // use a name this community can resolve, or wait for the community's node to recover.
-describe("Community names the reason it could not verify an author name", () => {
+describeSkipIfRpc("Community names the reason it could not verify an author name", () => {
     let pkc: PKC;
     let community: LocalCommunity | RpcLocalCommunity;
     // Flipped per test to drive one resolver outcome at a time.

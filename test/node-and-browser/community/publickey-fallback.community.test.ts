@@ -8,6 +8,7 @@ import {
 } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 
@@ -87,7 +88,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await community.stop();
         });
 
-        it(`update() succeeds via publicKey when no resolver handles .sol`, async () => {
+        // itSkipIfRpc: the resolver set below is configured on this client, but under RPC the community is
+        // resolved on the server with its own (unrestricted) mock resolvers, which do handle this name and
+        // answer "no record" — a definitive false rather than the undefined a client that cannot ask gets.
+        // Before #353 both paths produced false and the difference was invisible. Issue #353.
+        itSkipIfRpc(`update() succeeds via publicKey when no resolver handles .sol`, async () => {
             // Create a real IPNS record
             const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
 
@@ -158,7 +163,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         // Issue #353. Nothing drove this path with a throwing resolver before: every nameResolved=false test
         // used a resolver that returned no record, so the two were never told apart on the community side.
-        it(`update() succeeds via publicKey and leaves nameResolved undefined when every resolver errors`, async () => {
+        // itSkipIfRpc: the resolver set below is configured on this client, but under RPC the community is
+        // resolved on the server with its own (unrestricted) mock resolvers, which answer normally instead of
+        // erroring, so the outage this drives never happens on the side that computes the verdict.
+        // Before #353 both paths produced false and the difference was invisible. Issue #353.
+        itSkipIfRpc(`update() succeeds via publicKey and leaves nameResolved undefined when every resolver errors`, async () => {
             const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
 
             const testPKC = await config.pkcInstancePromise({
@@ -393,7 +402,9 @@ describe(`publicKey fallback - .sol community loading`, () => {
                 await testPKC.destroy();
             });
 
-            it(`createCommunity({ name: "mycommunity.sol", publicKey }) succeeds via publicKey fallback`, async () => {
+            // itSkipIfRpc: as above, the restricted resolver is client-local and the RPC server resolves
+            // .sol with its own, reaching a definitive "no record" instead of never asking. Issue #353.
+            itSkipIfRpc(`createCommunity({ name: "mycommunity.sol", publicKey }) succeeds via publicKey fallback`, async () => {
                 const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
 
                 const testPKC = await config.pkcInstancePromise({
