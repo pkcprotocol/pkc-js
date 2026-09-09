@@ -14,11 +14,15 @@ import { getPKCAddressFromPublicKeySync } from "../../../../../signer/util.js";
 
 // Does the author hold one of excludeRole in community.roles? Role keys may be key-derived addresses or domains;
 // both are bound to the signer through the identity matcher rather than compared against author.address.
-const testRole = async (
-    excludeRole: NonNullable<Exclude["roles"]>,
-    identityMatcher: AuthorIdentityMatcher,
-    communityRoles: LocalCommunity["roles"]
-): Promise<IdentityMatchOutcome> => {
+const testRole = async ({
+    excludeRole,
+    identityMatcher,
+    communityRoles
+}: {
+    excludeRole: NonNullable<Exclude["roles"]>;
+    identityMatcher: AuthorIdentityMatcher;
+    communityRoles: LocalCommunity["roles"];
+}): Promise<IdentityMatchOutcome> => {
     if (!communityRoles) return { matched: false }; // can't verify roles, so assume the author doesn't have the excluded role
     const roleKeys = Object.keys(communityRoles).filter((roleKey) => excludeRole.includes(communityRoles[roleKey].role));
     if (roleKeys.length === 0) return { matched: false };
@@ -31,12 +35,17 @@ const testRole = async (
 // predicate already passed. See issue #353.
 export type ShouldExcludeResult = { shouldExclude: boolean; nameFailure?: NameIdentityFailure };
 
-const shouldExcludePublication = async (
-    communityChallenge: CommunityChallenge,
-    request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
-    community: LocalCommunity,
-    identityMatcher: AuthorIdentityMatcher
-): Promise<ShouldExcludeResult> => {
+const shouldExcludePublication = async ({
+    communityChallenge,
+    request,
+    community,
+    identityMatcher
+}: {
+    communityChallenge: CommunityChallenge;
+    request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+    community: LocalCommunity;
+    identityMatcher: AuthorIdentityMatcher;
+}): Promise<ShouldExcludeResult> => {
     if (!communityChallenge) {
         throw Error(`shouldExcludePublication invalid communityChallenge argument '${communityChallenge}'`);
     }
@@ -125,7 +134,7 @@ const shouldExcludePublication = async (
             }
         }
         if (shouldExclude && Array.isArray(exclude.roles)) {
-            const roleMatch = await testRole(exclude.roles, identityMatcher, community?.roles);
+            const roleMatch = await testRole({ excludeRole: exclude.roles, identityMatcher, communityRoles: community?.roles });
             if (!roleMatch.matched) {
                 shouldExclude = false;
                 nameFailure ??= roleMatch.nameFailure;

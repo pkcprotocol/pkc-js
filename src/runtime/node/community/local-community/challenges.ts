@@ -252,14 +252,26 @@ export async function publishIdempotentDuplicateVerification(
     cleanUpChallengeAnswerPromise(community, challengeRequestId.toString());
 }
 
-export async function storePublicationAndEncryptForChallengeVerification(
-    community: LocalCommunity,
-    request: DecryptedChallengeRequestMessageType,
-    authorIdentityMatcher: AuthorIdentityMatcher,
-    pendingApproval?: boolean,
-    challengeAggregate?: ChallengeResultAggregate
-): Promise<(DecryptedChallengeVerification & Required<Pick<DecryptedChallengeVerificationMessageType, "encrypted">>) | undefined> {
-    const commentAfterAddingToIpfs = await storePublication(community, request, authorIdentityMatcher, pendingApproval, challengeAggregate);
+export async function storePublicationAndEncryptForChallengeVerification({
+    community,
+    request,
+    pendingApproval,
+    challengeAggregate,
+    authorIdentityMatcher
+}: {
+    community: LocalCommunity;
+    request: DecryptedChallengeRequestMessageType;
+    pendingApproval?: boolean;
+    challengeAggregate?: ChallengeResultAggregate;
+    authorIdentityMatcher?: AuthorIdentityMatcher;
+}): Promise<(DecryptedChallengeVerification & Required<Pick<DecryptedChallengeVerificationMessageType, "encrypted">>) | undefined> {
+    const commentAfterAddingToIpfs = await storePublication({
+        community,
+        request,
+        pendingApproval,
+        challengeAggregate,
+        authorIdentityMatcher
+    });
     if (!commentAfterAddingToIpfs) return undefined;
     const authorSignerAddress = await getPKCAddressFromPublicKey(commentAfterAddingToIpfs.comment.signature.publicKey);
     const authorDomain = getAuthorNameFromWire(commentAfterAddingToIpfs.comment.author);
@@ -300,14 +312,21 @@ export async function storePublicationAndEncryptForChallengeVerification(
     return { ...toEncrypt, encrypted };
 }
 
-export async function publishChallengeVerification(
-    community: LocalCommunity,
-    challengeResult: Pick<ChallengeVerificationMessageType, "challengeErrors" | "challengeSuccess" | "reason">,
-    request: DecryptedChallengeRequestMessageType,
-    authorIdentityMatcher: AuthorIdentityMatcher,
-    pendingApproval?: boolean,
-    challengeAggregate?: ChallengeResultAggregate
-) {
+export async function publishChallengeVerification({
+    community,
+    challengeResult,
+    request,
+    pendingApproval,
+    challengeAggregate,
+    authorIdentityMatcher
+}: {
+    community: LocalCommunity;
+    challengeResult: Pick<ChallengeVerificationMessageType, "challengeErrors" | "challengeSuccess" | "reason">;
+    request: DecryptedChallengeRequestMessageType;
+    pendingApproval?: boolean;
+    challengeAggregate?: ChallengeResultAggregate;
+    authorIdentityMatcher?: AuthorIdentityMatcher;
+}) {
     const log = Logger("pkc-js:local-community:_publishChallengeVerification");
     if (!challengeResult.challengeSuccess)
         return publishFailedChallengeVerification(community, challengeResult, request.challengeRequestId);
@@ -320,13 +339,13 @@ export async function publishChallengeVerification(
             | undefined;
 
         try {
-            toEncrypt = await storePublicationAndEncryptForChallengeVerification(
+            toEncrypt = await storePublicationAndEncryptForChallengeVerification({
                 community,
                 request,
-                authorIdentityMatcher,
                 pendingApproval,
-                challengeAggregate
-            );
+                challengeAggregate,
+                authorIdentityMatcher
+            });
         } catch (e) {
             const error = e as PKCError;
             if (DUPLICATE_PUBLICATION_ERRORS.has(error.message)) {
@@ -598,13 +617,13 @@ async function validatePublicationOrRespondWithFailure({
 
     const authorIdentityMatcher = createAuthorIdentityMatcher({ community, publication });
 
-    const publicationInvalidityReason = await checkPublicationValidity(
+    const publicationInvalidityReason = await checkPublicationValidity({
         community,
-        decryptedRequestMsg,
+        request: decryptedRequestMsg,
         publication,
-        authorIdentityMatcher,
-        communityAuthor
-    );
+        authorCommunity: communityAuthor,
+        authorIdentityMatcher
+    });
     if (publicationInvalidityReason) {
         if (DUPLICATE_PUBLICATION_ERRORS.has(publicationInvalidityReason)) {
             const sig = publication.signature.signature;
@@ -725,14 +744,14 @@ async function runVerificationAndStorePublication(
         challengeErrors: challengeVerification.challengeErrors,
         reason: challengeVerification.reason ?? challengeVerification.aggregatedReason
     };
-    await publishChallengeVerification(
+    await publishChallengeVerification({
         community,
-        challengeResultForPublish,
-        parsed.decryptedRequestMsg,
-        parsed.authorIdentityMatcher,
-        challengeVerification.pendingApproval,
-        aggregate
-    );
+        challengeResult: challengeResultForPublish,
+        request: parsed.decryptedRequestMsg,
+        pendingApproval: challengeVerification.pendingApproval,
+        challengeAggregate: aggregate,
+        authorIdentityMatcher: parsed.authorIdentityMatcher
+    });
 }
 
 export async function handleChallengeRequest(community: LocalCommunity, request: ChallengeRequestMessageType, isLocalPublisher: boolean) {

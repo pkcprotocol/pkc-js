@@ -18,6 +18,7 @@ import { CommentModerationPubsubMessagePublicationSchema } from "../../../../pub
 import { VotePubsubMessagePublicationSchema } from "../../../../publications/vote/schema.js";
 import { addAllCidsUnderPurgedCommentToBeRemoved, rmUnneededMfsPaths } from "./cleanup.js";
 import { matchPublicationAuthorAgainstRoles } from "./publication-validation.js";
+import { authorIdentityMatcherForRequest, createAuthorIdentityMatcher } from "./author-identity.js";
 import type { AuthorIdentityMatcher } from "./author-identity.js";
 import type { CommentEditPubsubMessagePublication, CommentEditsTableRow } from "../../../../publications/comment-edit/types.js";
 import type {
@@ -109,11 +110,15 @@ export async function resolveAliasPrivateKeyForCommentPublication(
     } else throw Error(`Unsupported pseudonymityMode (${opts.mode})`);
 }
 
-export async function prepareCommentWithAnonymity(
-    community: LocalCommunity,
-    originalComment: CommentPubsubMessagePublication,
-    authorIdentityMatcher: AuthorIdentityMatcher
-): Promise<{
+export async function prepareCommentWithAnonymity({
+    community,
+    originalComment,
+    authorIdentityMatcher = createAuthorIdentityMatcher({ community, publication: originalComment })
+}: {
+    community: LocalCommunity;
+    originalComment: CommentPubsubMessagePublication;
+    authorIdentityMatcher?: AuthorIdentityMatcher;
+}): Promise<{
     publication: CommentPubsubMessagePublication;
     anonymity?: {
         aliasPrivateKey: PseudonymityAliasRow["aliasPrivateKey"];
@@ -126,7 +131,11 @@ export async function prepareCommentWithAnonymity(
     if (!mode) return { publication: originalComment };
 
     // Mods (owner, admin, moderator) are never pseudonymized
-    const modMatch = await matchPublicationAuthorAgainstRoles(community, ["owner", "admin", "moderator"], authorIdentityMatcher);
+    const modMatch = await matchPublicationAuthorAgainstRoles({
+        community,
+        rolesToCheckAgainst: ["owner", "admin", "moderator"],
+        authorIdentityMatcher
+    });
     if (modMatch.matched) return { publication: originalComment };
     // A mod whose role key is a domain the node could not verify would otherwise be pseudonymized silently:
     // no error, the wrong outcome, and irreversible once the comment is stored under an alias. Refuse the
@@ -526,13 +535,21 @@ export async function storeComment(
     return { comment: commentIpfs, cid: commentCid };
 }
 
-export async function storePublication(
-    community: LocalCommunity,
-    request: DecryptedChallengeRequestMessageType,
-    authorIdentityMatcher: AuthorIdentityMatcher,
-    pendingApproval?: boolean,
-    challengeAggregate?: ChallengeResultAggregate
-) {
+export async function storePublication({
+    community,
+    request,
+    pendingApproval,
+    challengeAggregate,
+    // Shared across the challenge request when the caller has one, so the author's domain resolves once.
+    // See issues #353 and #354.
+    authorIdentityMatcher
+}: {
+    community: LocalCommunity;
+    request: DecryptedChallengeRequestMessageType;
+    pendingApproval?: boolean;
+    challengeAggregate?: ChallengeResultAggregate;
+    authorIdentityMatcher?: AuthorIdentityMatcher;
+}) {
     if (request.vote) return storeVote(community, request.vote, request.challengeRequestId);
     else if (request.commentEdit) {
         const commentEditWithAlias = await prepareCommentEditWithAlias(community, request.commentEdit);
@@ -540,7 +557,11 @@ export async function storePublication(
     } else if (request.commentModeration) return storeCommentModeration(community, request.commentModeration, request.challengeRequestId);
     else if (request.comment) {
         const originalCommentSignatureEncoded = request.comment.signature.signature;
-        const { publication, anonymity } = await prepareCommentWithAnonymity(community, request.comment, authorIdentityMatcher);
+        const { publication, anonymity } = await prepareCommentWithAnonymity({
+            community,
+            originalComment: request.comment,
+            authorIdentityMatcher: authorIdentityMatcher ?? authorIdentityMatcherForRequest({ community, request })
+        });
         const storedComment = await storeComment(community, {
             commentPubsub: publication,
             pendingApproval,

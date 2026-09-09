@@ -17,9 +17,10 @@ import validCommentFixture from "..//fixtures/signatures/comment/commentUpdate/v
 import validVoteFixture from "../fixtures/valid_vote.json" with { type: "json" };
 
 // Type helpers for function signatures
-type CommunityChallengeArg = Parameters<typeof shouldExcludePublication>[0];
-type ChallengeRequestArg = Parameters<typeof shouldExcludePublication>[1];
-type CommunityArg = Parameters<typeof shouldExcludePublication>[2];
+type ShouldExcludeArgs = Parameters<typeof shouldExcludePublication>[0];
+type CommunityChallengeArg = ShouldExcludeArgs["communityChallenge"];
+type ChallengeRequestArg = ShouldExcludeArgs["request"];
+type CommunityArg = ShouldExcludeArgs["community"];
 
 type AddToRateLimiterChallenges = Parameters<typeof addToRateLimiter>[0];
 type AddToRateLimiterRequest = Parameters<typeof addToRateLimiter>[1];
@@ -58,12 +59,12 @@ const testShouldExcludePublication = async (
     request: Record<string, unknown>,
     community?: Record<string, unknown>
 ): Promise<boolean> => {
-    const result = await shouldExcludePublication(
-        communityChallenge as unknown as CommunityChallengeArg,
-        request as unknown as ChallengeRequestArg,
-        (community ?? undefined) as unknown as CommunityArg,
-        matcherForRequest(request, community)
-    );
+    const result = await shouldExcludePublication({
+        communityChallenge: communityChallenge as unknown as CommunityChallengeArg,
+        request: request as unknown as ChallengeRequestArg,
+        community: (community ?? undefined) as unknown as CommunityArg,
+        identityMatcher: matcherForRequest(request, community)
+    });
     return result.shouldExclude;
 };
 
@@ -74,12 +75,12 @@ const testShouldExcludeNameFailure = async (
     request: Record<string, unknown>,
     community?: Record<string, unknown>
 ) => {
-    const result = await shouldExcludePublication(
-        communityChallenge as unknown as CommunityChallengeArg,
-        request as unknown as ChallengeRequestArg,
-        (community ?? undefined) as unknown as CommunityArg,
-        matcherForRequest(request, community)
-    );
+    const result = await shouldExcludePublication({
+        communityChallenge: communityChallenge as unknown as CommunityChallengeArg,
+        request: request as unknown as ChallengeRequestArg,
+        community: (community ?? undefined) as unknown as CommunityArg,
+        identityMatcher: matcherForRequest(request, community)
+    });
     return result.nameFailure;
 };
 

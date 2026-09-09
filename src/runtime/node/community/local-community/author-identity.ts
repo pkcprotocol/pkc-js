@@ -1,5 +1,5 @@
 import Logger from "../../../../logger.js";
-import { isStringDomain } from "../../../../util.js";
+import { derivePublicationFromChallengeRequest, isStringDomain } from "../../../../util.js";
 import { getPKCAddressFromPublicKeySync } from "../../../../signer/util.js";
 import { getAuthorNameFromWire } from "../../../../publications/publication-author.js";
 import { PKCError } from "../../../../pkc-error.js";
@@ -45,6 +45,35 @@ export type AuthorIdentityMatcher = {
 
 const NO_MATCH: IdentityMatchOutcome = { matched: false };
 const MATCH: IdentityMatchOutcome = { matched: true };
+
+// The matcher for a challenge request's publication. Production builds one per request in
+// handleChallengeRequest and threads it through, so the author's domain is resolved at most once (issue
+// #354); this is the fallback for a standalone caller that has a request but not that matcher.
+//
+// A real exchange has verified the publication's signature long before anything asks about identity, so the
+// signer is always derivable. A caller passing a publication mock without one gets a matcher that never
+// matches: nothing can refer to an author we cannot identify, and answering "no match" beats throwing from
+// deep inside validation or the challenge runner.
+export function authorIdentityMatcherForRequest({
+    community,
+    request
+}: {
+    community: Pick<LocalCommunity, "_clientsManager" | "_pkc">;
+    request: Parameters<typeof derivePublicationFromChallengeRequest>[0];
+}): AuthorIdentityMatcher {
+    const publication = derivePublicationFromChallengeRequest(request) as { signature?: { publicKey?: string } } | undefined;
+    if (typeof publication?.signature?.publicKey !== "string")
+        return {
+            signerAddress: "",
+            wireName: undefined,
+            matchesIdentity: async () => NO_MATCH,
+            matchesAnyIdentity: async () => NO_MATCH
+        };
+    return createAuthorIdentityMatcher({
+        community,
+        publication: publication as Parameters<typeof createAuthorIdentityMatcher>[0]["publication"]
+    });
+}
 
 export function createAuthorIdentityMatcher({
     community,

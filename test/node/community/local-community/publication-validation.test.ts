@@ -72,7 +72,11 @@ describe("publication-validation: matchPublicationAuthorAgainstRoles", () => {
             _pkc: { resolveAuthorNames: false, _timeouts: { "resolve-author-name": 1000 } }
         } as unknown as LocalCommunity;
 
-        const result = await matchPublicationAuthorAgainstRoles(community, ["moderator"], matcherFor(community, "ojU0zK7ZudZomVjSQPir7/ZT1u0G7J0IvlqbSx7s1S0"));
+        const result = await matchPublicationAuthorAgainstRoles({
+            community,
+            rolesToCheckAgainst: ["moderator"],
+            authorIdentityMatcher: matcherFor(community, "ojU0zK7ZudZomVjSQPir7/ZT1u0G7J0IvlqbSx7s1S0")
+        });
         expect(result.matched).to.equal(false);
         // No domain role key was involved, so there is nothing to explain to the publisher.
         expect(result.matched === false && result.nameFailure).to.be.undefined;
@@ -85,11 +89,11 @@ describe("publication-validation: matchPublicationAuthorAgainstRoles", () => {
             _pkc: { resolveAuthorNames: false, _timeouts: { "resolve-author-name": 1000 } }
         } as unknown as LocalCommunity;
 
-        const result = await matchPublicationAuthorAgainstRoles(
+        const result = await matchPublicationAuthorAgainstRoles({
             community,
-            ["owner", "admin"],
-            matcherFor(community, "ojU0zK7ZudZomVjSQPir7/ZT1u0G7J0IvlqbSx7s1S0")
-        );
+            rolesToCheckAgainst: ["owner", "admin"],
+            authorIdentityMatcher: matcherFor(community, "ojU0zK7ZudZomVjSQPir7/ZT1u0G7J0IvlqbSx7s1S0")
+        });
         expect(result.matched).to.equal(false);
         expect(result.matched === false && result.nameFailure).to.be.undefined;
     });

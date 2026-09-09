@@ -27,6 +27,7 @@ import {
 } from "../../../../signer/signatures.js";
 import { getPKCAddressFromPublicKey } from "../../../../signer/util.js";
 import { getAuthorNameFromWire } from "../../../../publications/publication-author.js";
+import { authorIdentityMatcherForRequest } from "./author-identity.js";
 import type { AuthorIdentityMatcher, IdentityMatchOutcome } from "./author-identity.js";
 import { getCommunityNameFromWire, getCommunityPublicKeyFromWire } from "../../../../publications/publication-community.js";
 import { CommentEditReservedFields } from "../../../../publications/comment-edit/schema.js";
@@ -56,11 +57,15 @@ export function isFlairInAllowedList(flair: Flair, allowedFlairs: Flair[]): bool
 // caller about to reject can tell the publisher the real cause instead of a generic "you are not a moderator"
 // (issue #353). Role keys are key-derived addresses or domains, and either way the match is bound to the
 // publication's signer, never to the claimed author.address (issue #267).
-export async function matchPublicationAuthorAgainstRoles(
-    community: LocalCommunity,
-    rolesToCheckAgainst: CommunityRoleNameUnion[],
-    authorIdentityMatcher: AuthorIdentityMatcher
-): Promise<IdentityMatchOutcome> {
+export async function matchPublicationAuthorAgainstRoles({
+    community,
+    rolesToCheckAgainst,
+    authorIdentityMatcher
+}: {
+    community: LocalCommunity;
+    rolesToCheckAgainst: CommunityRoleNameUnion[];
+    authorIdentityMatcher: AuthorIdentityMatcher;
+}): Promise<IdentityMatchOutcome> {
     if (!community.roles) return { matched: false };
     const roleKeys = Object.keys(community.roles).filter((roleKey) =>
         rolesToCheckAgainst.includes(community.roles![roleKey].role as CommunityRoleNameUnion)
@@ -244,7 +249,11 @@ async function checkParentAndPostState(
             // everyone, mods included.
             const lockBypass = request.vote
                 ? { matched: false as const }
-                : await matchPublicationAuthorAgainstRoles(community, ["owner", "admin", "moderator"], authorIdentityMatcher);
+                : await matchPublicationAuthorAgainstRoles({
+                      community,
+                      rolesToCheckAgainst: ["owner", "admin", "moderator"],
+                      authorIdentityMatcher
+                  });
             if (!lockBypass.matched) {
                 // A mod whose role key is a domain the node could not resolve would otherwise be told the post
                 // is locked, which is true but not why they were refused.
@@ -513,7 +522,11 @@ async function checkCommentModerationPublication(
     if (intersection(CommentModerationReservedFields, keys(commentModerationPublication)).length > 0)
         return messages.ERR_COMMENT_MODERATION_HAS_RESERVED_FIELD;
 
-    const modMatch = await matchPublicationAuthorAgainstRoles(community, ["owner", "moderator", "admin"], authorIdentityMatcher);
+    const modMatch = await matchPublicationAuthorAgainstRoles({
+        community,
+        rolesToCheckAgainst: ["owner", "moderator", "admin"],
+        authorIdentityMatcher
+    });
     const isAuthorMod = modMatch.matched;
 
     if (!isAuthorMod) {
@@ -546,14 +559,18 @@ async function checkCommunityEditPublication(
         return messages.ERR_COMMUNITY_EDIT_HAS_RESERVED_FIELD;
 
     if (communityEdit.communityEdit.roles || communityEdit.communityEdit.address) {
-        const ownerMatch = await matchPublicationAuthorAgainstRoles(community, ["owner"], authorIdentityMatcher);
+        const ownerMatch = await matchPublicationAuthorAgainstRoles({ community, rolesToCheckAgainst: ["owner"], authorIdentityMatcher });
         if (!ownerMatch.matched) {
             if (ownerMatch.nameFailure) return ownerMatch.nameFailure.reason;
             return messages.ERR_COMMUNITY_EDIT_ATTEMPTED_TO_MODIFY_OWNER_EXCLUSIVE_PROPS;
         }
     }
 
-    const ownerOrAdminMatch = await matchPublicationAuthorAgainstRoles(community, ["owner", "admin"], authorIdentityMatcher);
+    const ownerOrAdminMatch = await matchPublicationAuthorAgainstRoles({
+        community,
+        rolesToCheckAgainst: ["owner", "admin"],
+        authorIdentityMatcher
+    });
     if (!ownerOrAdminMatch.matched) {
         if (ownerOrAdminMatch.nameFailure) return ownerOrAdminMatch.nameFailure.reason;
         return messages.ERR_COMMUNITY_EDIT_ATTEMPTED_TO_MODIFY_COMMUNITY_WITHOUT_BEING_OWNER_OR_ADMIN;
@@ -637,17 +654,25 @@ async function checkCommentEditPublication(
     return undefined;
 }
 
-export async function checkPublicationValidity(
-    community: LocalCommunity,
-    request: DecryptedChallengeRequestMessageType,
-    publication: PublicationFromDecryptedChallengeRequest,
+export async function checkPublicationValidity({
+    community,
+    request,
+    publication,
+    authorCommunity,
+    authorIdentityMatcher: sharedAuthorIdentityMatcher
+}: {
+    community: LocalCommunity;
+    request: DecryptedChallengeRequestMessageType;
+    publication: PublicationFromDecryptedChallengeRequest;
+    authorCommunity?: PublicationWithCommunityAuthorFromDecryptedChallengeRequest["author"]["community"];
     // Built once per challenge request and shared with the excludes and the challenges, so this publication's
     // author name is resolved at most once (it is a maxAge 0 network resolve) and any failure to resolve it is
     // recorded in one place. Must not outlive the request: a cached resolve could otherwise grant authority
-    // after a role or a TXT record changed. See issues #353 and #354.
-    authorIdentityMatcher: AuthorIdentityMatcher,
-    authorCommunity?: PublicationWithCommunityAuthorFromDecryptedChallengeRequest["author"]["community"]
-): Promise<messages | undefined> {
+    // after a role or a TXT record changed. Optional so a caller that has no request scope still works;
+    // omitting it only costs a second resolve. See issues #353 and #354.
+    authorIdentityMatcher?: AuthorIdentityMatcher;
+}): Promise<messages | undefined> {
+    const authorIdentityMatcher = sharedAuthorIdentityMatcher ?? authorIdentityMatcherForRequest({ community, request });
     const log = Logger("pkc-js:local-community:handleChallengeRequest:checkPublicationValidity");
 
     const wireResult = await checkWireFormatAndCommunityAuthor(community, publication, authorCommunity);

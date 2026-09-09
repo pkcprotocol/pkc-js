@@ -27,8 +27,6 @@ import {
     retryKuboIpfsAddAndProvide
 } from "../../../util.js";
 import { communityIdentityPublicKey } from "./local-community/identity.js";
-import { createAuthorIdentityMatcher } from "./local-community/author-identity.js";
-import { derivePublicationFromChallengeRequest } from "../../../util.js";
 import {
     prepareAnchorPublish as prepareAnchorPublishFreeFunction,
     publishAnchorRecord as publishAnchorRecordFreeFunction
@@ -519,15 +517,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // community instance to set up parent comments. Not on master's public API surface,
     // but treated as one by those tests.
     async storePublication(request: DecryptedChallengeRequestMessageType, pendingApproval?: boolean) {
-        // Standalone entry point with no surrounding challenge request, so it builds its own matcher rather
-        // than sharing the request-scoped one (issue #354's sharing only applies inside a real exchange).
-        return storePublication(this, request, this._authorIdentityMatcherForRequest(request), pendingApproval);
-    }
-
-    private _authorIdentityMatcherForRequest(request: DecryptedChallengeRequestMessageType) {
-        const publication = derivePublicationFromChallengeRequest(request);
-        if (!publication) throw Error("Challenge request carries no publication to build an author identity matcher from");
-        return createAuthorIdentityMatcher({ community: this, publication });
+        // Standalone entry point with no surrounding challenge request, so the matcher is left to default:
+        // issue #354's sharing only applies inside a real exchange.
+        return storePublication({ community: this, request, pendingApproval });
     }
 
     // Method facades for helpers stubbed/called as methods by garbage.collection and
@@ -582,10 +574,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     }
 
     async _publishChallengeVerification(
-        challengeResult: Parameters<typeof publishChallengeVerification>[1],
-        request: Parameters<typeof publishChallengeVerification>[2]
+        challengeResult: Parameters<typeof publishChallengeVerification>[0]["challengeResult"],
+        request: Parameters<typeof publishChallengeVerification>[0]["request"]
     ) {
-        return publishChallengeVerification(this, challengeResult, request, this._authorIdentityMatcherForRequest(request));
+        return publishChallengeVerification({ community: this, challengeResult, request });
     }
 
     async _publishIdempotentDuplicateVerification(
@@ -594,8 +586,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         return publishIdempotentDuplicateVerification(this, ...args);
     }
 
-    async _checkPublicationValidity(...args: Parameters<typeof checkPublicationValidity> extends [unknown, ...infer Rest] ? Rest : never) {
-        return checkPublicationValidity(this, ...args);
+    async _checkPublicationValidity(args: Omit<Parameters<typeof checkPublicationValidity>[0], "community">) {
+        return checkPublicationValidity({ ...args, community: this });
     }
 
     _calculateLocalMfsPathForCommentUpdate(
