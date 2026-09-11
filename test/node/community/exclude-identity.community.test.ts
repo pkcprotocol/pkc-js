@@ -399,6 +399,79 @@ describeSkipIfRpc("exclude/role identity: resolver-independent cases (resolveAut
         });
     });
 
+    // Issues #353 and #354. One matcher per request memoises the author's domain so it is resolved once
+    // instead of once per call site, but an interactive challenge can leave the author thinking for up to the
+    // exchange ttl, and the storage step runs on the far side of that wait. A verdict reached before the
+    // challenge went out must not still be trusted after it comes back, so the matcher is rebuilt the moment
+    // the answers arrive. Without the rebuild the memoised "yes, this is the moderator" from validation wins
+    // and the comment is stored with the mod exemption it is no longer entitled to.
+    describe("the identity verdict is re-earned after the challenge answer round-trip", () => {
+        let community: LocalCommunity;
+        beforeAll(async () => {
+            community = await harness.createStartedCommunity({
+                roles: { [harness.ownerDomain]: { role: "moderator" } },
+                features: { pseudonymityMode: "per-author" },
+                settings: {
+                    challenges: [
+                        // Runs before the challenge goes out and asks the matcher about the author's domain,
+                        // which is what forms the memo this test is about. Without something that consults
+                        // the identity pre-challenge, no verdict exists to go stale and the rebuild is
+                        // indistinguishable from not rebuilding.
+                        { name: "whitelist", options: { addresses: harness.ownerDomain } },
+                        // Interactive, so the exchange actually waits on the author.
+                        { name: "question", options: { question: "1+1=?", answer: "2" } }
+                    ]
+                }
+            });
+        });
+
+        afterAll(() => {
+            harness.resolverShouldThrow.value = false;
+        });
+
+        it("refuses a moderator whose domain stopped resolving while they were answering", async () => {
+            harness.resolverShouldThrow.value = false;
+            const post = await generateMockPost({
+                communityAddress: community.address,
+                pkc: harness.pkc,
+                postProps: { signer: ownerSigner, author: { address: harness.ownerDomain } }
+            });
+            // Validation has already resolved the name and concluded "moderator" by the time this fires.
+            post.once("challenge", async () => {
+                harness.resolverShouldThrow.value = true;
+                await post.publishChallengeAnswers({ challengeAnswers: ["2"] });
+            });
+            const verification = await new Promise<DecryptedChallengeVerificationMessageType>((resolve) => {
+                post.once("challengeverification", resolve);
+                post.publish();
+            });
+            // The answer was correct, so the challenge itself passed. The refusal comes from the storage step
+            // re-asking who this is and no longer being able to find out, which is the right outcome: storing
+            // the comment under an alias would be silent, wrong and irreversible.
+            expect(verification.challengeSuccess).to.equal(false);
+            expect(verification.reason).to.equal(messages.ERR_COMMUNITY_FAILED_TO_RESOLVE_AUTHOR_NAME);
+        });
+
+        it("still stores the moderator's comment unanonymized when the resolver stays up throughout", async () => {
+            harness.resolverShouldThrow.value = false;
+            const post = await generateMockPost({
+                communityAddress: community.address,
+                pkc: harness.pkc,
+                postProps: { signer: ownerSigner, author: { address: harness.ownerDomain } }
+            });
+            post.once("challenge", async () => {
+                await post.publishChallengeAnswers({ challengeAnswers: ["2"] });
+            });
+            const verification = await new Promise<DecryptedChallengeVerificationMessageType>((resolve) => {
+                post.once("challengeverification", resolve);
+                post.publish();
+            });
+            expect(verification.challengeSuccess).to.equal(true);
+            // The rebuilt matcher reaches the same conclusion, so the mod exemption still applies.
+            expect(verification.comment?.signature.publicKey).to.equal(ownerSigner.publicKey);
+        });
+    });
+
     // Issue #353's decisive-only rule: the resolver failure becomes the reason only when it is what stood
     // between the author and being excused. A publisher who was going to be rejected anyway learns nothing.
     describe("a resolver failure that changed nothing stays quiet", () => {
@@ -440,6 +513,71 @@ describeSkipIfRpc("exclude/role identity: resolver-independent cases (resolveAut
             // karma they do not have, so the name was never what stood in their way.
             expect(verification.reason).to.be.undefined;
             expect(verification.challengeErrors?.[0]).to.equal("Only moderators can post here.");
+        });
+    });
+
+    // Issue #353. An exclude only ever excuses the challenge it is attached to. If the author also fails a
+    // challenge that exclude has no say over, the unresolvable name is not what stood in their way and the
+    // resolver's error would be actively misleading: it would name a cause that changed nothing. The failure
+    // is therefore recorded per challenge index and surfaced only when every challenge that failed is one the
+    // name would have excused.
+    describe("a resolver failure is only the reason when it explains every failed challenge", () => {
+        let excusableOnly: LocalCommunity;
+        let withUnrelatedChallenge: LocalCommunity;
+        beforeAll(async () => {
+            const excusableChallenge = {
+                name: "fail",
+                options: { error: "Only moderators can post here." },
+                exclude: [{ roles: ["moderator"] }]
+            };
+            excusableOnly = await harness.createStartedCommunity({
+                roles: { [harness.ownerDomain]: { role: "moderator" } },
+                settings: { challenges: [excusableChallenge] }
+            });
+            withUnrelatedChallenge = await harness.createStartedCommunity({
+                roles: { [harness.ownerDomain]: { role: "moderator" } },
+                settings: {
+                    challenges: [
+                        excusableChallenge,
+                        // No exclude at all, so the moderator role could never have excused it. It fails for
+                        // everyone, resolver or no resolver.
+                        { name: "fail", options: { error: "This community is closed." } }
+                    ]
+                }
+            });
+        });
+
+        afterAll(() => {
+            harness.resolverShouldThrow.value = false;
+        });
+
+        const publishAsOwnerWithResolverDown = async (community: LocalCommunity): Promise<DecryptedChallengeVerificationMessageType> => {
+            harness.resolverShouldThrow.value = true;
+            const post = await generateMockPost({
+                communityAddress: community.address,
+                pkc: harness.pkc,
+                postProps: { signer: ownerSigner, author: { address: harness.ownerDomain } }
+            });
+            return new Promise<DecryptedChallengeVerificationMessageType>((resolve) => {
+                post.once("challengeverification", resolve);
+                post.publish();
+            });
+        };
+
+        it("names the resolver failure when the only failed challenge is one the role would have excused", async () => {
+            const verification = await publishAsOwnerWithResolverDown(excusableOnly);
+            expect(verification.challengeSuccess).to.equal(false);
+            expect(verification.reason).to.equal(messages.ERR_COMMUNITY_FAILED_TO_RESOLVE_AUTHOR_NAME);
+        });
+
+        it("stays quiet once an unrelated challenge fails too, since the name changed nothing there", async () => {
+            const verification = await publishAsOwnerWithResolverDown(withUnrelatedChallenge);
+            expect(verification.challengeSuccess).to.equal(false);
+            // Both failed. The moderator exclude covers index 0 only, so index 1 would have rejected this
+            // author with a working resolver as well.
+            expect(verification.challengeErrors?.[0]).to.equal("Only moderators can post here.");
+            expect(verification.challengeErrors?.[1]).to.equal("This community is closed.");
+            expect(verification.reason).to.not.equal(messages.ERR_COMMUNITY_FAILED_TO_RESOLVE_AUTHOR_NAME);
         });
     });
 });

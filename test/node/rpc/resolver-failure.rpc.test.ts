@@ -41,6 +41,18 @@ const getAvailablePort = async (): Promise<number> =>
         });
     });
 
+// A port from getAvailablePort is only free at the moment it was probed, so a collision is possible and is
+// not a test failure. Retry on a fresh port instead.
+const createServerRetryingOnPortCollision = async (opts: CreatePKCWsServerOptions, attemptsLeft = 4): Promise<PKCWsServerType> => {
+    try {
+        return await createPKCWsServer(opts);
+    } catch (e) {
+        const isPortTaken = (e as NodeJS.ErrnoException)?.code === "EADDRINUSE";
+        if (!isPortTaken || attemptsLeft <= 1) throw e;
+        return createServerRetryingOnPortCollision({ ...opts, port: await getAvailablePort() }, attemptsLeft - 1);
+    }
+};
+
 const ownerSigner = signers[6];
 
 // Uses its own PKCWsServer so the server-side resolver can be made to fail on demand, which the shared
@@ -80,7 +92,9 @@ describeSkipIfRpc("resolver failure surfaces through the RPC server (#353)", () 
                 resolveAuthorNames: false
             } as CreatePKCWsServerOptions["pkcOptions"]
         };
-        rpcServer = await createPKCWsServer(opts);
+        // Binding port 0 and reusing the number it reported is racy: anything on the machine can take it in
+        // between. Retry rather than fail the suite on a collision.
+        rpcServer = await createServerRetryingOnPortCollision(opts);
 
         clientPkc = await PKC({ pkcRpcClientsOptions: [`ws://127.0.0.1:${port}`], dataPath: undefined, httpRoutersOptions: [] });
 

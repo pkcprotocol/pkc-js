@@ -297,4 +297,66 @@ describeSkipIfRpc("nameResolvedCache: an answer is definitive, no answer is not"
         expect(pkc._memCaches.nameResolvedCache.get(await cacheKeyFor(author))).to.be.undefined;
         expect(calls).to.deep.equal([]);
     });
+
+    // Issue #353. A verdict here is terminal while it lives: resolveAuthorNamesInBackground skips any entry
+    // that is already a boolean, so expiry is the only thing that ever causes a re-resolve. A `false` is an
+    // accusation with nothing persisted behind it, and the states that produce one are what a domain looks
+    // like while its owner is still configuring it, so it has to lapse. Otherwise the first viewer to look
+    // during that window keeps calling the author an impostor for the life of the process.
+    it("lets a false verdict lapse so a newly configured record is picked up", async () => {
+        let hasRecord = false;
+        const calls: string[] = [];
+        const resolver: NameResolver = createMockNameResolver({
+            key: "eventually-configured",
+            provider: "mock://eventually-configured",
+            resolveFunction: async ({ name }) => {
+                calls.push(name);
+                return hasRecord ? { publicKey: signers[3].address } : undefined;
+            }
+        });
+        pkc = await makeNoDataPKC({}, resolver);
+        // Per instance, so shortening it cannot leak into another suite sharing this worker.
+        pkc._nameResolvedFalseTtlMs = 1000;
+
+        const author = { authorName: "carol.bso", signaturePublicKey: signers[3].publicKey };
+        const cacheKey = await cacheKeyFor(author);
+
+        await runBackgroundResolve(author, 2000);
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(false);
+
+        // Still inside the window: the verdict stands and nothing re-resolves.
+        const callsAfterFirstVerdict = calls.length;
+        await runBackgroundResolve(author, 500);
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(false);
+        expect(calls.length).to.equal(callsAfterFirstVerdict);
+
+        // The owner adds the record, and the lapsed verdict is what allows anyone to notice.
+        hasRecord = true;
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.be.undefined;
+        await runBackgroundResolve(author);
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(true);
+    });
+
+    // The other half of the asymmetry. A `true` is backed by a record in the persistent cache, so it is not
+    // re-earned every minute; re-deriving it after its own (much longer) ttl costs a disk read rather than a
+    // network resolve.
+    it("keeps a true verdict past the false ttl", async () => {
+        const resolver: NameResolver = createMockNameResolver({
+            key: "stable-record",
+            provider: "mock://stable-record",
+            resolveFunction: async () => ({ publicKey: signers[3].address })
+        });
+        pkc = await makeNoDataPKC({}, resolver);
+        pkc._nameResolvedFalseTtlMs = 500;
+
+        const author = { authorName: "carol.bso", signaturePublicKey: signers[3].publicKey };
+        const cacheKey = await cacheKeyFor(author);
+
+        await runBackgroundResolve(author);
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(true);
+
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(true);
+    });
 });
