@@ -4,7 +4,7 @@ import {
     shouldExcludeChallengeSuccess,
     addToRateLimiter
 } from "./exclude/index.js";
-import { authorIdentityMatcherForRequest } from "../local-community/author-identity.js";
+import { NO_OP_AUTHOR_IDENTITY_MATCHER, authorIdentityMatcherForRequest } from "../local-community/author-identity.js";
 import type { AuthorIdentityMatcher, NameIdentityFailure } from "../local-community/author-identity.js";
 
 // all challenges included with pkc-js, in PKC.challenges
@@ -82,15 +82,16 @@ type ChallengeVerificationPending = {
     deferredChallenges?: DeferredChallenge[];
     partialResults?: (Challenge | ChallengeResult | undefined)[];
     communityChallenges?: CommunityChallenge[];
-    // An exclude would have excused this author but for a domain identity the node could not verify. Travels
-    // back out with the pending challenges so it survives the challenge answer round-trip: the author may yet
-    // solve the challenge, and only if they end up rejected does this become the reason they see. Issue #353.
-    identityNameFailure?: NameIdentityFailure;
+    // Per challenge index: an exclude on that challenge would have excused this author but for a domain
+    // identity the node could not verify. Travels back out with the pending challenges so it survives the
+    // challenge answer round-trip: the author may yet solve the challenge, and only if they end up rejected
+    // by challenges that were all excusable does this become the reason they see. Issue #353.
+    identityNameFailureByIndex?: (NameIdentityFailure | undefined)[];
 };
 type ChallengeVerificationFailure = {
     challengeSuccess: false;
     challengeErrors: NonNullable<ChallengeVerificationMessageType["challengeErrors"]>;
-    identityNameFailure?: NameIdentityFailure;
+    identityNameFailureByIndex?: (NameIdentityFailure | undefined)[];
 } & Pick<ChallengeResultAggregate, "aggregatedReason">;
 
 // Use structural typing for the pkc param to avoid circular import issues
@@ -227,9 +228,6 @@ const loadChallengeFile = async ({
     validateChallengeFile({ challengeFile, challengeIndex, community });
     return { challengeFile };
 };
-
-// The one no-op matcher, used where a caller has no request to derive an author from at all.
-const NO_IDENTITY_MATCH = { matched: false } as const;
 
 // invoke getChallenge() with shared error handling and result validation
 const callGetChallenge = async ({
@@ -426,7 +424,12 @@ const getPendingChallengesOrChallengeVerification = async ({
     // Phase 1: request-only excludes (parallel). Indexes excluded here never reach getChallenge.
     // An exclude that would have excused this author but for a domain identity the node could not verify
     // records why, so a later rejection can name the real cause instead of the challenge's own text (#353).
-    let identityNameFailure: NameIdentityFailure | undefined;
+    //
+    // Recorded per challenge index, not once for the request. An exclude only ever excuses the challenge it
+    // is attached to, so a failure to verify the author's name explains a rejection only if every challenge
+    // that actually failed is one the name would have excused. Collapsing them into a single value would
+    // hand the resolver's error to an author who simply failed a different, unrelated challenge.
+    const identityNameFailureByIndex: (NameIdentityFailure | undefined)[] = new Array(challengeCount);
     await Promise.all(
         communityChallenges.map(async (communityChallenge, i) => {
             const excludeResult = await shouldExcludePublication({
@@ -435,14 +438,18 @@ const getPendingChallengesOrChallengeVerification = async ({
                 community,
                 identityMatcher
             });
-            identityNameFailure ??= excludeResult.nameFailure;
             if (excludeResult.shouldExclude) {
                 decided[i] = true;
                 return;
             }
             if (await shouldExcludeChallengeCommentCids(communityChallenge, challengeRequestMessage, community._pkc)) {
                 decided[i] = true;
+                // Excluded by its comment-cid rule regardless, so this challenge is not required and its
+                // exclude's failure to verify a name explains nothing about a later rejection.
+                return;
             }
+            // Recorded only now that the challenge is known to still be required.
+            identityNameFailureByIndex[i] = excludeResult.nameFailure;
         })
     );
 
@@ -585,14 +592,14 @@ const getPendingChallengesOrChallengeVerification = async ({
         return { challengeSuccess, pendingApprovalSuccess, ...successAgg };
     }
     if (challengeSuccess === false)
-        return { challengeSuccess, challengeErrors, aggregatedReason: agg.aggregatedReason, identityNameFailure };
+        return { challengeSuccess, challengeErrors, aggregatedReason: agg.aggregatedReason, identityNameFailureByIndex };
     return {
         pendingChallenges,
         pendingApprovalSuccess,
         deferredChallenges: deferredChallenges.length > 0 ? deferredChallenges : undefined,
         partialResults: results,
         communityChallenges,
-        identityNameFailure
+        identityNameFailureByIndex
     };
 };
 
@@ -622,12 +629,7 @@ const getChallengeVerificationFromChallengeAnswers = async ({
         (challengeRequestMessage
             ? authorIdentityMatcherForRequest({ community, request: challengeRequestMessage })
             : // No request to derive an author from, so nothing can refer to them.
-              {
-                  signerAddress: "",
-                  wireName: undefined,
-                  matchesIdentity: async () => NO_IDENTITY_MATCH,
-                  matchesAnyIdentity: async () => NO_IDENTITY_MATCH
-              });
+              NO_OP_AUTHOR_IDENTITY_MATCHER);
     const challengeCount = community.settings.challenges.length;
 
     // Run verify() for every pending challenge in parallel.
@@ -808,6 +810,11 @@ const getChallengeVerificationFromChallengeAnswers = async ({
 
 export type GetChallengeVerificationResult = Pick<ChallengeVerificationMessageType, "challengeErrors" | "challengeSuccess"> & {
     pendingApproval?: boolean;
+    // Present only when the exchange actually went through the challenge answer round-trip. The author's
+    // domain was resolved before the challenge was issued, and the author may have taken up to the exchange
+    // ttl to answer, so the identity verdict has to be re-earned before anything downstream of the answer
+    // acts on it. Node-side only: never published. See issues #353 and #354.
+    postAnswerAuthorIdentityMatcher?: AuthorIdentityMatcher;
 } & ChallengeResultAggregate;
 
 const getChallengeVerification = async ({
@@ -842,12 +849,19 @@ const getChallengeVerification = async ({
     let pendingApprovalSuccess = "pendingApprovalSuccess" in res ? res.pendingApprovalSuccess : false;
     // Captured before the challenge answer round-trip below, which builds a fresh aggregate and would
     // otherwise drop it. Applied at the end, and only to a failure. Issue #353.
-    const identityNameFailure = "identityNameFailure" in res ? res.identityNameFailure : undefined;
+    const identityNameFailureByIndex = "identityNameFailureByIndex" in res ? res.identityNameFailureByIndex : undefined;
 
     let challengeVerification: Pick<ChallengeVerificationMessageType, "challengeSuccess" | "challengeErrors"> & ChallengeResultAggregate;
     // was able to verify without asking author for challenges
+    let postAnswerAuthorIdentityMatcher: AuthorIdentityMatcher | undefined;
     if ("pendingChallenges" in res) {
         const challengeAnswers = await getChallengeAnswers(res.pendingChallenges.map((challenge) => omit(challenge, ["index", "verify"])));
+        // The round-trip is what makes the identity verdict stale, so the round-trip is what invalidates it.
+        // `identityMatcher` memoised its maxAge-0 resolve before the challenge went out, and the author had
+        // until the exchange ttl to answer: a TXT record repointed in that window must not still read as
+        // theirs. Everything downstream of this line uses the fresh one; everything before it keeps the
+        // single resolve that issue #354 exists to preserve, since no wall-clock time passed there.
+        postAnswerAuthorIdentityMatcher = authorIdentityMatcherForRequest({ community, request: challengeRequestMessage });
         const verificationFromPending = await getChallengeVerificationFromChallengeAnswers({
             pendingChallenges: res.pendingChallenges,
             challengeAnswers,
@@ -856,7 +870,7 @@ const getChallengeVerification = async ({
             deferredChallenges: res.deferredChallenges,
             partialResults: res.partialResults,
             communityChallenges: res.communityChallenges,
-            authorIdentityMatcher: identityMatcher
+            authorIdentityMatcher: postAnswerAuthorIdentityMatcher
         });
         if ("pendingApprovalSuccess" in verificationFromPending) {
             pendingApprovalSuccess = pendingApprovalSuccess || verificationFromPending.pendingApprovalSuccess;
@@ -874,12 +888,21 @@ const getChallengeVerification = async ({
         if ("aggregatedReason" in res && res.aggregatedReason) challengeVerification.aggregatedReason = res.aggregatedReason;
     }
 
-    // An unverifiable domain identity that was decisive for an exclude outranks whatever the challenge the
-    // author then failed had to say: the challenge's text describes the symptom ("only the owner can post
-    // here"), this describes the cause. Only applied on failure, and only when the exclude would otherwise
-    // have excused them, so a publisher who was going to be rejected anyway learns nothing extra. Issue #353.
-    if (challengeVerification.challengeSuccess === false && identityNameFailure)
-        challengeVerification.aggregatedReason = identityNameFailure.reason;
+    // An unverifiable domain identity that was decisive outranks whatever the challenges the author then
+    // failed had to say: their text describes the symptom ("only the owner can post here"), this describes
+    // the cause. Decisive means every challenge that actually failed is one whose own exclude would have
+    // excused this author had the name verified. If even one failed challenge would have rejected them
+    // anyway, the name was not what stood in their way and they are owed the challenge's own reason instead.
+    // Issue #353.
+    const failedChallengeIndexes = Object.keys(challengeVerification.challengeErrors ?? {});
+    const decisiveNameFailure =
+        failedChallengeIndexes.length > 0 && identityNameFailureByIndex
+            ? failedChallengeIndexes.every((index) => identityNameFailureByIndex[Number(index)])
+                ? identityNameFailureByIndex[Number(failedChallengeIndexes[0])]
+                : undefined
+            : undefined;
+    if (challengeVerification.challengeSuccess === false && decisiveNameFailure)
+        challengeVerification.aggregatedReason = decisiveNameFailure.reason;
 
     // store the publication result and author address in mem cache for rateLimit exclude challenge settings
     addToRateLimiter(community.settings?.challenges, challengeRequestMessage, challengeVerification.challengeSuccess);
@@ -892,10 +915,14 @@ const getChallengeVerification = async ({
     const shouldSendToPendingApproval =
         Boolean(challengeRequestMessage.comment) && challengeVerification.challengeSuccess === true && pendingApprovalSuccess;
 
+    // Spread rather than always set: an exchange that issued no challenge has nothing to rebuild, and an
+    // explicit `postAnswerAuthorIdentityMatcher: undefined` would show up in an exact-shape assertion on the
+    // verification and read as a field this result carries when it does not.
+    const postAnswerMatcherField = postAnswerAuthorIdentityMatcher ? { postAnswerAuthorIdentityMatcher } : {};
     if (shouldSendToPendingApproval) {
-        return { ...challengeVerification, pendingApproval: true };
+        return { ...challengeVerification, pendingApproval: true, ...postAnswerMatcherField };
     }
-    return challengeVerification;
+    return { ...challengeVerification, ...postAnswerMatcherField };
 };
 
 // Options are private by default. The owner opts an option into the published community record by naming
