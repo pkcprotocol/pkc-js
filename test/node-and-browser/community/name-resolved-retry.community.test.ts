@@ -16,6 +16,7 @@ import {
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import { findUpdatingCommunity } from "../../../dist/node/pkc/tracked-instance-registry-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
@@ -25,6 +26,15 @@ import type { RemoteCommunity } from "../../../dist/node/community/remote-commun
 // firing on every update cycle.
 const FALSE_TTL_MS = 2000;
 
+// Polls, because what the in-flight case waits for is a resolver being entered, which emits no event.
+const waitUntil = async (predicate: () => boolean, timeoutMs = 10000) => {
+    const startedAt = Date.now();
+    while (!predicate()) {
+        if (Date.now() - startedAt > timeoutMs) throw Error("Timed out waiting for the condition to become true");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+};
+
 // describeSkipIfRpc: every case here turns a resolver on and off to drive the verdict, and the resolver is
 // configured on this client. Under RPC the community is resolved on the server with its own mock resolvers,
 // which answer normally, so the outage never happens on the side that computes `community.nameResolved`.
@@ -32,8 +42,12 @@ describeSkipIfRpc("community.nameResolved re-earns a false verdict (#353)", () =
     let pkc: PKC;
     // Flipped by each test to change what the single shared resolver answers.
     const resolverAnswer: { publicKey?: string } = {};
-    // Every name the resolver was asked for, so the rate limit is observable rather than assumed.
+    // Every name the resolver was asked for, so the rate limit is observable rather than assumed. Counted on
+    // entry, so it is the number of resolves STARTED, which is what the in-flight case below measures.
     let resolveCount = 0;
+    // Set by the in-flight case to hold every resolve open, standing in for a resolver that is reachable but
+    // answering very slowly. Left undefined by every other case.
+    let heldResolves: { promise: Promise<void>; release: () => void } | undefined;
     const communities: RemoteCommunity[] = [];
 
     beforeAll(async () => {
@@ -45,6 +59,7 @@ describeSkipIfRpc("community.nameResolved re-earns a false verdict (#353)", () =
                         key: `name-resolved-retry-${Date.now()}`,
                         resolveFunction: async () => {
                             resolveCount++;
+                            if (heldResolves) await heldResolves.promise;
                             return resolverAnswer.publicKey ? { publicKey: resolverAnswer.publicKey } : undefined;
                         }
                     })
@@ -143,5 +158,102 @@ describeSkipIfRpc("community.nameResolved re-earns a false verdict (#353)", () =
         // Past the floor it is allowed to ask again, which is what makes the flip in the cases above possible.
         await new Promise((resolve) => setTimeout(resolve, FALSE_TTL_MS));
         expect(resolveCount).to.be.greaterThan(countAfterFirstVerdict);
+    });
+
+    // Issue #353. The retry is bounded by a floor measured from when the last verdict was RECORDED, and a
+    // verdict is recorded when the resolve settles. While one is still in flight there is no verdict and no
+    // stamp, so nothing but an in-flight guard stops the ungated pinned-name path from starting another
+    // attempt on every fetch cycle. A resolve has no timeout of its own, only the community's stop signal, so
+    // a reachable-but-slow resolver would otherwise accumulate attempts for as long as it takes to answer.
+    it("does not start a second resolve while one is still in flight", async () => {
+        const name = `retry-in-flight-${Date.now()}.eth`;
+        const { communityAddress: communityPublicKey } = await createMockedCommunityIpns({ name });
+
+        resolverAnswer.publicKey = undefined;
+        let releaseHeldResolves = () => {};
+        heldResolves = { promise: new Promise<void>((resolve) => (releaseHeldResolves = resolve)), release: () => releaseHeldResolves() };
+        try {
+            const community = await pkc.createCommunity({ name, publicKey: communityPublicKey });
+            communities.push(community);
+            const countBeforeUpdate = resolveCount;
+            await community.update();
+
+            // The first attempt starts and then hangs inside the resolver. A second one is expected here and
+            // is not what this case is about: the guard is per instance, and a community the caller holds
+            // mirrors an internal updating instance, so each of the two classifies the name once.
+            await waitUntil(() => resolveCount > countBeforeUpdate, 10000);
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            const countWhileHeld = resolveCount;
+
+            // Several more fetch cycles at the 500ms updateInterval these test instances use. Every one of
+            // them reaches the pinned-name branch, and not one may start another attempt while the attempt
+            // before it is still unanswered.
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            expect(resolveCount).to.equal(countWhileHeld);
+        } finally {
+            heldResolves?.release();
+            heldResolves = undefined;
+        }
+    });
+});
+
+// Issue #353. `undefined` is both "we could not find out" and the marker that allows a retry, so a name no
+// configured resolver can handle would be attempted on every fetch cycle forever: the attempt throws
+// ERR_NO_RESOLVER_FOR_NAME before reaching any resolver, records nothing, and leaves the verdict exactly where
+// it was. The check that skips it is synchronous and lives in `_resolveNameInBackground` itself, because the
+// pinned-name path that runs every cycle has no gate of its own.
+describeSkipIfRpc("community.nameResolved never attempts a name no resolver can handle (#353)", () => {
+    let pkc: PKC;
+    let community: RemoteCommunity;
+
+    afterAll(async () => {
+        if (community) await community.stop();
+        if (pkc) await pkc.destroy();
+    });
+
+    it("does not enter the background resolve at all for an unsupported TLD", async () => {
+        const name = `retry-unsupported-tld-${Date.now()}.scam`;
+        const { communityAddress: communityPublicKey } = await createMockedCommunityIpns({ name });
+
+        pkc = await mockRemotePKC({
+            mockResolve: false,
+            pkcOptions: {
+                nameResolvers: [
+                    createMockNameResolver({
+                        key: `retry-unsupported-tld-${Date.now()}`,
+                        canResolve: ({ name }) => name.endsWith(".eth"),
+                        resolveFunction: async () => undefined
+                    })
+                ]
+            }
+        });
+
+        community = await pkc.createCommunity({ name, publicKey: communityPublicKey });
+        await community.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: community,
+            predicate: async () => typeof community.updatedAt === "number"
+        });
+
+        // For an unsupported TLD the attempt and the skip look identical from the outside: no resolver is
+        // ever reached, because the loop throws ERR_NO_RESOLVER_FOR_NAME before touching one. So the
+        // observable is one level up, on the instance that actually runs the fetch cycles, which is the
+        // tracked updating instance rather than the one the caller holds.
+        const updatingCommunity = <RemoteCommunity | undefined>findUpdatingCommunity(pkc, { name, publicKey: communityPublicKey });
+        if (!updatingCommunity) throw Error("The community should have a tracked updating instance while it is updating");
+        const clientsManager = updatingCommunity._clientsManager;
+        const resolveCommunityName = clientsManager.resolveCommunityNameIfNeeded.bind(clientsManager);
+        let attempts = 0;
+        clientsManager.resolveCommunityNameIfNeeded = async (args) => {
+            attempts++;
+            return resolveCommunityName(args);
+        };
+
+        // Several fetch cycles, every one of them taking the pinned-name branch.
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        expect(attempts).to.equal(0);
+        // The verdict for a name we can never ask about is "we do not know", not "not theirs".
+        expect(community.nameResolved).to.be.undefined;
     });
 });

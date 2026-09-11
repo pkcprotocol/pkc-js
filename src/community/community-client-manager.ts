@@ -203,6 +203,14 @@ export class CommunityClientsManager extends PKCClientsManager {
 
     override postResolveNameResolverSuccess(opts: PostResolveNameResolverSuccessOptions): void {
         super.postResolveNameResolverSuccess(opts);
+        // Only a COMMUNITY name with no record is an error here, the same way preResolveNameResolver above
+        // only narrates a community name. Author names are resolved on this manager too, by the page sweep,
+        // and for an author "the resolvers answered and there is no record" is an answer rather than a
+        // failure: it is what makes author.nameResolved false instead of undefined. Left ungated, that
+        // verdict arrived as a throw and was read as "we never found out", so a page author could never be
+        // classified at all while every other path classified them. See docs/protocol/names-and-addresses.md
+        // and issue #353.
+        if (opts.resolveType !== "community") return;
         if (!opts.resolvedValue && this._community.state === "updating") {
             throw new PKCError("ERR_DOMAIN_TXT_RECORD_NOT_FOUND", {
                 name: opts.address
@@ -732,12 +740,29 @@ export class CommunityClientsManager extends PKCClientsManager {
     // `false` is paced: a `true` is settled and its call sites do not ask again. Issue #353.
     private _nameResolvedFalseAtMs?: number;
 
+    // Set while a background resolve is outstanding. A resolve has no timeout of its own, only the community's
+    // stop signal, so without this a reachable-but-slow resolver would collect one attempt per fetch cycle:
+    // the floor below is measured from when a verdict was recorded, and an attempt that has not answered yet
+    // has recorded nothing. Issue #353.
+    private _nameResolveInFlight = false;
+
     private _resolveNameInBackground(name: string) {
         const log = Logger("pkc-js:community-client-manager:_resolveNameInBackground");
-        // Every caller funnels through here, so the floor lives here rather than at the gates: the
-        // domain-addressed pinned-name path below calls this on every fetch cycle without a gate of its own,
-        // and a negative resolve persists nothing, so without this it would hit the network once per cycle.
-        // That cycle is one second on the kubo-RPC path. Issue #353.
+        // Everything that bounds the retry lives here rather than at the gates, because every caller funnels
+        // through here and the domain-addressed pinned-name path below calls this on every fetch cycle with no
+        // gate of its own. That cycle is one second on the kubo-RPC path, and a negative resolve persists
+        // nothing, so an unbounded retry reaches the network once per cycle forever. Issue #353.
+        //
+        // One attempt at a time. A resolve has no timeout of its own, only the community's stop signal, and
+        // the floor below cannot help while an attempt is outstanding: it measures from when a verdict was
+        // recorded, and an attempt that has not answered yet has recorded nothing.
+        if (this._nameResolveInFlight) return;
+        // No resolver here can handle this TLD, so we can never find out. Skipped rather than attempted: the
+        // attempt throws ERR_NO_RESOLVER_FOR_NAME before reaching any resolver and records nothing, leaving
+        // the verdict at the undefined it already holds, which is also the marker that lets a later pass
+        // retry. So it would re-run, and re-log, every cycle without ever being able to learn anything.
+        if (!this.canResolveName(name)) return;
+        // A `false` is provisional and re-earned, but not faster than once per window.
         if (
             this._community.nameResolved === false &&
             typeof this._nameResolvedFalseAtMs === "number" &&
@@ -756,6 +781,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                 this._community.emit("update", this._community);
             }
         };
+        this._nameResolveInFlight = true;
         this._resolveCommunityNameWithoutUpdatingState({
             communityName: name,
             abortSignal: this._community._getStopAbortSignal(),
@@ -799,9 +825,12 @@ export class CommunityClientsManager extends PKCClientsManager {
                     setNameResolvedAndEmitUpdate(false);
                 } else {
                     log.trace("Background name resolution failed for", name, e);
-                    // We never got an answer (every resolver errored, or the resolve timed out, or no resolver
-                    // handles this TLD). nameResolved stays undefined: "we could not find out" is not "false".
+                    // We never got an answer (every resolver errored, or the resolve timed out). nameResolved
+                    // stays undefined: "we could not find out" is not "false".
                 }
+            })
+            .finally(() => {
+                this._nameResolveInFlight = false;
             });
     }
 
@@ -815,7 +844,12 @@ export class CommunityClientsManager extends PKCClientsManager {
             if (!page) continue;
             for (const comment of page.comments) {
                 const domain = getAuthorNameFromRuntime(comment.author);
-                if (domain && typeof comment.author.nameResolved !== "boolean") {
+                // `!== true` and not "not yet a boolean", the same rule community.nameResolved follows: a
+                // `false` is provisional and lapses out of nameResolvedCache, and a comment that was never
+                // requeued would keep displaying the lapsed verdict for as long as this page object lives.
+                // Requeuing costs nothing while the verdict stands, since resolveAuthorNamesInBackground
+                // skips every entry the cache still holds. Issue #353.
+                if (domain && comment.author.nameResolved !== true) {
                     authors.push({ authorName: domain, signaturePublicKey: comment.signature.publicKey });
                 }
             }
@@ -876,16 +910,10 @@ export class CommunityClientsManager extends PKCClientsManager {
             }
 
             // When loaded by raw IPNS key, verify the record's name claim in background. `!== true` and not
-            // "not yet a boolean": a `false` is provisional and re-earned, paced inside the callee (#353).
-            if (
-                !isDomain &&
-                this._community.name &&
-                this._community.publicKey &&
-                this._community.nameResolved !== true &&
-                // Skip a name no configured resolver can handle: the verdict stays undefined either way, and
-                // attempting it would re-run on every fetch cycle since undefined is also the retry marker.
-                this.canResolveName(this._community.name)
-            ) {
+            // "not yet a boolean": a `false` is provisional and re-earned. Everything that bounds the retry
+            // (the floor, the in-flight guard, the unsupported-TLD skip) lives in the callee, because the
+            // pinned-name branch above calls it with no gate of its own (#353).
+            if (!isDomain && this._community.name && this._community.publicKey && this._community.nameResolved !== true) {
                 this._resolveNameInBackground(this._community.name);
             }
 
