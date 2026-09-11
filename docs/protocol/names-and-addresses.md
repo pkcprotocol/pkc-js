@@ -115,7 +115,16 @@ Defaults applied at each call site:
 
 ### Negative caching
 
-The persistent cache stores only successful resolutions. Failures are not persisted; the next caller retries. The in-memory verification cache (`PKC._memCaches.nameResolvedCache`) caches `(name + signaturePublicKey) → boolean` for sync hot-path lookups by `Comment._setAuthorNameResolvedFromCache` and friends; it stores `false` only where the table above says `false`, which means only when a resolver answered, and leaves the entry unset whenever no answer was obtained so the next pass retries.
+There are two caches and they hold different things. The **persistent** cache stores only successful resolutions; failures are not persisted, so the next caller retries. The **in-memory verification cache** (`PKC._memCaches.nameResolvedCache`) caches `(name + signaturePublicKey) → boolean` for sync hot-path lookups by `Comment._setAuthorNameResolvedFromCache` and friends. It stores `false` only where the table above says `false`, which means only when a resolver answered, and leaves the entry unset whenever no answer was obtained so the next pass retries.
+
+**How long a verdict lasts.** A verdict in the in-memory cache is terminal while it lives: `resolveAuthorNamesInBackground` skips any entry that is already a boolean, so expiry is the only thing that ever causes a re-resolve. Both verdicts therefore carry a ttl, and they are deliberately different:
+
+| Verdict | Lives for                          | Why                                                                                                                                                                                                                                            |
+| ------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `true`  | `NAME_RESOLVED_TRUE_TTL_MS` (1h)   | Backed by a record in the persistent cache, whose own `maxAge: 3600` this matches. Re-deriving it costs a disk read, not a network resolve. Bounded so a domain transferred away stops reading as verified.                                    |
+| `false` | `NAME_RESOLVED_FALSE_TTL_MS` (60s) | An accusation with nothing behind it: the persistent cache holds successes only. The states that produce one (no record yet, a record that is not a key) are what a correctly owned domain looks like while its owner is still configuring it. |
+
+`community.nameResolved` is not in that cache, it lives on the instance, but it follows the same rule. `_resolveNameInBackground` re-resolves a `false` verdict rather than treating it as settled, and the call sites gate on `nameResolved !== true` rather than "not yet a boolean". The retry rate is floored at `NAME_RESOLVED_FALSE_TTL_MS` inside `_resolveNameInBackground` itself, because one of its four call sites has no gate of its own and the update loop can turn over once per second on the kubo-RPC path. Both constants live in `src/constants.ts` and are exported so tests can shorten them.
 
 ## RPC-Side Resolution
 

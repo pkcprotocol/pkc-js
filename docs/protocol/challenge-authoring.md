@@ -92,6 +92,39 @@ choice, because a hook throw is a veto the owner cannot override.
 Because the hook is optional, these are obligations on you as a package author, not guarantees core can
 enforce.
 
+## Deciding who the author is
+
+`getChallenge({ challengeSettings, challengeRequestMessage, challengeIndex, community, authorIdentityMatcher })`.
+
+If your challenge decides anything from **who** is publishing (an allow list, a deny list, a role check),
+use `authorIdentityMatcher` rather than comparing strings against `author.address`. That field is
+`name || signerAddress` built from the unresolved wire name, so it is publisher-controlled: without the
+matcher, anyone can set `author.name` to a domain they do not own and match a list keyed on it (issue #267).
+
+```typescript
+const outcome = await authorIdentityMatcher.matchesAnyIdentity(["mod.eth", "12D3Koo..."]);
+if (outcome.matched) {
+    /* one of those really is this signer */
+}
+```
+
+A key-derived address matches when it equals the address derived from `signature.publicKey`. A domain
+matches only when it equals the wire `author.name` **and** resolves to that signer. Keys are compared
+first and for free; a domain costs a fresh network resolve, and only if the author actually claims one of
+the names you passed.
+
+The outcome is not a boolean. A non-match caused by a domain the community could not verify carries a
+`nameFailure` naming which of the four things went wrong, and a challenge that rejects on identity should
+pass that reason through instead of its own text, so a moderator locked out by their community's broken
+resolver is not told they were removed from the list. `whitelist.ts` is the worked example. A domain that
+resolved fine and points at somebody else carries nothing: that is an impostor, not a misconfiguration,
+and is owed no explanation.
+
+The field is optional purely so a package written against an older core still type-checks; core always
+supplies it. Build your own with `createAuthorIdentityMatcher` only if it is absent. It is scoped to one
+challenge request and resolves the author's name at most once, so call it freely. See
+[challenge-flow.md](challenge-flow.md) and issues #267, #353 and #354.
+
 ## Built-in challenges
 
 | Challenge | What its hook validates |
