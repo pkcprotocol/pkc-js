@@ -259,6 +259,9 @@ describeSkipIfRpc("nameResolvedCache: an answer is definitive, no answer is not"
             }
         });
         pkc = await makeNoDataPKC({}, resolver);
+        // What this case is about is that nothing was cached, so the next pass is allowed to ask again. How
+        // soon it may ask is a separate bound with a case of its own below, floored out of the way here.
+        pkc._nameResolveFailedRetryFloorMs = 1;
 
         const author = { authorName: "carol.bso", signaturePublicKey: signers[3].publicKey };
         const cacheKey = await cacheKeyFor(author);
@@ -357,6 +360,113 @@ describeSkipIfRpc("nameResolvedCache: an answer is definitive, no answer is not"
         expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(true);
 
         await new Promise((resolve) => setTimeout(resolve, 800));
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(true);
+    });
+});
+
+// Issue #353. The community side bounds its background resolve three ways: an in-flight guard, a floor on a
+// `false` verdict, and a skip for a TLD no resolver can handle. The author side had only the last of those.
+// Nothing dedupes two passes that overlap, and nothing paces a pass that learns nothing, so while the
+// resolvers are down every caller re-attempts on its own cadence. There are more callers than there used to
+// be: a Comment now ticks once per community update, next to the page sweep that already did.
+//
+// Both bounds are needed for the same reason they were on the community side. The floor is measured from
+// when an attempt finished, so it cannot hold a resolver that has not answered yet; the in-flight guard
+// holds exactly that case and nothing else, since a resolver that fails fast settles before the next caller
+// arrives.
+describeSkipIfRpc("resolveAuthorNamesInBackground: an outage is bounded (#353)", () => {
+    let pkc: PKC;
+    afterEach(async () => {
+        if (pkc) await pkc.destroy();
+    });
+
+    const cacheKeyFor = async (author: { authorName: string; signaturePublicKey: string }) => {
+        const { sha256 } = await import("js-sha256");
+        return sha256(author.authorName + author.signaturePublicKey);
+    };
+
+    const author = { authorName: "carol.bso", signaturePublicKey: signers[3].publicKey };
+
+    it("does not start a second resolve while one for the same author is in flight", async () => {
+        const calls: string[] = [];
+        let releaseResolver = () => {};
+        const held = new Promise<void>((resolve) => (releaseResolver = resolve));
+        const resolver: NameResolver = createMockNameResolver({
+            key: "slow-resolver",
+            provider: "mock://slow",
+            resolveFunction: async ({ name }) => {
+                calls.push(name);
+                await held;
+                return { publicKey: signers[3].address };
+            }
+        });
+        pkc = await makeNoDataPKC({}, resolver);
+
+        try {
+            // Two holders of the same author, the shape a page sweep and an updating comment produce on the
+            // same community update. The guard lives on the PKC rather than on a clients manager, because
+            // those two callers do not share one.
+            pkc._clientsManager.resolveAuthorNamesInBackground({ authors: [author], onResolved: () => {} });
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            pkc._clientsManager.resolveAuthorNamesInBackground({ authors: [author], onResolved: () => {} });
+            await new Promise((resolve) => setTimeout(resolve, 500));
+
+            // Nothing has answered yet, so nothing has been learned and no floor has started. Only the
+            // in-flight guard can stop the second caller here.
+            expect(calls.length).to.equal(1);
+        } finally {
+            releaseResolver();
+        }
+
+        // And once the attempt settles the guard releases, so the name is not blocked forever.
+        await new Promise<void>((resolve) => {
+            pkc._clientsManager.resolveAuthorNamesInBackground({ authors: [author], onResolved: () => resolve() });
+            setTimeout(() => resolve(), 5000);
+        });
+        expect(pkc._memCaches.nameResolvedCache.get(await cacheKeyFor(author))).to.equal(true);
+    });
+
+    it("does not re-attempt a failed resolve more than once per floor", async () => {
+        let shouldThrow = true;
+        const calls: string[] = [];
+        const resolver: NameResolver = createMockNameResolver({
+            key: "down-resolver",
+            provider: "mock://down",
+            resolveFunction: async ({ name }) => {
+                calls.push(name);
+                if (shouldThrow) throw new Error("resolver is down");
+                return { publicKey: signers[3].address };
+            }
+        });
+        pkc = await makeNoDataPKC({}, resolver);
+        // Per instance, so shortening it cannot leak into another suite sharing this worker. Comfortably
+        // longer than every wait below that is meant to fall inside it.
+        const FLOOR_MS = 4000;
+        pkc._nameResolveFailedRetryFloorMs = FLOOR_MS;
+
+        const cacheKey = await cacheKeyFor(author);
+        const runBackgroundResolve = async (timeoutMs = 2000) =>
+            new Promise<void>((resolve) => {
+                pkc._clientsManager.resolveAuthorNamesInBackground({ authors: [author], onResolved: () => resolve() });
+                setTimeout(() => resolve(), timeoutMs);
+            });
+
+        // Nothing answers, so this waits out its own timeout rather than an onResolved that never comes.
+        await runBackgroundResolve(800);
+        expect(calls.length).to.equal(1);
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.be.undefined;
+
+        // Every caller inside the window is refused. The verdict is still undefined, which is the marker that
+        // allows a retry at all, so without a floor of its own each of these would reach the network.
+        for (let attempt = 0; attempt < 3; attempt++) await runBackgroundResolve(200);
+        expect(calls.length).to.equal(1);
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.be.undefined;
+
+        // Past the floor it asks again, which is what lets an author be verified once the outage ends.
+        shouldThrow = false;
+        await new Promise((resolve) => setTimeout(resolve, FLOOR_MS));
+        await runBackgroundResolve();
+        expect(calls.length).to.equal(2);
         expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(true);
     });
 });

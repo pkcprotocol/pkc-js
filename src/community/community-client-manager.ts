@@ -746,6 +746,14 @@ export class CommunityClientsManager extends PKCClientsManager {
     // has recorded nothing. Issue #353.
     private _nameResolveInFlight = false;
 
+    // When the last attempt finished without learning anything: every resolver that could handle the name
+    // errored, or it never answered. That records no verdict, so `_nameResolvedFalseAtMs` above has nothing
+    // to measure from, and the in-flight guard is already released by the time the next cycle arrives if the
+    // resolvers fail fast, which is what an ECONNREFUSED does. This is the outage issue #353 is about, and it
+    // was the one case with no bound: a resolve per fetch cycle, one second on the kubo-RPC path, for as long
+    // as the outage lasted. Cleared as soon as an answer is obtained. Issue #353.
+    private _nameResolveFailedAtMs?: number;
+
     private _resolveNameInBackground(name: string) {
         const log = Logger("pkc-js:community-client-manager:_resolveNameInBackground");
         // Everything that bounds the retry lives here rather than at the gates, because every caller funnels
@@ -762,6 +770,13 @@ export class CommunityClientsManager extends PKCClientsManager {
         // the verdict at the undefined it already holds, which is also the marker that lets a later pass
         // retry. So it would re-run, and re-log, every cycle without ever being able to learn anything.
         if (!this.canResolveName(name)) return;
+        // An attempt that learned nothing paces the next one. Shorter than the `false` window below, since
+        // nothing was learned and the outage may already be over, but not once per cycle.
+        if (
+            typeof this._nameResolveFailedAtMs === "number" &&
+            Date.now() - this._nameResolveFailedAtMs < this._pkc._nameResolveFailedRetryFloorMs
+        )
+            return;
         // A `false` is provisional and re-earned, but not faster than once per window.
         if (
             this._community.nameResolved === false &&
@@ -773,6 +788,8 @@ export class CommunityClientsManager extends PKCClientsManager {
             // Stamped even when the verdict is unchanged, so a repeated `false` still restarts the floor
             // instead of re-resolving every cycle once the first stamp goes stale.
             this._nameResolvedFalseAtMs = newNameResolved === false ? Date.now() : undefined;
+            // An answer was obtained, so whatever outage the floor above was pacing is over.
+            this._nameResolveFailedAtMs = undefined;
             if (this._community.nameResolved === newNameResolved) return;
             this._community.nameResolved = newNameResolved;
             // Only emit update if the community has been loaded at least once —
@@ -826,7 +843,9 @@ export class CommunityClientsManager extends PKCClientsManager {
                 } else {
                     log.trace("Background name resolution failed for", name, e);
                     // We never got an answer (every resolver errored, or the resolve timed out). nameResolved
-                    // stays undefined: "we could not find out" is not "false".
+                    // stays undefined: "we could not find out" is not "false". Stamped so the next fetch
+                    // cycle does not immediately ask again, since undefined is also the retry marker (#353).
+                    this._nameResolveFailedAtMs = Date.now();
                 }
             })
             .finally(() => {

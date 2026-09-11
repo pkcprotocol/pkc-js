@@ -37,3 +37,17 @@ export const NAME_RESOLVED_FALSE_TTL_MS = 60_000;
 // `resolveAuthorNamesInBackground` passes to the persistent cache, so the in-memory verdict never claims
 // more freshness than the layer underneath it and a domain transferred away stops reading as verified.
 export const NAME_RESOLVED_TRUE_TTL_MS = 3600_000;
+
+// How long to wait before asking again after a background name resolve finished without learning anything:
+// every resolver that could handle the name errored, or the attempt never answered.
+//
+// This is the outage issue #353 is about, and it was the one case with no bound. The window above is measured
+// from when a verdict was recorded, and an attempt that learned nothing records none, leaving the verdict at
+// the `undefined` that is also the marker allowing a retry. An in-flight guard does not cover it either: a
+// resolver that fails fast, which is what an ECONNREFUSED looks like, settles long before the next caller
+// arrives. So an outage meant a resolve per fetch cycle on the community side (one second on the kubo-RPC
+// path) and one per update per holder on the author side, each with its own client-state events and log line.
+//
+// Much shorter than NAME_RESOLVED_FALSE_TTL_MS, because nothing was learned and the outage may already be
+// over: this paces a retry, while that one holds a verdict. Exported so tests can shorten it.
+export const NAME_RESOLVE_FAILED_RETRY_FLOOR_MS = 10_000;

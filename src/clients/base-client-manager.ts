@@ -1068,6 +1068,11 @@ export class BaseClientsManager {
     }): void {
         const log = Logger("pkc-js:base-client-manager:resolveAuthorNamesInBackground");
         const verificationCache = this._pkc._memCaches.nameResolvedCache;
+        // The two bounds the community side already has, for the same reasons. Both live on the PKC rather
+        // than here, because the callers that overlap do not share a clients manager: a community's page
+        // sweep and an updating Comment resolve the same author on the same community update. Issue #353.
+        const inFlight = this._pkc._authorNameResolvesInFlight;
+        const failedRecently = this._pkc._memCaches.nameResolveFailedCache;
 
         // Deduplicate and skip already-cached entries
         const seen = new Set<string>();
@@ -1082,6 +1087,16 @@ export class BaseClientsManager {
             if (seen.has(cacheKey)) continue;
             seen.add(cacheKey);
             if (typeof verificationCache.get(cacheKey) === "boolean") continue;
+            // An attempt for this exact name and signer is already outstanding. A resolve is bounded only by
+            // the caller's abort signal, so a reachable-but-slow resolver would otherwise collect one attempt
+            // per caller per update: the floor below is measured from when an attempt finished, and one that
+            // has not answered yet has finished nothing.
+            if (inFlight.has(cacheKey)) continue;
+            // The last attempt learned nothing. The verdict is still undefined, which is also the marker that
+            // allows a retry, so without this every caller would reach the network for as long as the
+            // resolvers stayed down. The entry expires on its own, which is what ends the pacing.
+            if (failedRecently.get(cacheKey)) continue;
+            inFlight.add(cacheKey);
             toResolve.push({ authorName, signaturePublicKey, cacheKey });
         }
 
@@ -1098,8 +1113,8 @@ export class BaseClientsManager {
 
         const limit = pLimit(MAX_CONCURRENT_AUTHOR_NAME_RESOLUTIONS);
         const resolveOne = async (entry: (typeof toResolve)[0]) => {
-            if (abortSignal?.aborted) return false;
             try {
+                if (abortSignal?.aborted) return false;
                 const { resolvedAuthorName: resolved } = await this.resolveAuthorNameIfNeeded({
                     authorName: entry.authorName,
                     abortSignal,
@@ -1125,7 +1140,13 @@ export class BaseClientsManager {
                 log.error("Failed to resolve author name in background", entry.authorName, e);
                 // We never got an answer (every resolver errored, or the resolve timed out). "We could not find
                 // out" is undefined, never false — a brief outage must not brand an author as an impostor.
+                // Recorded so the next caller does not ask again immediately: nothing was learned, so there is
+                // no verdict to pace the retry, and undefined is what invites one. An abort is deliberately
+                // not recorded here, since the caller going away is not the resolvers failing. Issue #353.
+                failedRecently.set(entry.cacheKey, true, { ttl: this._pkc._nameResolveFailedRetryFloorMs });
                 return false;
+            } finally {
+                inFlight.delete(entry.cacheKey);
             }
         };
 

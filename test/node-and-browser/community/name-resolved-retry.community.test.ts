@@ -26,6 +26,10 @@ import type { RemoteCommunity } from "../../../dist/node/community/remote-commun
 // firing on every update cycle.
 const FALSE_TTL_MS = 2000;
 
+// The same idea for an attempt that finished without learning anything. Several update cycles fit inside it,
+// which is what makes the outage case below able to tell a floored retry from an unbounded one.
+const FAILED_FLOOR_MS = 6000;
+
 // Polls, because what the in-flight case waits for is a resolver being entered, which emits no event.
 const waitUntil = async (predicate: () => boolean, timeoutMs = 10000) => {
     const startedAt = Date.now();
@@ -45,9 +49,16 @@ describeSkipIfRpc("community.nameResolved re-earns a false verdict (#353)", () =
     // Every name the resolver was asked for, so the rate limit is observable rather than assumed. Counted on
     // entry, so it is the number of resolves STARTED, which is what the in-flight case below measures.
     let resolveCount = 0;
+    // The same count, per name. A community from an earlier case in this describe is still updating while a
+    // later one runs, and a case whose name never resolved keeps asking on its own floor, so the shared total
+    // above cannot tell one community's retries from another's. Cases that measure a rate use this instead.
+    const resolveCountByName: Record<string, number> = {};
     // Set by the in-flight case to hold every resolve open, standing in for a resolver that is reachable but
     // answering very slowly. Left undefined by every other case.
     let heldResolves: { promise: Promise<void>; release: () => void } | undefined;
+    // Set by the outage case to make every resolve throw, standing in for resolvers that are down. False for
+    // every other case, which drive the verdict with answers rather than errors.
+    let resolverThrows = false;
     const communities: RemoteCommunity[] = [];
 
     beforeAll(async () => {
@@ -57,9 +68,11 @@ describeSkipIfRpc("community.nameResolved re-earns a false verdict (#353)", () =
                 nameResolvers: [
                     createMockNameResolver({
                         key: `name-resolved-retry-${Date.now()}`,
-                        resolveFunction: async () => {
+                        resolveFunction: async ({ name }) => {
                             resolveCount++;
+                            resolveCountByName[name] = (resolveCountByName[name] ?? 0) + 1;
                             if (heldResolves) await heldResolves.promise;
+                            if (resolverThrows) throw new Error("resolver is down");
                             return resolverAnswer.publicKey ? { publicKey: resolverAnswer.publicKey } : undefined;
                         }
                     })
@@ -68,6 +81,7 @@ describeSkipIfRpc("community.nameResolved re-earns a false verdict (#353)", () =
         });
         // Per instance, so shortening it here cannot leak into another suite sharing this worker.
         pkc._nameResolvedFalseTtlMs = FALSE_TTL_MS;
+        pkc._nameResolveFailedRetryFloorMs = FAILED_FLOOR_MS;
     });
 
     afterAll(async () => {
@@ -193,6 +207,44 @@ describeSkipIfRpc("community.nameResolved re-earns a false verdict (#353)", () =
         } finally {
             heldResolves?.release();
             heldResolves = undefined;
+        }
+    });
+
+    // Issue #353. The outage the issue is about is the one case with no bound at all. The floor above is
+    // measured from when a verdict was RECORDED, and a resolver that errors records nothing: `nameResolved`
+    // stays undefined, which is also the marker that allows a retry. The in-flight guard cannot help either,
+    // because a resolver that fails fast, which is what an ECONNREFUSED looks like, settles well before the
+    // next fetch cycle begins. So every cycle reached the network for as long as the outage lasted, each one
+    // emitting its own nameResolver client-state events.
+    it("does not re-attempt more than once per floor while every resolver is failing", async () => {
+        const name = `retry-resolvers-down-${Date.now()}.eth`;
+        const { communityAddress: communityPublicKey } = await createMockedCommunityIpns({ name });
+
+        resolverThrows = true;
+        try {
+            const community = await pkc.createCommunity({ publicKey: communityPublicKey });
+            communities.push(community);
+            const attempts = () => resolveCountByName[name] ?? 0;
+            await community.update();
+
+            await waitUntil(() => attempts() > 0, 10000);
+            // Room for the mirrored updating instance to take its own first attempt: the guard and the floor
+            // are both per instance, so each of the two classifies the name once before either is held.
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            const countAfterFirstAttempt = attempts();
+
+            // Several fetch cycles at the 500ms updateInterval these test instances use, all well inside the
+            // floor. Unbounded, this window is one attempt per cycle per instance.
+            await new Promise((resolve) => setTimeout(resolve, FAILED_FLOOR_MS / 2));
+            expect(attempts() - countAfterFirstAttempt).to.be.lessThan(2);
+            // And nothing was learned, so nothing may be claimed: "we could not find out" is not "false".
+            expect(community.nameResolved).to.be.undefined;
+
+            // Past the floor it asks again, which is what lets a community notice its resolvers recovering.
+            await new Promise((resolve) => setTimeout(resolve, FAILED_FLOOR_MS));
+            expect(attempts()).to.be.greaterThan(countAfterFirstAttempt);
+        } finally {
+            resolverThrows = false;
         }
     });
 });

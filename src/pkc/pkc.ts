@@ -46,7 +46,7 @@ import Storage from "../runtime/node/storage.js";
 import { PKCClientsManager } from "./pkc-client-manager.js";
 import PKCRpcClient from "../clients/rpc-client/pkc-rpc-client.js";
 import { PKCError } from "../pkc-error.js";
-import { NAME_RESOLVED_FALSE_TTL_MS, NAME_RESOLVED_TRUE_TTL_MS } from "../constants.js";
+import { NAME_RESOLVED_FALSE_TTL_MS, NAME_RESOLVED_TRUE_TTL_MS, NAME_RESOLVE_FAILED_RETRY_FLOOR_MS } from "../constants.js";
 import { InflightFetchManager } from "../util/inflight-fetch-manager.js";
 import type {
     ChallengeFileFactoryInput,
@@ -220,6 +220,19 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     // shorten it without leaking the change into every other suite sharing the worker. See issue #353.
     _nameResolvedFalseTtlMs: number = NAME_RESOLVED_FALSE_TTL_MS;
 
+    // How long a background name resolve that learned nothing paces the next attempt for the same name, on
+    // both sides. Distinct from the verdict ttl above because it holds no verdict: nothing was learned, so
+    // this only decides how often we are willing to ask again while the resolvers are down. Per instance for
+    // the same reason as above, so a test can shorten it without leaking into the suites sharing the worker.
+    // See issue #353.
+    _nameResolveFailedRetryFloorMs: number = NAME_RESOLVE_FAILED_RETRY_FLOOR_MS;
+
+    // cacheKeys (the same sha256(name + signer publicKey) nameResolvedCache uses) whose background author
+    // name resolve is outstanding right now. On the PKC rather than on a clients manager because the callers
+    // that overlap do not share one: a community's page sweep and an updating Comment both resolve the same
+    // author on the same community update. Entries are removed when the attempt settles. Issue #353.
+    _authorNameResolvesInFlight = new Set<string>();
+
     _timeouts = {
         "community-ipns": 5 * 60 * 1000, // 5min, for resolving community IPNS, or fetching community from gateways
         "community-ipfs": 60 * 1000, // 1min, for fetching community cid P2P
@@ -344,7 +357,10 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             // entry that is already a boolean, so expiry is the only thing that ever causes a re-resolve.
             // Hence the ttl. `true` rides the persistent cache's window; `false` entries are written with the
             // much shorter NAME_RESOLVED_FALSE_TTL_MS at the call site. See issue #353.
-            nameResolvedCache: new LRUCache<string, boolean>({ max: 5000, ttl: NAME_RESOLVED_TRUE_TTL_MS })
+            nameResolvedCache: new LRUCache<string, boolean>({ max: 5000, ttl: NAME_RESOLVED_TRUE_TTL_MS }),
+            // Constructed with a ttl so per-entry ttls are honoured at all: lru-cache only tracks them when
+            // the cache was built with one, and the call site overrides it with the per-instance floor.
+            nameResolveFailedCache: new LRUCache<string, true>({ max: 5000, ttl: NAME_RESOLVE_FAILED_RETRY_FLOOR_MS })
         };
     }
 
