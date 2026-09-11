@@ -147,6 +147,9 @@ const getChallenge = async ({
     if (!urlMatch.matched) {
         // A whitelisted domain the node could not resolve denies the author something the owner granted them.
         // Say so, instead of letting them read "you're not whitelisted" and conclude they were removed (#353).
+        // `directMatch.matched ? undefined :` is unreachable at runtime (a matched directMatch becomes
+        // urlMatch, so this block is never entered) but load-bearing for the compiler: it is what narrows
+        // IdentityMatchOutcome to the branch that carries nameFailure. Do not "simplify" it away.
         const nameFailure = directMatch.matched ? undefined : (directMatch.nameFailure ?? urlMatch.nameFailure);
         if (nameFailure) return { success: false, error: nameFailure.reason, reason: nameFailure.reason };
         return {

@@ -667,9 +667,12 @@ export async function checkPublicationValidity({
     authorCommunity?: PublicationWithCommunityAuthorFromDecryptedChallengeRequest["author"]["community"];
     // Built once per challenge request and shared with the excludes and the challenges, so this publication's
     // author name is resolved at most once (it is a maxAge 0 network resolve) and any failure to resolve it is
-    // recorded in one place. Must not outlive the request: a cached resolve could otherwise grant authority
-    // after a role or a TXT record changed. Optional so a caller that has no request scope still works;
-    // omitting it only costs a second resolve. See issues #353 and #354.
+    // recorded in one place. Scoped to the request, and within it to the phase before the challenge answer
+    // round-trip: everything on the far side of that wait gets a matcher rebuilt in getChallengeVerification,
+    // because an author may take up to the exchange ttl to answer and a TXT record repointed in that window
+    // must not still read as theirs. `community.roles` is re-read on every call, so a revoked role is never
+    // stale here; only the name-to-key binding is memoised. Optional so a caller that has no request scope
+    // still works; omitting it only costs a second resolve. See issues #353 and #354.
     authorIdentityMatcher?: AuthorIdentityMatcher;
 }): Promise<messages | undefined> {
     const authorIdentityMatcher = sharedAuthorIdentityMatcher ?? authorIdentityMatcherForRequest({ community, request });

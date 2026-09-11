@@ -46,6 +46,18 @@ export type AuthorIdentityMatcher = {
 const NO_MATCH: IdentityMatchOutcome = { matched: false };
 const MATCH: IdentityMatchOutcome = { matched: true };
 
+/**
+ * The matcher for an author nothing can refer to: no signature to derive an identity from, so every configured
+ * identity string is a non-match, and a non-match with no `nameFailure` because no name was ever consulted.
+ * Answering "no match" beats throwing from deep inside validation or the challenge runner.
+ */
+export const NO_OP_AUTHOR_IDENTITY_MATCHER: AuthorIdentityMatcher = {
+    signerAddress: "",
+    wireName: undefined,
+    matchesIdentity: async () => NO_MATCH,
+    matchesAnyIdentity: async () => NO_MATCH
+};
+
 // The matcher for a challenge request's publication. Production builds one per request in
 // handleChallengeRequest and threads it through, so the author's domain is resolved at most once (issue
 // #354); this is the fallback for a standalone caller that has a request but not that matcher.
@@ -62,13 +74,7 @@ export function authorIdentityMatcherForRequest({
     request: Parameters<typeof derivePublicationFromChallengeRequest>[0];
 }): AuthorIdentityMatcher {
     const publication = derivePublicationFromChallengeRequest(request) as { signature?: { publicKey?: string } } | undefined;
-    if (typeof publication?.signature?.publicKey !== "string")
-        return {
-            signerAddress: "",
-            wireName: undefined,
-            matchesIdentity: async () => NO_MATCH,
-            matchesAnyIdentity: async () => NO_MATCH
-        };
+    if (typeof publication?.signature?.publicKey !== "string") return NO_OP_AUTHOR_IDENTITY_MATCHER;
     return createAuthorIdentityMatcher({
         community,
         publication: publication as Parameters<typeof createAuthorIdentityMatcher>[0]["publication"]

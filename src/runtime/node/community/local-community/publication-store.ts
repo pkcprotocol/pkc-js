@@ -140,7 +140,13 @@ export async function prepareCommentWithAnonymity({
     // A mod whose role key is a domain the node could not verify would otherwise be pseudonymized silently:
     // no error, the wrong outcome, and irreversible once the comment is stored under an alias. Refuse the
     // publication instead, so the author can retry once the community's resolver is working. Issue #353.
-    if (modMatch.nameFailure) throw new PKCError(getErrorCodeFromMessage(modMatch.nameFailure.reason), { comment: originalComment });
+    if (modMatch.nameFailure)
+        throw new PKCError(getErrorCodeFromMessage(modMatch.nameFailure.reason), {
+            comment: originalComment,
+            // The only place a nameFailure escapes as a throw rather than a returned `messages` value, so it
+            // is the only place the resolver's own error can be carried along instead of dropped.
+            nameFailureError: modMatch.nameFailure.error
+        });
 
     const originalAuthorPublicKey = originalComment.signature.publicKey;
     const postCid = originalComment.postCid;

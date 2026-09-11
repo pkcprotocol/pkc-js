@@ -750,7 +750,10 @@ async function runVerificationAndStorePublication(
         request: parsed.decryptedRequestMsg,
         pendingApproval: challengeVerification.pendingApproval,
         challengeAggregate: aggregate,
-        authorIdentityMatcher: parsed.authorIdentityMatcher
+        // Storing happens after the author answered, which can be minutes after validation resolved their
+        // name. Use the matcher rebuilt at the round-trip when there was one; when the exchange needed no
+        // challenge at all, no wall-clock time passed and the original still holds. Issues #353, #354.
+        authorIdentityMatcher: challengeVerification.postAnswerAuthorIdentityMatcher ?? parsed.authorIdentityMatcher
     });
 }
 
