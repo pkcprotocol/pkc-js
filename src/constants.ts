@@ -15,3 +15,25 @@ export enum STORAGE_KEYS {
 }
 
 // Configs for LRU storage
+
+// How long a `nameResolved: false` verdict is trusted before it has to be earned again.
+//
+// `false` is an accusation ("this name is not that key") and nothing backs it: the persistent name cache
+// stores successes only, so a negative verdict rests on evidence that is gone the moment it is made. The
+// states that produce it are also the volatile ones. A domain with no TXT record yet, or one whose record is
+// not a key, is what a correctly owned domain looks like five minutes before its owner finishes configuring
+// it. Left permanent, the first viewer to look during that window would keep calling the author an impostor
+// for the life of the process.
+//
+// A `true` is not treated this way: it is backed by a record in the persistent cache, and re-deriving it
+// after expiry costs a disk read rather than a network resolve, so it rides that cache's `maxAge: 3600`.
+//
+// Used by both sides of the verdict: the author-side `nameResolvedCache` writes its `false` entries with
+// this ttl, and the community side refuses to re-resolve a `false` `community.nameResolved` more often than
+// this. Exported so tests can shorten it instead of waiting a minute. See issue #353.
+export const NAME_RESOLVED_FALSE_TTL_MS = 60_000;
+
+// How long an author-side `nameResolved: true` verdict is trusted. Matches the `maxAge: 3600` that
+// `resolveAuthorNamesInBackground` passes to the persistent cache, so the in-memory verdict never claims
+// more freshness than the layer underneath it and a domain transferred away stops reading as verified.
+export const NAME_RESOLVED_TRUE_TTL_MS = 3600_000;

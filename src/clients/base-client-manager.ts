@@ -1087,6 +1087,15 @@ export class BaseClientsManager {
 
         if (toResolve.length === 0) return;
 
+        // A `false` verdict is an accusation resting on evidence nothing persists, and the states that
+        // produce one (no record yet, a record that is not a key) are exactly what a domain looks like while
+        // its owner is still configuring it. It therefore expires quickly and is re-earned; a `true` rides the
+        // cache's own ttl, which matches the persistent name cache's window above. Issue #353.
+        const setVerdict = (cacheKey: string, verdict: boolean) =>
+            verdict
+                ? verificationCache.set(cacheKey, true)
+                : verificationCache.set(cacheKey, false, { ttl: this._pkc._nameResolvedFalseTtlMs });
+
         const limit = pLimit(MAX_CONCURRENT_AUTHOR_NAME_RESOLUTIONS);
         const resolveOne = async (entry: (typeof toResolve)[0]) => {
             if (abortSignal?.aborted) return false;
@@ -1100,17 +1109,17 @@ export class BaseClientsManager {
                     // The resolvers answered and there is no record. Definitive: the name does not belong to
                     // this signer, so cache false. An all-resolvers-errored outcome no longer arrives here, it
                     // throws ERR_ALL_NAME_RESOLVERS_FAILED and is left undefined for retry below. Issue #353.
-                    verificationCache.set(entry.cacheKey, false);
+                    setVerdict(entry.cacheKey, false);
                     return true; // newly set
                 }
                 const signerAddress = await getPKCAddressFromPublicKey(entry.signaturePublicKey);
-                verificationCache.set(entry.cacheKey, resolved === signerAddress);
+                setVerdict(entry.cacheKey, resolved === signerAddress);
                 return true; // newly set
             } catch (e) {
                 if (isAbortError(e)) return false;
                 if (e instanceof PKCError && e.code === "ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS") {
                     // The resolvers answered: the record exists and is not a key. Definitive non-match.
-                    verificationCache.set(entry.cacheKey, false);
+                    setVerdict(entry.cacheKey, false);
                     return true; // newly set
                 }
                 log.error("Failed to resolve author name in background", entry.authorName, e);

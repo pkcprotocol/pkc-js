@@ -46,6 +46,7 @@ import Storage from "../runtime/node/storage.js";
 import { PKCClientsManager } from "./pkc-client-manager.js";
 import PKCRpcClient from "../clients/rpc-client/pkc-rpc-client.js";
 import { PKCError } from "../pkc-error.js";
+import { NAME_RESOLVED_FALSE_TTL_MS, NAME_RESOLVED_TRUE_TTL_MS } from "../constants.js";
 import { InflightFetchManager } from "../util/inflight-fetch-manager.js";
 import type {
     ChallengeFileFactoryInput,
@@ -213,6 +214,12 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     _memCaches!: PKCMemCaches;
     _inflightFetchManager: InflightFetchManager;
 
+    // How long a `nameResolved: false` verdict is trusted before it is re-earned, on both the author side
+    // (the ttl on that entry in nameResolvedCache) and the community side (the floor on how often a `false`
+    // community verdict re-resolves). Per instance rather than read from the constant directly so a test can
+    // shorten it without leaking the change into every other suite sharing the worker. See issue #353.
+    _nameResolvedFalseTtlMs: number = NAME_RESOLVED_FALSE_TTL_MS;
+
     _timeouts = {
         "community-ipns": 5 * 60 * 1000, // 5min, for resolving community IPNS, or fetching community from gateways
         "community-ipfs": 60 * 1000, // 1min, for fetching community cid P2P
@@ -333,7 +340,11 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             }),
             pageCidToSortTypes: new LRUCache<string, string[]>({ max: 5000 }),
             pagesMaxSize: new LRUCache<string, number>({ max: 50000 }),
-            nameResolvedCache: new LRUCache<string, boolean>({ max: 5000 })
+            // A verdict here is terminal for as long as it lives: resolveAuthorNamesInBackground skips any
+            // entry that is already a boolean, so expiry is the only thing that ever causes a re-resolve.
+            // Hence the ttl. `true` rides the persistent cache's window; `false` entries are written with the
+            // much shorter NAME_RESOLVED_FALSE_TTL_MS at the call site. See issue #353.
+            nameResolvedCache: new LRUCache<string, boolean>({ max: 5000, ttl: NAME_RESOLVED_TRUE_TTL_MS })
         };
     }
 

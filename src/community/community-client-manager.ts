@@ -340,19 +340,18 @@ export class CommunityClientsManager extends PKCClientsManager {
             // computed against the previous identity — the triggers below re-classify against the
             // claimed one.
             if (publicKeyBeforeApply && this._community.publicKey !== publicKeyBeforeApply) this._community.nameResolved = undefined;
-            // If we just discovered a name, trigger background resolution now (don't wait for next loop)
+            // If we just discovered a name, trigger background resolution now (don't wait for next loop).
+            // `!== true` rather than "not yet a boolean": a `false` verdict is provisional and must be
+            // re-earned, since the states that produce one are what a domain looks like while its owner is
+            // still configuring it. The retry rate is bounded inside _resolveNameInBackground. Issue #353.
             if (
                 !isStringDomain(this._community.address) &&
                 this._community.name &&
                 this._community.publicKey &&
-                typeof this._community.nameResolved !== "boolean"
+                this._community.nameResolved !== true
             ) {
                 this._resolveNameInBackground(this._community.name);
-            } else if (
-                isStringDomain(this._community.address) &&
-                this._community.publicKey &&
-                typeof this._community.nameResolved !== "boolean"
-            ) {
+            } else if (isStringDomain(this._community.address) && this._community.publicKey && this._community.nameResolved !== true) {
                 // A domain-addressed community classifies its name right after the record lands: a
                 // pre-load domain-vs-publicKey mismatch is deferred inside _resolveNameInBackground,
                 // because only the loaded chain can tell a key migration from a delegated community
@@ -729,9 +728,26 @@ export class CommunityClientsManager extends PKCClientsManager {
         this._community.emit("error", error);
     }
 
+    // When the last `false` verdict was recorded, so it can be re-earned rather than kept forever. Only
+    // `false` is paced: a `true` is settled and its call sites do not ask again. Issue #353.
+    private _nameResolvedFalseAtMs?: number;
+
     private _resolveNameInBackground(name: string) {
         const log = Logger("pkc-js:community-client-manager:_resolveNameInBackground");
+        // Every caller funnels through here, so the floor lives here rather than at the gates: the
+        // domain-addressed pinned-name path below calls this on every fetch cycle without a gate of its own,
+        // and a negative resolve persists nothing, so without this it would hit the network once per cycle.
+        // That cycle is one second on the kubo-RPC path. Issue #353.
+        if (
+            this._community.nameResolved === false &&
+            typeof this._nameResolvedFalseAtMs === "number" &&
+            Date.now() - this._nameResolvedFalseAtMs < this._pkc._nameResolvedFalseTtlMs
+        )
+            return;
         const setNameResolvedAndEmitUpdate = (newNameResolved: boolean) => {
+            // Stamped even when the verdict is unchanged, so a repeated `false` still restarts the floor
+            // instead of re-resolving every cycle once the first stamp goes stale.
+            this._nameResolvedFalseAtMs = newNameResolved === false ? Date.now() : undefined;
             if (this._community.nameResolved === newNameResolved) return;
             this._community.nameResolved = newNameResolved;
             // Only emit update if the community has been loaded at least once —
@@ -859,12 +875,13 @@ export class CommunityClientsManager extends PKCClientsManager {
                 });
             }
 
-            // When loaded by raw IPNS key, verify the record's name claim in background (once)
+            // When loaded by raw IPNS key, verify the record's name claim in background. `!== true` and not
+            // "not yet a boolean": a `false` is provisional and re-earned, paced inside the callee (#353).
             if (
                 !isDomain &&
                 this._community.name &&
                 this._community.publicKey &&
-                typeof this._community.nameResolved !== "boolean" &&
+                this._community.nameResolved !== true &&
                 // Skip a name no configured resolver can handle: the verdict stays undefined either way, and
                 // attempting it would re-run on every fetch cycle since undefined is also the retry marker.
                 this.canResolveName(this._community.name)
