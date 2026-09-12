@@ -132,7 +132,7 @@ A verdict only lapses in practice if whatever holds it asks again, so every cons
 
 The author side needs the in-flight guard for the same reason the community side does, and it lives on the PKC (`_authorNameResolvesInFlight`) rather than on a clients manager, because the callers that overlap do not share one: a community's page sweep and an updating `Comment` resolve the same author on the same community update.
 
-All three constants live in `src/constants.ts` and are mirrored as per-instance `PKC` fields (`_nameResolvedFalseTtlMs`, `_nameResolveFailedRetryFloorMs`) so a test can shorten them without leaking the change into other suites.
+All three constants live in `src/constants.ts`. The two a test needs to shorten are mirrored as per-instance `PKC` fields, `_nameResolvedFalseTtlMs` and `_nameResolveFailedRetryFloorMs`, so shortening one cannot leak into the other suites sharing the worker. `NAME_RESOLVED_TRUE_TTL_MS` has no such field: nothing needs to wait out an hour to observe a `true` lapsing.
 
 ## RPC-Side Resolution
 

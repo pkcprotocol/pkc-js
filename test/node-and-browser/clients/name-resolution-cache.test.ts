@@ -397,10 +397,17 @@ describeSkipIfRpc("resolveAuthorNamesInBackground: an outage is bounded (#353)",
             resolveFunction: async ({ name }) => {
                 calls.push(name);
                 await held;
-                return { publicKey: signers[3].address };
+                // Fails rather than answers, so the attempt leaves no verdict behind. A `true` would let the
+                // release half below pass on the strength of this attempt alone, without the guard ever
+                // having had to release: the next caller would be skipped by the verdict, not by the guard.
+                throw new Error("resolver is down");
             }
         });
         pkc = await makeNoDataPKC({}, resolver);
+        // The floor is the other bound, with its own case below. Here it must not be what holds a retry back.
+        pkc._nameResolveFailedRetryFloorMs = 1;
+
+        const cacheKey = await cacheKeyFor(author);
 
         try {
             // Two holders of the same author, the shape a page sweep and an updating comment produce on the
@@ -418,12 +425,17 @@ describeSkipIfRpc("resolveAuthorNamesInBackground: an outage is bounded (#353)",
             releaseResolver();
         }
 
-        // And once the attempt settles the guard releases, so the name is not blocked forever.
-        await new Promise<void>((resolve) => {
-            pkc._clientsManager.resolveAuthorNamesInBackground({ authors: [author], onResolved: () => resolve() });
-            setTimeout(() => resolve(), 5000);
-        });
-        expect(pkc._memCaches.nameResolvedCache.get(await cacheKeyFor(author))).to.equal(true);
+        // Settling has to be awaited before the guard can be asked whether it released: a caller in the same
+        // tick as the release would still be refused, and would look exactly like a guard that never lets go.
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.be.undefined;
+
+        // The guard released with it, so the name is not blocked for the life of the process. This is the
+        // half that a `true` verdict would have hidden: with nothing cached, only a released guard lets the
+        // next caller through to the resolver at all.
+        pkc._clientsManager.resolveAuthorNamesInBackground({ authors: [author], onResolved: () => {} });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(calls.length).to.equal(2);
     });
 
     it("does not re-attempt a failed resolve more than once per floor", async () => {
