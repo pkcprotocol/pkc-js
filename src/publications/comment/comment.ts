@@ -281,12 +281,14 @@ export class Comment
     _resolveAuthorNamesInBackground() {
         if (!this._pkc.resolveAuthorNames) return;
 
-        // Collect comment's own author if nameResolved is not yet set
+        // Collect comment's own author unless the name is already verified. `!== true` and not "not yet a
+        // boolean", the same rule community.nameResolved follows: a `false` is provisional and lapses out of
+        // nameResolvedCache, and this instance holds its verdict for as long as it lives, so a verdict that
+        // was never requeued would outlive the evidence for it. Requeuing costs nothing while the verdict
+        // stands, since resolveAuthorNamesInBackground skips every entry the cache still holds. Issue #353.
         const domain = getAuthorNameFromRuntime(this.author);
         const ownAuthor =
-            domain && typeof this.author.nameResolved !== "boolean"
-                ? [{ authorName: domain, signaturePublicKey: this.signature.publicKey }]
-                : [];
+            domain && this.author.nameResolved !== true ? [{ authorName: domain, signaturePublicKey: this.signature.publicKey }] : [];
 
         // Collect page comment authors from replies that still need resolution
         const replyAuthors: Array<{ authorName: string; signaturePublicKey: string }> = [];
@@ -295,7 +297,7 @@ export class Comment
                 if (!page) continue;
                 for (const comment of page.comments) {
                     const commentDomain = getAuthorNameFromRuntime(comment.author);
-                    if (commentDomain && typeof comment.author.nameResolved !== "boolean") {
+                    if (commentDomain && comment.author.nameResolved !== true) {
                         replyAuthors.push({ authorName: commentDomain, signaturePublicKey: comment.signature.publicKey });
                     }
                 }

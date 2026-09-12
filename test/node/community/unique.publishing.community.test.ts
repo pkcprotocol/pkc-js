@@ -254,18 +254,18 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     const publishChallengeVerification = async (
         community: LocalCommunity,
         challengeResult: { challengeSuccess: boolean; challengeErrors: undefined },
-        request: MockChallengeRequest,
-        pendingApproval: boolean
+        request: MockChallengeRequest
     ): Promise<void> => {
-        // Using Object to access private method
+        // Using Object to access private method. The facade takes only these two: a third pendingApproval
+        // argument used to be declared here and was silently dropped, which is what a hand-written cast over
+        // a positional signature buys you.
         const s = community as object as {
             _publishChallengeVerification(
                 challengeResult: { challengeSuccess: boolean; challengeErrors: undefined },
-                request: MockChallengeRequest,
-                pendingApproval: boolean
+                request: MockChallengeRequest
             ): Promise<void>;
         };
-        return s._publishChallengeVerification(challengeResult, request, pendingApproval);
+        return s._publishChallengeVerification(challengeResult, request);
     };
 
     const publishViaMockedSubAndAssert = async ({
@@ -286,7 +286,7 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
             const challengeVerificationPromise = new Promise<DecryptedChallengeVerificationMessageType>((resolve) =>
                 community.once("challengeverification", resolve)
             );
-            await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, request, false);
+            await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, request);
             const verification = await challengeVerificationPromise;
             (publication as any).emit("challengeverification", verification);
         };
@@ -443,7 +443,7 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     it("answers a comment edit found duplicate at storage with success (#228)", async () => {
         const { signer: originalCommentSigner, publication: commentPub } = await createCommentPublicationInstanceWithSignature();
         const commentRequest = makeCommentRequest(commentPub, 10);
-        await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
+        await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest);
 
         const storedComment = dbMock.comments[0];
 
@@ -487,7 +487,7 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     it("answers a comment moderation found duplicate at storage with success (#228)", async () => {
         const { publication: commentPub } = await createCommentPublicationInstanceWithSignature();
         const commentRequest = makeCommentRequest(commentPub, 20);
-        await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
+        await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest);
 
         const storedComment = dbMock.comments[0];
         const modSigner = await pkc.createSigner();
@@ -533,7 +533,7 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     it("rejects duplicate votes", async () => {
         const { publication: commentPub } = await createCommentPublicationInstanceWithSignature();
         const commentRequest = makeCommentRequest(commentPub, 30);
-        await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
+        await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest);
 
         const storedComment = dbMock.comments[0];
         const signer = await pkc.createSigner();
@@ -614,14 +614,18 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
         request: MockChallengeRequest,
         publication: { signature: { publicKey: string; signature: string } }
     ): Promise<string | undefined> => {
+        // Hand-written because the real parameter list is not reachable from a mocked community, so this cast
+        // is the one place a signature change here can go unnoticed. A single object argument is what keeps
+        // that safe: an added key is simply absent rather than shifting another argument into its place.
         const s = community as object as {
-            _checkPublicationValidity(
-                request: MockChallengeRequest,
-                publication: { signature: { publicKey: string; signature: string } },
-                communityAuthor: unknown
-            ): Promise<string | undefined>;
+            _checkPublicationValidity(args: {
+                request: MockChallengeRequest;
+                publication: { signature: { publicKey: string; signature: string } };
+                authorCommunity?: unknown;
+                authorIdentityMatcher?: unknown;
+            }): Promise<string | undefined>;
         };
-        return s._checkPublicationValidity(request, publication, undefined);
+        return s._checkPublicationValidity({ request, publication });
     };
 
     const publishIdempotentDuplicateVerification = async (
@@ -695,7 +699,7 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     it("returns idempotent success for duplicate comment edit up to 1 time, then rejects", async () => {
         const { signer: originalCommentSigner, publication: commentPub } = await createCommentPublicationInstanceWithSignature();
         const commentRequest = makeCommentRequest(commentPub, 110);
-        await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
+        await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest);
 
         const storedComment = dbMock.comments[0];
         const editInstance = await pkc.createCommentEdit({
@@ -742,7 +746,7 @@ describeSkipIfRpc("LocalCommunity duplicate publication regression coverage", fu
     it("returns idempotent success for duplicate comment moderation up to 1 time, then rejects", async () => {
         const { publication: commentPub } = await createCommentPublicationInstanceWithSignature();
         const commentRequest = makeCommentRequest(commentPub, 120);
-        await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest, false);
+        await publishChallengeVerification(community, { challengeSuccess: true, challengeErrors: undefined }, commentRequest);
 
         const storedComment = dbMock.comments[0];
         const modSigner = await pkc.createSigner();

@@ -9,28 +9,43 @@ import { Comment } from "../../../../../publications/comment/comment.js";
 import { LocalCommunity } from "../../local-community.js";
 import { PKC } from "../../../../../pkc/pkc.js";
 import { derivePublicationFromChallengeRequest } from "../../../../../util.js";
-import { createAuthorIdentityMatcher } from "../../local-community/author-identity.js";
-import type { AuthorIdentityMatcher } from "../../local-community/author-identity.js";
+import type { AuthorIdentityMatcher, IdentityMatchOutcome, NameIdentityFailure } from "../../local-community/author-identity.js";
 import { getPKCAddressFromPublicKeySync } from "../../../../../signer/util.js";
 
 // Does the author hold one of excludeRole in community.roles? Role keys may be key-derived addresses or domains;
 // both are bound to the signer through the identity matcher rather than compared against author.address.
-const testRole = async (
-    excludeRole: NonNullable<Exclude["roles"]>,
-    getIdentityMatcher: () => AuthorIdentityMatcher,
-    communityRoles: LocalCommunity["roles"]
-): Promise<boolean> => {
-    if (!communityRoles) return false; // can't verify roles, so assume the author doesn't have the excluded role
+const testRole = async ({
+    excludeRole,
+    identityMatcher,
+    communityRoles
+}: {
+    excludeRole: NonNullable<Exclude["roles"]>;
+    identityMatcher: AuthorIdentityMatcher;
+    communityRoles: LocalCommunity["roles"];
+}): Promise<IdentityMatchOutcome> => {
+    if (!communityRoles) return { matched: false }; // can't verify roles, so assume the author doesn't have the excluded role
     const roleKeys = Object.keys(communityRoles).filter((roleKey) => excludeRole.includes(communityRoles[roleKey].role));
-    if (roleKeys.length === 0) return false;
-    return getIdentityMatcher().matchesAnyIdentity(roleKeys);
+    if (roleKeys.length === 0) return { matched: false };
+    return identityMatcher.matchesAnyIdentity(roleKeys);
 };
 
-const shouldExcludePublication = async (
-    communityChallenge: CommunityChallenge,
-    request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
-    community: LocalCommunity
-): Promise<boolean> => {
+// `shouldExclude` plus, when the author was NOT excluded and the only thing standing in the way was a domain
+// identity the community could not verify, the reason to tell them. Decisive by construction: the identity
+// predicates are evaluated last, so a nameFailure is recorded only for an exclude item whose every other
+// predicate already passed. See issue #353.
+export type ShouldExcludeResult = { shouldExclude: boolean; nameFailure?: NameIdentityFailure };
+
+const shouldExcludePublication = async ({
+    communityChallenge,
+    request,
+    community,
+    identityMatcher
+}: {
+    communityChallenge: CommunityChallenge;
+    request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+    community: LocalCommunity;
+    identityMatcher: AuthorIdentityMatcher;
+}): Promise<ShouldExcludeResult> => {
     if (!communityChallenge) {
         throw Error(`shouldExcludePublication invalid communityChallenge argument '${communityChallenge}'`);
     }
@@ -41,7 +56,7 @@ const shouldExcludePublication = async (
     const author = publication.author;
 
     if (!communityChallenge.exclude) {
-        return false;
+        return { shouldExclude: false };
     }
     if (!Array.isArray(communityChallenge.exclude)) {
         throw Error(
@@ -51,10 +66,9 @@ const shouldExcludePublication = async (
 
     // lazy-loaded author publication counts (only when postCount/replyCount exclude is set)
     let authorPublicationCounts: { postCount: number; replyCount: number } | undefined;
-    // Author identity is taken from the signature, never from the publisher-controlled author.address (issue #267).
-    // Built lazily: only excludes that name an author identity need it.
-    let identityMatcher: AuthorIdentityMatcher | undefined;
-    const getIdentityMatcher = () => (identityMatcher ??= createAuthorIdentityMatcher({ community, publication }));
+    // The first identity failure that was decisive for some exclude item. With one matcher per request these
+    // are all the same failure (one name, resolved once), so the first is the one to report.
+    let nameFailure: NameIdentityFailure | undefined;
 
     // if match any of the exclude array, should exclude
     for (const exclude of communityChallenge.exclude) {
@@ -92,18 +106,13 @@ const shouldExcludePublication = async (
         if (!testRateLimit(exclude, request)) {
             shouldExclude = false;
         }
-        if (exclude.publicKeys && !exclude.publicKeys.includes(getIdentityMatcher().signerAddress)) {
-            shouldExclude = false;
-        }
-        if (exclude.names && !(await getIdentityMatcher().matchesAnyIdentity(exclude.names))) {
-            shouldExclude = false;
-        }
-        if (Array.isArray(exclude.roles) && !(await testRole(exclude.roles, getIdentityMatcher, community?.roles))) {
+        // Comparing against the signer-derived address is free, so it stays with the other cheap predicates.
+        if (exclude.publicKeys && !exclude.publicKeys.includes(identityMatcher.signerAddress)) {
             shouldExclude = false;
         }
         if (typeof exclude.postCount === "number" || typeof exclude.replyCount === "number") {
             if (!authorPublicationCounts && community?._dbHandler) {
-                authorPublicationCounts = community._dbHandler.queryAuthorPublicationCounts(getIdentityMatcher().signerAddress);
+                authorPublicationCounts = community._dbHandler.queryAuthorPublicationCounts(identityMatcher.signerAddress);
             }
             if (!testScore(exclude.postCount, authorPublicationCounts?.postCount)) {
                 shouldExclude = false;
@@ -113,12 +122,31 @@ const shouldExcludePublication = async (
             }
         }
 
+        // Domain identity predicates go last, after every cheap one has passed. Two reasons: a domain identity
+        // costs a fresh network resolve (maxAge 0) that an already-doomed exclude item should not pay for, and
+        // it makes any failure to verify the name decisive for this item, which is what earns it the right to
+        // become the reason the author sees. Issue #353.
+        if (shouldExclude && exclude.names) {
+            const namesMatch = await identityMatcher.matchesAnyIdentity(exclude.names);
+            if (!namesMatch.matched) {
+                shouldExclude = false;
+                nameFailure ??= namesMatch.nameFailure;
+            }
+        }
+        if (shouldExclude && Array.isArray(exclude.roles)) {
+            const roleMatch = await testRole({ excludeRole: exclude.roles, identityMatcher, communityRoles: community?.roles });
+            if (!roleMatch.matched) {
+                shouldExclude = false;
+                nameFailure ??= roleMatch.nameFailure;
+            }
+        }
+
         // if one of the exclude item is successful, should exclude author
         if (shouldExclude) {
-            return true;
+            return { shouldExclude: true };
         }
     }
-    return false;
+    return { shouldExclude: false, nameFailure };
 };
 
 const shouldExcludeChallengeSuccess = (

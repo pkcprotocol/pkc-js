@@ -937,6 +937,11 @@ export class BaseClientsManager {
         const persistentCache = this._getNameResolutionCache();
         let value: string | undefined;
         let anyResolverCanHandle = false;
+        // Whether any resolver that could handle the name actually produced an answer (a record, or a
+        // definitive "no record"). Distinguishes "the resolvers agree there is nothing here" from "we never
+        // got an answer because every one of them errored". See issue #353.
+        let anyResolverAnswered = false;
+        const resolverErrors: Record<string, { provider: string; error: Error }> = {};
 
         for (const nameResolver of nameResolvers) {
             if (!nameResolver.canResolve({ name })) continue;
@@ -951,6 +956,7 @@ export class BaseClientsManager {
             });
             if (cached) {
                 value = cached.publicKey;
+                anyResolverAnswered = true;
                 break;
             }
 
@@ -969,8 +975,10 @@ export class BaseClientsManager {
                 if (abortSignal?.aborted) throwIfAbortSignalAborted(abortSignal);
                 if (isAbortError(error)) throw error;
                 log.trace(`Resolver ${nameResolver.key} failed for ${name}`, error);
+                resolverErrors[nameResolver.key] = { provider: nameResolver.provider, error };
                 continue;
             }
+            anyResolverAnswered = true;
             this.postResolveNameResolverSuccess({ address: name, resolveType, resolverKey: nameResolver.key, resolvedValue: value });
 
             if (value) {
@@ -996,7 +1004,23 @@ export class BaseClientsManager {
             throw new PKCError("ERR_NO_RESOLVER_FOR_NAME", { address: name });
         }
 
+        // Every resolver that could handle this name errored, so we never learned anything about it. This is
+        // NOT the same as null (the resolvers answered and there is no record), and callers act on it
+        // differently: null is a definitive verdict, this is "ask again later". Issue #353.
+        if (!value && !anyResolverAnswered) {
+            throw new PKCError("ERR_ALL_NAME_RESOLVERS_FAILED", { address: name, resolverErrors });
+        }
+
         return value || null;
+    }
+
+    // Can any configured resolver handle this name? Pure and synchronous (canResolve is a pure predicate), so
+    // callers that only want to populate a verdict can skip names they know cannot be resolved instead of
+    // attempting them and caching the failure. Issue #353.
+    canResolveName(name: string): boolean {
+        const nameResolvers = this._pkc.nameResolvers;
+        if (!nameResolvers || nameResolvers.length === 0) return false;
+        return nameResolvers.some((nameResolver) => nameResolver.canResolve({ name }));
     }
 
     async resolveCommunityNameIfNeeded({
@@ -1044,49 +1068,85 @@ export class BaseClientsManager {
     }): void {
         const log = Logger("pkc-js:base-client-manager:resolveAuthorNamesInBackground");
         const verificationCache = this._pkc._memCaches.nameResolvedCache;
+        // The two bounds the community side already has, for the same reasons. Both live on the PKC rather
+        // than here, because the callers that overlap do not share a clients manager: a community's page
+        // sweep and an updating Comment resolve the same author on the same community update. Issue #353.
+        const inFlight = this._pkc._authorNameResolvesInFlight;
+        const failedRecently = this._pkc._memCaches.nameResolveFailedCache;
 
         // Deduplicate and skip already-cached entries
         const seen = new Set<string>();
         const toResolve: Array<{ authorName: string; signaturePublicKey: string; cacheKey: string }> = [];
         for (const { authorName, signaturePublicKey } of authors) {
             if (!isStringDomain(authorName)) continue;
+            // No resolver here can handle this TLD, so we can never find out. Skip rather than attempt and
+            // cache a verdict: attempting would re-run (and re-log) on every update cycle forever, and the
+            // honest verdict for "we never asked" is undefined, not false. Issue #353.
+            if (!this.canResolveName(authorName)) continue;
             const cacheKey = sha256(authorName + signaturePublicKey);
             if (seen.has(cacheKey)) continue;
             seen.add(cacheKey);
             if (typeof verificationCache.get(cacheKey) === "boolean") continue;
+            // An attempt for this exact name and signer is already outstanding. A resolve is bounded only by
+            // the caller's abort signal, so a reachable-but-slow resolver would otherwise collect one attempt
+            // per caller per update: the floor below is measured from when an attempt finished, and one that
+            // has not answered yet has finished nothing.
+            if (inFlight.has(cacheKey)) continue;
+            // The last attempt learned nothing. The verdict is still undefined, which is also the marker that
+            // allows a retry, so without this every caller would reach the network for as long as the
+            // resolvers stayed down. The entry expires on its own, which is what ends the pacing.
+            if (failedRecently.get(cacheKey)) continue;
+            inFlight.add(cacheKey);
             toResolve.push({ authorName, signaturePublicKey, cacheKey });
         }
 
         if (toResolve.length === 0) return;
 
+        // A `false` verdict is an accusation resting on evidence nothing persists, and the states that
+        // produce one (no record yet, a record that is not a key) are exactly what a domain looks like while
+        // its owner is still configuring it. It therefore expires quickly and is re-earned; a `true` rides the
+        // cache's own ttl, which matches the persistent name cache's window above. Issue #353.
+        const setVerdict = (cacheKey: string, verdict: boolean) =>
+            verdict
+                ? verificationCache.set(cacheKey, true)
+                : verificationCache.set(cacheKey, false, { ttl: this._pkc._nameResolvedFalseTtlMs });
+
         const limit = pLimit(MAX_CONCURRENT_AUTHOR_NAME_RESOLUTIONS);
         const resolveOne = async (entry: (typeof toResolve)[0]) => {
-            if (abortSignal?.aborted) return false;
             try {
+                if (abortSignal?.aborted) return false;
                 const { resolvedAuthorName: resolved } = await this.resolveAuthorNameIfNeeded({
                     authorName: entry.authorName,
                     abortSignal,
                     cache: { maxAge: 3600 }
                 });
                 if (typeof resolved !== "string") {
-                    // null result: either no TXT record (definitive) or all resolvers errored (transient).
-                    // _resolveViaNameResolvers cannot distinguish these today, so leave the verification cache
-                    // undefined so the next pass retries. Failing-shut here would risk permanently rejecting an author after a brief outage.
-                    return false;
+                    // The resolvers answered and there is no record. Definitive: the name does not belong to
+                    // this signer, so cache false. An all-resolvers-errored outcome no longer arrives here, it
+                    // throws ERR_ALL_NAME_RESOLVERS_FAILED and is left undefined for retry below. Issue #353.
+                    setVerdict(entry.cacheKey, false);
+                    return true; // newly set
                 }
                 const signerAddress = await getPKCAddressFromPublicKey(entry.signaturePublicKey);
-                verificationCache.set(entry.cacheKey, resolved === signerAddress);
+                setVerdict(entry.cacheKey, resolved === signerAddress);
                 return true; // newly set
             } catch (e) {
                 if (isAbortError(e)) return false;
-                if (e instanceof PKCError && e.code === "ERR_NO_RESOLVER_FOR_NAME") {
-                    // Definitive: no resolver in this PKC instance handles this TLD. Cache as false.
-                    verificationCache.set(entry.cacheKey, false);
+                if (e instanceof PKCError && e.code === "ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS") {
+                    // The resolvers answered: the record exists and is not a key. Definitive non-match.
+                    setVerdict(entry.cacheKey, false);
                     return true; // newly set
                 }
                 log.error("Failed to resolve author name in background", entry.authorName, e);
-                // Transient failure — leave undefined for retry on next update
+                // We never got an answer (every resolver errored, or the resolve timed out). "We could not find
+                // out" is undefined, never false — a brief outage must not brand an author as an impostor.
+                // Recorded so the next caller does not ask again immediately: nothing was learned, so there is
+                // no verdict to pace the retry, and undefined is what invites one. An abort is deliberately
+                // not recorded here, since the caller going away is not the resolvers failing. Issue #353.
+                failedRecently.set(entry.cacheKey, true, { ttl: this._pkc._nameResolveFailedRetryFloorMs });
                 return false;
+            } finally {
+                inFlight.delete(entry.cacheKey);
             }
         };
 

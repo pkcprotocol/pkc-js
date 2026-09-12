@@ -15,6 +15,7 @@ import {
 } from "../schema/schema.js";
 import { ModQueuePagesIpfsSchema, PostsPagesIpfsSchema } from "../pages/schema.js";
 import type { LocalCommunity } from "../runtime/node/community/local-community.js";
+import type { AuthorIdentityMatcher } from "../runtime/node/community/local-community/author-identity.js";
 import { difference, isEmpty, keys, omit } from "remeda";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../pubsub-messages/types.js";
 import { messages } from "../errors.js";
@@ -213,7 +214,13 @@ export const GetChallengeArgsSchema = z.object({
     challengeSettings: CommunityChallengeSettingSchema,
     challengeRequestMessage: z.custom<DecryptedChallengeRequestMessageTypeWithCommunityAuthor>(), // no need to validate because extra props may be there
     challengeIndex: z.number().int().nonnegative(),
-    community: z.custom<LocalCommunity>()
+    community: z.custom<LocalCommunity>(),
+    // Decides whether a configured identity string (a listed address, a domain) refers to this publication's
+    // author, binding a domain to the signer rather than to the publisher-controlled author.address. Shared
+    // across the whole challenge request so the author's domain is resolved at most once. Optional so a
+    // challenge package written against an older core still type-checks; built-in challenges always receive
+    // it. See docs/protocol/challenge-authoring.md and issues #267, #353, #354.
+    authorIdentityMatcher: z.custom<AuthorIdentityMatcher>().optional()
 });
 
 // Loose, not strict: an unknown key here would be a parse error, and a parse error takes community

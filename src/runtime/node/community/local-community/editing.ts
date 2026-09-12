@@ -41,6 +41,10 @@ export async function parseRolesToEdit(
         // Use community._clientsManager (not community._pkc) so nameResolver state changes emit on the community's clients
         if (isStringDomain(roleAddress)) {
             let resolved: string | null;
+            // Kept so the owner learns which of the four things went wrong. The code stays
+            // ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED, which is already the right classification for an
+            // owner-facing edit; what was missing is the cause, not the classification. Issue #353.
+            let resolveError: unknown;
             try {
                 ({ resolvedAuthorName: resolved } = await community._clientsManager.resolveAuthorNameIfNeeded({
                     authorName: roleAddress,
@@ -48,10 +52,11 @@ export async function parseRolesToEdit(
                     // Role edits must apply to current state — bypass cache.
                     cache: { maxAge: 0 }
                 }));
-            } catch {
+            } catch (e) {
                 resolved = null;
+                resolveError = e;
             }
-            if (!resolved) throw new PKCError("ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED", { roleAddress });
+            if (!resolved) throw new PKCError("ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED", { roleAddress, resolveError });
         }
     }
     return <NonNullable<CommunityIpfsType["roles"]>>omitBy(newRawRoles, (val, key) => val === undefined || val === null);

@@ -4,6 +4,10 @@ import {
     shouldExcludePublication,
     shouldExcludeChallengeSuccess
 } from "../../dist/node/runtime/node/community/challenges/exclude/index.js";
+import { createAuthorIdentityMatcher } from "../../dist/node/runtime/node/community/local-community/author-identity.js";
+import { getPendingChallengesOrChallengeVerification } from "../../dist/node/runtime/node/community/challenges/index.js";
+import type { NameIdentityFailure } from "../../dist/node/runtime/node/community/local-community/author-identity.js";
+import { derivePublicationFromChallengeRequest } from "../../dist/node/util.js";
 import { addToRateLimiter } from "../../dist/node/runtime/node/community/challenges/exclude/rate-limiter.js";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
@@ -15,9 +19,10 @@ import validCommentFixture from "..//fixtures/signatures/comment/commentUpdate/v
 import validVoteFixture from "../fixtures/valid_vote.json" with { type: "json" };
 
 // Type helpers for function signatures
-type CommunityChallengeArg = Parameters<typeof shouldExcludePublication>[0];
-type ChallengeRequestArg = Parameters<typeof shouldExcludePublication>[1];
-type CommunityArg = Parameters<typeof shouldExcludePublication>[2];
+type ShouldExcludeArgs = Parameters<typeof shouldExcludePublication>[0];
+type CommunityChallengeArg = ShouldExcludeArgs["communityChallenge"];
+type ChallengeRequestArg = ShouldExcludeArgs["request"];
+type CommunityArg = ShouldExcludeArgs["community"];
 
 type AddToRateLimiterChallenges = Parameters<typeof addToRateLimiter>[0];
 type AddToRateLimiterRequest = Parameters<typeof addToRateLimiter>[1];
@@ -30,17 +35,55 @@ type ShouldExcludeChallengeCommentCidsChallenge = Parameters<typeof shouldExclud
 type ShouldExcludeChallengeCommentCidsRequest = Parameters<typeof shouldExcludeChallengeCommentCids>[1];
 type ShouldExcludeChallengeCommentCidsPKC = Parameters<typeof shouldExcludeChallengeCommentCids>[2];
 
+// Mirrors production: one matcher per request, built from the request's publication (#354). Many cases here
+// use publication mocks with no signature at all, which a real matcher cannot derive a signer from, so those
+// get a matcher that never matches — exactly what an identity exclude should do for an unidentifiable author.
+const matcherForRequest = (request: Record<string, unknown>, community?: Record<string, unknown>) => {
+    const publication = derivePublicationFromChallengeRequest(request as unknown as ChallengeRequestArg) as
+        | { signature?: { publicKey?: string } }
+        | undefined;
+    if (typeof publication?.signature?.publicKey !== "string")
+        return {
+            signerAddress: "",
+            wireName: undefined as string | undefined,
+            matchesIdentity: async () => ({ matched: false as const }),
+            matchesAnyIdentity: async () => ({ matched: false as const })
+        };
+    return createAuthorIdentityMatcher({
+        community: (community ?? {}) as unknown as CommunityArg,
+        publication: publication as unknown as Parameters<typeof createAuthorIdentityMatcher>[0]["publication"]
+    });
+};
+
 // Wrapper functions to reduce type assertion boilerplate
-const testShouldExcludePublication = (
+const testShouldExcludePublication = async (
     communityChallenge: Record<string, unknown>,
     request: Record<string, unknown>,
     community?: Record<string, unknown>
 ): Promise<boolean> => {
-    return shouldExcludePublication(
-        communityChallenge as unknown as CommunityChallengeArg,
-        request as unknown as ChallengeRequestArg,
-        (community ?? undefined) as unknown as CommunityArg
-    );
+    const result = await shouldExcludePublication({
+        communityChallenge: communityChallenge as unknown as CommunityChallengeArg,
+        request: request as unknown as ChallengeRequestArg,
+        community: (community ?? undefined) as unknown as CommunityArg,
+        identityMatcher: matcherForRequest(request, community)
+    });
+    return result.shouldExclude;
+};
+
+// The reason an exclude did not excuse the author, when the only thing in its way was a domain identity the
+// community could not verify. Undefined for every other kind of non-match, including an impostor. Issue #353.
+const testShouldExcludeNameFailure = async (
+    communityChallenge: Record<string, unknown>,
+    request: Record<string, unknown>,
+    community?: Record<string, unknown>
+) => {
+    const result = await shouldExcludePublication({
+        communityChallenge: communityChallenge as unknown as CommunityChallengeArg,
+        request: request as unknown as ChallengeRequestArg,
+        community: (community ?? undefined) as unknown as CommunityArg,
+        identityMatcher: matcherForRequest(request, community)
+    });
+    return result.nameFailure;
 };
 
 const testAddToRateLimiter = (
@@ -1230,5 +1273,78 @@ describe("shouldExcludeChallengeCommentCids", () => {
         expect(await testShouldExcludeChallengeCommentCids(communityChallenge, commentCidsEmpty, pkc)).to.equal(false);
         expect(await testShouldExcludeChallengeCommentCids(communityChallenge, commentCidsWrongCommunityAddress, pkc)).to.equal(false);
         expect(await testShouldExcludeChallengeCommentCids(communityChallenge, commentCidsMoreThanMax, pkc)).to.equal(false);
+    });
+});
+
+// Issue #353, raised in review of PR #358. An exclude that would have excused this author but for a domain
+// the node could not verify records why, so a later rejection can name the cause. That recording has to
+// happen only for a challenge that is still required: if the same challenge is excluded anyway by its
+// comment-cid rule, it can never be the thing that rejected anyone, and attributing a later failure to its
+// unresolvable name would name a cause that changed nothing.
+describe("an exclude that a comment-cid rule moots records no name failure", () => {
+    type PhaseResult = {
+        challengeSuccess?: boolean;
+        challengeErrors?: Record<number, string>;
+        identityNameFailureByIndex?: (NameIdentityFailure | undefined)[];
+    };
+
+    // The author owns high-karma.bso and carries the friendly-sub comment cids the community exclude wants.
+    const requestFromHighKarmaAuthor = () => ({
+        comment: {
+            author: { address: "high-karma.bso" },
+            signature: { publicKey: authorSigners["high-karma.bso"].publicKey }
+        },
+        challengeCommentCids: ["Qm...friendly-sub.bso,high,old", "Qm...friendly-sub.bso,high,old"]
+    });
+
+    const communityWithDownResolver = (challenges: Record<string, unknown>[]) => ({
+        title: "combined exclude community",
+        settings: { challenges },
+        _pkc: PKC(),
+        _clientsManager: {
+            resolveAuthorNameIfNeeded: async () => {
+                throw new Error("resolver down");
+            }
+        }
+    });
+
+    // Both rules on the same exclude item. The name cannot be verified, so the identity half fails; the
+    // comment-cid half succeeds on its own and excludes the challenge regardless.
+    const excludeBothWays = {
+        names: ["high-karma.bso"],
+        community: { addresses: ["friendly-sub.bso"], postScore: 100, maxCommentCids: 3 }
+    };
+
+    const runPhaseOne = async (challenges: Record<string, unknown>[]): Promise<PhaseResult> =>
+        getPendingChallengesOrChallengeVerification({
+            challengeRequestMessage: requestFromHighKarmaAuthor() as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
+            community: communityWithDownResolver(challenges) as unknown as LocalCommunity
+        }) as Promise<PhaseResult>;
+
+    it("records nothing for a challenge its comment-cid rule excludes anyway", async () => {
+        const res = await runPhaseOne([
+            { name: "fail", options: { error: "excusable" }, exclude: [excludeBothWays] },
+            // No exclude of any kind, so this one rejects the author no matter what the resolver does.
+            { name: "fail", options: { error: "unrelated" } }
+        ]);
+        expect(res.challengeSuccess).to.equal(false);
+        // Index 0 never ran, index 1 is what rejected them.
+        expect(res.challengeErrors?.[1]).to.equal("unrelated");
+        expect(res.identityNameFailureByIndex?.[0]).to.be.undefined;
+        expect(res.identityNameFailureByIndex?.[1]).to.be.undefined;
+    });
+
+    it("still records it when the same exclude leaves the challenge required", async () => {
+        // Same identity exclude, but nothing to moot it: the author's cids no longer satisfy the community
+        // rule, so challenge 0 stays required and its unverifiable name really is why it was not excused.
+        const res = await runPhaseOne([
+            {
+                name: "fail",
+                options: { error: "excusable" },
+                exclude: [{ names: ["high-karma.bso"] }]
+            }
+        ]);
+        expect(res.challengeSuccess).to.equal(false);
+        expect(res.identityNameFailureByIndex?.[0]?.reason).to.be.a("string");
     });
 });

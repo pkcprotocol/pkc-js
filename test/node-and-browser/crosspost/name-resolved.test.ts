@@ -15,11 +15,13 @@ import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import signers from "../../fixtures/signers.js";
 import {
+    createMockNameResolver,
     generateMockPost,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
     getAvailablePKCConfigsToTestAgainst
 } from "../../../dist/node/test/test-util.js";
+import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { signComment, verifyCommentPubsubMessage } from "../../../dist/node/signer/signatures.js";
 import { messages } from "../../../dist/node/errors.js";
 import { extractCrosspostRuntimeFields } from "../../../dist/node/publications/comment/crosspost-runtime.js";
@@ -37,7 +39,11 @@ const communityAddress = signers[0].address;
 // The mock resolver maps plebbit.bso -> signers[3] and testgibbreish.bso -> signers[4].
 const RESOLVES_TO_SIGNER = { name: "plebbit.bso", signer: signers[3] };
 const IMPERSONATED = { name: "plebbit.bso", signer: signers[7] }; // signed by somebody the domain does not point at
-const NO_RESOLVER_FOR_TLD = { name: "hello.scam", signer: signers[5] };
+// The default mock resolver's canResolve is `() => true`, so this TLD *is* handled and simply resolves to
+// nothing. That is "the resolvers answered, there is no record", not "no resolver handles this TLD" — two
+// different verdicts since issue #353. The genuine no-resolver case needs a reader with a restricted
+// canResolve, below.
+const NAME_WITH_NO_RECORD = { name: "hello.scam", signer: signers[5] };
 // Used only by the chain test, so nothing else in this file can warm its cache entry.
 const RESOLVES_BUT_ONLY_IF_ASKED = { name: "testgibbreish.bso", signer: signers[4] };
 
@@ -129,12 +135,50 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(validity).to.deep.equal({ valid: true });
             });
 
-            it("undefined when no resolver in this instance handles the embedded author's TLD", async () => {
-                const crosspost = await embeddedRecordBy(NO_RESOLVER_FOR_TLD);
+            it("false when the embedded author's name has no record", async () => {
+                const crosspost = await embeddedRecordBy(NAME_WITH_NO_RECORD);
                 const crossposting = await publishCrosspostOf(crosspost);
                 const loaded = await loadUntilLoaded(crossposting.cid!);
-                expect(embeddedNameResolvedOf(loaded)).to.be.undefined;
+                await resolveWhenConditionIsTrue({
+                    toUpdate: loaded,
+                    predicate: async () => typeof embeddedNameResolvedOf(loaded) === "boolean"
+                });
+                // The resolvers ran and agree the name has no record, which contradicts the claim. Definitive,
+                // and the same verdict a name pointing at somebody else gets. Issue #353.
+                expect(embeddedNameResolvedOf(loaded)).to.be.false;
                 await loaded.stop();
+            });
+
+            // itSkipIfRpc because the restricted resolver below is local to this client: under RPC the server
+            // does the resolving with its own (unrestricted) resolvers and ships the verdict in runtimeFields,
+            // so a reader that cannot handle the TLD is not a state this client can reach.
+            itSkipIfRpc("undefined when no resolver in this instance handles the embedded author's TLD", async () => {
+                const crosspost = await embeddedRecordBy(NAME_WITH_NO_RECORD);
+                const crossposting = await publishCrosspostOf(crosspost);
+
+                // A reader whose resolvers cannot handle .scam at all. It never asks, so it never finds out,
+                // and undefined is the honest verdict: false would accuse an author on no evidence.
+                const restrictedReader = await config.pkcInstancePromise({
+                    stubStorage: false,
+                    mockResolve: false,
+                    pkcOptions: {
+                        nameResolvers: [
+                            createMockNameResolver({
+                                includeDefaultRecords: true,
+                                canResolve: ({ name }: { name: string }) => /\.(eth|bso)$/i.test(name)
+                            })
+                        ]
+                    }
+                });
+                const loaded = await restrictedReader.createComment({ cid: crossposting.cid! });
+                await loaded.update();
+                await resolveWhenConditionIsTrue({ toUpdate: loaded, predicate: async () => typeof loaded.updatedAt === "number" });
+                // Yield so a background resolution pass would have settled before asserting on its absence.
+                await new Promise((r) => setTimeout(r, 0));
+
+                expect(loaded.crosspost?.comment.author?.nameResolved).to.be.undefined;
+                await loaded.stop();
+                await restrictedReader.destroy();
             });
 
             it("undefined when the embedded author has no name at all", async () => {

@@ -688,6 +688,13 @@ export class CommentClientsManager extends PublicationClientsManager {
         // we don't keep fetching stale postUpdate paths. The new fetch below runs under a new signal.
         this._resetFreshHandlerAbortController();
 
+        // The community's own page sweep runs on every one of its updates, and this is where a comment gets
+        // the same cadence: an author verdict is only ever recorded when the CommentIpfs first loads, so
+        // without this a `false` that has since lapsed out of nameResolvedCache would never be re-earned for
+        // as long as this instance lives. Free while the verdict stands, since resolveAuthorNamesInBackground
+        // skips every entry the cache still holds. RPC clients resolve nothing themselves (issue #353).
+        if (!this._pkc._pkcRpcClient) this._comment._resolveAuthorNamesInBackground();
+
         const postInUpdatingCommunity = this._findCommentInPagesOfUpdatingCommentsOrCommunity({ community });
 
         if (
@@ -1003,6 +1010,10 @@ export class CommentClientsManager extends PublicationClientsManager {
         // A fresh post update has arrived — abort any in-flight retry loop from a previous invocation
         // so we don't keep fetching page CIDs that may be stale under the new post state.
         this._resetFreshHandlerAbortController();
+
+        // A reply's per-cycle tick, the counterpart of the one in handleUpdateEventFromCommunity: a lapsed
+        // author verdict is re-earned here rather than held for the life of the instance (issue #353).
+        if (!this._pkc._pkcRpcClient) this._comment._resolveAuthorNamesInBackground();
         if (Object.keys(postInstance.replies.pageCids).length === 0 && Object.keys(postInstance.replies.pages).length === 0) {
             log(
                 "Post",

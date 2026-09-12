@@ -8,6 +8,7 @@ import {
 } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 
@@ -87,7 +88,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await community.stop();
         });
 
-        it(`update() succeeds via publicKey when no resolver handles .sol`, async () => {
+        // itSkipIfRpc: the resolver set below is configured on this client, but under RPC the community is
+        // resolved on the server with its own (unrestricted) mock resolvers, which do handle this name and
+        // answer "no record" — a definitive false rather than the undefined a client that cannot ask gets.
+        // Before #353 both paths produced false and the difference was invisible. Issue #353.
+        itSkipIfRpc(`update() succeeds via publicKey when no resolver handles .sol`, async () => {
             // Create a real IPNS record
             const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
 
@@ -111,12 +116,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await community.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: community,
-                predicate: async () => typeof community.updatedAt === "number" && typeof community.nameResolved === "boolean"
+                predicate: async () => typeof community.updatedAt === "number"
             });
+            // Yield so a background resolution pass would have settled before asserting on its absence.
+            await new Promise((r) => setTimeout(r, 0));
 
             expect(community.updatedAt).to.be.a("number");
-            // nameResolved should be false because .sol can't be resolved
-            expect(community.nameResolved).to.equal(false);
+            // No configured resolver handles .sol, so this client never finds out whether the name points at
+            // this community: the verdict is undefined, not false. It also never asks, since undefined doubles
+            // as the retry marker and an attempt would repeat on every fetch cycle forever. Issue #353.
+            expect(community.nameResolved).to.be.undefined;
 
             await community.stop();
             await testPKC.destroy();
@@ -146,6 +155,74 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
             expect(community.updatedAt).to.be.a("number");
             // nameResolved should be false because resolver returned null
+            expect(community.nameResolved).to.equal(false);
+
+            await community.stop();
+            await testPKC.destroy();
+        });
+
+        // Issue #353. Nothing drove this path with a throwing resolver before: every nameResolved=false test
+        // used a resolver that returned no record, so the two were never told apart on the community side.
+        // itSkipIfRpc: the resolver set below is configured on this client, but under RPC the community is
+        // resolved on the server with its own (unrestricted) mock resolvers, which answer normally instead of
+        // erroring, so the outage this drives never happens on the side that computes the verdict.
+        // Before #353 both paths produced false and the difference was invisible. Issue #353.
+        itSkipIfRpc(`update() succeeds via publicKey and leaves nameResolved undefined when every resolver errors`, async () => {
+            const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
+
+            const testPKC = await config.pkcInstancePromise({
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            key: "always-failing",
+                            resolveFunction: async () => {
+                                throw new Error("resolver is down");
+                            }
+                        })
+                    ]
+                }
+            });
+
+            const community = await testPKC.createCommunity({ name: "outage.eth", publicKey: communityAddress });
+            await community.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number"
+            });
+            await new Promise((r) => setTimeout(r, 0));
+
+            expect(community.updatedAt).to.be.a("number");
+            // A brief outage must not brand this community's name as not resolving: we never got an answer.
+            expect(community.nameResolved).to.be.undefined;
+
+            await community.stop();
+            await testPKC.destroy();
+        });
+
+        it(`update() sets nameResolved=false when the name resolves to something that is not a key`, async () => {
+            const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
+
+            const testPKC = await config.pkcInstancePromise({
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            key: "garbage-record",
+                            resolveFunction: async () => ({ publicKey: "not-an-ipns-address" })
+                        })
+                    ]
+                }
+            });
+
+            const community = await testPKC.createCommunity({ name: "garbage.eth", publicKey: communityAddress });
+            await community.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: community,
+                predicate: async () => typeof community.updatedAt === "number" && typeof community.nameResolved === "boolean"
+            });
+
+            // The resolvers answered: there is a record and it is not this community's key. Definitive.
             expect(community.nameResolved).to.equal(false);
 
             await community.stop();
@@ -325,7 +402,9 @@ describe(`publicKey fallback - .sol community loading`, () => {
                 await testPKC.destroy();
             });
 
-            it(`createCommunity({ name: "mycommunity.sol", publicKey }) succeeds via publicKey fallback`, async () => {
+            // itSkipIfRpc: as above, the restricted resolver is client-local and the RPC server resolves
+            // .sol with its own, reaching a definitive "no record" instead of never asking. Issue #353.
+            itSkipIfRpc(`createCommunity({ name: "mycommunity.sol", publicKey }) succeeds via publicKey fallback`, async () => {
                 const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
 
                 const testPKC = await config.pkcInstancePromise({
@@ -347,7 +426,9 @@ describe(`publicKey fallback - .sol community loading`, () => {
                 });
 
                 expect(community.updatedAt).to.be.a("number");
-                expect(community.nameResolved).to.equal(false);
+                // No resolver handles .sol, so the client never learns whether the name points here. Undefined,
+                // not false: it did not ask and cannot answer. Issue #353.
+                expect(community.nameResolved).to.be.undefined;
 
                 await community.stop();
                 await testPKC.destroy();

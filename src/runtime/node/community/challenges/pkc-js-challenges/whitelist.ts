@@ -119,7 +119,8 @@ const urlsAddressesSet = new UrlsAddressesSet();
 const getChallenge = async ({
     challengeSettings,
     challengeRequestMessage,
-    community
+    community,
+    authorIdentityMatcher
 }: GetChallengeArgsInput): Promise<ChallengeResultInput> => {
     // add a custom error message to display to the author
     const error = challengeSettings?.options?.error;
@@ -132,16 +133,25 @@ const getChallenge = async ({
     const publication = derivePublicationFromChallengeRequest(challengeRequestMessage);
     // Match on the signer, not on the publisher-controlled author.address: a listed domain only counts when the
     // publication is signed by the key that domain resolves to (issue #267)
-    const identityMatcher = createAuthorIdentityMatcher({ community, publication });
-    const listed =
-        (await identityMatcher.matchesAnyIdentity(addressesSet)) ||
-        (await identityMatcher.matchesAnyIdentity(
-            await urlsAddressesSet.getAddresses(
-                getCommunityAddressFromRecord(publication as unknown as Record<string, unknown>),
-                challengeSettings?.options?.urls
-            )
-        ));
-    if (!listed) {
+    // Shared across the whole challenge request when core supplies it, so the author's domain is resolved once.
+    const identityMatcher = authorIdentityMatcher ?? createAuthorIdentityMatcher({ community, publication });
+    const directMatch = await identityMatcher.matchesAnyIdentity(addressesSet);
+    const urlMatch = directMatch.matched
+        ? directMatch
+        : await identityMatcher.matchesAnyIdentity(
+              await urlsAddressesSet.getAddresses(
+                  getCommunityAddressFromRecord(publication as unknown as Record<string, unknown>),
+                  challengeSettings?.options?.urls
+              )
+          );
+    if (!urlMatch.matched) {
+        // A whitelisted domain the node could not resolve denies the author something the owner granted them.
+        // Say so, instead of letting them read "you're not whitelisted" and conclude they were removed (#353).
+        // `directMatch.matched ? undefined :` is unreachable at runtime (a matched directMatch becomes
+        // urlMatch, so this block is never entered) but load-bearing for the compiler: it is what narrows
+        // IdentityMatchOutcome to the branch that carries nameFailure. Do not "simplify" it away.
+        const nameFailure = directMatch.matched ? undefined : (directMatch.nameFailure ?? urlMatch.nameFailure);
+        if (nameFailure) return { success: false, error: nameFailure.reason, reason: nameFailure.reason };
         return {
             success: false,
             error: error || `You're not whitelisted.`

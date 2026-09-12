@@ -189,78 +189,296 @@ describeSkipIfRpc("NameResolutionCache: keying by resolver + provider", () => {
     });
 });
 
-describeSkipIfRpc("nameResolvedCache (verification cache) regression: false-sticks bug", () => {
+// Issue #353. `author.nameResolved` is false ONLY when a resolver answered and the answer contradicts the
+// claim; it is undefined whenever no answer was obtained, for any reason. Before #353 the resolver loop
+// collapsed "every resolver errored" into the same null as "there is no record", so neither could be treated
+// as definitive without risking the other, and both were left undefined.
+describeSkipIfRpc("nameResolvedCache: an answer is definitive, no answer is not", () => {
     let pkc: PKC;
     afterEach(async () => {
         if (pkc) await pkc.destroy();
     });
 
-    it("transient null result does NOT poison the verification cache as false", async () => {
-        // Round 1: resolver returns undefined (treated as "no record"); next round it succeeds.
-        const records: Record<string, string | undefined> = { "carol.bso": undefined };
+    const cacheKeyFor = async (author: { authorName: string; signaturePublicKey: string }) => {
+        const { sha256 } = await import("js-sha256");
+        return sha256(author.authorName + author.signaturePublicKey);
+    };
+
+    // resolveAuthorNamesInBackground only fires onResolved when the verification cache is updated, so a race
+    // against a timeout is the only way to wait for a pass that deliberately writes nothing.
+    const runBackgroundResolve = async (author: { authorName: string; signaturePublicKey: string }, timeoutMs = 5000) =>
+        new Promise<void>((resolve) => {
+            pkc._clientsManager.resolveAuthorNamesInBackground({ authors: [author], onResolved: () => resolve() });
+            setTimeout(() => resolve(), timeoutMs);
+        });
+
+    it("caches false when the resolvers answer that the name has no record", async () => {
+        const calls: string[] = [];
+        const resolver: NameResolver = createMockNameResolver({
+            key: "empty-resolver",
+            provider: "mock://empty",
+            resolveFunction: async ({ name }) => {
+                calls.push(name);
+                return undefined;
+            }
+        });
+        pkc = await makeNoDataPKC({}, resolver);
+
+        const author = { authorName: "carol.bso", signaturePublicKey: signers[3].publicKey };
+        await runBackgroundResolve(author, 2000);
+
+        // The resolvers ran and agree there is nothing there, which contradicts the claim. Definitive.
+        expect(pkc._memCaches.nameResolvedCache.get(await cacheKeyFor(author))).to.equal(false);
+        expect(calls.length).to.be.greaterThanOrEqual(1);
+    });
+
+    it("caches false when the record exists but is not a valid key", async () => {
+        const resolver: NameResolver = createMockNameResolver({
+            key: "garbage-resolver",
+            provider: "mock://garbage",
+            resolveFunction: async () => ({ publicKey: "not-an-ipns-address" })
+        });
+        pkc = await makeNoDataPKC({}, resolver);
+
+        const author = { authorName: "carol.bso", signaturePublicKey: signers[3].publicKey };
+        await runBackgroundResolve(author, 2000);
+
+        expect(pkc._memCaches.nameResolvedCache.get(await cacheKeyFor(author))).to.equal(false);
+    });
+
+    it("leaves the verdict undefined and retries when every resolver errors", async () => {
+        let shouldThrow = true;
         const calls: string[] = [];
         const resolver: NameResolver = createMockNameResolver({
             key: "flaky-resolver",
             provider: "mock://flaky",
             resolveFunction: async ({ name }) => {
                 calls.push(name);
-                const v = records[name];
-                return v ? { publicKey: v } : undefined;
+                if (shouldThrow) throw new Error("resolver is down");
+                return { publicKey: signers[3].address };
             }
         });
         pkc = await makeNoDataPKC({}, resolver);
+        // What this case is about is that nothing was cached, so the next pass is allowed to ask again. How
+        // soon it may ask is a separate bound with a case of its own below, floored out of the way here.
+        pkc._nameResolveFailedRetryFloorMs = 1;
 
-        const verificationCache = pkc._memCaches.nameResolvedCache;
         const author = { authorName: "carol.bso", signaturePublicKey: signers[3].publicKey };
-        // Round 1: resolution returns null. Verification cache must NOT be set to false.
-        await new Promise<void>((resolve) => {
-            pkc._clientsManager.resolveAuthorNamesInBackground({
-                authors: [author],
-                onResolved: () => resolve()
-            });
-            // resolveAuthorNamesInBackground only fires onResolved when the verification cache is updated.
-            // For null results, that never happens — so race a 1s timeout.
-            setTimeout(() => resolve(), 1000);
-        });
-        // Find the cache key the same way the implementation does.
-        const { sha256 } = await import("js-sha256");
-        const cacheKey = sha256(author.authorName + author.signaturePublicKey);
-        expect(verificationCache.get(cacheKey)).to.be.undefined;
+        const cacheKey = await cacheKeyFor(author);
 
-        // Round 2: resolver now returns the matching publicKey. Verification cache should turn into true.
-        records["carol.bso"] = signers[3].address;
-        await new Promise<void>((resolve) => {
-            pkc._clientsManager.resolveAuthorNamesInBackground({
-                authors: [author],
-                onResolved: () => resolve()
-            });
-            setTimeout(() => resolve(), 5000);
-        });
-        expect(verificationCache.get(cacheKey)).to.equal(true);
+        // Round 1: nothing was learned. Failing shut here would brand an author an impostor over an outage.
+        await runBackgroundResolve(author, 2000);
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.be.undefined;
+
+        // Round 2: the resolver recovers, and the undefined verdict is what allowed a retry at all.
+        shouldThrow = false;
+        await runBackgroundResolve(author);
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(true);
         expect(calls.length).to.be.greaterThanOrEqual(2);
     });
 
-    it("ERR_NO_RESOLVER_FOR_NAME is still treated as definitive false (no resolver handles this TLD)", async () => {
-        // Resolver that only handles .bso → .eth queries hit ERR_NO_RESOLVER_FOR_NAME
+    it("never asks, and stays undefined, when no resolver handles the TLD", async () => {
+        const calls: string[] = [];
         const resolver: NameResolver = createMockNameResolver({
             key: "bso-only",
             provider: "mock://bso-only",
             canResolve: ({ name }) => name.endsWith(".bso"),
-            records: {}
+            resolveFunction: async ({ name }) => {
+                calls.push(name);
+                return undefined;
+            }
         });
         pkc = await makeNoDataPKC({}, resolver);
 
-        const verificationCache = pkc._memCaches.nameResolvedCache;
         const author = { authorName: "test.eth", signaturePublicKey: signers[3].publicKey };
-        await new Promise<void>((resolve) => {
-            pkc._clientsManager.resolveAuthorNamesInBackground({
-                authors: [author],
-                onResolved: () => resolve()
-            });
-            setTimeout(() => resolve(), 1000);
+        await runBackgroundResolve(author, 2000);
+
+        // We never asked, so we do not know: undefined, not false. Caching false here would let a viewer with
+        // no .eth resolver display someone else's honest name as unverified. And because undefined is also the
+        // retry marker, attempting it would re-run (and re-log) on every update cycle forever, so it is skipped
+        // outright by a sync canResolveName check rather than attempted and cached.
+        expect(pkc._memCaches.nameResolvedCache.get(await cacheKeyFor(author))).to.be.undefined;
+        expect(calls).to.deep.equal([]);
+    });
+
+    // Issue #353. A verdict here is terminal while it lives: resolveAuthorNamesInBackground skips any entry
+    // that is already a boolean, so expiry is the only thing that ever causes a re-resolve. A `false` is an
+    // accusation with nothing persisted behind it, and the states that produce one are what a domain looks
+    // like while its owner is still configuring it, so it has to lapse. Otherwise the first viewer to look
+    // during that window keeps calling the author an impostor for the life of the process.
+    it("lets a false verdict lapse so a newly configured record is picked up", async () => {
+        let hasRecord = false;
+        const calls: string[] = [];
+        const resolver: NameResolver = createMockNameResolver({
+            key: "eventually-configured",
+            provider: "mock://eventually-configured",
+            resolveFunction: async ({ name }) => {
+                calls.push(name);
+                return hasRecord ? { publicKey: signers[3].address } : undefined;
+            }
         });
+        pkc = await makeNoDataPKC({}, resolver);
+        // Per instance, so shortening it cannot leak into another suite sharing this worker.
+        pkc._nameResolvedFalseTtlMs = 1000;
+
+        const author = { authorName: "carol.bso", signaturePublicKey: signers[3].publicKey };
+        const cacheKey = await cacheKeyFor(author);
+
+        await runBackgroundResolve(author, 2000);
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(false);
+
+        // Still inside the window: the verdict stands and nothing re-resolves.
+        const callsAfterFirstVerdict = calls.length;
+        await runBackgroundResolve(author, 500);
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(false);
+        expect(calls.length).to.equal(callsAfterFirstVerdict);
+
+        // The owner adds the record, and the lapsed verdict is what allows anyone to notice.
+        hasRecord = true;
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.be.undefined;
+        await runBackgroundResolve(author);
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(true);
+    });
+
+    // The other half of the asymmetry. A `true` is backed by a record in the persistent cache, so it is not
+    // re-earned every minute; re-deriving it after its own (much longer) ttl costs a disk read rather than a
+    // network resolve.
+    it("keeps a true verdict past the false ttl", async () => {
+        const resolver: NameResolver = createMockNameResolver({
+            key: "stable-record",
+            provider: "mock://stable-record",
+            resolveFunction: async () => ({ publicKey: signers[3].address })
+        });
+        pkc = await makeNoDataPKC({}, resolver);
+        pkc._nameResolvedFalseTtlMs = 500;
+
+        const author = { authorName: "carol.bso", signaturePublicKey: signers[3].publicKey };
+        const cacheKey = await cacheKeyFor(author);
+
+        await runBackgroundResolve(author);
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(true);
+
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(true);
+    });
+});
+
+// Issue #353. The community side bounds its background resolve three ways: an in-flight guard, a floor on a
+// `false` verdict, and a skip for a TLD no resolver can handle. The author side had only the last of those.
+// Nothing dedupes two passes that overlap, and nothing paces a pass that learns nothing, so while the
+// resolvers are down every caller re-attempts on its own cadence. There are more callers than there used to
+// be: a Comment now ticks once per community update, next to the page sweep that already did.
+//
+// Both bounds are needed for the same reason they were on the community side. The floor is measured from
+// when an attempt finished, so it cannot hold a resolver that has not answered yet; the in-flight guard
+// holds exactly that case and nothing else, since a resolver that fails fast settles before the next caller
+// arrives.
+describeSkipIfRpc("resolveAuthorNamesInBackground: an outage is bounded (#353)", () => {
+    let pkc: PKC;
+    afterEach(async () => {
+        if (pkc) await pkc.destroy();
+    });
+
+    const cacheKeyFor = async (author: { authorName: string; signaturePublicKey: string }) => {
         const { sha256 } = await import("js-sha256");
-        const cacheKey = sha256(author.authorName + author.signaturePublicKey);
-        expect(verificationCache.get(cacheKey)).to.equal(false);
+        return sha256(author.authorName + author.signaturePublicKey);
+    };
+
+    const author = { authorName: "carol.bso", signaturePublicKey: signers[3].publicKey };
+
+    it("does not start a second resolve while one for the same author is in flight", async () => {
+        const calls: string[] = [];
+        let releaseResolver = () => {};
+        const held = new Promise<void>((resolve) => (releaseResolver = resolve));
+        const resolver: NameResolver = createMockNameResolver({
+            key: "slow-resolver",
+            provider: "mock://slow",
+            resolveFunction: async ({ name }) => {
+                calls.push(name);
+                await held;
+                // Fails rather than answers, so the attempt leaves no verdict behind. A `true` would let the
+                // release half below pass on the strength of this attempt alone, without the guard ever
+                // having had to release: the next caller would be skipped by the verdict, not by the guard.
+                throw new Error("resolver is down");
+            }
+        });
+        pkc = await makeNoDataPKC({}, resolver);
+        // The floor is the other bound, with its own case below. Here it must not be what holds a retry back.
+        pkc._nameResolveFailedRetryFloorMs = 1;
+
+        const cacheKey = await cacheKeyFor(author);
+
+        try {
+            // Two holders of the same author, the shape a page sweep and an updating comment produce on the
+            // same community update. The guard lives on the PKC rather than on a clients manager, because
+            // those two callers do not share one.
+            pkc._clientsManager.resolveAuthorNamesInBackground({ authors: [author], onResolved: () => {} });
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            pkc._clientsManager.resolveAuthorNamesInBackground({ authors: [author], onResolved: () => {} });
+            await new Promise((resolve) => setTimeout(resolve, 500));
+
+            // Nothing has answered yet, so nothing has been learned and no floor has started. Only the
+            // in-flight guard can stop the second caller here.
+            expect(calls.length).to.equal(1);
+        } finally {
+            releaseResolver();
+        }
+
+        // Settling has to be awaited before the guard can be asked whether it released: a caller in the same
+        // tick as the release would still be refused, and would look exactly like a guard that never lets go.
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.be.undefined;
+
+        // The guard released with it, so the name is not blocked for the life of the process. This is the
+        // half that a `true` verdict would have hidden: with nothing cached, only a released guard lets the
+        // next caller through to the resolver at all.
+        pkc._clientsManager.resolveAuthorNamesInBackground({ authors: [author], onResolved: () => {} });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(calls.length).to.equal(2);
+    });
+
+    it("does not re-attempt a failed resolve more than once per floor", async () => {
+        let shouldThrow = true;
+        const calls: string[] = [];
+        const resolver: NameResolver = createMockNameResolver({
+            key: "down-resolver",
+            provider: "mock://down",
+            resolveFunction: async ({ name }) => {
+                calls.push(name);
+                if (shouldThrow) throw new Error("resolver is down");
+                return { publicKey: signers[3].address };
+            }
+        });
+        pkc = await makeNoDataPKC({}, resolver);
+        // Per instance, so shortening it cannot leak into another suite sharing this worker. Comfortably
+        // longer than every wait below that is meant to fall inside it.
+        const FLOOR_MS = 4000;
+        pkc._nameResolveFailedRetryFloorMs = FLOOR_MS;
+
+        const cacheKey = await cacheKeyFor(author);
+        const runBackgroundResolve = async (timeoutMs = 2000) =>
+            new Promise<void>((resolve) => {
+                pkc._clientsManager.resolveAuthorNamesInBackground({ authors: [author], onResolved: () => resolve() });
+                setTimeout(() => resolve(), timeoutMs);
+            });
+
+        // Nothing answers, so this waits out its own timeout rather than an onResolved that never comes.
+        await runBackgroundResolve(800);
+        expect(calls.length).to.equal(1);
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.be.undefined;
+
+        // Every caller inside the window is refused. The verdict is still undefined, which is the marker that
+        // allows a retry at all, so without a floor of its own each of these would reach the network.
+        for (let attempt = 0; attempt < 3; attempt++) await runBackgroundResolve(200);
+        expect(calls.length).to.equal(1);
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.be.undefined;
+
+        // Past the floor it asks again, which is what lets an author be verified once the outage ends.
+        shouldThrow = false;
+        await new Promise((resolve) => setTimeout(resolve, FLOOR_MS));
+        await runBackgroundResolve();
+        expect(calls.length).to.equal(2);
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(true);
     });
 });

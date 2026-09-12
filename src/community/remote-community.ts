@@ -630,6 +630,9 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             err.code === "ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED" ||
             err.code === "ERR_OVER_DOWNLOAD_LIMIT" ||
             err.code === "ERR_INVALID_JSON" ||
+            // No resolver handles this TLD: retrying cannot change that. Contrast ERR_ALL_NAME_RESOLVERS_FAILED,
+            // which means the resolvers exist but all errored — that one is transient and falls through to the
+            // retriable default below. Issue #353.
             err.code === "ERR_NO_RESOLVER_FOR_NAME" ||
             // Delegated-IPNS chain failures are definitive (forged/invalid chain or unsupported value),
             // not transient. See docs/protocol/delegated-ipns.md.

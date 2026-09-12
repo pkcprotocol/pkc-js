@@ -216,4 +216,8 @@ export type PKCMemCaches = {
     pageCidToSortTypes: LRUCache<NonNullable<PageIpfs["nextCid"]>, string[]>; // page cid => sort types
     pagesMaxSize: LRUCache<NonNullable<PageIpfs["nextCid"]>, number>; // page cid => max file size (number of bytes )
     nameResolvedCache: LRUCache<string, boolean>; // key: sha256(domain + signaturePublicKey), value: true|false
+    // Same key as nameResolvedCache. Presence means the last background resolve for that author finished
+    // without learning anything, so callers leave it alone until the entry expires. Entries carry no value
+    // beyond their own existence, and expire on their own, which is what bounds this cache. See issue #353.
+    nameResolveFailedCache: LRUCache<string, true>;
 };
