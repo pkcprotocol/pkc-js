@@ -86,7 +86,14 @@ import type {
     CommunityEditPubsubMessagePublication
 } from "../publications/community-edit/types.js";
 import { CommunityEditPublicationSignedPropertyNames } from "../publications/community-edit/schema.js";
-import { AuthorCommentIpfsReservedFields } from "../schema/schema.js";
+import { AuthorCommentIpfsReservedFields, AuthorReservedFields } from "../schema/schema.js";
+import {
+    CommunityListEntryReservedFields,
+    CommunityListReservedFields,
+    CommunityListSignedPropertyNames,
+    communityListHasNoDuplicateEntryPublicKeys
+} from "../community-list/schema.js";
+import type { CommunityListIpfsType } from "../community-list/types.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { RemoteCommunity } from "../community/remote-community.js";
@@ -332,6 +339,20 @@ export async function signCommunity({
 }): Promise<CommunitySignature> {
     const log = Logger("pkc-js:signatures:signCommunity");
     return <CommunitySignature>await _signJson(<JsonSignature["signedPropertyNames"]>CommunitySignedPropertyNames, community, signer, log);
+}
+
+export async function signCommunityList({
+    communityList,
+    signer,
+    pkc
+}: {
+    communityList: Omit<CommunityListIpfsType, "signature">;
+    signer: SignerType;
+    pkc: PKC;
+}): Promise<JsonSignature> {
+    const log = Logger("pkc-js:signatures:signCommunityList");
+    await _validateAuthorAddressBeforeSigning(communityList.author, signer, pkc);
+    return await _signJson(<JsonSignature["signedPropertyNames"]>CommunityListSignedPropertyNames, communityList, signer, log);
 }
 
 export async function signChallengeRequest({
@@ -683,6 +704,37 @@ export async function verifyCommentIpfs(opts: {
 
     opts.clientsManager._pkc._memCaches.commentVerificationCache.set(cacheKey, true);
     return validRes;
+}
+
+function _isThereUnsignedSignableFieldInCommunityList(record: CommunityListIpfsType): boolean {
+    const fields = record as Partial<Record<(typeof CommunityListSignedPropertyNames)[number], unknown>>;
+    for (const name of CommunityListSignedPropertyNames)
+        if (fields[name] !== undefined && !record.signature.signedPropertyNames.includes(name)) return true;
+    return false;
+}
+
+export async function verifyCommunityList({ communityList }: { communityList: CommunityListIpfsType }): Promise<ValidationResult> {
+    if (intersection(Object.keys(communityList), CommunityListReservedFields).length > 0)
+        return { valid: false, reason: messages.ERR_COMMUNITY_LIST_RECORD_INCLUDES_RESERVED_FIELD };
+
+    if (communityList.author && intersection(Object.keys(communityList.author), AuthorReservedFields).length > 0)
+        return { valid: false, reason: messages.ERR_COMMUNITY_LIST_AUTHOR_INCLUDES_RESERVED_FIELD };
+
+    for (const entry of communityList.communities)
+        if (intersection(Object.keys(entry), CommunityListEntryReservedFields).length > 0)
+            return { valid: false, reason: messages.ERR_COMMUNITY_LIST_ENTRY_INCLUDES_RESERVED_FIELD };
+
+    if (!communityListHasNoDuplicateEntryPublicKeys(communityList))
+        return { valid: false, reason: messages.ERR_COMMUNITY_LIST_HAS_DUPLICATE_COMMUNITY_PUBLIC_KEY };
+
+    // Must run on the raw record, before verification walks signedPropertyNames only (issue #249)
+    if (_isThereUnsignedSignableFieldInCommunityList(communityList))
+        return { valid: false, reason: messages.ERR_COMMUNITY_LIST_RECORD_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
+
+    const signatureValidity = await _verifyJsonSignature(communityList);
+    if (!signatureValidity) return { valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID };
+
+    return { valid: true };
 }
 
 function _allFieldsOfRecordInSignedPropertyNames(
