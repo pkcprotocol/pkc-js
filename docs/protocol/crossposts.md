@@ -139,6 +139,38 @@ timeout: bound it yourself and treat the timeout as "unverified", not as "forged
 - Do not present the embedded record's **author** as fact either. See below.
 - Karma and deletion/removal state require tier 2 by definition.
 
+#### The three states a crosspost renders in
+
+Tier 2 has three outcomes, and they are three different things to put on screen. Naming them matters
+because the third one is the one clients get wrong.
+
+| state | condition | render as |
+|---|---|---|
+| live | `raw.commentUpdate` is defined and verifies against the community named in the embedded record, with no `removed` or `deleted` | the comment, with its score and mod state |
+| removed | same, but the update carries `removed` or `deleted` | removed or deleted by that community |
+| unknown | tier 2 never completed: the community is unreachable or gone, the update failed verification, or the wait timed out | the author-signed text, marked unverified |
+
+**Never collapse unknown into removed.** They come from opposite causes: removed is that community
+telling you something, unknown is that community telling you nothing. A client that renders both as
+`[removed]` makes an unreachable community indistinguishable from a moderating one, and makes a
+crosspost to a community that has since gone quiet look like it was taken down.
+
+Unknown is not opaque. `original.on("error", ...)` in the tier-2 snippet above carries why the fetch
+failed, so a client can say "could not reach that community" rather than showing a bare unverified
+badge, and can retry rather than treating the state as final. Absence of evidence is not evidence of
+removal, and the timeout in that snippet is a client-chosen bound, not a protocol verdict.
+
+**Karma counts an entry when its `CommentUpdate` verifies and carries no `removed` or `deleted`.**
+Verification is the whole test, not liveness: the community's signature attests those exact bytes
+regardless of who is still serving them, so an entry whose update verifies counts even if that
+community is permanently gone. Last-known entries are therefore eligible, and a client that wants to
+distinguish them in the UI should still count them.
+
+Unknown entries never count. A crosspost is self-attested until tier 2, so anyone can embed a record
+nobody can check, and counting unverified entries makes score inflatable by crossposting.
+
+This applies to any crosspost anywhere, not only to feeds made of them.
+
 #### The embedded record's author: `crosspost.comment.author.nameResolved`
 
 Tier 1 proves who **signed** the embedded record, not who they are. `address` is derived as

@@ -29,7 +29,7 @@ The `CommunityIpfsType` record is what gets published to IPNS. It's the communit
 - `roles`: `{ [authorAddress]: { role: "owner" | "admin" | "moderator" } }`
 - `challenges[]`: configured challenge system
 - `features`: feature flags (requirePostLink, noVideos, etc.)
-- `suggested`: suggested client settings (primaryColor, language, etc.)
+- `suggested`: suggested client settings (primaryColor, language, uiType, etc.)
 - `encryption`: public key for encrypted challenge exchanges
 - `posts`: pre-loaded first pages + `pageCids` for pagination
 - `stats`: hourly/daily/weekly/monthly/yearly/all-time post, reply, and active user counts
