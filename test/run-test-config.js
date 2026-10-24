@@ -357,6 +357,14 @@ if (vitestTimeoutValue === undefined && npmLifecycleEvent === "test:node:paralle
     vitestTimeoutValue = "160000";
 }
 
+// The RPC client's per-call timeout (300s by default) has to fire before vitest kills the test,
+// otherwise a lost JSON-RPC response surfaces as a bare "Test timed out" instead of an
+// ERR_RPC_CALL_TIMED_OUT naming the rpcMethod (issue #266).
+const rpcCallTimeoutDefaultMs = 300_000;
+if (!env.PKC_RPC_CALL_TIMEOUT_MS && Number(vitestTimeoutValue) > 0) {
+    env.PKC_RPC_CALL_TIMEOUT_MS = String(Math.min(rpcCallTimeoutDefaultMs, Math.floor(Number(vitestTimeoutValue) * 0.75)));
+}
+
 const waitForStreamFinish = (stream) =>
     new Promise((resolve, reject) => {
         stream.once("finish", resolve);
@@ -434,6 +442,9 @@ const runNodeTests = () => {
     const stdoutStream = stdoutLogPath ? prepareWriteStream(stdoutLogPath) : undefined;
     const stderrStream = stderrLogPath ? prepareWriteStream(stderrLogPath) : undefined;
 
+    // Read by test/vitest-node-setup.js to stagger the workers' first files (issue #265). Set here,
+    // after the type check, so the schedule starts when vitest does.
+    env.PKC_TEST_RUN_STARTED_AT_MS = String(Date.now());
     const runnerProcess = spawn(process.execPath, [vitestCli, ...vitestArgs], {
         cwd: projectRoot,
         env,

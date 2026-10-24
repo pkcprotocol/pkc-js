@@ -9,7 +9,7 @@ import {
     createNewIpns,
     resolveWhenConditionIsTrue
 } from "../../../../../dist/node/test/test-util.js";
-import { describe, beforeAll, afterAll, it, expect } from "vitest";
+import { describe, beforeAll, afterAll, it, expect, vi } from "vitest";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 
@@ -66,6 +66,52 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
 
             expect(recordedStates).to.deep.equal(expectedStates);
+        });
+
+        it(`a community fetch cycle that starts right after the record arrives does not show up in publishingState (#437)`, async () => {
+            // The community update loop can start its next cycle synchronously after emitting the
+            // update that carries the record (e.g. a record gossiped in during the first fetch, seen
+            // in CI on libp2p-js), before the publication's async cleanup detaches from the community.
+            // Emit that cycle's fetching-ipns at exactly that point to reproduce the ordering.
+            const dedicatedPKC = await config.pkcInstancePromise();
+            try {
+                const originalCreateCommunity = dedicatedPKC.createCommunity.bind(dedicatedPKC);
+                vi.spyOn(dedicatedPKC, "createCommunity").mockImplementation(async (...args) => {
+                    const community = await originalCreateCommunity(...args);
+                    // Right after the emit returns, like the loop does: every "update" listener has run.
+                    const originalEmit = community.emit.bind(community) as (...emitArgs: unknown[]) => boolean;
+                    let startedNextCycle = false;
+                    community.emit = ((...emitArgs: unknown[]) => {
+                        const result = originalEmit(...emitArgs);
+                        if (emitArgs[0] === "update" && community.raw.communityIpfs && !startedNextCycle) {
+                            startedNextCycle = true;
+                            community._setUpdatingStateWithEventEmissionIfNewState("fetching-ipns");
+                        }
+                        return result;
+                    }) as unknown as typeof community.emit;
+                    return community;
+                });
+
+                const recordedStates: string[] = [];
+                const mockPost = await generatePostToAnswerMathQuestion({ communityAddress: mathCliCommunityAddress }, dedicatedPKC);
+                mockPost._getCommunityCache = (): ReturnType<typeof mockPost._getCommunityCache> => undefined;
+                mockPost.on("publishingstatechange", (newState: string) => recordedStates.push(newState));
+
+                await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
+
+                expect(recordedStates).to.deep.equal([
+                    "fetching-community-ipns",
+                    "fetching-community-ipfs",
+                    "publishing-challenge-request",
+                    "waiting-challenge",
+                    "waiting-challenge-answers",
+                    "publishing-challenge-answer",
+                    "waiting-challenge-verification",
+                    "succeeded"
+                ]);
+            } finally {
+                await dedicatedPKC.destroy();
+            }
         });
 
         it(`publishing states is in correct order upon publishing a comment with IPFS client (cached)`, async () => {

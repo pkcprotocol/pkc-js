@@ -1675,12 +1675,14 @@ export class CommunityClientsManager extends PKCClientsManager {
         // terminal (minter) key, and the anchor -> terminal binding is guaranteed by the
         // cryptographically-verified IPNS record chain (see docs/protocol/delegated-ipns.md).
         // Handles: {address: "12D3Koo..."} loads record with name: "plebbit.bso".
-        // NOT applied for domain addresses (Scenario C stays rejected — a domain load must match
-        // the record's name field, not merely its signature key).
-        const instanceAddressIsDomain = isStringDomain(communityInstanceAddress);
-        const signatureKeyMatchesTerminal = !instanceAddressIsDomain
-            ? this._areEquivalentCommunityAddresses(getPKCAddressFromPublicKeySync(communityJson.signature.publicKey), terminalIpnsName)
-            : false;
+        // Also applied to domain addresses: whether the record still claims the name it was loaded
+        // by is checked by each loader against the name IT asked for (findCommunityRecordNameMismatch),
+        // because loaders by name and by key share this updating instance and a record that dropped
+        // or changed its name is valid for a loader by key. This check is only about the key.
+        const signatureKeyMatchesTerminal = this._areEquivalentCommunityAddresses(
+            getPKCAddressFromPublicKeySync(communityJson.signature.publicKey),
+            terminalIpnsName
+        );
         if (!addressMatchesInstance && !addressMatchesPublicKey && !signatureKeyMatchesTerminal) {
             // Did the gateway supply us with a different community's ipns
 

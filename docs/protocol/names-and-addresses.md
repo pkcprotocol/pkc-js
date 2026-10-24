@@ -201,10 +201,10 @@ the owner meant is not pkc-js's guess. Before issue [#430](https://github.com/pk
 the comments signed with the old name, the community's own pre-publish check rejected every new record
 (`ERR_LOCAL_COMMUNITY_PRODUCED_INVALID_SIGNATURE`), and the renamed record was never published.
 
-Readers do not follow a rename. A client that loaded the community by its old name keeps fetching the same IPNS key,
-but the next record names a different address than the one it asked for, so it emits
-`ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED` and stops updating. It has to load the
-community again by the new name or by its public key. A name is part of the community's identity, so this is intended.
+Readers that loaded the community by its old name do not follow a rename. They keep fetching the same IPNS key, but
+the next record claims a different name than the one they asked for, so they refuse it (see "A remote community's
+name follows its record" below). They have to load the community again by the new name or by its public key. A name
+is part of the community's identity, so this is intended. Readers that loaded it by its public key do follow it.
 
 An owner can also rename the community with a `CommunityEdit` publication over pubsub (`name` or `address`, owner-only).
 It goes through the same `edit()`, so it is the same address move. An RPC server keeps a renamed community filed under
@@ -214,6 +214,30 @@ next boot all find it.
 A publication created with only a community's key (`createComment({ communityAddress: <key> })`) is signed again at
 `publish()` with the name of the community record it loaded, so pkc-js never sends a publication without the name to a
 community that has one. Its `signature` therefore changes between `createX` and `publish()` in that case.
+
+### A remote community's name follows its record
+
+Before the first record loads, a remote community's `name` is the name it was loaded by (its address when that is a
+domain), and undefined when it was loaded by public key. Once a record has loaded, `name` is the name that record
+claims, including none: a community that drops its name stops being shown under it. `address` never changes. What
+happens to a newer record that drops or changes the name depends on what the loader asked for:
+
+| Loaded by                                             | Newer record without the name, or with a different one                                                                                                                                                                                                                              |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public key, `{ address: <key> }`                      | Accepted. `name` follows the record, `nameResolved` is cleared because it described the old name, and the old name no longer routes new loaders to this updating instance.                                                                                                          |
+| Name, `{ address: "x.bso" }` or `{ name, publicKey }` | Refused. The loader keeps the last record that claimed the name and emits `ERR_COMMUNITY_RECORD_NAME_DOES_NOT_MATCH_REQUESTED_NAME` once per refused record. It stays updating and accepts a later record that claims the name again. `pkc.getCommunity()` rejects with it at once. |
+
+The error is retriable (`details.retriableError: true`) because the record is genuine, only not the community the
+caller asked for. Its details carry `requestedName`, `recordName`, `communityPublicKey` and `recordUpdatedAt`. A name
+and its `.eth`/`.bso` alias count as the same name. A publication addressed to a name whose community record no longer
+claims it fails `publish()` with the same error.
+
+Loaders by key and by name share one internal updating instance, matched by public key or name. That instance only
+checks that the record is signed by the key it resolved, which holds for every loader alike, and each loader checks the
+name it asked for when a record is applied to it. So a refusal never stops the shared instance or the other loaders. A
+record signed by a different key than the one resolved is still the fatal
+`ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED` for everyone. Over RPC the server's
+instance for the subscription does the check, so only that subscription receives the error.
 
 ## Equivalent names in identity lists
 

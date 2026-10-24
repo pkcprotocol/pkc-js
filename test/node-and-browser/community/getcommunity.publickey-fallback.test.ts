@@ -27,7 +27,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`loads via publicKey when no resolver handles .sol`, async () => {
-            const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
+            const { communityAddress: communityAddress } = await createMockedCommunityIpns({ name: "test.sol" });
 
             const testPKC = await config.pkcInstancePromise({
                 mockResolve: false,

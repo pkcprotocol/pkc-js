@@ -8,7 +8,8 @@ import {
     resolveWhenConditionIsTrue,
     createMockedCommunityIpns,
     publishCommunityRecordWithExtraProp,
-    createMockNameResolver
+    createMockNameResolver,
+    publishStaticCommunityWithPostInPages
 } from "../../../dist/node/test/test-util.js";
 import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { convertBase58IpnsNameToBase36Cid } from "../../../dist/node/signer/util.js";
@@ -161,14 +162,22 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     });
                 });
 
+                // First update: record loaded, name set from record. Capture it from a listener attached before
+                // update(): by the time a later check runs, the loop may have migrated to signers[0] and loaded its
+                // record, which has no name, and name follows the latest record. Over RPC that can all be replayed
+                // before update() returns.
+                const nameFromFirstRecordPromise = new Promise<string | undefined>((resolve) => {
+                    const onUpdate = () => {
+                        if (typeof community.updatedAt !== "number") return;
+                        community.removeListener("update", onUpdate);
+                        resolve(community.name);
+                    };
+                    community.on("update", onUpdate);
+                });
+
                 await community.update();
 
-                // First update: record loaded, name set from record
-                await resolveWhenConditionIsTrue({
-                    toUpdate: community,
-                    predicate: async () => typeof community.updatedAt === "number"
-                });
-                expect(community.name).to.equal("migration-test.bso");
+                expect(await nameFromFirstRecordPromise).to.equal("migration-test.bso");
 
                 const error = await errorPromise;
                 expect(error.details.previousPublicKey).to.equal(ipnsKey);
@@ -404,16 +413,19 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         // Scenario A: {address: domain, publicKey: pkA} where domain resolves to pkB (key migration)
         it(`community.update() performs key migration when name resolves to different public key`, async () => {
-            // "migrating.bso" is in defaultMockResolverRecords → signers[0].address,
-            // which differs from the mocked record's signer → triggers key migration
-            const { communityAddress: oldPublicKey } = await createMockedCommunityIpns({});
-            const newPublicKey = signers[0].address; // domain will resolve to this different key
+            // The self-resolving name resolves to the static community's fresh key, which differs from the
+            // mocked record's signer → triggers key migration. Both records claim the name, since a loader by
+            // name refuses a record that does not (ERR_COMMUNITY_RECORD_NAME_DOES_NOT_MATCH_REQUESTED_NAME).
+            const staticCommunity = await publishStaticCommunityWithPostInPages({ withSelfResolvingName: true });
+            const communityName = staticCommunity.communityName!;
+            const newPublicKey = staticCommunity.communityAddress; // domain will resolve to this different key
+            const { communityAddress: oldPublicKey } = await createMockedCommunityIpns({ name: communityName });
 
             const testPKC = await config.pkcInstancePromise();
 
             try {
-                const community = await testPKC.createCommunity({ address: "migrating.bso", publicKey: oldPublicKey });
-                expect(community.address).to.equal("migrating.bso");
+                const community = await testPKC.createCommunity({ address: communityName, publicKey: oldPublicKey });
+                expect(community.address).to.equal(communityName);
                 expect(community.publicKey).to.equal(oldPublicKey);
 
                 const errorPromise = new Promise<PKCError>((resolve) => {
@@ -449,7 +461,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(community.updateCid).to.be.undefined;
 
                 // address stays immutable
-                expect(community.address).to.equal("migrating.bso");
+                expect(community.address).to.equal(communityName);
                 // publicKey updated to new key
                 expect(community.publicKey).to.equal(newPublicKey);
                 // nameResolved is true since domain resolved correctly to the new key
@@ -463,11 +475,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     predicate: async () => typeof community.updatedAt === "number"
                 });
                 expect(community.publicKey).to.equal(newPublicKey);
-                expect(community.address).to.equal("migrating.bso");
+                expect(community.address).to.equal(communityName);
+                expect(community.name).to.equal(communityName);
 
                 await community.stop();
             } finally {
                 await testPKC.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
             }
         });
 
@@ -514,9 +528,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         // Scenario C: {address: domain} where record has name: "other.eth" (different name)
-        it(`community.update() rejects record when record name differs from loaded domain address`, async () => {
+        it(`community.update() refuses a record whose name differs from the loaded domain address`, async () => {
             // "wrong-name.bso" is in defaultMockResolverRecords → signers[3].address
-            // signers[3]'s record has name: "plebbit.bso", so "wrong-name.bso" ≠ "plebbit.bso" → rejection
+            // signers[3]'s record has name: "plebbit.bso", so "wrong-name.bso" ≠ "plebbit.bso" → refused.
+            // The record is genuine (signed by the key the name resolves to), so the refusal is the
+            // loader's own and retriable rather than a fetch failure: a later record could claim the name.
             const testPKC = await config.pkcInstancePromise();
 
             try {
@@ -526,19 +542,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 await community.update();
                 const error = await errorPromise;
 
-                if (isPKCFetchingUsingGateways(testPKC)) {
-                    expect(error.code).to.equal("ERR_FAILED_TO_FETCH_COMMUNITY_FROM_GATEWAYS");
-                    for (const gatewayUrl of Object.keys(testPKC.clients.ipfsGateways)) {
-                        expect((error.details.gatewayToError[gatewayUrl] as PKCError).code).to.equal(
-                            "ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED"
-                        );
-                    }
-                } else {
-                    expect(error.code).to.equal("ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED");
-                }
+                expect(error.code).to.equal("ERR_COMMUNITY_RECORD_NAME_DOES_NOT_MATCH_REQUESTED_NAME");
+                expect(error.details.requestedName).to.equal("wrong-name.bso");
+                expect(error.details.recordName).to.equal("plebbit.bso");
+                expect(error.details.retriableError).to.equal(true);
                 // Record should not be accepted
                 expect(community.updatedAt).to.be.undefined;
                 expect(community.address).to.equal("wrong-name.bso");
+                expect(community.state).to.equal("updating");
 
                 await community.stop();
             } finally {
@@ -547,8 +558,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`community.update() falls back to publicKey when name resolution fails and sets nameResolved=false`, async () => {
-            // Default mock resolver can't resolve "unresolvable.bso" (not in default records) → falls back to publicKey
-            const { communityAddress: publicKey } = await createMockedCommunityIpns({});
+            // Default mock resolver can't resolve "unresolvable.bso" (not in default records) → falls back to publicKey.
+            // The record claims the name, since a loader by name refuses a record that does not.
+            const { communityAddress: publicKey } = await createMockedCommunityIpns({ name: "unresolvable.bso" });
 
             const testPKC = await config.pkcInstancePromise();
 

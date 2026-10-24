@@ -4,7 +4,6 @@ import {
     publishWithExpectedResult,
     getAvailablePKCConfigsToTestAgainst,
     mockGatewayPKC,
-    createCommentUpdateWithInvalidSignature,
     mockCommentToNotUsePagesForUpdates,
     resolveWhenConditionIsTrue,
     mockPostToReturnSpecificCommentUpdate,
@@ -268,106 +267,53 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`Correct order of ${clientFieldName} when we update a post but its commentupdate is an invalid record (bad signature/schema/etc)`, async () => {
-            const pkc: PKC = await config.pkcInstancePromise();
-
-            const community = await pkc.getCommunity({ address: signers[0].address });
-
-            const commentUpdateWithInvalidSignatureJson = await createCommentUpdateWithInvalidSignature(
-                community.posts.pages.hot.comments[0].cid
-            );
-
-            const createdComment = await pkc.createComment({
-                cid: commentUpdateWithInvalidSignatureJson.cid
+            // A STATIC community (fresh key, published once) instead of the shared live signers[0]:
+            // this asserts the WHOLE client state sequence, and every concurrent suite publishes to
+            // signers[0]. The update loop is arrival-driven (issue #308), so such a publish started a
+            // community fetch cycle while the CommentUpdate fetch was still running (issue #435).
+            // updateIntervalForExactStateTests keeps the timer-driven cycles out of the window too.
+            const exactStatePKC: PKC = await config.pkcInstancePromise({
+                pkcOptions: { updateInterval: updateIntervalForExactStateTests }
             });
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
+            try {
+                const validCommentUpdate = staticCommunity.communityRecord.posts!.pages.hot!.comments[0].commentUpdate;
+                const commentUpdateWithInvalidSignatureJson = { ...validCommentUpdate, updatedAt: validCommentUpdate.updatedAt + 1234 };
 
-            const clientStates: string[] = [];
-            const keyOfClient = Object.keys((createdComment.clients as unknown as ClientsRecord)[clientFieldName])[0];
-            (createdComment.clients as unknown as ClientsRecord)[clientFieldName][keyOfClient].on("statechange", (state: string) =>
-                clientStates.push(state)
-            );
+                const createdComment = await exactStatePKC.createComment({ cid: staticCommunity.commentCid });
 
-            const createErrorPromise = () =>
-                new Promise<void>((resolve) =>
+                const clientStates: string[] = [];
+                const keyOfClient = Object.keys((createdComment.clients as unknown as ClientsRecord)[clientFieldName])[0];
+                (createdComment.clients as unknown as ClientsRecord)[clientFieldName][keyOfClient].on("statechange", (state: string) =>
+                    clientStates.push(state)
+                );
+
+                const errorPromise = new Promise<void>((resolve) =>
                     createdComment.once("error", (err) => {
                         if ((err as PKCError).code === "ERR_COMMENT_UPDATE_SIGNATURE_IS_INVALID") resolve();
                     })
                 );
-            await createdComment.update();
-            mockPostToReturnSpecificCommentUpdate(createdComment, JSON.stringify(commentUpdateWithInvalidSignatureJson));
+                await createdComment.update();
+                mockPostToReturnSpecificCommentUpdate(createdComment, JSON.stringify(commentUpdateWithInvalidSignatureJson));
 
-            await createErrorPromise();
+                await errorPromise;
+                await createdComment.stop();
 
-            await new Promise((resolve) => setTimeout(resolve, pkc.updateInterval * 3));
-            await createdComment.stop();
+                expect(createdComment.updatedAt).to.be.undefined; // should not accept the comment update
 
-            expect(createdComment.updatedAt).to.be.undefined; // should not accept the comment update
-
-            const expectedIpfsClientStates = [
-                "fetching-ipfs", // fetching comment-ipfs
-                "stopped",
-                "fetching-community-ipns", // fetching community
-                "fetching-community-ipfs",
-                "stopped",
-                "fetching-update-ipfs", // fetching comment update
-                "stopped"
-            ];
-
-            expect(clientStates.slice(0, expectedIpfsClientStates.length)).to.deep.equal(expectedIpfsClientStates);
-
-            const restOfIpfsStates = clientStates.slice(expectedIpfsClientStates.length);
-
-            // Check the remaining states follow valid patterns
-            let i = 0;
-            while (i < restOfIpfsStates.length) {
-                // Check for the first state in any valid pattern
-                expect(restOfIpfsStates[i]).to.equal(
-                    "fetching-community-ipns",
-                    `State at position ${i} should be 'fetching-community-ipns'`
-                );
-
-                i++;
-                if (i >= restOfIpfsStates.length) break;
-
-                // Check for two possible patterns:
-                // 1. No new community record: fetching-community-ipns -> stopped
-                // 2. New community record: fetching-community-ipns -> fetching-community-ipfs -> stopped -> fetching-update-ipfs -> stopped
-
-                if (restOfIpfsStates[i] === "stopped") {
-                    // Pattern 1: No new community record found
-                    i++;
-                } else if (restOfIpfsStates[i] === "fetching-community-ipfs") {
-                    // Pattern 2: Found new community record
-                    expect(restOfIpfsStates[i]).to.equal(
-                        "fetching-community-ipfs",
-                        `State at position ${i} should be 'fetching-community-ipfs'`
-                    );
-                    i++;
-
-                    if (i < restOfIpfsStates.length) {
-                        expect(restOfIpfsStates[i]).to.equal("stopped", `State at position ${i} should be 'stopped'`);
-                        i++;
-                    }
-
-                    if (i < restOfIpfsStates.length) {
-                        expect(restOfIpfsStates[i]).to.equal(
-                            "fetching-update-ipfs",
-                            `State at position ${i} should be 'fetching-update-ipfs'`
-                        );
-                        i++;
-                    }
-
-                    if (i < restOfIpfsStates.length) {
-                        expect(restOfIpfsStates[i]).to.equal("stopped", `State at position ${i} should be 'stopped'`);
-                        i++;
-                    }
-                } else {
-                    throw new Error(`Unexpected state '${restOfIpfsStates[i]}' at position ${i}`);
-                }
+                expect(clientStates).to.deep.equal([
+                    "fetching-ipfs", // fetching comment-ipfs
+                    "stopped",
+                    "fetching-community-ipns", // fetching community
+                    "fetching-community-ipfs",
+                    "stopped",
+                    "fetching-update-ipfs", // fetching comment update
+                    "stopped"
+                ]);
+            } finally {
+                await exactStatePKC.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
             }
-
-            // Ensure the very last state is "stopped"
-            expect(clientStates[clientStates.length - 1]).to.equal("stopped", "The last state should be 'stopped'");
-            await pkc.destroy();
         });
     });
 });

@@ -179,6 +179,21 @@ export function refreshTrackedCommunityAliases(pkc: PKC, community: TrackedCommu
         syncCommunityRegistryEntry(pkc._startedCommunities, community as StartedCommunity);
 }
 
+// Drops a name an updating community no longer claims: its newer record dropped or changed the name. The
+// alias history otherwise keeps every name an instance was ever tracked under, so a new loader asking for
+// the old name would attach to this instance and be handed records that do not claim it, instead of
+// resolving the name itself. Only pkc._updatingCommunities: a started (local) community stays reachable
+// by its old name, and its renames go through setAddress.
+export function forgetTrackedUpdatingCommunityName(pkc: PKC, community: TrackedCommunity, name: string): void {
+    if (!pkc._updatingCommunities.has(community)) return;
+    const staleAliases = isEthAliasDomain(name) ? getEquivalentCommunityAliases(name) : [name];
+    const currentAliases = new Set(getCommunityRegistryAliases(community));
+    const aliasesToForget = staleAliases.filter((alias) => !currentAliases.has(alias));
+    const aliasHistory = getTrackedAliasHistory(community, pkc._updatingCommunities);
+    aliasesToForget.forEach((alias) => aliasHistory.delete(alias));
+    pkc._updatingCommunities.removeAliases(community, aliasesToForget);
+}
+
 export function refreshTrackedCommentAliases(pkc: PKC, comment: Comment): void {
     if (pkc._updatingComments.has(comment)) syncCommentRegistryEntry(pkc._updatingComments, comment);
 }

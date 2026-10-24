@@ -44,10 +44,12 @@ import { CommunityClientsManager } from "./community-client-manager.js";
 import { getPKCAddressFromPublicKeySync } from "../signer/util.js";
 import {
     findUpdatingCommunity,
+    forgetTrackedUpdatingCommunityName,
     refreshTrackedCommunityAliases,
     trackUpdatingCommunity,
     untrackUpdatingCommunity
 } from "../pkc/tracked-instance-registry-util.js";
+import { findCommunityRecordNameMismatch, getCommunityNameFromWire } from "./community-wire.js";
 
 export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Omit<Partial<CommunityIpfsType>, "posts"> {
     // public
@@ -118,6 +120,10 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     // hideClassPrivateProps() can mark it non-enumerable — without it (target ES2021) the first
     // assignment would create an enumerable prop that leaks into JSON.stringify(community).
     protected _pendingWarmStartKeyMigration?: { previousPublicKey: string; newPublicKey: string } = undefined;
+    // updatedAt of the last record this instance refused because it does not claim the name the instance
+    // was loaded by. The updating instance it mirrors re-emits "update" for the same record (a nameResolved
+    // verdict landing, for example), and the refusal is reported once per record, not once per emit.
+    protected _lastRefusedRecordUpdatedAt?: number = undefined;
 
     // Add a private property to store the actual updatingState value
     protected _updatingState!: CommunityUpdatingState;
@@ -410,7 +416,15 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         ) {
             this.publicKey = newProps.address as string;
         }
-        if (typeof newProps.name === "string") this.name = newProps.name;
+        const nameBeforeProps = this.name;
+        if (newProps.signature && !("publicKey" in newProps)) {
+            // A published record, not options or a clone of an instance (those carry the runtime
+            // publicKey). Once a record has loaded it is the authority for the name, including for its
+            // absence: a community that drops or changes its name must stop being shown under the old
+            // one. A loader that asked for a name never gets here with a record that does not claim
+            // it, see _findRecordNameMismatch.
+            this.name = getCommunityNameFromWire(newProps as CommunityIpfsType);
+        } else if (typeof newProps.name === "string") this.name = newProps.name;
         else if (
             !this.name &&
             "address" in newProps &&
@@ -418,6 +432,13 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             isStringDomain(newProps.address as string)
         ) {
             this.name = newProps.address as string;
+        }
+
+        if (nameBeforeProps !== undefined && this.name !== nameBeforeProps) {
+            // The verdict described the previous name, and the previous name no longer identifies this
+            // community, so a new loader asking for it must not be routed to this instance.
+            this.nameResolved = undefined;
+            forgetTrackedUpdatingCommunityName(this._pkc, this, nameBeforeProps);
         }
 
         // Only set address during initial creation (no address yet).
@@ -659,6 +680,35 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         return true;
     }
 
+    // The name this instance was asked to load, which is its address when that is a domain (createCommunity
+    // derives the address from the name when one is given). The address is immutable, so this stays the
+    // same whatever name later records claim.
+    protected _requestedName(): string | undefined {
+        return this.address && isStringDomain(this.address) ? this.address : undefined;
+    }
+
+    // Each loader checks records against the name IT asked for, wherever a record is applied to it:
+    // loaders of different identities share one updating instance (matched by public key or name), so
+    // the shared instance only verifies the signing key, which holds for every loader alike.
+    protected _findRecordNameMismatch(record: CommunityIpfsType): PKCError | undefined {
+        return findCommunityRecordNameMismatch({ requestedName: this._requestedName(), record, communityPublicKey: this.publicKey });
+    }
+
+    // Refuse a record that does not claim the requested name: keep the last good record and report the
+    // refusal once for this record. The loader stays attached, so a later record that claims the name
+    // again is accepted.
+    protected _refuseRecordWithMismatchedName(error: PKCError, record: CommunityIpfsType) {
+        if (this._lastRefusedRecordUpdatedAt === record.updatedAt) return;
+        this._lastRefusedRecordUpdatedAt = record.updatedAt;
+        Logger("pkc-js:remote-community:_refuseRecordWithMismatchedName")(
+            `Community ${this.address} refused the record with updatedAt ${record.updatedAt}: it claims the name`,
+            error.details.recordName,
+            "instead of",
+            error.details.requestedName
+        );
+        this.emit("error", error);
+    }
+
     _setCommunityIpfsPropsFromUpdatingCommunitiesIfPossible() {
         const log = Logger("pkc-js:remote-community:_setCommunityIpfsPropsFromUpdatingCommunitiesIfPossible");
         const updatingCommunity = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
@@ -683,13 +733,17 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
                 );
                 return;
             }
+            // A record that does not claim the name this instance asked for is not adopted. The refusal
+            // is reported by the attach-time replay in update(), once the caller's listeners exist.
+            if (this._findRecordNameMismatch(updatingCommunity.raw.communityIpfs)) return;
             const nameResolvedBeforeAdoption = this.nameResolved;
+            const nameBeforeAdoption = this.name;
             this.initCommunityIpfsPropsNoMerge(updatingCommunity.raw.communityIpfs);
             this.updateCid = updatingCommunity.updateCid;
             // Same guard as the mirror's update handler: adopt the tracked instance's nameResolved
             // only when its name describes us (#119). Without this a warm-started instance reports
             // nameResolved undefined while a cold-started sibling of the same community reports true.
-            this._adoptMirroredNameResolved(updatingCommunity, nameResolvedBeforeAdoption);
+            this._adoptMirroredNameResolved(updatingCommunity, nameResolvedBeforeAdoption, nameBeforeAdoption);
             log.trace(
                 `New Remote Community instance`,
                 this.address,
@@ -706,12 +760,20 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     // nameResolved reflects whether THIS community's own name resolved to its publicKey. When we mirror an
     // updating instance that we share only by publicKey — e.g. a community loaded by a raw IPNS key sharing a
     // key with a resolved-domain sibling (migrating.bso), or two different domains that resolve to the same
-    // key — the sibling's nameResolved does NOT describe us. Adopt it only when the names match; otherwise
-    // restore the value we had before mirroring, undoing anything deepMergeRuntimeFields copied in. See #119.
-    protected _adoptMirroredNameResolved(source: { name?: string; nameResolved?: boolean }, nameResolvedBeforeMirror: boolean | undefined) {
-        if (this.name === source.name) {
+    // key — the sibling's nameResolved does NOT describe us. Adopt it only when the name it was computed for
+    // is ours: a domain-addressed instance classifies its address, which can differ from the name its record
+    // claims. Otherwise restore the value we had before mirroring, undoing anything deepMergeRuntimeFields
+    // copied in, unless our own name changed with the record, which leaves no verdict for it. See #119.
+    protected _adoptMirroredNameResolved(
+        source: { name?: string; address?: string; nameResolved?: boolean },
+        nameResolvedBeforeMirror: boolean | undefined,
+        nameBeforeMirror: string | undefined
+    ) {
+        const nameTheSourceClassified = source.address && isStringDomain(source.address) ? source.address : source.name;
+        if (this.name && this.name === nameTheSourceClassified) {
             if (typeof source.nameResolved === "boolean") this.nameResolved = source.nameResolved;
-        } else this.nameResolved = nameResolvedBeforeMirror;
+        } else if (this.name && this.name === nameBeforeMirror) this.nameResolved = nameResolvedBeforeMirror;
+        else this.nameResolved = undefined;
     }
 
     // Deliberately synchronous: the caller checks registry membership immediately before attaching
@@ -723,14 +785,19 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         return <NonNullable<this["_updatingCommunityInstanceWithListeners"]>>{
             community: communityInstance,
             update: () => {
+                if (communityInstance.raw.communityIpfs && communityInstance.updateCid) {
+                    const nameMismatch = this._findRecordNameMismatch(communityInstance.raw.communityIpfs);
+                    if (nameMismatch) return this._refuseRecordWithMismatchedName(nameMismatch, communityInstance.raw.communityIpfs);
+                }
                 const nameResolvedBeforeMirror = this.nameResolved;
+                const nameBeforeMirror = this.name;
                 if (!communityInstance.raw.communityIpfs || !communityInstance.updateCid) {
                     if (communityInstance.publicKey) this._clearDataForKeyMigration(communityInstance.publicKey);
                 } else {
                     this.initCommunityIpfsPropsNoMerge(communityInstance.raw.communityIpfs);
                     this.updateCid = communityInstance.updateCid;
                 }
-                this._adoptMirroredNameResolved(communityInstance, nameResolvedBeforeMirror);
+                this._adoptMirroredNameResolved(communityInstance, nameResolvedBeforeMirror, nameBeforeMirror);
                 log(
                     `Remote Community instance`,
                     this.address,
@@ -840,8 +907,11 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             (this.updatedAt ?? 0) < communityInstance.raw.communityIpfs.updatedAt &&
             this._updatingCommunityInstanceWithListeners
         ) {
+            const updatedAtBeforeReplay = this.updatedAt;
             this._updatingCommunityInstanceWithListeners.update(<RemoteCommunity>communityInstance);
-            return true; // the replay emitted "update"; update() must not emit again for the same record
+            // A record refused for its name emits "error" instead and leaves the warm-started record in
+            // place, which update() still has to announce
+            return this.updatedAt !== updatedAtBeforeReplay; // the replay emitted "update"; update() must not emit again for the same record
         }
         return false;
     }
