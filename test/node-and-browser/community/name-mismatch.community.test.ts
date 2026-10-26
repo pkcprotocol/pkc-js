@@ -440,14 +440,20 @@ getAvailablePKCConfigsToTestAgainst({
         // A publication addressed to a name must not be sent once the community's record stops claiming it
         // (docs/protocol/names-and-addresses.md). With a by-key loader updating, the publishing caches were
         // filled from the record that still claimed the name, so they must not answer for it afterwards.
-        for (const cacheState of ["nothing cached", "a by-key loader updating"] as const) {
+        // "addressed by key and name": communityAddress is the key and communityName the name. The address is derived
+        // from them (the name when there is one), so it must not look the community up under the key
+        for (const cacheState of [
+            "nothing cached",
+            "a by-key loader updating",
+            "a by-key loader updating, addressed by key and name"
+        ] as const) {
             it(`publish() to a name the record no longer claims fails with the mismatch error, with ${cacheState}`, async () => {
                 const staticCommunity = await publishStaticCommunityWithPostInPages({ withSelfResolvingName: true });
                 const communityName = staticCommunity.communityName!;
                 const pkc = await config.pkcInstancePromise();
                 try {
                     let byKey: RemoteCommunity | undefined;
-                    if (cacheState === "a by-key loader updating") {
+                    if (cacheState !== "nothing cached") {
                         byKey = await pkc.createCommunity({ address: staticCommunity.communityAddress });
                         await byKey.update();
                         await waitForUpdatedAt(byKey, staticCommunity.communityRecord.updatedAt);
@@ -459,7 +465,12 @@ getAvailablePKCConfigsToTestAgainst({
                     });
                     if (byKey) await waitForUpdatedAt(byKey, nameless.updatedAt);
 
-                    const post = await generateMockPost({ communityAddress: communityName, pkc });
+                    const post = await generateMockPost(
+                        cacheState === "a by-key loader updating, addressed by key and name"
+                            ? { communityAddress: staticCommunity.communityAddress, pkc, postProps: { communityName } }
+                            : { communityAddress: communityName, pkc }
+                    );
+                    expect(post.communityAddress).to.equal(communityName);
                     try {
                         const error = await post.publish().then(
                             (): undefined => undefined,
