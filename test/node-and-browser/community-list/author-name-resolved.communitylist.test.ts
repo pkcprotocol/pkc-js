@@ -19,6 +19,7 @@ import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { CommunityList } from "../../../dist/node/community-list/community-list.js";
 import type { SignerWithPublicKeyAddress } from "../../../dist/node/signer/index.js";
+import type { NameResolver } from "../../../dist/node/types.js";
 import { addCommunityListRecordToIpfs, buildSignedCommunityListRecord } from "./communitylist-test-util.js";
 
 // The default mock resolver maps plebbit.bso -> signers[3]
@@ -158,6 +159,36 @@ describeSkipIfRpc("communitylist author.nameResolved - custom resolvers", () => 
             await pkc.destroy();
         }
     });
+
+    // The resolvers answered, so these are definitive non-matches, the same verdicts
+    // resolveAuthorNamesInBackground gives comments. Only a failure to get an answer
+    // (ERR_ALL_NAME_RESOLVERS_FAILED, a timeout) is transient (issue #353)
+    const definitiveNonMatches: { label: string; resolveFunction: NameResolver["resolve"] }[] = [
+        { label: "the domain has no record", resolveFunction: async () => undefined },
+        { label: "the domain's record is not a key", resolveFunction: async () => ({ publicKey: "not-a-pkc-key" }) }
+    ];
+    for (const { label, resolveFunction } of definitiveNonMatches)
+        it(`resolves to false (definitive) when ${label}, then stops itself`, async () => {
+            const pkc = await mockRemotePKC({
+                mockResolve: false,
+                pkcOptions: { nameResolvers: [createMockNameResolver({ resolveFunction })] }
+            });
+            try {
+                const { cid } = await publishListWithAuthorName(pkc);
+                const list = await pkc.createCommunityList({ cid });
+                await list.update();
+                const stopped = await Promise.race([
+                    waitUntilStoppedByItself(list).then(() => true),
+                    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 10_000))
+                ]);
+                const stateAfterWait = list.state;
+                await list.stop();
+                expect(stopped, `still ${stateAfterWait} with nameResolved ${list.author?.nameResolved}`).to.equal(true);
+                expect(list.author?.nameResolved).to.equal(false);
+            } finally {
+                await pkc.destroy();
+            }
+        });
 
     it("keeps retrying on transient resolver failures: nameResolved stays undefined and the instance keeps updating", async () => {
         let resolveCalls = 0;

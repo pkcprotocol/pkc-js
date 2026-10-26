@@ -9,7 +9,7 @@ import { getAvailablePKCConfigsToTestAgainst, mockRemotePKC, resolveWhenConditio
 import { messages } from "../../../dist/node/errors.js";
 import { PKCError } from "../../../dist/node/pkc-error.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
-import type { CommunityList } from "../../../dist/node/community-list/community-list.js";
+import { CommunityList } from "../../../dist/node/community-list/community-list.js";
 import type { CommunityListIpfsType } from "../../../dist/node/community-list/types.js";
 import { addCommunityListRecordToIpfs, buildSignedCommunityListRecord, mockCommunityListEntries } from "./communitylist-test-util.js";
 
@@ -262,6 +262,17 @@ describe("communitylist load", () => {
                 );
             });
 
+            it("rejects a malformed cid with a schema error, not a CID parser exception", async () => {
+                for (const load of [() => pkc.createCommunityList({ cid: "notacid" }), () => pkc.getCommunityList({ cid: "notacid" })]) {
+                    try {
+                        await load();
+                        expect.fail("should have thrown");
+                    } catch (e) {
+                        expectPKCErrorCode(e, "ERR_INVALID_CREATE_COMMUNITY_LIST_OPTIONS_SCHEMA");
+                    }
+                }
+            });
+
             it("rejects a CIDv1 up front, since every transport's content check recomputes a CIDv0", async () => {
                 const cidV1 = CID.parse(fixture.cid).toV1().toString();
                 for (const load of [() => pkc.createCommunityList({ cid: cidV1 }), () => pkc.getCommunityList({ cid: cidV1 })]) {
@@ -320,6 +331,43 @@ describe("communitylist load", () => {
         })
     );
 });
+
+// Gateways wrap each gateway's error into one ERR_FAILED_TO_FETCH_GENERIC_IPFS_FROM_GATEWAYS, so the
+// record errors underneath must still be recognized as final
+getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) =>
+    describe(`communitylist load stops on records every gateway rejects - ${config.name}`, () => {
+        let pkc: PKC;
+        beforeAll(async () => {
+            pkc = await config.pkcInstancePromise();
+        });
+        afterAll(async () => {
+            await pkc.destroy();
+        });
+
+        it("update() stops itself on a record over 2mb instead of retrying forever", async () => {
+            const helperPkc = await mockRemotePKC();
+            const hugeTags = new Array(3).fill(undefined).map((_, i) => `${i}`.repeat(1024 * 1024)); // ~3mb
+            const { record } = await buildSignedCommunityListRecord({
+                pkc: helperPkc,
+                communities: [{ ...mockCommunityListEntries[0], tags: hugeTags }]
+            });
+            await helperPkc.destroy();
+            const oversizeCid = await addCommunityListRecordToIpfs(record);
+            const list = await pkc.createCommunityList({ cid: oversizeCid });
+            const errors: PKCError[] = [];
+            list.on("error", (e) => errors.push(<PKCError>e));
+            await list.update();
+            const stopped = await Promise.race([
+                waitUntilStoppedByItself(list).then(() => true),
+                new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 15_000))
+            ]);
+            const stateAfterWait = list.state;
+            await list.stop();
+            expect(stopped, `still ${stateAfterWait} after ${errors.length} errors`).to.equal(true);
+            expect(errors.at(-1)?.code).to.equal("ERR_FAILED_TO_FETCH_GENERIC_IPFS_FROM_GATEWAYS");
+        });
+    })
+);
 
 // The fetch is stubbed on a local instance so these run deterministically without a live RPC server
 // (an RPC fetch takes no abort signal, so a stopped run can still settle after a newer run started)
@@ -387,6 +435,44 @@ describe("communitylist load lifecycle", () => {
         expect(updated, `instance hung in state ${stateAfterWait} after ${fetchCalls} fetches`).to.equal(true);
         expect(fetchCalls).to.equal(3);
         expect(errors.map((e) => e.message)).to.deep.equal(["mock transient fetch failure"]);
+    });
+
+    it("getCommunityList throws the final record error, not an earlier transient one", async () => {
+        // attempt 1 times out (emitted, retried); attempt 2 gets bytes with an invalid signature (final)
+        let fetchCalls = 0;
+        const spy = vi
+            .spyOn(<CommunityListInternals>(<unknown>CommunityList.prototype), "_fetchAndVerifyOnce")
+            .mockImplementation(async () => {
+                fetchCalls++;
+                if (fetchCalls === 1) throw new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { cid });
+                throw new PKCError("ERR_COMMUNITY_LIST_SIGNATURE_IS_INVALID", { cid });
+            });
+        try {
+            await pkc.getCommunityList({ cid });
+            expect.fail("should have thrown");
+        } catch (e) {
+            expect(fetchCalls).to.equal(2);
+            expectPKCErrorCode(e, "ERR_COMMUNITY_LIST_SIGNATURE_IS_INVALID");
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
+    it("toJSON() of an unpublished list carries every field set on the instance", async () => {
+        const signer = await pkc.createSigner();
+        const list = await pkc.createCommunityList({
+            signer,
+            title: "Draft",
+            description: "Not published yet",
+            communities: mockCommunityListEntries
+        });
+        const json = JSON.parse(JSON.stringify(list));
+        expect(json.title).to.equal("Draft");
+        expect(json.description).to.equal("Not published yet");
+        expect(json.timestamp).to.equal(list.timestamp);
+        expect(json.protocolVersion).to.equal(list.protocolVersion);
+        expect(json.communities.length).to.equal(mockCommunityListEntries.length);
+        expect(json).to.not.have.property("signer");
     });
 
     it("stop() during a retry backoff settles the pending load instead of leaving it hanging", async () => {
