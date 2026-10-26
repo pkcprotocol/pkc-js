@@ -156,13 +156,13 @@ schema verbatim, wire and runtime:
     settle is `author.nameResolved`: if `author.name` is a domain and
     `pkc.resolveAuthorNames` is on, `update()` keeps driving the background resolution
     until the verdict is **definitive**, emits `update` again with `author.nameResolved`
-    set, then stops itself. Definitive means: resolved to `signature.publicKey` (true),
-    resolved to a different key (false), or no resolver in this PKC instance handles the TLD
+    set, then stops itself. Definitive means the resolvers answered: resolved to
+    `signature.publicKey` (true); resolved to a different key, to a record that is not a key,
+    or to no record at all (false); or no resolver in this PKC instance handles the TLD
     (false). That last verdict is the list's own and is not written to the pkc-wide cache,
-    which comments and pages share and for which "never asked" means `undefined`. A
-    resolution that returns nothing is indistinguishable from a resolver outage
-    today, so it retries rather than failing shut, the same policy as publication authors.
-    Transient resolver failures keep retrying until the caller's `stop()`.
+    which comments and pages share and for which "never asked" means `undefined`. These are
+    the same verdicts publication authors get (issue #353). Only getting no answer (every
+    resolver errored, a timeout) is transient: it keeps retrying until the caller's `stop()`.
   - When there is nothing to settle (no `author`, `author.name` absent or not a domain, or
     `resolveAuthorNames: false`), the instance stops itself right after the first `update`.
 - `cid` must be a CIDv0 (`Qm...`, what `publish()` returns). A CIDv1 is rejected with

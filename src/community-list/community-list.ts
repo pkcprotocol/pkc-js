@@ -322,26 +322,34 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
         try {
             // Works over both transports: PKCWithRpcClient overrides resolveAuthorName to delegate to the RPC server
             const { resolvedAuthorName } = await this._pkc.resolveAuthorName({ name: authorDomain });
+            const ttlOf = (verdict: boolean) => (verdict ? this._pkc._nameResolvedTrueTtlMs : this._pkc._nameResolvedFalseTtlMs);
             if (typeof resolvedAuthorName !== "string") {
-                // null: no TXT record OR all resolvers errored — indistinguishable today, so retry
-                // rather than fail shut (same policy as resolveAuthorNamesInBackground)
-                return undefined;
+                // The resolvers answered and there is no record: definitive, same as
+                // resolveAuthorNamesInBackground. All resolvers erroring throws instead (issue #353)
+                cache.set(cacheKey, false, { ttl: ttlOf(false) });
+                return false;
             }
             const signerAddress = getPKCAddressFromPublicKeySync(this.raw.communityList!.signature.publicKey);
             const verdict = resolvedAuthorName === signerAddress;
             // Same per-verdict ttls as resolveAuthorNamesInBackground: a `false` is what a domain looks
             // like while its owner is still configuring it, so it expires quickly (issue #353)
-            cache.set(cacheKey, verdict, { ttl: verdict ? this._pkc._nameResolvedTrueTtlMs : this._pkc._nameResolvedFalseTtlMs });
+            cache.set(cacheKey, verdict, { ttl: ttlOf(verdict) });
             return verdict;
         } catch (e) {
             // Classified by code, not instanceof: over RPC the rejection is a plain object carrying the code
-            if ((<{ code?: unknown }>e)?.code === "ERR_NO_RESOLVER_FOR_NAME") {
+            const code = (<{ code?: unknown }>e)?.code;
+            if (code === "ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS") {
+                // The resolvers answered: the record exists and is not a key. Definitive non-match
+                cache.set(cacheKey, false, { ttl: this._pkc._nameResolvedFalseTtlMs });
+                return false;
+            }
+            if (code === "ERR_NO_RESOLVER_FOR_NAME") {
                 // Definitive for this list: no resolver in this PKC instance (or its RPC server) handles
                 // this TLD. Not cached: the cache is shared with comments and pages, for which "never
                 // asked" is undefined, not false (issue #353)
                 return false;
             }
-            return undefined; // transient
+            return undefined; // no answer (every resolver errored, a timeout): retry
         }
     }
 

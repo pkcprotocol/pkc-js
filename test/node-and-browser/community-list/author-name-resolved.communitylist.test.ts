@@ -2,9 +2,9 @@
 //
 // A list's author identity derives from signature.publicKey; a domain in author.name is only a
 // claim. update() keeps driving the background resolution until the verdict is DEFINITIVE
-// (resolves to the signer = true; resolves to a different key = false; no resolver for the TLD =
-// false), emits `update` again with author.nameResolved set, then stops itself. Transient resolver
-// failures retry until the caller's own stop(). The one-shot getCommunityList never waits for the
+// (resolves to the signer = true; resolves to a different key, a non-key record or no record =
+// false; no resolver for the TLD = false), emits `update` again with author.nameResolved set, then
+// stops itself. Getting no answer (every resolver errored) retries until the caller's own stop(). The one-shot getCommunityList never waits for the
 // verdict; it only warms the pkc-wide cache.
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import { sha256 } from "js-sha256";
