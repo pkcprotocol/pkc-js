@@ -657,10 +657,11 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         abortSignal?.addEventListener("abort", abortListener);
 
         const timeoutMs = this._timeouts["generic-ipfs"];
+        const timeoutError = new TimeoutError(`pkc.getCommunityList({cid: ${cid}}) timed out after ${timeoutMs}ms`);
         try {
             await pTimeout(Promise.race([communityList._loadCommunityListIpfsWithRetries(abortSignal), abortPromise]), {
                 milliseconds: timeoutMs,
-                message: lastUpdateError || new TimeoutError(`pkc.getCommunityList({cid: ${cid}}) timed out after ${timeoutMs}ms`)
+                message: timeoutError
             });
             if (!communityList.signature) throw Error("Failed to load CommunityList");
             communityList._kickOffBackgroundAuthorNameResolution();
@@ -668,7 +669,9 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         } catch (e) {
             // Abort wins over whatever the list happened to emit: the caller cancelled on purpose
             if (abortError) throw abortError;
-            if (lastUpdateError) throw lastUpdateError;
+            // A load that rejected did so with its final error (a record error), which beats an earlier
+            // transient one. Only a timeout has nothing better to say than the last transient error
+            if (e === timeoutError && lastUpdateError) throw lastUpdateError;
             throw e;
         } finally {
             abortSignal?.removeEventListener("abort", abortListener);
