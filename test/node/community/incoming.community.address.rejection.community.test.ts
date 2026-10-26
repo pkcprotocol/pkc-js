@@ -122,6 +122,19 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
         disableValidationOfSignatureBeforePublishing(publication);
     }
 
+    // The client refuses to publish to a name the community's record does not claim
+    // (ERR_COMMUNITY_RECORD_NAME_DOES_NOT_MATCH_REQUESTED_NAME), so these tests hand the publication the community
+    // directly, skipping that lookup, to reach the community's own check of the signed communityName
+    function skipClientSideCommunityLookup(publication: Publication) {
+        publication._community = {
+            address: community.address,
+            publicKey: community.signer?.address ?? community.address,
+            name: community.name,
+            encryption: community.encryption,
+            pubsubTopic: community.pubsubTopic
+        };
+    }
+
     // --- comment ---
 
     it("rejects a comment with deprecated communityAddress field", async () => {
@@ -162,6 +175,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
             content: `Content ${Date.now()}`,
             signer: await pkc.createSigner()
         });
+        skipClientSideCommunityLookup(comment);
         await publishWithExpectedResult({
             publication: comment,
             expectedChallengeSuccess: false,
@@ -227,6 +241,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
             communityPublicKey: community.address,
             signer: await pkc.createSigner()
         });
+        skipClientSideCommunityLookup(vote);
         await publishWithExpectedResult({
             publication: vote,
             expectedChallengeSuccess: false,
@@ -296,6 +311,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
             communityPublicKey: community.address,
             signer: targetPost.signer
         });
+        skipClientSideCommunityLookup(commentEdit);
         await publishWithExpectedResult({
             publication: commentEdit,
             expectedChallengeSuccess: false,
@@ -363,6 +379,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
             commentModeration: { reason: `Wrong communityName mod ${Date.now()}`, spoiler: true },
             signer: moderatorSigner
         });
+        skipClientSideCommunityLookup(commentModeration);
         await publishWithExpectedResult({
             publication: commentModeration,
             expectedChallengeSuccess: false,
@@ -429,6 +446,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
             communityEdit: { description: `Wrong communityName sub edit ${Date.now()}` },
             signer: community.signer as SignerType
         });
+        skipClientSideCommunityLookup(communityEdit);
         await publishWithExpectedResult({
             publication: communityEdit,
             expectedChallengeSuccess: false,
