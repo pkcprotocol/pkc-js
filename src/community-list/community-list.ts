@@ -217,7 +217,13 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
     private _isNonRetriableError(e: unknown): boolean {
         // Classified by code, not instanceof: an error rejected by an RPC call crosses the wire as a
         // plain object carrying the server-side PKCError's code, never as a PKCError instance
-        const code = (<{ code?: unknown }>e)?.code;
+        const { code, details } = <{ code?: unknown; details?: { gatewayToError?: Record<string, unknown> } }>(e ?? {});
+        if (code === "ERR_FAILED_TO_FETCH_GENERIC_IPFS_FROM_GATEWAYS") {
+            // Gateways wrap each gateway's error into one: final only if every gateway hit a record
+            // error, same as Comment._isCommentIpfsErrorRetriable
+            const gatewayErrors = Object.values(details?.gatewayToError ?? {});
+            return gatewayErrors.length > 0 && gatewayErrors.every((gatewayError) => this._isNonRetriableError(gatewayError));
+        }
         return (
             typeof code === "string" &&
             (
