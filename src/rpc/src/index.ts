@@ -1053,7 +1053,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     // CommunityList (docs/protocol/community-lists.md). The client signs locally; the server only
     // adds the exact signed bytes to IPFS and returns the cid. The record is validated before
     // pinning so the server cannot be used to pin arbitrary or unsigned JSON
-    async publishCommunityList(params: any): Promise<RpcPublishCommunityListResult> {
+    async publishCommunityList(params: unknown[]): Promise<RpcPublishCommunityListResult> {
         const log = Logger("pkc-js-rpc:publishCommunityList");
         const parsedArgs = parseRpcPublishCommunityListParam(params[0]);
         const pkc = await this._getPKCInstance();
@@ -1080,7 +1080,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
     // Returns the raw record string so the client can check the bytes against the cid and verify
     // the signature locally: the server is not trusted with record validity
-    async fetchCommunityList(params: any): Promise<RpcFetchCommunityListResult> {
+    async fetchCommunityList(params: unknown[]): Promise<RpcFetchCommunityListResult> {
         const parsedArgs = parseRpcFetchCommunityListParam(params[0]);
         const pkc = await this._getPKCInstance();
         const communityListRawString = await pkc._clientsManager.fetchCid(parsedArgs.cid, {
