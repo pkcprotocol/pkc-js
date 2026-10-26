@@ -1,4 +1,5 @@
 import {
+    generateMockPost,
     getAvailablePKCConfigsToTestAgainst,
     publishStaticCommunityWithPostInPages,
     resolveWhenConditionIsTrue,
@@ -429,6 +430,46 @@ getAvailablePKCConfigsToTestAgainst({
 
                     await second.stop();
                     await first.stop();
+                } finally {
+                    await pkc.destroy();
+                    await staticCommunity.ipnsObj.pkc.destroy();
+                }
+            });
+        }
+
+        // A publication addressed to a name must not be sent once the community's record stops claiming it
+        // (docs/protocol/names-and-addresses.md). With a by-key loader updating, the publishing caches were
+        // filled from the record that still claimed the name, so they must not answer for it afterwards.
+        for (const cacheState of ["nothing cached", "a by-key loader updating"] as const) {
+            it(`publish() to a name the record no longer claims fails with the mismatch error, with ${cacheState}`, async () => {
+                const staticCommunity = await publishStaticCommunityWithPostInPages({ withSelfResolvingName: true });
+                const communityName = staticCommunity.communityName!;
+                const pkc = await config.pkcInstancePromise();
+                try {
+                    let byKey: RemoteCommunity | undefined;
+                    if (cacheState === "a by-key loader updating") {
+                        byKey = await pkc.createCommunity({ address: staticCommunity.communityAddress });
+                        await byKey.update();
+                        await waitForUpdatedAt(byKey, staticCommunity.communityRecord.updatedAt);
+                    }
+                    const nameless = await publishNewerRecord({
+                        staticCommunity,
+                        previous: staticCommunity.communityRecord,
+                        name: undefined
+                    });
+                    if (byKey) await waitForUpdatedAt(byKey, nameless.updatedAt);
+
+                    const post = await generateMockPost({ communityAddress: communityName, pkc });
+                    try {
+                        const error = await post.publish().then(
+                            (): undefined => undefined,
+                            (e: PKCError) => e
+                        );
+                        expect(error?.code).to.equal(MISMATCH_CODE);
+                    } finally {
+                        await post.stop();
+                    }
+                    if (byKey) await byKey.stop();
                 } finally {
                     await pkc.destroy();
                     await staticCommunity.ipnsObj.pkc.destroy();
