@@ -46,6 +46,7 @@ import { getBufferedPKCAddressFromPublicKey, getPKCAddressFromPublicKeySync } fr
 import * as cborg from "cborg";
 import { isDeepEqual, keys, omit } from "remeda";
 import type { CommunityIpfsType } from "../community/types.js";
+import { findCommunityRecordNameMismatch } from "../community/community-wire.js";
 import { findStartedCommunity, findUpdatingCommunity } from "../pkc/tracked-instance-registry-util.js";
 import type { CommentIpfsType } from "./comment/types.js";
 import {
@@ -846,6 +847,17 @@ class Publication extends TypedEmitter<PublicationEvents> {
             findUpdatingCommunity(this._pkc, { publicKey: this.communityPublicKey, name: this.communityName }) ||
             findStartedCommunity(this._pkc, { publicKey: this.communityPublicKey, name: this.communityName });
         const subIpfs = subInstance?.raw.communityIpfs;
+        // A by-key instance follows a record that no longer claims the name this publication is addressed to;
+        // leave it to the network path, which refuses it
+        if (
+            subIpfs &&
+            findCommunityRecordNameMismatch({
+                requestedName: this.communityName,
+                record: subIpfs,
+                communityPublicKey: subInstance.publicKey
+            })
+        )
+            return undefined;
         if (subIpfs && subInstance.publicKey)
             return {
                 address: subInstance.address,
@@ -879,7 +891,12 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         // Cancelling the refresh is what stop() asked for, so it is not an error.
                         if (e?.code === "ERR_GET_COMMUNITY_ABORTED")
                             log("Stopped the background refresh of the community cache", this.communityAddress);
-                        else log.error("Failed to update cache of community", this.communityAddress, e);
+                        else {
+                            // The community no longer claims this name, so the cached entry must not serve it again
+                            if (e?.code === "ERR_COMMUNITY_RECORD_NAME_DOES_NOT_MATCH_REQUESTED_NAME")
+                                this._pkc._memCaches.communityForPublishing.delete(this.communityAddress);
+                            log.error("Failed to update cache of community", this.communityAddress, e);
+                        }
                     })
                     .finally(() => {
                         if (this._backgroundCommunityRefresh === refresh) this._backgroundCommunityRefresh = undefined;

@@ -609,7 +609,10 @@ export const CommunityIpfsReservedFields = difference(
         // runtime marker for a deferred warm-start key-migration announcement (issue #197) — a wire
         // record carrying this key would otherwise reach the instance via the unknown-props
         // (extraProps) assignment and plant a signed, attacker-controlled migration announcement
-        "_pendingWarmStartKeyMigration"
+        "_pendingWarmStartKeyMigration",
+        // runtime dedup of the last refused name-mismatched record: a wire record carrying it would silence
+        // the refusal of a later record with that updatedAt
+        "_lastRefusedRecordUpdatedAt"
     ],
     keys(CommunityIpfsSchema.shape)
 );

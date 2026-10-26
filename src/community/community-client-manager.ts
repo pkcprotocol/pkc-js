@@ -1018,6 +1018,14 @@ export class CommunityClientsManager extends PKCClientsManager {
                 // Under the name and under the key: a publication created with only the key reads the community's
                 // current name here to re-sign with it (issue #401), so the key's entry must not keep a record from
                 // before the community got its name
+                const previousForKey = this._pkc._memCaches.communityForPublishing.get(identityPublicKey, { allowStale: true });
+                // A record that dropped or changed the name the key was cached under: the entry under the old name
+                // must not answer a publication addressed to it, which has to fetch and be refused instead
+                if (
+                    previousForKey?.name &&
+                    (!communityForPublishing.name || !areEquivalentCommunityAddresses(previousForKey.name, communityForPublishing.name))
+                )
+                    this._pkc._memCaches.communityForPublishing.delete(previousForKey.name);
                 this._pkc._memCaches.communityForPublishing.set(anchorIdentityAddress, communityForPublishing);
                 if (anchorIdentityAddress !== identityPublicKey)
                     this._pkc._memCaches.communityForPublishing.set(identityPublicKey, communityForPublishing);
