@@ -103,7 +103,8 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
 
     toJSON() {
         return {
-            ...this.raw.communityList,
+            // An unpublished list has no wire record yet; its props are the ones it will sign
+            ...(this.raw.communityList ?? this._unsignedProps),
             ...(this.author ? { author: this.author } : undefined),
             ...(this.communities ? { communities: this.communities } : undefined),
             cid: this.cid,
