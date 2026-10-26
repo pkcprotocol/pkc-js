@@ -275,8 +275,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             const exactStatePKC: PKC = await config.pkcInstancePromise({
                 pkcOptions: { updateInterval: updateIntervalForExactStateTests }
             });
-            const staticCommunity = await publishStaticCommunityWithPostInPages();
+            let staticCommunity: Awaited<ReturnType<typeof publishStaticCommunityWithPostInPages>> | undefined;
             try {
+                staticCommunity = await publishStaticCommunityWithPostInPages();
                 const validCommentUpdate = staticCommunity.communityRecord.posts!.pages.hot!.comments[0].commentUpdate;
                 const commentUpdateWithInvalidSignatureJson = { ...validCommentUpdate, updatedAt: validCommentUpdate.updatedAt + 1234 };
 
@@ -312,7 +313,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 ]);
             } finally {
                 await exactStatePKC.destroy();
-                await staticCommunity.ipnsObj.pkc.destroy();
+                if (staticCommunity) await staticCommunity.ipnsObj.pkc.destroy();
             }
         });
     });
