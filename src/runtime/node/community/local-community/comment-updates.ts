@@ -84,21 +84,27 @@ export async function calculateNewCommentUpdate(opts: {
     const calculatedCommentUpdate =
         precomputed?.calculated ??
         community._dbHandler.queryCalculatedCommentUpdate({ comment, authorDomain: getAuthorNameFromWire(comment.author) });
-    log.trace(
-        "Calculated comment update for comment",
-        comment.cid,
-        "on community",
-        community.address,
-        "with reply count",
-        calculatedCommentUpdate.replyCount
-    );
-
     const currentTimestamp = timestamp();
 
     const newUpdatedAt =
         typeof storedCommentUpdate?.updatedAt === "number" && storedCommentUpdate.updatedAt >= currentTimestamp
             ? storedCommentUpdate.updatedAt + 1
             : currentTimestamp;
+    // The updatedAt values are what a client compares against when it ignores a CommentUpdate as not newer (issue #456)
+    log.trace(
+        "Calculated comment update for comment",
+        comment.cid,
+        "on community",
+        community.address,
+        "with reply count",
+        calculatedCommentUpdate.replyCount,
+        "stored updatedAt",
+        storedCommentUpdate?.updatedAt,
+        "current timestamp",
+        currentTimestamp,
+        "new updatedAt",
+        newUpdatedAt
+    );
 
     const commentUpdatePriorToSigning: Omit<CommentUpdateType, "signature"> = {
         ...cleanUpBeforePublishing({
