@@ -488,6 +488,81 @@ getAvailablePKCConfigsToTestAgainst({
             });
         }
 
+        // A record makes claims, a resolved name proves them. The updating instance a loader of name A attached to
+        // accepts any record signed by A's key, including one that claims another community's name B. That claim must
+        // not route a later loader of B to this instance: B resolves to another key.
+        it(`a record claiming another community's name does not capture the loaders of that name`, async () => {
+            const claimant = await publishStaticCommunityWithPostInPages({ withSelfResolvingName: true });
+            const owner = await publishStaticCommunityWithPostInPages({ withSelfResolvingName: true });
+            const ownerName = owner.communityName!;
+            const pkc = await config.pkcInstancePromise();
+            try {
+                const byClaimantName = await pkc.createCommunity({ address: claimant.communityName! });
+                const mismatchErrors = collectMismatchErrors(byClaimantName);
+                await byClaimantName.update();
+                await waitForUpdatedAt(byClaimantName, claimant.communityRecord.updatedAt);
+                await publishNewerRecord({ staticCommunity: claimant, previous: claimant.communityRecord, name: ownerName });
+                await waitForMismatchCount(mismatchErrors, 1);
+
+                const byOwnerName = await pkc.createCommunity({ address: ownerName });
+                await byOwnerName.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: byOwnerName,
+                    predicate: async () => typeof byOwnerName.updatedAt === "number"
+                });
+                expect(byOwnerName.publicKey).to.equal(owner.communityAddress);
+                await vi.waitFor(() => expect(byOwnerName.nameResolved).to.equal(true), { timeout: 30_000, interval: 100 });
+                expect(byOwnerName.publicKey).to.equal(owner.communityAddress);
+                await byOwnerName.stop();
+                await byClaimantName.stop();
+            } finally {
+                await pkc.destroy();
+                await claimant.ipnsObj.pkc.destroy();
+                await owner.ipnsObj.pkc.destroy();
+            }
+        });
+
+        // A comment signed while the community claimed a name carries that name for good, but its CommentUpdates are
+        // signed by the community key. Once the record drops the name, the comment's own community loader (by name and
+        // key, from the CommentIpfs) must still accept it, or the comment never updates again.
+        it(`a comment signed under a name the record later dropped still gets its CommentUpdate`, async () => {
+            const staticCommunity = await publishStaticCommunityWithPostInPages({
+                withSelfResolvingName: true,
+                withCommentsClaimingName: true
+            });
+            const communityName = staticCommunity.communityName!;
+            const pkc = await config.pkcInstancePromise();
+            try {
+                // Without the pages: their comments claim the dropped name. The post's CommentUpdate stays reachable
+                // through postUpdates.
+                const nameless: CommunityIpfsType = {
+                    ...staticCommunity.communityRecord,
+                    updatedAt: Math.max(timestamp(), staticCommunity.communityRecord.updatedAt + 1)
+                };
+                delete nameless.name;
+                delete nameless.posts;
+                nameless.signature = await signCommunity({ community: nameless, signer: staticCommunity.ipnsObj.signer });
+                await staticCommunity.ipnsObj.publishToIpns(JSON.stringify(nameless));
+
+                const comment = await pkc.createComment({ cid: staticCommunity.commentCid });
+                const mismatchErrors: PKCError[] = [];
+                comment.on("error", (error) => {
+                    if ((error as PKCError).code === MISMATCH_CODE) mismatchErrors.push(error as PKCError);
+                });
+                await comment.update();
+                try {
+                    await vi.waitFor(() => expect(typeof comment.updatedAt).to.equal("number"), { timeout: 30_000, interval: 100 });
+                    expect(comment.communityName).to.equal(communityName);
+                    expect(mismatchErrors).to.deep.equal([]);
+                } finally {
+                    await comment.stop();
+                }
+            } finally {
+                await pkc.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
+            }
+        });
+
         it(`getCommunity by a name the record does not claim rejects with the mismatch error and stops its updating instance`, async () => {
             // A community whose record never claimed the self-resolving name that points at its key
             const staticCommunity = await publishStaticCommunityWithPostInPages();

@@ -2084,9 +2084,18 @@ export async function createStaticCommunityRecordForComment(opts?: {
 // A static community never needs a second cycle, so make the timer unreachable inside the test.
 export const updateIntervalForExactStateTests = 60_000;
 
-export async function publishStaticCommunityWithPostInPages(opts?: { withReplyInPostPages?: boolean; withSelfResolvingName?: boolean }) {
+export async function publishStaticCommunityWithPostInPages(opts?: {
+    withReplyInPostPages?: boolean;
+    withSelfResolvingName?: boolean;
+    // The embedded comments are signed with communityName too, as a client that loaded the community by its name
+    // signs them. Requires withSelfResolvingName.
+    withCommentsClaimingName?: boolean;
+}) {
+    if (opts?.withCommentsClaimingName && !opts.withSelfResolvingName)
+        throw Error("withCommentsClaimingName requires withSelfResolvingName");
     const ipnsObj = await createNewIpns();
     const communityAddress = ipnsObj.signer.address;
+    const communityName = opts?.withSelfResolvingName ? selfResolvingMockNameForAddress(communityAddress) : undefined;
     // ipnsObj.pkc is handed to the caller on success (it is the caller's to destroy). On any
     // failure before that nobody else holds it, so destroy it here instead of leaking it.
     const destroyIpnsPkcAndRethrow = async (e: unknown): Promise<never> => {
@@ -2107,12 +2116,14 @@ export async function publishStaticCommunityWithPostInPages(opts?: { withReplyIn
         const commentToPublish = await commentPKC.createComment({
             ...createOptions,
             signer: await commentPKC.createSigner(),
-            communityAddress
+            communityAddress,
+            ...(opts?.withCommentsClaimingName ? { communityName } : {})
         });
         if (!commentToPublish.raw.pubsubMessageToPublish) {
             (commentToPublish as unknown as Record<string, unknown>)["_community"] = {
                 address: communityAddress,
                 publicKey: communityAddress,
+                ...(opts?.withCommentsClaimingName ? { name: communityName } : {}),
                 encryption: encryptionForSigner(ipnsObj.signer),
                 pubsubTopic: communityAddress
             };
@@ -2177,7 +2188,6 @@ export async function publishStaticCommunityWithPostInPages(opts?: { withReplyIn
             if (addedEntry.path === "") folderCid = addedEntry.cid.toString();
         if (!folderCid) throw Error("Failed to derive the postUpdates folder cid from the wrapped kubo add");
 
-        const communityName = opts?.withSelfResolvingName ? selfResolvingMockNameForAddress(communityAddress) : undefined;
         const communityRecord = <CommunityIpfsType>{
             ...(await getTemplateCommunityRecord(ipnsObj.pkc)),
             posts: { pages: { hot: { comments: [{ comment: JSON.parse(post.commentIpfsJson), commentUpdate }] } } },
