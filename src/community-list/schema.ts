@@ -3,6 +3,7 @@ import { CID } from "multiformats/cid";
 import { keys, omit } from "remeda";
 import {
     AuthorPubsubSchema,
+    AuthorReservedFields,
     CidStringSchema,
     CreateSignerSchema,
     JsonSignatureSchema,
@@ -73,13 +74,23 @@ export const CommunityListIpfsLooseSchema = communityListIpfsBaseSchema
     .loose()
     .refine(communityListHasNoDuplicateEntryPublicKeys, messages.ERR_COMMUNITY_LIST_HAS_DUPLICATE_COMMUNITY_PUBLIC_KEY);
 
+// Strict on create, after dropping the runtime fields a loaded instance's author carries, same as entries:
+// an unknown key would otherwise be signed into a record that can never be corrected
+const omitAuthorRuntimeFields = (author: unknown) => {
+    if (!author || typeof author !== "object") return author;
+    const wireAuthor: Record<string, unknown> = { ...author };
+    for (const field of AuthorReservedFields) delete wireAuthor[field];
+    return wireAuthor;
+};
+const CreateCommunityListAuthorSchema = z.preprocess(omitAuthorRuntimeFields, AuthorPubsubSchema.partial().strict());
+
 // Strict on create, loose on load, like every other record type
 export const CreateNewCommunityListOptionsSchema = z
     .object({
         signer: CreateSignerSchema,
         title: z.string().optional(),
         description: z.string().optional(),
-        author: AuthorPubsubSchema.partial().loose().optional(), // runtime fields are stripped before signing
+        author: CreateCommunityListAuthorSchema.optional(),
         communities: CreateCommunityListEntrySchema.array(),
         timestamp: PKCTimestampSchema.optional(), // defaults to now
         protocolVersion: ProtocolVersionSchema.optional()
