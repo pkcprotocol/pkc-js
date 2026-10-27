@@ -7,6 +7,7 @@ import { CID } from "multiformats/cid";
 import signers from "../../fixtures/signers.js";
 import { getAvailablePKCConfigsToTestAgainst, mockRemotePKC, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
 import { messages } from "../../../dist/node/errors.js";
+import { calculateIpfsCidV0 } from "../../../dist/node/util.js";
 import { PKCError } from "../../../dist/node/pkc-error.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import { CommunityList } from "../../../dist/node/community-list/community-list.js";
@@ -103,6 +104,18 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             const entry = mockCommunityListEntries[0];
             try {
                 await pkc.createCommunityList({ signer, communities: [entry, clone(entry)] });
+                expect.fail("should have thrown");
+            } catch (e) {
+                expectPKCErrorCode(e, "ERR_INVALID_CREATE_COMMUNITY_LIST_OPTIONS_SCHEMA");
+            }
+        });
+
+        it("createCommunityList throws on an unknown author key instead of signing it into the record", async () => {
+            // docs/protocol/community-lists.md: author is "Strict on create, loose on load". A typo like
+            // `displayname` would otherwise be signed into a permanent cid that can never be corrected
+            const signer = await pkc.createSigner();
+            try {
+                await pkc.createCommunityList({ signer, communities: mockCommunityListEntries, author: <never>{ displayname: "Bob" } });
                 expect.fail("should have thrown");
             } catch (e) {
                 expectPKCErrorCode(e, "ERR_INVALID_CREATE_COMMUNITY_LIST_OPTIONS_SCHEMA");
@@ -401,6 +414,38 @@ describe("communitylist load lifecycle", () => {
             await new Promise((resolve) => setTimeout(resolve, 10));
         }
     };
+
+    it("an oversize record returned over RPC is rejected before parsing, same as the direct path", async () => {
+        // The RPC server is not trusted with record validity, so the 2mb load cap must hold even when a
+        // server skips it. The returned bytes match the cid and carry a valid signature, so only the
+        // size check can reject them
+        const hugeTags = new Array(3).fill(undefined).map((_, i) => `${i}`.repeat(1024 * 1024)); // ~3mb
+        const { record: oversizeRecord } = await buildSignedCommunityListRecord({
+            pkc,
+            communities: [{ ...mockCommunityListEntries[0], tags: hugeTags }]
+        });
+        const oversizeRawString = JSON.stringify(oversizeRecord);
+        const oversizeCid = await calculateIpfsCidV0(oversizeRawString);
+        const fetchCommunityList = vi.fn(async () => ({ communityListRawString: oversizeRawString }));
+        pkc._pkcRpcClient = <PKC["_pkcRpcClient"]>(<unknown>{ fetchCommunityList });
+        try {
+            const list = await pkc.createCommunityList({ cid: oversizeCid });
+            // race the error against an update, so accepting the record fails fast instead of timing out
+            const outcome = new Promise<{ err?: PKCError; loaded?: true }>((resolve) => {
+                list.once("error", (e) => resolve({ err: <PKCError>e }));
+                list.once("update", () => resolve({ loaded: true }));
+            });
+            await list.update();
+            const { err, loaded } = await outcome;
+            await list.stop();
+            expect(loaded, "the oversize record was accepted").to.be.undefined;
+            expect(err?.code).to.equal("ERR_OVER_DOWNLOAD_LIMIT");
+            expect(list.raw.communityList).to.be.undefined;
+            expect(fetchCommunityList).toHaveBeenCalledTimes(1);
+        } finally {
+            pkc._pkcRpcClient = undefined;
+        }
+    });
 
     it("a stale load finishing after update(); stop(); update() does not cancel the new run's retries", async () => {
         const list = await pkc.createCommunityList({ cid: cid });
