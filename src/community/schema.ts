@@ -87,6 +87,10 @@ export const CommunityFeaturesSchema = z.looseObject({
     requirePostLinkIsMedia: z.boolean().optional(), // post.link must be of media (audio, video, image)
     requireReplyLink: z.boolean().optional(), // reply.link must be defined and a valid https url
     requireReplyLinkIsMedia: z.boolean().optional(), // reply.link must be of media (audio, video, image)
+    // Most items a post's or reply's comment.gallery may have. Galleries are off unless the owner sets these: absent or 0
+    // rejects any comment with a gallery. There is no default, so clients read the field to know whether to offer one.
+    maxPostGalleryItems: z.number().int().nonnegative().optional(),
+    maxReplyGalleryItems: z.number().int().nonnegative().optional(),
     pseudonymityMode: z.enum(["per-post", "per-reply", "per-author"]).optional() // Controls author address anonymization: per-post (new address each post), per-reply (new address each reply), per-author (consistent address)
 });
 

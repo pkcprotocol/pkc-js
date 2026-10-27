@@ -61,6 +61,19 @@ const CrosspostSchema: z.ZodType<Crosspost, Crosspost> = z.object({
     comment: z.lazy(() => CommentIpfsSchema.loose() as unknown as z.ZodType<Crosspost["comment"], Crosspost["comment"]>)
 });
 
+// One media item of comment.gallery (issue #436). The client checks structure only, like link; the
+// community checks on publish that url is https and of media and that htmlTagName matches its type, so a
+// later change to the media extension list can't break already-published comments.
+// .loose() for the same reason as CrosspostSchema: items are author-signed, and zod's default strip would
+// delete an item prop a later protocol version adds, changing the CID the community reconstructs.
+export const CommentGalleryItemSchema = z.looseObject({
+    url: z.string().min(1).max(2000),
+    htmlTagName: z.enum(["img", "video", "audio"]),
+    width: z.number().positive().optional(),
+    height: z.number().positive().optional(),
+    alt: z.string().max(1000).optional() // the author's text description of the media, as in <img alt>. Not content
+});
+
 export const CreateCommentOptionsSchema = z
     .object({
         flairs: FlairSchema.array().optional(), // Author chosen colored labels for the comment
@@ -75,16 +88,21 @@ export const CreateCommentOptionsSchema = z
         parentCid: CidStringSchema.optional(), // The parent comment CID
         postCid: CidStringSchema.optional(), // the post cid, required if the comment is reply
         quotedCids: z.array(CidStringSchema).optional(), // CIDs of comments being quoted/referenced in this reply
-        crosspost: CrosspostSchema.optional() // this comment IS a repost of the embedded comment. Distinct from quotedCids, which only references comments the text refers to
+        crosspost: CrosspostSchema.optional(), // this comment IS a repost of the embedded comment. Distinct from quotedCids, which only references comments the text refers to
+        gallery: CommentGalleryItemSchema.array().min(1).optional() // media only, shown after the link card if both are set. No gallery means the field is absent
     })
     .merge(CreatePublicationUserOptionsSchema)
     .strict();
 
-// This one is used for parsing user's input
 // crosspost counts as payload on its own: a comment that only reposts another comment (a
 // "retweet") is valid with no content, link or title. See docs/protocol/crossposts.md.
+// So does a gallery, so image-only replies work.
+const commentHasPayload = (arg: { link?: string; content?: string; title?: string; crosspost?: unknown; gallery?: unknown }) =>
+    Boolean(arg.link || arg.content || arg.title || arg.crosspost || arg.gallery);
+
+// This one is used for parsing user's input
 export const CreateCommentOptionsWithRefinementSchema = CreateCommentOptionsSchema.refine(
-    (arg) => arg.link || arg.content || arg.title || arg.crosspost,
+    commentHasPayload,
     messages.ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE
 )
     .refine((arg) => (arg.parentCid ? arg.postCid : true), messages.ERR_REPLY_HAS_NOT_DEFINED_POST_CID)
@@ -109,12 +127,12 @@ export const CommentPubsubMessageWithFlexibleAuthorSchema = CommentPubsubMessage
 
 // This is used by the community when parsing request.comment
 export const CommentPubsubMessageWithFlexibleAuthorRefinementSchema = CommentPubsubMessageWithFlexibleAuthorSchema.loose().refine(
-    (arg) => arg.link || arg.content || arg.title || arg.crosspost,
+    commentHasPayload,
     messages.ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE
 );
 
 export const CommentPubsubMessageWithRefinementSchema = CommentPubsubMessagePublicationSchema.refine(
-    (arg) => arg.link || arg.content || arg.title || arg.crosspost,
+    commentHasPayload,
     messages.ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE
 ).refine((arg) => (arg.parentCid ? arg.postCid : true), messages.ERR_REPLY_HAS_NOT_DEFINED_POST_CID);
 
@@ -138,10 +156,7 @@ export const CommentIpfsSchema = CommentPubsubMessageWithFlexibleAuthorSchema.ex
 }).strict();
 
 // This one should be used for parsing user's input or from gateway/p2p etc
-export const CommentIpfsWithRefinementSchema = CommentIpfsSchema.refine(
-    (arg) => arg.link || arg.content || arg.title || arg.crosspost,
-    messages.ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE
-);
+export const CommentIpfsWithRefinementSchema = CommentIpfsSchema.refine(commentHasPayload, messages.ERR_COMMENT_HAS_NO_CONTENT_LINK_TITLE);
 
 // Comment update schemas
 

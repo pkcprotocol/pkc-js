@@ -46,6 +46,37 @@ Extends `CommentPubsubMessage` with community-added fields:
 - `previousCid`: CID of author's previous comment (linked list per author)
 - `pseudonymityMode`: `"per-post"` | `"per-reply"` | `"per-author"` | undefined
 
+## Gallery
+
+`comment.gallery` (issue #436) holds several images, videos or audio files. It sits next to `link` rather than replacing it: `link` is one link, usually shown as a preview card, and `gallery` is media only. A client that does not support galleries keeps rendering link posts.
+
+```ts
+gallery?: {
+  url: string                               // 1-2000 chars
+  htmlTagName: 'img' | 'video' | 'audio'
+  width?: number                            // positive
+  height?: number                           // positive
+  alt?: string                              // the author's text description, max 1000 chars. Not content
+}[]
+```
+
+- Author-signed and immutable like the rest of `CommentIpfs`. It can't be changed through `CommentEdit`, same as `link`.
+- A comment can have both `link` and `gallery`. Clients render the `link` card, then the gallery.
+- An empty array is invalid; no gallery means the field is absent. A gallery alone counts as content, so image-only replies are valid.
+- Items are `.loose()`: zod's default strip would delete an item prop a later protocol version adds and change the CID the community rebuilds from its DB row (same reason as `crosspost`).
+- No community thumbnails: `thumbnailUrl*` stays tied to `link`. Clients use the items and their author-provided dimensions.
+
+**Validation.** The client schema checks structure only. The community, on publish, requires each `url` to be https with a pathname extension whose MIME type is `image/*`, `video/*` or `audio/*` (`ERR_GALLERY_ITEM_NOT_MEDIA`), and `htmlTagName` to match it: `img` for images (including gif and apng), `video` for video, `audio` for audio (`ERR_GALLERY_ITEM_HTML_TAG_NAME_MISMATCH`). These checks never run when reading a `CommentIpfs`, so changing the extension list can't break published comments.
+
+**Community features.** Galleries are off unless the owner sets `features.maxPostGalleryItems` / `maxReplyGalleryItems`: absent or `0` rejects a gallery with `ERR_POST_GALLERY_NOT_ALLOWED` / `ERR_REPLY_GALLERY_NOT_ALLOWED`, and more items than the max is `ERR_POST_GALLERY_EXCEEDS_MAX_ITEMS` / `ERR_REPLY_GALLERY_EXCEEDS_MAX_ITEMS`. There is no default; clients read the field to decide whether to offer a gallery. `noImages`, `noVideos`, `noAudio` and their reply versions check `link` and every item. `requirePostLink`, `requireReplyLink`, their `IsMedia` versions and `noReplyLinks` look at `link` only, so a gallery does not satisfy `requirePostLink`.
+
+**Media-required boards.** On a board with `requirePostLink` + `requirePostLinkIsMedia` (or the reply versions), a multi-file post puts the first file in `link` and the rest in `gallery`. The first file is the cover: it gets the community thumbnail and is what the feed shows.
+
+**Known limitations.**
+
+- Communities older than this field keep `gallery` in `extraProps` without checking it. Upgraded readers validate it, and a page is parsed as one unit, so one malformed gallery on an older community (`[]`, `htmlTagName: "iframe"`, `width: 0`) fails the whole page with `ERR_INVALID_PAGE_IPFS_SCHEMA`. `crosspost` has the same exposure.
+- URLs that carry the format only in the query string (`pbs.twimg.com/media/X?format=jpg`) are rejected by the extension check.
+
 ## CommentUpdate Fields
 
 - `cid`: CID of the CommentIpfs this update is for

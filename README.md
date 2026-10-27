@@ -42,6 +42,7 @@ Comment extends Publication /* (IPFS file) */ {
   flairs?: Flair[] // arbitrary colored strings added by the author or mods to describe the author or comment
   quotedCids?: string[] // CIDs of comments being quoted/referenced in this reply
   crosspost?: {cid: string, comment: Comment} // this comment IS a repost of the embedded comment, which is stored verbatim so the crossposting community can moderate it independently
+  gallery?: GalleryItem[] // several images, videos or audio files, shown after the link card if both are set. Never empty, absent when there is no gallery. A gallery alone counts as content
   // below are added by community owner, not author
   previousCid?: string // each comment/post is a linked list of other comments/posts with same comment.depth and comment.parentCid, undefined if first comment in list
   postCid?: string // helps faster loading post info for reply direct linking, undefined for posts, a post can't know its own CID
@@ -49,6 +50,13 @@ Comment extends Publication /* (IPFS file) */ {
   thumbnailUrl?: string // optionally fetched by community owner, some web pages have thumbnail urls in their meta tags https://moz.com/blog/meta-data-templates-123
   thumbnailUrlWidth?: number // community owner can optionally provide dimensions of thumbails which helps UI clients with infinite scrolling feeds
   thumbnailUrlHeight?: number
+}
+GalleryItem { // other props are kept as signed, since a later protocol version may add some
+  url: string // 1-2000 chars. The community requires an https url whose path ends in an image, video or audio extension
+  htmlTagName: 'img' | 'video' | 'audio' // must match the url's media type, e.g. 'img' for .png and .gif
+  width?: number
+  height?: number
+  alt?: string // the author's text description of the media, as in <img alt>, max 1000 chars
 }
 Vote extends Publication {
   commentCid: string
@@ -201,17 +209,19 @@ CommunityFeatures { // any boolean that changes the functionality of the communi
   requirePostLinkIsMedia?: boolean // require post.link be media, e.g. for imageboards
   requireReplyLink?: boolean // require reply.link be defined and a valid https url
   requireReplyLinkIsMedia?: boolean // require reply.link be media
+  maxPostGalleryItems?: number // most comment.gallery items a post may have. Galleries are off unless set: absent or 0 rejects a post with a gallery (ERR_POST_GALLERY_NOT_ALLOWED)
+  maxReplyGalleryItems?: number // same for replies (ERR_REPLY_GALLERY_NOT_ALLOWED)
   noMarkdownImages?: boolean // don't embed images in text posts markdown
   noMarkdownVideos?: boolean // don't embed videos in text posts markdown
   noMarkdownAudio?: boolean // don't embed audio in text posts markdown
-  noVideos?: boolean // block all comments with video links
-  noImages?: boolean // block all comments with image links
-  noAudio?: boolean // block all comments with audio links
+  noVideos?: boolean // block all comments with video links, in link or any gallery item
+  noImages?: boolean // block all comments with image links, in link or any gallery item
+  noAudio?: boolean // block all comments with audio links, in link or any gallery item
   noSpoilers?: boolean // author can't set spoiler = true on any comment
-  noVideoReplies?: boolean // block only replies with video links
-  noImageReplies?: boolean // block only replies with image links
-  noAudioReplies?: boolean // block only replies with audio links
-  noReplyLinks?: boolean // block all replies that have a link field set
+  noVideoReplies?: boolean // block only replies with video links, in link or any gallery item
+  noImageReplies?: boolean // block only replies with image links, in link or any gallery item
+  noAudioReplies?: boolean // block only replies with audio links, in link or any gallery item
+  noReplyLinks?: boolean // block all replies that have a link field set (gallery not included)
   noSpoilerReplies?: boolean // author can't set spoiler = true on replies
   noNestedReplies?: boolean // no nested replies, like old school forums and 4chan. Maximum depth is 1
   noArchive?: boolean // no archive, like 4chan /b/. Mods can't archive posts that aren't already archived (commentModeration.archived = true)

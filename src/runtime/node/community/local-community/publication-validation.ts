@@ -304,6 +304,31 @@ async function checkParentAndPostState(
     return undefined;
 }
 
+// comment.gallery (issue #436): off unless the owner sets features.maxPostGalleryItems / maxReplyGalleryItems,
+// and every item must be an https url of media whose type matches its htmlTagName. Runs on publish only, never
+// when reading CommentIpfs, so a later change to the media extension list can't break published comments.
+const GALLERY_HTML_TAG_NAME_BY_MIME_CATEGORY = { image: "img", video: "video", audio: "audio" } as const;
+
+function checkCommentGallery(
+    community: LocalCommunity,
+    commentPublication: NonNullable<DecryptedChallengeRequestMessageType["comment"]>
+): messages | undefined {
+    const gallery = commentPublication.gallery;
+    if (!gallery) return undefined;
+    const isReply = Boolean(commentPublication.parentCid);
+    const maxItems = isReply ? community.features?.maxReplyGalleryItems : community.features?.maxPostGalleryItems;
+    if (!maxItems) return isReply ? messages.ERR_REPLY_GALLERY_NOT_ALLOWED : messages.ERR_POST_GALLERY_NOT_ALLOWED;
+    if (gallery.length > maxItems)
+        return isReply ? messages.ERR_REPLY_GALLERY_EXCEEDS_MAX_ITEMS : messages.ERR_POST_GALLERY_EXCEEDS_MAX_ITEMS;
+    for (const item of gallery) {
+        if (!isLinkValid(item.url) || !isLinkOfMedia(item.url)) return messages.ERR_GALLERY_ITEM_NOT_MEDIA;
+        const mimeCategory = isLinkOfImage(item.url) ? "image" : isLinkOfVideo(item.url) ? "video" : "audio";
+        if (item.htmlTagName !== GALLERY_HTML_TAG_NAME_BY_MIME_CATEGORY[mimeCategory])
+            return messages.ERR_GALLERY_ITEM_HTML_TAG_NAME_MISMATCH;
+    }
+    return undefined;
+}
+
 // Comment-only validation: feature toggles (links, markdown, spoilers, nesting), flair allowlist, postCid integrity, quotedCid checks, duplicate signature.
 async function checkCommentPublication(
     community: LocalCommunity,
@@ -339,6 +364,9 @@ async function checkCommentPublication(
     )
         return messages.ERR_REPLY_LINK_IS_NOT_OF_MEDIA;
 
+    const galleryError = checkCommentGallery(community, commentPublication);
+    if (galleryError) return galleryError;
+
     if (community.features?.noMarkdownImages && commentPublication.content && contentContainsMarkdownImages(commentPublication.content))
         return messages.ERR_COMMENT_CONTENT_CONTAINS_MARKDOWN_IMAGE;
 
@@ -348,54 +376,39 @@ async function checkCommentPublication(
     if (community.features?.noMarkdownAudio && commentPublication.content && contentContainsMarkdownAudio(commentPublication.content))
         return messages.ERR_COMMENT_CONTENT_CONTAINS_MARKDOWN_AUDIO;
 
+    // The media features below check the link and every gallery item. requirePostLink*, requireReplyLink* and
+    // noReplyLinks above and below look at link only: a gallery doesn't satisfy them (issue #436).
+    const mediaUrls = [
+        ...(commentPublication.link ? [commentPublication.link] : []),
+        ...(commentPublication.gallery?.map((item) => item.url) ?? [])
+    ];
+    const hasImage = mediaUrls.some(isLinkOfImage);
+    const hasVideo = mediaUrls.some((url) => isLinkOfVideo(url) || isLinkOfAnimatedImage(url));
+    const hasAudio = mediaUrls.some(isLinkOfAudio);
+
     // noImages - block ALL comments with image links
-    if (community.features?.noImages && commentPublication.link && isLinkOfImage(commentPublication.link))
-        return messages.ERR_COMMENT_HAS_LINK_THAT_IS_IMAGE;
+    if (community.features?.noImages && hasImage) return messages.ERR_COMMENT_HAS_LINK_THAT_IS_IMAGE;
 
     // noVideos - block ALL comments with video links (including animated images like GIF/APNG)
-    if (
-        community.features?.noVideos &&
-        commentPublication.link &&
-        (isLinkOfVideo(commentPublication.link) || isLinkOfAnimatedImage(commentPublication.link))
-    )
-        return messages.ERR_COMMENT_HAS_LINK_THAT_IS_VIDEO;
+    if (community.features?.noVideos && hasVideo) return messages.ERR_COMMENT_HAS_LINK_THAT_IS_VIDEO;
 
     // noSpoilers - block ALL comments with spoiler=true
     if (community.features?.noSpoilers && commentPublication.spoiler === true) return messages.ERR_COMMENT_HAS_SPOILER_ENABLED;
 
     // noImageReplies - block only replies with image links
-    if (
-        community.features?.noImageReplies &&
-        commentPublication.parentCid &&
-        commentPublication.link &&
-        isLinkOfImage(commentPublication.link)
-    )
-        return messages.ERR_REPLY_HAS_LINK_THAT_IS_IMAGE;
+    if (community.features?.noImageReplies && commentPublication.parentCid && hasImage) return messages.ERR_REPLY_HAS_LINK_THAT_IS_IMAGE;
 
     // noVideoReplies - block only replies with video links (including animated images like GIF/APNG)
-    if (
-        community.features?.noVideoReplies &&
-        commentPublication.parentCid &&
-        commentPublication.link &&
-        (isLinkOfVideo(commentPublication.link) || isLinkOfAnimatedImage(commentPublication.link))
-    )
-        return messages.ERR_REPLY_HAS_LINK_THAT_IS_VIDEO;
+    if (community.features?.noVideoReplies && commentPublication.parentCid && hasVideo) return messages.ERR_REPLY_HAS_LINK_THAT_IS_VIDEO;
 
     // noReplyLinks - block all replies that have a link field set
     if (community.features?.noReplyLinks && commentPublication.parentCid && commentPublication.link) return messages.ERR_REPLY_HAS_LINK;
 
     // noAudio - block ALL comments with audio links
-    if (community.features?.noAudio && commentPublication.link && isLinkOfAudio(commentPublication.link))
-        return messages.ERR_COMMENT_HAS_LINK_THAT_IS_AUDIO;
+    if (community.features?.noAudio && hasAudio) return messages.ERR_COMMENT_HAS_LINK_THAT_IS_AUDIO;
 
     // noAudioReplies - block only replies with audio links
-    if (
-        community.features?.noAudioReplies &&
-        commentPublication.parentCid &&
-        commentPublication.link &&
-        isLinkOfAudio(commentPublication.link)
-    )
-        return messages.ERR_REPLY_HAS_LINK_THAT_IS_AUDIO;
+    if (community.features?.noAudioReplies && commentPublication.parentCid && hasAudio) return messages.ERR_REPLY_HAS_LINK_THAT_IS_AUDIO;
 
     // noSpoilerReplies - block only replies with spoiler=true
     if (community.features?.noSpoilerReplies && commentPublication.parentCid && commentPublication.spoiler === true)
