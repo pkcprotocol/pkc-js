@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.126](https://github.com/pkcprotocol/pkc-js/compare/v0.0.125...v0.0.126) (2026-10-27)
+
+### Bug Fixes
+
+* deflake state-order, startup-burst and RPC-timeout tests ([#435](https://github.com/pkcprotocol/pkc-js/issues/435) [#437](https://github.com/pkcprotocol/pkc-js/issues/437) [#265](https://github.com/pkcprotocol/pkc-js/issues/265) [#266](https://github.com/pkcprotocol/pkc-js/issues/266) [#253](https://github.com/pkcprotocol/pkc-js/issues/253)) ([#449](https://github.com/pkcprotocol/pkc-js/issues/449)) ([00d4231](https://github.com/pkcprotocol/pkc-js/commit/00d4231e0a702c4e6935604aedda7a50e36b9a92)), closes [#330](https://github.com/pkcprotocol/pkc-js/issues/330) [#456](https://github.com/pkcprotocol/pkc-js/issues/456)
+
 ## [0.0.125](https://github.com/pkcprotocol/pkc-js/compare/v0.0.124...v0.0.125) (2026-10-27)
 
 ### Features
