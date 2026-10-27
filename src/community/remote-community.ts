@@ -125,6 +125,11 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     // was loaded by. The updating instance it mirrors re-emits "update" for the same record (a nameResolved
     // verdict landing, for example), and the refusal is reported once per record, not once per emit.
     protected _lastRefusedRecordUpdatedAt?: number = undefined;
+    // A name to resolve in parallel with the first load of an instance loaded by key, before any record says which
+    // name the community claims (a comment knows its communityName up front). The instance stays keyed: the hint
+    // is not a requested name, so a record that does not claim it is still accepted, and the result is applied only
+    // if the loaded record claims the name.
+    _nameToResolveBeforeFirstRecord?: string = undefined;
 
     // Add a private property to store the actual updatingState value
     protected _updatingState!: CommunityUpdatingState;
@@ -848,6 +853,12 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
                     ? { name: this.address, publicKey: this.publicKey }
                     : { address: this.address };
             const updatingCommunity = await this._pkc.createCommunity(createOpts);
+            if (
+                this._nameToResolveBeforeFirstRecord &&
+                updatingCommunity instanceof RemoteCommunity &&
+                !updatingCommunity.raw.communityIpfs
+            )
+                updatingCommunity._nameToResolveBeforeFirstRecord = this._nameToResolveBeforeFirstRecord;
             communityInstance = trackUpdatingCommunity(this._pkc, updatingCommunity);
             log("Creating a new entry for this._pkc._updatingCommunities", this.address);
         }

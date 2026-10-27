@@ -612,7 +612,10 @@ export const CommunityIpfsReservedFields = difference(
         "_pendingWarmStartKeyMigration",
         // runtime dedup of the last refused name-mismatched record: a wire record carrying it would silence
         // the refusal of a later record with that updatedAt
-        "_lastRefusedRecordUpdatedAt"
+        "_lastRefusedRecordUpdatedAt",
+        // runtime name hint for an instance loaded by key: a wire record carrying it would make the instance resolve a
+        // name of the record's choosing
+        "_nameToResolveBeforeFirstRecord"
     ],
     keys(CommunityIpfsSchema.shape)
 );

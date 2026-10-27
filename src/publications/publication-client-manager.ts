@@ -164,7 +164,8 @@ export class PublicationClientsManager extends PKCClientsManager {
 
     // `byPublicKey`: load the community by its key alone when the publication has one, so a record that no longer
     // claims the publication's communityName is still accepted. For comment updates: CommentUpdates are signed by the
-    // community key, and a comment signed under a name keeps that name after the community drops it.
+    // community key, and a comment signed under a name keeps that name after the community drops it. The name is still
+    // resolved, in parallel with the load by key.
     async _createCommunityInstanceWithStateTranslation(opts?: { byPublicKey?: boolean }) {
         // basically in Publication or comment we need to be fetching the community record
         // this function will be for translating between the states of the community and its clients to publication/comment states
@@ -183,6 +184,8 @@ export class PublicationClientsManager extends PKCClientsManager {
                 },
                 { abortSignal: this._publication._getCommunityFetchAbortSignal() }
             ));
+        if (!directCommunityInstance && !communityName && this._publication.communityName && community instanceof RemoteCommunity)
+            community._nameToResolveBeforeFirstRecord = this._publication.communityName;
 
         this._communityForUpdating = {
             community: community,
