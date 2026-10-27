@@ -464,5 +464,24 @@ export enum messages {
     ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED_FOR_PAGE_SORTS = "One or more entries of settings.pages failed validation",
     ERR_PAGE_SORT_FAILED_TO_GENERATE = "A configured page sort threw while generating its pages; it was skipped for this cycle and the remaining sorts were published",
     ERR_ALL_PAGE_SORTS_FAILED_TO_GENERATE = "Every configured page sort of a scope threw while generating its pages, so the cycle was aborted and the last published record stays up until a sort succeeds",
-    ERR_RPC_CLIENT_PAGE_SORT_NAME_NOT_AVAILABLE_ON_SERVER = "settings.pages names a page sort that is not registered on the RPC server"
+    ERR_RPC_CLIENT_PAGE_SORT_NAME_NOT_AVAILABLE_ON_SERVER = "settings.pages names a page sort that is not registered on the RPC server",
+
+    // CommunityList errors (docs/protocol/community-lists.md)
+    ERR_INVALID_COMMUNITY_LIST_SCHEMA = "The schema of the CommunityList record is invalid",
+    ERR_INVALID_CREATE_COMMUNITY_LIST_OPTIONS_SCHEMA = "The options sent to pkc.createCommunityList() have an invalid schema",
+    ERR_COMMUNITY_LIST_RECORD_INCLUDES_RESERVED_FIELD = "CommunityList record includes a reserved field",
+    ERR_COMMUNITY_LIST_AUTHOR_INCLUDES_RESERVED_FIELD = "CommunityList record's author includes a reserved field",
+    ERR_COMMUNITY_LIST_ENTRY_INCLUDES_RESERVED_FIELD = "A CommunityList entry includes a reserved field",
+    ERR_COMMUNITY_LIST_RECORD_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES = "CommunityList record includes a field that is not in signature.signedPropertyNames",
+    ERR_COMMUNITY_LIST_HAS_DUPLICATE_COMMUNITY_PUBLIC_KEY = "CommunityList communities include a duplicate publicKey",
+    ERR_COMMUNITY_LIST_OVER_ALLOWED_SIZE = "CommunityList record size is over 2mb",
+    ERR_COMMUNITY_LIST_HAS_NO_CID = "CommunityList instance has no cid to update from. To fetch a list, create it with pkc.createCommunityList({cid})",
+    ERR_COMMUNITY_LIST_HAS_NO_SIGNER = "CommunityList instance has no signer. To publish a new list, create it with pkc.createCommunityList({signer, ...})",
+    ERR_COMMUNITY_LIST_ALREADY_PUBLISHING = "CommunityList.publish() is already in progress",
+    ERR_COMMUNITY_LIST_ALREADY_UPDATING = "CommunityList.update() is already in progress",
+    ERR_COMMUNITY_LIST_PUBLISH_ABORTED = "CommunityList.publish() was aborted via stop()",
+    ERR_COMMUNITY_LIST_SIGNATURE_IS_INVALID = "CommunityList record has an invalid signature",
+    ERR_ADDED_COMMUNITY_LIST_TO_IPFS_BUT_GOT_DIFFERENT_CID = "The RPC server returned a cid different from the cid of the signed CommunityList bytes",
+    ERR_GET_COMMUNITY_LIST_ABORTED = "pkc.getCommunityList() was aborted by a signal",
+    ERR_COMMUNITY_LIST_CID_MUST_BE_V0 = "CommunityList cid must be a CIDv0 (Qm...), the cid that publish() returns"
 }

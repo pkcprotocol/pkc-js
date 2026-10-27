@@ -20,7 +20,11 @@ import {
     RpcExportCommunityModLogsResultSchema,
     RpcPublishAnchorRecordParamSchema,
     RpcAnchorPublishPreparationResultSchema,
-    RpcPublishedAnchorRecordResultSchema
+    RpcPublishedAnchorRecordResultSchema,
+    RpcPublishCommunityListParamSchema,
+    RpcPublishCommunityListResultSchema,
+    RpcFetchCommunityListParamSchema,
+    RpcFetchCommunityListResultSchema
 } from "./schema.js";
 
 // Param parsers — all use .loose() so newer clients can send extra fields
@@ -44,6 +48,12 @@ export const parseRpcSubscriptionIdResult = (result: unknown) => RpcSubscription
 export const parseRpcPublishAnchorRecordParam = (params: unknown) => RpcPublishAnchorRecordParamSchema.loose().parse(params);
 export const parseRpcAnchorPublishPreparationResult = (result: unknown) => RpcAnchorPublishPreparationResultSchema.loose().parse(result);
 export const parseRpcPublishedAnchorRecordResult = (result: unknown) => RpcPublishedAnchorRecordResultSchema.loose().parse(result);
+
+// CommunityList — wire param/result parsers
+export const parseRpcPublishCommunityListParam = (params: unknown) => RpcPublishCommunityListParamSchema.loose().parse(params);
+export const parseRpcPublishCommunityListResult = (result: unknown) => RpcPublishCommunityListResultSchema.loose().parse(result);
+export const parseRpcFetchCommunityListParam = (params: unknown) => RpcFetchCommunityListParamSchema.loose().parse(params);
+export const parseRpcFetchCommunityListResult = (result: unknown) => RpcFetchCommunityListResultSchema.loose().parse(result);
 
 // community.export() — wire param/result parsers
 export const parseRpcExportCommunityParam = (params: unknown) => RpcExportCommunityParamSchema.loose().parse(params);

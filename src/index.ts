@@ -78,3 +78,13 @@ export type {
     PageSortScoreArgs
 } from "./community/types.js";
 export type { PageSortReplyEntry } from "./pages/types.js";
+
+// Public re-exports: CommunityList (docs/protocol/community-lists.md)
+export type { CommunityList } from "./community-list/community-list.js";
+export type {
+    CommunityListIpfsType,
+    CommunityListEntryType,
+    CreateCommunityListOptions,
+    CreateNewCommunityListOptions,
+    CreateCommunityListWithCidOptions
+} from "./community-list/types.js";
