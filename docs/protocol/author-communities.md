@@ -259,11 +259,20 @@ roles: {
 }
 ```
 
-A resolver failure while matching a domain key is a non-match today: the node logs it at debug level,
-the owner's post falls through to the `fail` challenge and is rejected with the challenge's own text,
-so nothing tells a moderator that the node's `resolveAuthorNames` or `nameResolvers` are the problem.
-Surfacing that as a distinct error is tracked in
-[#353](https://github.com/pkcprotocol/pkc-js/issues/353).
+A domain key the node cannot verify is still a non-match, so the owner's post falls through to the
+`fail` challenge. But when that unverified name is the only thing standing between the owner and the
+exclude, the rejection names the cause instead of the challenge's owner-only text:
+
+- `ERR_AUTHOR_NAME_HAS_NO_RECORD`: the resolvers answered and the name has no record.
+- `ERR_COMMUNITY_FAILED_TO_RESOLVE_AUTHOR_NAME`: every resolver failed or timed out. This is the
+  community node's problem, not the owner's.
+- `ERR_COMMUNITY_HAS_NO_RESOLVER_FOR_AUTHOR_NAME_TLD`: the node has no resolver for the name's TLD, so
+  it can never verify it. Fix the node's `nameResolvers`.
+- `ERR_AUTHOR_NAME_RECORD_IS_NOT_A_VALID_KEY`: the record exists but is not a valid public key.
+
+A name that resolves to a different key gets no such reason: that author is not the owner, and the
+challenge's own text is the right answer. The peer-ID key avoids all of this, since it never touches a
+resolver.
 
 ## Declaring the profile to UIs
 
