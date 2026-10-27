@@ -99,6 +99,15 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
         const previousNameResolved = this.author?.nameResolved;
         this.author = this._buildRuntimeAuthor(record.author, record.signature.publicKey);
         if (typeof previousNameResolved === "boolean") this.author.nameResolved = previousNameResolved;
+        else this._setAuthorNameResolvedFromCache();
+    }
+
+    // Reading a cached verdict is free, so a one-shot load shows one like getComment does
+    private _setAuthorNameResolvedFromCache() {
+        const authorDomain = this._authorDomainToSettle();
+        if (!authorDomain || !this.author) return;
+        const cached = this._pkc._memCaches.nameResolvedCache.get(this._nameResolvedCacheKey(authorDomain));
+        if (typeof cached === "boolean") this.author.nameResolved = cached;
     }
 
     toJSON() {

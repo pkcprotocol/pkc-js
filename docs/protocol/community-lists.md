@@ -169,8 +169,9 @@ schema verbatim, wire and runtime:
   `ERR_INVALID_CREATE_COMMUNITY_LIST_OPTIONS_SCHEMA`: every content check in pkc-js (RPC,
   gateway, kubo) recomputes a v0 hash, so a v1 would load on some transports and not others.
 - One-shot `pkc.getCommunityList({cid})`: resolves after fetch + verify, without waiting
-  for the `nameResolved` verdict (same as `getComment`); the verdict lands in the pkc-wide
-  cache, so evented instances pick it up.
+  for the `nameResolved` verdict (same as `getComment`). It shows a verdict the pkc-wide
+  cache already holds, and its own background resolution lands there, so later instances
+  pick it up.
 - Load-side rejection (a cap only enforced by honest publishers is not a cap):
   - records over **2 MB**, rejected before parsing (DoS guard),
   - invalid signatures,
