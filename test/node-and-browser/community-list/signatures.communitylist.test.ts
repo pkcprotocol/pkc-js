@@ -1,7 +1,5 @@
 // verifyCommunityList unit tests (docs/protocol/community-lists.md): reserved fields, unsigned
 // signable fields, duplicate entry publicKeys, and signature validity.
-// Clients of RPC trust the RPC server's response and don't validate locally, and these tests call
-// the verify function directly on a locally-constructed clients manager, so they can't run under RPC
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import { clone } from "remeda";
 import signers from "../../fixtures/signers.js";
@@ -13,6 +11,8 @@ import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { CommunityListIpfsType } from "../../../dist/node/community-list/types.js";
 import { buildSignedCommunityListRecord, mockCommunityListEntries } from "./communitylist-test-util.js";
 
+// These tests call verifyCommunityList directly against a locally-constructed PKC instance, with no
+// RPC round-trip to exercise, so running them under the RPC config would only repeat the same calls
 describeSkipIfRpc("verifyCommunityList", () => {
     let pkc: PKC;
     let validRecord: CommunityListIpfsType;

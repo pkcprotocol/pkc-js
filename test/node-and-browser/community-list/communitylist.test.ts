@@ -475,6 +475,43 @@ describe("communitylist load lifecycle", () => {
         expect(json).to.not.have.property("signer");
     });
 
+    it("a publish() stopped mid-add does not reset the state of a publish() started after it", async () => {
+        // The kubo add takes no abort signal, so a stopped publish keeps running until its add settles
+        const list = await pkc.createCommunityList({ signer: await pkc.createSigner(), communities: mockCommunityListEntries });
+        const kuboClient = pkc._clientsManager.getDefaultKuboRpcClient()._client;
+        const originalAdd = kuboClient.add.bind(kuboClient);
+        const addGates = [deferred<void>(), deferred<void>()];
+        let addCalls = 0;
+        const addSpy = vi.spyOn(kuboClient, "add").mockImplementation(async (...args: Parameters<typeof originalAdd>) => {
+            await addGates[addCalls++].promise;
+            return originalAdd(...args);
+        });
+        try {
+            const firstPublish = list.publish().then(
+                () => "resolved",
+                (e: PKCError) => e.code
+            );
+            await waitFor(() => addCalls === 1);
+            await list.stop();
+            const secondPublish = list.publish();
+            await waitFor(() => addCalls === 2);
+
+            addGates[0].resolve();
+            expect(await firstPublish).to.equal("ERR_COMMUNITY_LIST_PUBLISH_ABORTED");
+            // the second publish is still waiting on its add, so it still owns the state
+            expect(list.state).to.equal("publishing");
+
+            addGates[1].resolve();
+            const cid = await secondPublish;
+            expect(list.cid).to.equal(cid);
+            expect(list.state).to.equal("stopped");
+        } finally {
+            addSpy.mockRestore();
+            addGates.forEach((gate) => gate.resolve());
+            await list.stop();
+        }
+    });
+
     it("stop() during a retry backoff settles the pending load instead of leaving it hanging", async () => {
         // A load left pending never runs its finally, so its abort listener would stay attached to the
         // caller's signal, which outlives the call (getCommunityList stops the list on timeout this way)

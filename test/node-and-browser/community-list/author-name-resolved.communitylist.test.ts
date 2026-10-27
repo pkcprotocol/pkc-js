@@ -94,6 +94,19 @@ getAvailablePKCConfigsToTestAgainst().map((config) =>
             await resolveWhenConditionIsTrue({ toUpdate: evented, predicate: async () => evented.author?.nameResolved === true });
             await waitUntilStoppedByItself(evented);
         });
+
+        it("getCommunityList shows a verdict already in the pkc-wide cache, same as getComment", async () => {
+            const domainSigner = await pkc.createSigner({ privateKey: DOMAIN_SIGNER.privateKey, type: "ed25519" });
+            const { cid } = await publishListWithAuthorName(pkc, domainSigner);
+            // an evented instance settles the verdict, which lands in the pkc-wide cache
+            const evented = await pkc.createCommunityList({ cid });
+            await evented.update();
+            await resolveWhenConditionIsTrue({ toUpdate: evented, predicate: async () => evented.author?.nameResolved === true });
+            await waitUntilStoppedByItself(evented);
+
+            const oneShot = await pkc.getCommunityList({ cid });
+            expect(oneShot.author?.nameResolved).to.equal(true);
+        });
     })
 );
 
