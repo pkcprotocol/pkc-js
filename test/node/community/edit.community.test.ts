@@ -126,7 +126,12 @@ for (const editKey of ["address", "name"] as const) {
             await community.edit({ [editKey]: bsoNameAddress });
             expect(community.address).to.equal(bsoNameAddress);
             expect(community.name).to.equal(bsoNameAddress);
-            await new Promise((resolve) => community.once("update", resolve));
+            // The first update after edit() can belong to a publish cycle that started before it and still
+            // carries the old record, so wait for the record that claims the new name
+            await resolveWhenConditionIsTrue({
+                toUpdate: community,
+                predicate: async () => community.raw.communityIpfs?.name === bsoNameAddress
+            });
             expect(community.address).to.equal(bsoNameAddress);
             expect(community.name).to.equal(bsoNameAddress);
         });

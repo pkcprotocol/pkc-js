@@ -11,17 +11,20 @@ export const testCommentFieldsInPageJson = (
     comment: CommentWithinRepliesPostsPageJson,
     expectedCommunityAddress: string = defaultCommunityAddress
 ) => {
-    if (!comment.link && !comment.content && !comment.title) expect.fail("Comment should either have link, content or title defined");
+    // A crosspost's body is the embedded record, so it may carry no link, content or title of its own (docs/protocol/crossposts.md)
+    const isCrosspost = Boolean(comment.crosspost);
+    if (!comment.link && !comment.content && !comment.title && !isCrosspost)
+        expect.fail("Comment should either have link, content, title or crosspost defined");
     expect(comment.author.address).to.be.a("string");
     expect(comment.cid).to.be.a("string");
     expect(comment.shortCid).to.be.a("string");
-    if (!comment.link) expect(comment.content).to.be.a("string");
+    if (!comment.link && !isCrosspost) expect(comment.content).to.be.a("string");
     expect(comment.depth).to.be.a("number");
 
     if (comment.depth === 0) {
         // A post
         expect(comment.postCid).to.equal(comment.cid);
-        expect(comment.title).to.be.a("string");
+        if (!isCrosspost) expect(comment.title).to.be.a("string");
     }
     if (comment.depth === 1) expect(comment.postCid).to.equal(comment.parentCid);
 
@@ -69,18 +72,20 @@ export const testCommentFieldsInPageJson = (
 };
 
 export const testCommentFieldsInModQueuePageJson = (comment: Record<string, any>, communityAddress: string) => {
-    if (!comment.link && !comment.content && !comment.title)
-        expect.fail("Pending Comment should either have link, content or title defined");
+    // Same crosspost allowance as testCommentFieldsInPageJson
+    const isCrosspost = Boolean(comment.crosspost);
+    if (!comment.link && !comment.content && !comment.title && !isCrosspost)
+        expect.fail("Pending Comment should either have link, content, title or crosspost defined");
     expect(comment.author.address).to.be.a("string");
     expect(comment.cid).to.be.a("string");
     expect(comment.shortCid).to.be.a("string");
-    if (!comment.link) expect(comment.content).to.be.a("string");
+    if (!comment.link && !isCrosspost) expect(comment.content).to.be.a("string");
     expect(comment.depth).to.be.a("number");
 
     if (comment.depth === 0) {
         // A post
         expect(comment.postCid).to.equal(comment.cid);
-        expect(comment.title).to.be.a("string");
+        if (!isCrosspost) expect(comment.title).to.be.a("string");
     }
     if (comment.depth === 1) expect(comment.postCid).to.equal(comment.parentCid);
     else expect(comment.postCid).to.be.a("string");
