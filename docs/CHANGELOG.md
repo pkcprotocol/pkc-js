@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.125](https://github.com/pkcprotocol/pkc-js/compare/v0.0.124...v0.0.125) (2026-10-27)
+
+### Features
+
+* **community-list:** add CommunityList, immutable signed lists of curated communities ([#309](https://github.com/pkcprotocol/pkc-js/issues/309)) ([b619f17](https://github.com/pkcprotocol/pkc-js/commit/b619f17c9b12e7c650aacde532943a1adb1ffb5d)), closes [#21](https://github.com/pkcprotocol/pkc-js/issues/21) [#342](https://github.com/pkcprotocol/pkc-js/issues/342) [#353](https://github.com/pkcprotocol/pkc-js/issues/353)
+
+### Bug Fixes
+
+* **deps:** bump undici, zod, ws, uuid and probe-image-size for security advisories ([#452](https://github.com/pkcprotocol/pkc-js/issues/452)) ([f65551c](https://github.com/pkcprotocol/pkc-js/commit/f65551c080ee79689859b7d3188ec4de285a4fae))
+
 ## [0.0.124](https://github.com/pkcprotocol/pkc-js/compare/v0.0.123...v0.0.124) (2026-10-23)
 
 ### Bug Fixes
