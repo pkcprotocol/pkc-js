@@ -476,16 +476,27 @@ describe("communitylist load lifecycle", () => {
     });
 
     it("a publish() stopped mid-add does not reset the state of a publish() started after it", async () => {
-        // The kubo add takes no abort signal, so a stopped publish keeps running until its add settles
+        // Neither the kubo add nor the RPC publishCommunityList call takes an abort signal, so a stopped
+        // publish keeps running until its add settles. Gate whichever one this config's publish() uses
         const list = await pkc.createCommunityList({ signer: await pkc.createSigner(), communities: mockCommunityListEntries });
-        const kuboClient = pkc._clientsManager.getDefaultKuboRpcClient()._client;
-        const originalAdd = kuboClient.add.bind(kuboClient);
         const addGates = [deferred<void>(), deferred<void>()];
         let addCalls = 0;
-        const addSpy = vi.spyOn(kuboClient, "add").mockImplementation(async (...args: Parameters<typeof originalAdd>) => {
-            await addGates[addCalls++].promise;
-            return originalAdd(...args);
-        });
+        const rpcClient = pkc._pkcRpcClient;
+        let addSpy: { mockRestore: () => void };
+        if (rpcClient) {
+            const originalPublish = rpcClient.publishCommunityList.bind(rpcClient);
+            addSpy = vi.spyOn(rpcClient, "publishCommunityList").mockImplementation(async (...args: Parameters<typeof originalPublish>) => {
+                await addGates[addCalls++].promise;
+                return originalPublish(...args);
+            });
+        } else {
+            const kuboClient = pkc._clientsManager.getDefaultKuboRpcClient()._client;
+            const originalAdd = kuboClient.add.bind(kuboClient);
+            addSpy = vi.spyOn(kuboClient, "add").mockImplementation(async (...args: Parameters<typeof originalAdd>) => {
+                await addGates[addCalls++].promise;
+                return originalAdd(...args);
+            });
+        }
         try {
             const firstPublish = list.publish().then(
                 () => "resolved",
