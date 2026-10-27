@@ -427,6 +427,8 @@ describe("communitylist load lifecycle", () => {
         const oversizeRawString = JSON.stringify(oversizeRecord);
         const oversizeCid = await calculateIpfsCidV0(oversizeRawString);
         const fetchCommunityList = vi.fn(async () => ({ communityListRawString: oversizeRawString }));
+        // Under USE_RPC this describe's pkc already has a real RPC client, shared with later tests
+        const originalRpcClient = pkc._pkcRpcClient;
         pkc._pkcRpcClient = <PKC["_pkcRpcClient"]>(<unknown>{ fetchCommunityList });
         try {
             const list = await pkc.createCommunityList({ cid: oversizeCid });
@@ -443,7 +445,7 @@ describe("communitylist load lifecycle", () => {
             expect(list.raw.communityList).to.be.undefined;
             expect(fetchCommunityList).toHaveBeenCalledTimes(1);
         } finally {
-            pkc._pkcRpcClient = undefined;
+            pkc._pkcRpcClient = originalRpcClient;
         }
     });
 
