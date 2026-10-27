@@ -472,7 +472,7 @@ export enum messages {
     ERR_COMMUNITY_LIST_RECORD_INCLUDES_RESERVED_FIELD = "CommunityList record includes a reserved field",
     ERR_COMMUNITY_LIST_AUTHOR_INCLUDES_RESERVED_FIELD = "CommunityList record's author includes a reserved field",
     ERR_COMMUNITY_LIST_ENTRY_INCLUDES_RESERVED_FIELD = "A CommunityList entry includes a reserved field",
-    ERR_COMMUNITY_LIST_RECORD_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES = "CommunityList record includes a signable field that is not in signature.signedPropertyNames",
+    ERR_COMMUNITY_LIST_RECORD_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES = "CommunityList record includes a field that is not in signature.signedPropertyNames",
     ERR_COMMUNITY_LIST_HAS_DUPLICATE_COMMUNITY_PUBLIC_KEY = "CommunityList communities include a duplicate publicKey",
     ERR_COMMUNITY_LIST_OVER_ALLOWED_SIZE = "CommunityList record size is over 2mb",
     ERR_COMMUNITY_LIST_HAS_NO_CID = "CommunityList instance has no cid to update from. To fetch a list, create it with pkc.createCommunityList({cid})",

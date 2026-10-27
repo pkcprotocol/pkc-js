@@ -49,7 +49,11 @@ CommunityListEntry { // metadata set by the list curator, NOT the community owne
   stylistic: a newer publisher may add fields and sign them, and verification walks the
   record's own `signature.signedPropertyNames`, so a strict schema would both reject records
   from newer publishers and break signature verification by dropping signed props. Extra
-  props ride along into the runtime instance and JSON round-trips untouched.
+  props ride along into the runtime instance and JSON round-trips untouched. Looseness never
+  means unsigned: verification rejects any top-level field (other than `signature`) missing
+  from `signedPropertyNames`, like `CommunityIpfs` and unlike `CommentIpfs`, because a list
+  has no second producer allowed to attach fields. Otherwise anyone could add a field to a
+  curator's list, re-add it under a new CID, and have it verify as the curator's.
 - The runtime-only conveniences (`cid`, `shortCid` on the record; `address`, `shortAddress`
   on entries) go on reserved-field lists (`CommunityListReservedFields` and the entry
   equivalent), so looseness never lets a wire record smuggle in runtime-only names; same

@@ -751,13 +751,6 @@ export async function verifyCommentIpfs(opts: {
     return validRes;
 }
 
-function _isThereUnsignedSignableFieldInCommunityList(record: CommunityListIpfsType): boolean {
-    const fields = record as Partial<Record<(typeof CommunityListSignedPropertyNames)[number], unknown>>;
-    for (const name of CommunityListSignedPropertyNames)
-        if (fields[name] !== undefined && !record.signature.signedPropertyNames.includes(name)) return true;
-    return false;
-}
-
 export async function verifyCommunityList({ communityList }: { communityList: CommunityListIpfsType }): Promise<ValidationResult> {
     if (intersection(Object.keys(communityList), CommunityListReservedFields).length > 0)
         return { valid: false, reason: messages.ERR_COMMUNITY_LIST_RECORD_INCLUDES_RESERVED_FIELD };
@@ -777,8 +770,9 @@ export async function verifyCommunityList({ communityList }: { communityList: Co
     if (!communityListHasNoDuplicateEntryPublicKeys(communityList))
         return { valid: false, reason: messages.ERR_COMMUNITY_LIST_HAS_DUPLICATE_COMMUNITY_PUBLIC_KEY };
 
-    // Must run on the raw record, before verification walks signedPropertyNames only (issue #249)
-    if (_isThereUnsignedSignableFieldInCommunityList(communityList))
+    // Must run on the raw record, before verification walks signedPropertyNames only (issue #249). Every
+    // field must be signed: unlike CommentIpfs, a list has no second producer allowed to add unsigned fields
+    if (!_allFieldsOfRecordInSignedPropertyNames(communityList))
         return { valid: false, reason: messages.ERR_COMMUNITY_LIST_RECORD_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
 
     const signatureValidity = await _verifyJsonSignature(communityList);
@@ -791,6 +785,7 @@ function _allFieldsOfRecordInSignedPropertyNames(
     record:
         | PublicationFromDecryptedChallengeRequest
         | CommunityIpfsType
+        | CommunityListIpfsType
         | PubsubMessage
         | CommentUpdateType
         | CommentUpdateForChallengeVerification
