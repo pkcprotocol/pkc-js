@@ -1,4 +1,5 @@
 import {
+    createMockNameResolver,
     generateMockPost,
     getAvailablePKCConfigsToTestAgainst,
     publishStaticCommunityWithPostInPages,
@@ -562,6 +563,58 @@ getAvailablePKCConfigsToTestAgainst({
                 await staticCommunity.ipnsObj.pkc.destroy();
             }
         });
+
+        // A comment's community is loaded by key, and its communityName is resolved in parallel with that load. Once the
+        // record dropped the name, whoever holds it now (here: another community's key) says nothing about this
+        // community, so the resolve must not be taken as a key migration that wipes the record and its CommentUpdates.
+        // Skipped under RPC: the name resolvers run on the RPC server, so a resolver configured here is never asked.
+        it.skipIf(config.testConfigCode === "remote-pkc-rpc")(
+            `a comment resolves its community name in parallel, and a dropped name now held by another key is not a migration`,
+            async () => {
+                const staticCommunity = await publishStaticCommunityWithPostInPages({
+                    withSelfResolvingName: true,
+                    withCommentsClaimingName: true
+                });
+                const otherCommunity = await publishStaticCommunityWithPostInPages();
+                const communityName = staticCommunity.communityName!;
+                const resolvedNames: string[] = [];
+                const capturingResolver = createMockNameResolver({
+                    resolveFunction: async ({ name }) => {
+                        resolvedNames.push(name);
+                        return name === communityName ? { publicKey: otherCommunity.communityAddress } : undefined;
+                    }
+                });
+                const pkc = await config.pkcInstancePromise({ pkcOptions: { nameResolvers: [capturingResolver] } });
+                try {
+                    const nameless: CommunityIpfsType = {
+                        ...staticCommunity.communityRecord,
+                        updatedAt: Math.max(timestamp(), staticCommunity.communityRecord.updatedAt + 1)
+                    };
+                    delete nameless.name;
+                    delete nameless.posts;
+                    nameless.signature = await signCommunity({ community: nameless, signer: staticCommunity.ipnsObj.signer });
+                    await staticCommunity.ipnsObj.publishToIpns(JSON.stringify(nameless));
+
+                    const comment = await pkc.createComment({ cid: staticCommunity.commentCid });
+                    const errorCodes: string[] = [];
+                    comment.on("error", (error) => errorCodes.push((error as PKCError).code));
+                    await comment.update();
+                    try {
+                        await vi.waitFor(() => expect(typeof comment.updatedAt).to.equal("number"), { timeout: 30_000, interval: 100 });
+                        await vi.waitFor(() => expect(resolvedNames).to.include(communityName), { timeout: 30_000, interval: 100 });
+                        expect(comment.communityPublicKey).to.equal(staticCommunity.communityAddress);
+                        expect(errorCodes).to.not.include("ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY");
+                        expect(errorCodes).to.not.include(MISMATCH_CODE);
+                    } finally {
+                        await comment.stop();
+                    }
+                } finally {
+                    await pkc.destroy();
+                    await staticCommunity.ipnsObj.pkc.destroy();
+                    await otherCommunity.ipnsObj.pkc.destroy();
+                }
+            }
+        );
 
         it(`getCommunity by a name the record does not claim rejects with the mismatch error and stops its updating instance`, async () => {
             // A community whose record never claimed the self-resolving name that points at its key
