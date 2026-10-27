@@ -214,6 +214,11 @@ describeSkipIfRpc("IPNS push-channel watchdog (issue #330)", () => {
 
         // Well past the FULL (unjittered) ttl: expired for every jitter factor.
         await sleep(ttlExpiredAt + 600 - Date.now());
+        // Baseline here, not right after the cold resolve: @helia/ipns's pubsub router answers the
+        // publisher joining the topic with its own one-shot fetch-on-join (#fetchFromPeer), which the
+        // publisher counts too and which may or may not fire and can land after waitForMutualSubscription
+        // returns. It has long settled by now, so the count below measures only these resolves
+        const fetchesBeforeResolvesPastTtl = publisher.getFetchCount();
         for (let i = 0; i < 2; i++) {
             const value = await resolveOnce(node, identity.ipnsPeerId.toString());
             expect(value).to.contain(VALUE_CID_SEQ1);
@@ -221,7 +226,7 @@ describeSkipIfRpc("IPNS push-channel watchdog (issue #330)", () => {
         expect(
             publisher.getFetchCount(),
             "a resolve past the record ttl must NOT refetch while the topic has a subscriber and a record was confirmed within the watchdog window (issue #330)"
-        ).to.equal(fetchesAfterFirstResolve);
+        ).to.equal(fetchesBeforeResolvesPastTtl);
     });
 
     // The watchdog's two edges, with the window shrunk to seconds via the test hook. An
@@ -246,7 +251,6 @@ describeSkipIfRpc("IPNS push-channel watchdog (issue #330)", () => {
         expect(firstValue).to.contain(VALUE_CID_SEQ1);
         const networkConfirmedAtMs = Date.now();
         await waitForMutualSubscription(node, publisher.client, identity.topic);
-        const fetchesAfterFirstResolve = publisher.getFetchCount();
 
         // Rebroadcast the SAME bytes ~1s before the fetch-opened watchdog window would close.
         await sleep(networkConfirmedAtMs + WATCHDOG_MS - 1_000 - Date.now());
@@ -263,22 +267,27 @@ describeSkipIfRpc("IPNS push-channel watchdog (issue #330)", () => {
         // window's close even on a slow runner.)
         await sleep(networkConfirmedAtMs + WATCHDOG_MS + 1_000 - Date.now());
         expect(Date.now() - receivedAtMs).to.be.lessThan(WATCHDOG_MS - 1_000);
+        // Each fetch-count baseline is taken right before the resolve it measures: the router's
+        // one-shot fetch-on-join for the publisher (see the test above) is counted by the publisher
+        // too, may or may not fire, and can land after waitForMutualSubscription returns
+        const fetchesBeforeRebroadcastResolve = publisher.getFetchCount();
         const rebroadcastValue = await resolveOnce(node, identity.ipnsPeerId.toString());
         expect(rebroadcastValue).to.contain(VALUE_CID_SEQ1);
         expect(
             publisher.getFetchCount(),
             "an identical-bytes rebroadcast must keep the push channel healthy: no refetch while the last arrival is inside the watchdog window (issue #330)"
-        ).to.equal(fetchesAfterFirstResolve);
+        ).to.equal(fetchesBeforeRebroadcastResolve);
 
         // Now let the channel go silent past the watchdog: the resolver must revalidate over the
         // network again (and only then), restoring the pre-#330 ttl behavior as the fallback.
         await sleep(receivedAtMs + WATCHDOG_MS + 600 - Date.now());
+        const fetchesBeforePostSilenceResolve = publisher.getFetchCount();
         const postSilenceValue = await resolveOnce(node, identity.ipnsPeerId.toString());
         expect(postSilenceValue).to.contain(VALUE_CID_SEQ1);
         expect(
             publisher.getFetchCount(),
             "silence past the watchdog must trip the resolver back to network revalidation"
-        ).to.be.greaterThan(fetchesAfterFirstResolve);
+        ).to.be.greaterThan(fetchesBeforePostSilenceResolve);
     });
 
     // The stale-replay guard. `ipnsValidator` checks the signature and EOL but NOT sequence
