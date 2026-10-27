@@ -183,7 +183,9 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
             log(`Published CommunityList (${cid}) with ${record.communities.length} entries`);
             return cid;
         } finally {
-            this._setState("stopped");
+            // The add takes no abort signal, so a stopped publish can settle after a newer publish() or
+            // update() took over; only the run that still owns the controller may reset the state
+            if (this._stopAbortController?.signal === signal) this._setState("stopped");
         }
     }
 
