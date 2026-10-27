@@ -802,7 +802,7 @@ export class Comment
         if (this.state === "stopped") return; // we may have called stop() before reaching comment update subscription and after loading commentipfs
         if (this.depth === 0) {
             if (!this._communityForUpdating)
-                this._communityForUpdating = await this._clientsManager._createCommunityInstanceWithStateTranslation();
+                this._communityForUpdating = await this._clientsManager._createCommunityInstanceWithStateTranslation({ byPublicKey: true });
 
             if (this.state !== "updating") return; // there are cases where stop() is called in parallel
             if (this._communityForUpdating.community.state === "stopped") {
@@ -1226,7 +1226,21 @@ export class Comment
                 } else {
                     this.loadCommentIpfsAndStartCommentUpdateSubscription().catch((e) => log.error("Failed to update comment", e));
                 }
-            } else this._useUpdatingCommentFromPKC(existingUpdatingComment); // this comment instance will be mirroring this._pkc._updatingComments[this.cid]
+            } else {
+                // Logged because a mirror emits nothing of its own, so a mirror of a stalled entry used
+                // to leave no trace at all (issue #253).
+                log(
+                    "Comment",
+                    this.cid,
+                    "will mirror the existing pkc._updatingComments entry, its state is",
+                    existingUpdatingComment.state,
+                    "updatingState",
+                    existingUpdatingComment.updatingState,
+                    "updatedAt",
+                    existingUpdatingComment.updatedAt
+                );
+                this._useUpdatingCommentFromPKC(existingUpdatingComment); // this comment instance will be mirroring this._pkc._updatingComments[this.cid]
+            }
         } else await this._setUpNewUpdatingCommentInstance(); // Create a this._pkc._updatingComments[this.cid], then mirror it
 
         if (this.raw.comment || this.raw.commentUpdate) this.emit("update", this);

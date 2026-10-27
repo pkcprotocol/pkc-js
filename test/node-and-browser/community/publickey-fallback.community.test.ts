@@ -4,6 +4,7 @@ import {
     getAvailablePKCConfigsToTestAgainst,
     mockPKCV2,
     mockRemotePKC,
+    publishStaticCommunityWithPostInPages,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
@@ -94,7 +95,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         // Before #353 both paths produced false and the difference was invisible. Issue #353.
         itSkipIfRpc(`update() succeeds via publicKey when no resolver handles .sol`, async () => {
             // Create a real IPNS record
-            const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
+            const { communityAddress: communityAddress } = await createMockedCommunityIpns({ name: "test.sol" });
 
             // Create pkc with resolver that only handles .eth/.bso (not .sol)
             const testPKC = await config.pkcInstancePromise({
@@ -132,7 +133,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`update() succeeds via publicKey when resolver returns null for name`, async () => {
-            const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
+            const { communityAddress: communityAddress } = await createMockedCommunityIpns({ name: "unresolvable.eth" });
 
             // Create pkc with resolver that returns null for our domain
             const testPKC = await config.pkcInstancePromise({
@@ -168,7 +169,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         // erroring, so the outage this drives never happens on the side that computes the verdict.
         // Before #353 both paths produced false and the difference was invisible. Issue #353.
         itSkipIfRpc(`update() succeeds via publicKey and leaves nameResolved undefined when every resolver errors`, async () => {
-            const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
+            const { communityAddress: communityAddress } = await createMockedCommunityIpns({ name: "outage.eth" });
 
             const testPKC = await config.pkcInstancePromise({
                 mockResolve: false,
@@ -201,7 +202,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`update() sets nameResolved=false when the name resolves to something that is not a key`, async () => {
-            const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
+            const { communityAddress: communityAddress } = await createMockedCommunityIpns({ name: "garbage.eth" });
 
             const testPKC = await config.pkcInstancePromise({
                 mockResolve: false,
@@ -256,14 +257,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`update() succeeds via name resolution when publicKey has no IPNS record (triggers key migration)`, async () => {
             const wrongPublicKey = (await pkc.createSigner()).address; // random key → no IPNS record
-            const correctPublicKey = signers[0].address; // "migrating.bso" resolves to this in defaultMockResolverRecords
+            // The self-resolving name resolves to the static community's key, and its record claims the name,
+            // which a loader by name requires (ERR_COMMUNITY_RECORD_NAME_DOES_NOT_MATCH_REQUESTED_NAME)
+            const staticCommunity = await publishStaticCommunityWithPostInPages({ withSelfResolvingName: true });
+            const communityName = staticCommunity.communityName!;
+            const correctPublicKey = staticCommunity.communityAddress;
 
             const community = await pkc.createCommunity({
                 publicKey: wrongPublicKey,
-                name: "migrating.bso"
+                name: communityName
             });
 
-            expect(community.address).to.equal("migrating.bso");
+            expect(community.address).to.equal(communityName);
             expect(community.publicKey).to.equal(wrongPublicKey);
 
             await community.update();
@@ -275,10 +280,11 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // Community loaded successfully via key migration
             expect(community.updatedAt).to.be.a("number");
             expect(community.publicKey).to.equal(correctPublicKey);
-            expect(community.address).to.equal("migrating.bso"); // address is immutable
+            expect(community.address).to.equal(communityName); // address is immutable
             expect(community.nameResolved).to.equal(true);
 
             await community.stop();
+            await staticCommunity.ipnsObj.pkc.destroy();
         });
     });
 });
@@ -405,7 +411,7 @@ describe(`publicKey fallback - .sol community loading`, () => {
             // itSkipIfRpc: as above, the restricted resolver is client-local and the RPC server resolves
             // .sol with its own, reaching a definitive "no record" instead of never asking. Issue #353.
             itSkipIfRpc(`createCommunity({ name: "mycommunity.sol", publicKey }) succeeds via publicKey fallback`, async () => {
-                const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
+                const { communityAddress: communityAddress } = await createMockedCommunityIpns({ name: "mycommunity.sol" });
 
                 const testPKC = await config.pkcInstancePromise({
                     mockResolve: false,

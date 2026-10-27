@@ -804,6 +804,14 @@ export class CommunityClientsManager extends PKCClientsManager {
                 this._community.emit("update", this._community);
             }
         };
+        // The answer describes `name`, so it applies only while `name` still identifies this community: the address when
+        // that is a domain, otherwise the name the loaded record claims. The record can drop or change the name while
+        // the resolve is out, and a name resolved before the first record (_nameToResolveBeforeFirstRecord) is claimed
+        // by nothing yet. A dropped name may now point at another community, which is not a key migration of this one.
+        const nameStillIdentifiesCommunity = () => {
+            const identifyingName = isStringDomain(this._community.address) ? this._community.address : this._community.name;
+            return Boolean(identifyingName && areEquivalentCommunityAddresses(identifyingName, name));
+        };
         this._nameResolveInFlight = true;
         this._resolveCommunityNameWithoutUpdatingState({
             communityName: name,
@@ -812,6 +820,10 @@ export class CommunityClientsManager extends PKCClientsManager {
             cache: { maxAge: 3600 }
         })
             .then((resolved) => {
+                if (!nameStillIdentifiesCommunity()) {
+                    log.trace(`Ignoring the resolve of ${name}: it no longer identifies community ${this._community.address}`);
+                    return;
+                }
                 if (resolved && resolved !== this._community.publicKey) {
                     const nonAnchorHops = this._nonAnchorHopsOfLoadedChain();
                     if (nonAnchorHops?.includes(resolved)) {
@@ -845,7 +857,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                 ) {
                     // The resolvers answered and the answer contradicts the claim: the domain has no
                     // community TXT record, or it has one that is not a key. Definitive. Issue #353.
-                    setNameResolvedAndEmitUpdate(false);
+                    if (nameStillIdentifiesCommunity()) setNameResolvedAndEmitUpdate(false);
                 } else if (isAbortError(e)) {
                     // The community's stop signal ended the attempt. That says nothing about the resolvers,
                     // so it is not recorded: this manager outlives stop() on the caller's instance, and a stamp
@@ -941,8 +953,12 @@ export class CommunityClientsManager extends PKCClientsManager {
             // "not yet a boolean": a `false` is provisional and re-earned. Everything that bounds the retry
             // (the floor, the in-flight guard, the unsupported-TLD skip) lives in the callee, because the
             // pinned-name branch above calls it with no gate of its own (#353).
-            if (!isDomain && this._community.name && this._community.publicKey && this._community.nameResolved !== true) {
-                this._resolveNameInBackground(this._community.name);
+            // Before the first record, a name handed in by the loader (see _nameToResolveBeforeFirstRecord) is resolved
+            // alongside the fetch instead of after it.
+            const nameToVerify =
+                this._community.name ?? (this._community.raw.communityIpfs ? undefined : this._community._nameToResolveBeforeFirstRecord);
+            if (!isDomain && nameToVerify && this._community.publicKey && this._community.nameResolved !== true) {
+                this._resolveNameInBackground(nameToVerify);
             }
 
             if (!ipnsName) throw Error("Failed to resolve community address to an IPNS name");
@@ -1018,6 +1034,14 @@ export class CommunityClientsManager extends PKCClientsManager {
                 // Under the name and under the key: a publication created with only the key reads the community's
                 // current name here to re-sign with it (issue #401), so the key's entry must not keep a record from
                 // before the community got its name
+                const previousForKey = this._pkc._memCaches.communityForPublishing.get(identityPublicKey, { allowStale: true });
+                // A record that dropped or changed the name the key was cached under: the entry under the old name
+                // must not answer a publication addressed to it, which has to fetch and be refused instead
+                if (
+                    previousForKey?.name &&
+                    (!communityForPublishing.name || !areEquivalentCommunityAddresses(previousForKey.name, communityForPublishing.name))
+                )
+                    this._pkc._memCaches.communityForPublishing.delete(previousForKey.name);
                 this._pkc._memCaches.communityForPublishing.set(anchorIdentityAddress, communityForPublishing);
                 if (anchorIdentityAddress !== identityPublicKey)
                     this._pkc._memCaches.communityForPublishing.set(identityPublicKey, communityForPublishing);
@@ -1675,12 +1699,14 @@ export class CommunityClientsManager extends PKCClientsManager {
         // terminal (minter) key, and the anchor -> terminal binding is guaranteed by the
         // cryptographically-verified IPNS record chain (see docs/protocol/delegated-ipns.md).
         // Handles: {address: "12D3Koo..."} loads record with name: "plebbit.bso".
-        // NOT applied for domain addresses (Scenario C stays rejected — a domain load must match
-        // the record's name field, not merely its signature key).
-        const instanceAddressIsDomain = isStringDomain(communityInstanceAddress);
-        const signatureKeyMatchesTerminal = !instanceAddressIsDomain
-            ? this._areEquivalentCommunityAddresses(getPKCAddressFromPublicKeySync(communityJson.signature.publicKey), terminalIpnsName)
-            : false;
+        // Also applied to domain addresses: whether the record still claims the name it was loaded
+        // by is checked by each loader against the name IT asked for (findCommunityRecordNameMismatch),
+        // because loaders by name and by key share this updating instance and a record that dropped
+        // or changed its name is valid for a loader by key. This check is only about the key.
+        const signatureKeyMatchesTerminal = this._areEquivalentCommunityAddresses(
+            getPKCAddressFromPublicKeySync(communityJson.signature.publicKey),
+            terminalIpnsName
+        );
         if (!addressMatchesInstance && !addressMatchesPublicKey && !signatureKeyMatchesTerminal) {
             // Did the gateway supply us with a different community's ipns
 

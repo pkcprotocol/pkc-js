@@ -758,7 +758,13 @@ export async function waitForUpdateInCommunityInstanceWithErrorAndTimeout(opts: 
         // but definitive for THIS wait: nothing within the timeout window changes which addrs the
         // providers announce, so waiting the full community-ipns timeout (5 minutes by default)
         // only delays the same answer. Surface it now so publish()/getCommunity() fail fast.
-        const failsFast = "code" in err && err.code === "ERR_COMMUNITY_UNREACHABLE_FROM_THIS_CLIENT";
+        // A record that does not claim the requested name is likewise retriable for the loop (a later
+        // record can claim it again) but is the answer for this wait: the community published a record,
+        // and it is not the one the caller asked for.
+        const failsFast =
+            "code" in err &&
+            (err.code === "ERR_COMMUNITY_UNREACHABLE_FROM_THIS_CLIENT" ||
+                err.code === "ERR_COMMUNITY_RECORD_NAME_DOES_NOT_MATCH_REQUESTED_NAME");
         if (!isRetriable || failsFast) {
             criticalError = err;
             nonRetriableErrorResolve?.();

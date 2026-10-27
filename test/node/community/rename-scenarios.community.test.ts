@@ -293,9 +293,11 @@ for (const editKey of ["name", "address"] as const) {
 }
 
 // 5. A reader already following the community by its old name when the owner renames it. A name is part of the
-// community's identity (#401), so the reader does not follow the rename: the next record carries a different address
-// than the one it asked for, and it errors. It has to load the community again by the new name or by its key
-// (docs/protocol/names-and-addresses.md, "Changing a community's name").
+// community's identity (#401), so the reader does not follow the rename: the next record claims a different name
+// than the one it asked for, so it refuses that record, keeps the last one that claimed the old name and errors. It
+// has to load the community again by the new name or by its key (docs/protocol/names-and-addresses.md, "Changing a
+// community's name"). A reader following the same community by its key shares the reader's updating instance and
+// does follow the rename: the refusal is the by-name reader's own and must not stop it.
 for (const editKey of ["name", "address"] as const) {
     // Skipped under RPC because it inspects the LocalCommunity's error and startedState events
     describeSkipIfRpc(`A reader subscribed by the old name during a rename, edit({ ${editKey} })`, async () => {
@@ -307,7 +309,7 @@ for (const editKey of ["name", "address"] as const) {
 
         afterAll(async () => teardown(ctx));
 
-        it(`errors with ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED instead of following the rename`, async () => {
+        it(`errors with ERR_COMMUNITY_RECORD_NAME_DOES_NOT_MATCH_REQUESTED_NAME instead of following the rename, while a reader by key follows it`, async () => {
             const reader = (await ctx.remotePKC.createCommunity({ address: ctx.oldName })) as RemoteCommunity;
             const errors: Error[] = [];
             reader.on("error", (e) => errors.push(e));
@@ -318,6 +320,13 @@ for (const editKey of ["name", "address"] as const) {
             });
             expect(errors).to.deep.equal([]);
             expect(reader.name).to.equal(ctx.oldName);
+            const updatedAtBeforeRename = reader.updatedAt;
+
+            const readerByKey = (await ctx.remotePKC.createCommunity({ address: ctx.community.signer.address })) as RemoteCommunity;
+            const readerByKeyErrors: Error[] = [];
+            readerByKey.on("error", (e) => readerByKeyErrors.push(e));
+            await readerByKey.update();
+            await resolveWhenConditionIsTrue({ toUpdate: readerByKey, predicate: async () => readerByKey.name === ctx.oldName });
 
             const updateCidBefore = ctx.community.updateCid;
             await ctx.community.edit({ [editKey]: ctx.newName });
@@ -325,11 +334,20 @@ for (const editKey of ["name", "address"] as const) {
             try {
                 await resolveWhenConditionIsTrue({ toUpdate: reader, predicate: async () => errors.length > 0, eventName: "error" });
                 expect(errors.map((e) => (e as { code?: string }).code)).to.include(
-                    "ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED"
+                    "ERR_COMMUNITY_RECORD_NAME_DOES_NOT_MATCH_REQUESTED_NAME"
                 );
                 expect(reader.name).to.equal(ctx.oldName);
+                expect(reader.updatedAt).to.equal(updatedAtBeforeRename);
+                expect(reader.state).to.equal("updating");
+
+                await resolveWhenConditionIsTrue({ toUpdate: readerByKey, predicate: async () => readerByKey.name === ctx.newName });
+                expect(readerByKey.state).to.equal("updating");
+                const readerByKeyErrorCodes = readerByKeyErrors.map((e) => (e as { code?: string }).code);
+                expect(readerByKeyErrorCodes).to.not.include("ERR_COMMUNITY_RECORD_NAME_DOES_NOT_MATCH_REQUESTED_NAME");
+                expect(readerByKeyErrorCodes).to.not.include("ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED");
             } finally {
                 await reader.stop();
+                await readerByKey.stop();
             }
         });
     });

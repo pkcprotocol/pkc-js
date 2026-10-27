@@ -15,6 +15,7 @@ import { CommentIpfsGatewayClient, CommentKuboRpcClient } from "./comment/commen
 import type { CommunityEvents, CommunityIpfsType } from "../community/types.js";
 import { waitForUpdateInCommunityInstanceWithErrorAndTimeout } from "../util.js";
 import { findStartedCommunity, findUpdatingCommunity, untrackUpdatingCommunity } from "../pkc/tracked-instance-registry-util.js";
+import { findCommunityRecordNameMismatch } from "../community/community-wire.js";
 
 export class PublicationClientsManager extends PKCClientsManager {
     override clients!: {
@@ -161,23 +162,30 @@ export class PublicationClientsManager extends PKCClientsManager {
         if (translatedState) this.updateLibp2pJsClientState(translatedState, libp2pJsClientKey);
     }
 
-    async _createCommunityInstanceWithStateTranslation() {
+    // `byPublicKey`: load the community by its key alone when the publication has one, so a record that no longer
+    // claims the publication's communityName is still accepted. For comment updates: CommentUpdates are signed by the
+    // community key, and a comment signed under a name keeps that name after the community drops it. The name is still
+    // resolved, in parallel with the load by key.
+    async _createCommunityInstanceWithStateTranslation(opts?: { byPublicKey?: boolean }) {
         // basically in Publication or comment we need to be fetching the community record
         // this function will be for translating between the states of the community and its clients to publication/comment states
+        const communityName = opts?.byPublicKey && this._publication.communityPublicKey ? undefined : this._publication.communityName;
         const directCommunityInstance =
-            findUpdatingCommunity(this._pkc, { publicKey: this._publication.communityPublicKey, name: this._publication.communityName }) ||
-            findStartedCommunity(this._pkc, { publicKey: this._publication.communityPublicKey, name: this._publication.communityName });
+            findUpdatingCommunity(this._pkc, { publicKey: this._publication.communityPublicKey, name: communityName }) ||
+            findStartedCommunity(this._pkc, { publicKey: this._publication.communityPublicKey, name: communityName });
         const community =
             directCommunityInstance ||
             // Under RPC, createCommunity() parks on unbounded waits for a community the server hosts,
             // so stop() has to reach this call too, not just the IPNS wait below (issue #277).
             (await this._pkc.createCommunity(
                 {
-                    name: this._publication.communityName,
+                    name: communityName,
                     publicKey: this._publication.communityPublicKey
                 },
                 { abortSignal: this._publication._getCommunityFetchAbortSignal() }
             ));
+        if (!directCommunityInstance && !communityName && this._publication.communityName && community instanceof RemoteCommunity)
+            community._nameToResolveBeforeFirstRecord = this._publication.communityName;
 
         this._communityForUpdating = {
             community: community,
@@ -270,8 +278,11 @@ export class PublicationClientsManager extends PKCClientsManager {
         return this._communityForUpdating!;
     }
 
-    async cleanUpUpdatingCommunityInstance() {
-        if (!this._communityForUpdating) throw Error("Need to define communityForUpdating first");
+    // Stops forwarding the community's state changes to this publication and resets the client states
+    // it mirrored. Synchronous so it can run inside the community's "update" emit, before the update
+    // loop starts its next cycle (issue #437). Safe to call more than once.
+    _detachCommunityStateListeners() {
+        if (!this._communityForUpdating) return;
 
         // Clean up IPFS Gateway listeners
         if (this._communityForUpdating.ipfsGatewayListeners) {
@@ -317,8 +328,19 @@ export class PublicationClientsManager extends PKCClientsManager {
             }
         }
 
-        // Remove update event at the end
         this._communityForUpdating.community.removeListener("updatingstatechange", this._communityForUpdating.updatingstatechange);
+        this._communityForUpdating.ipfsGatewayListeners = undefined;
+        this._communityForUpdating.kuboRpcListeners = undefined;
+        this._communityForUpdating.libp2pJsListeners = undefined;
+        this._communityForUpdating.nameResolverListeners = undefined;
+    }
+
+    async cleanUpUpdatingCommunityInstance() {
+        if (!this._communityForUpdating) throw Error("Need to define communityForUpdating first");
+
+        this._detachCommunityStateListeners();
+
+        // Remove update event at the end
         this._communityForUpdating.community.removeListener("error", this._communityForUpdating.error);
         this._communityForUpdating.community.removeListener("update", this._communityForUpdating.update);
 
@@ -350,6 +372,15 @@ export class PublicationClientsManager extends PKCClientsManager {
         let communityIpfs: CommunityIpfsType;
         if (!updatingCommunityInstance.community.raw.communityIpfs) {
             const timeoutMs = this._pkc._timeouts["community-ipns"];
+            // The publication has what it needs once the record arrives. The update loop can start its
+            // next cycle synchronously after this emit, and the cleanup below only runs a few
+            // microtasks later, so detach here or that cycle's states leak into publishingState (#437).
+            const detachOnRecord = () => {
+                if (!updatingCommunityInstance.community.raw.communityIpfs) return;
+                updatingCommunityInstance.community.removeListener("update", detachOnRecord);
+                this._detachCommunityStateListeners();
+            };
+            updatingCommunityInstance.community.on("update", detachOnRecord);
             try {
                 // The publication's stop/destroy signal, so stop() cancels this fetch rather than
                 // leaving the caller blocked for the whole community-ipns timeout (issue #275).
@@ -362,6 +393,8 @@ export class PublicationClientsManager extends PKCClientsManager {
             } catch (e) {
                 await this.cleanUpUpdatingCommunityInstance();
                 throw e;
+            } finally {
+                updatingCommunityInstance.community.removeListener("update", detachOnRecord);
             }
             await this.cleanUpUpdatingCommunityInstance();
         } else {
@@ -374,6 +407,15 @@ export class PublicationClientsManager extends PKCClientsManager {
                 communityAddress: updatingCommunityInstance.community.address,
                 timeoutMs: this._pkc._timeouts["community-ipns"]
             });
+        // The record may come straight from a shared updating instance loaded by public key, which
+        // accepts a record whatever name it claims. A publication addressed to a name must not be sent
+        // to a community that no longer claims it.
+        const nameMismatch = findCommunityRecordNameMismatch({
+            requestedName: this._publication.communityName,
+            record: communityIpfs,
+            communityPublicKey: updatingCommunityInstance.community.publicKey
+        });
+        if (nameMismatch) throw nameMismatch;
         return {
             address: updatingCommunityInstance.community.address,
             publicKey: updatingCommunityInstance.community.publicKey!,

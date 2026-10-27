@@ -126,7 +126,12 @@ for (const editKey of ["address", "name"] as const) {
             await community.edit({ [editKey]: bsoNameAddress });
             expect(community.address).to.equal(bsoNameAddress);
             expect(community.name).to.equal(bsoNameAddress);
-            await new Promise((resolve) => community.once("update", resolve));
+            // The first update after edit() can belong to a publish cycle that started before it and still
+            // carries the old record, so wait for the record that claims the new name
+            await resolveWhenConditionIsTrue({
+                toUpdate: community,
+                predicate: async () => community.raw.communityIpfs?.name === bsoNameAddress
+            });
             expect(community.address).to.equal(bsoNameAddress);
             expect(community.name).to.equal(bsoNameAddress);
         });
@@ -164,16 +169,38 @@ for (const editKey of ["address", "name"] as const) {
             expect(fs.existsSync(path.join(community._pkc.dataPath!, "communities", `${bsoNameAddress}.start.lock`))).to.be.true;
         });
 
+        // The remote's IPNS resolve can still serve the pre-edit record (no name) for up to its ttl, which a by-name
+        // loader refuses as retriable. getCommunity() fails on that first refusal, so keep updating until a record
+        // that claims the name arrives
+        const loadRemoteCommunityClaimingName = async () => {
+            const loadedCommunity = (await remotePKC.createCommunity({ address: bsoNameAddress })) as RemoteCommunity;
+            await loadedCommunity.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: loadedCommunity,
+                predicate: async () => loadedCommunity.raw.communityIpfs?.name === bsoNameAddress
+            });
+            return loadedCommunity;
+        };
+
         it(`Can load a community with ENS domain as address`, async () => {
-            const loadedCommunity = (await remotePKC.getCommunity({ address: bsoNameAddress })) as RemoteCommunity;
-            expect(loadedCommunity.address).to.equal(bsoNameAddress);
-            expect(loadedCommunity.raw.communityIpfs).to.deep.equal(community.raw.communityIpfs);
+            const loadedCommunity = await loadRemoteCommunityClaimingName();
+            try {
+                expect(loadedCommunity.address).to.equal(bsoNameAddress);
+                expect(loadedCommunity.raw.communityIpfs?.name).to.equal(bsoNameAddress);
+                expect(loadedCommunity.raw.communityIpfs?.signature.publicKey).to.equal(community.raw.communityIpfs?.signature.publicKey);
+            } finally {
+                await loadedCommunity.stop();
+            }
         });
 
         it(`remote community.posts keeps the posts published before the community added a name`, async () => {
-            const loadedCommunity = (await remotePKC.getCommunity({ address: bsoNameAddress })) as RemoteCommunity;
-            expect(loadedCommunity.name).to.equal(bsoNameAddress);
-            expect(loadedCommunity.posts.pages.hot!.comments.map((comment) => comment.cid)).to.include(postPublishedBeforeEdit.cid);
+            const loadedCommunity = await loadRemoteCommunityClaimingName();
+            try {
+                expect(loadedCommunity.name).to.equal(bsoNameAddress);
+                expect(loadedCommunity.posts.pages.hot!.comments.map((comment) => comment.cid)).to.include(postPublishedBeforeEdit.cid);
+            } finally {
+                await loadedCommunity.stop();
+            }
         });
 
         it(`Started Sub can receive publications on new ENS address`, async () => {

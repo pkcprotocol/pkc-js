@@ -98,10 +98,11 @@ describe("RPC community update subscription survives concurrent sibling churn (#
     // verification (signed by a key that does not own the IPNS name), so the server's updating
     // entry cycles healthily in waiting-retry (fetch -> reject -> retry) without ever delivering
     // data: a deterministic, arbitrarily-long version of the CI pre-record window. Calling
-    // publishRecord() ends the window by publishing a valid record
-    const createMigrationTargetWithInvalidRecord = async () => {
+    // publishRecord() ends the window by publishing a valid record. Both records claim `name`, the
+    // domain that resolves to the target: a by-name loader refuses a record that does not claim it
+    const createMigrationTargetWithInvalidRecord = async ({ name }: { name: string }) => {
         const newIpns = await createNewIpns();
-        const { communityRecord: templateRecord, ipnsObj: templateIpns } = await createMockedCommunityIpns({});
+        const { communityRecord: templateRecord, ipnsObj: templateIpns } = await createMockedCommunityIpns({ name });
         const makeRecord = async (signer: typeof newIpns.signer) => {
             const record = <CommunityIpfsType>{
                 ...templateRecord,
@@ -169,9 +170,9 @@ describe("RPC community update subscription survives concurrent sibling churn (#
     });
 
     itIfRpc(`subscription and its server-side updating entry survive sibling churn during the pre-record migration window`, async () => {
-        const target = await createMigrationTargetWithInvalidRecord();
-        const { communityAddress: oldKeyA } = await createMockedCommunityIpns({});
         const domain = `churn-migrating-${Date.now()}.bso`;
+        const target = await createMigrationTargetWithInvalidRecord({ name: domain });
+        const { communityAddress: oldKeyA } = await createMockedCommunityIpns({});
         resolverRecords.set(domain, target.newKey);
 
         const clientA = await createClient();
@@ -312,9 +313,9 @@ describe("RPC community update subscription survives concurrent sibling churn (#
     itIfRpc(
         `a subscription is permanently starved when its shared updating entry is stopped while still attached (#129 root cause)`,
         async () => {
-            const target = await createMigrationTargetWithInvalidRecord();
-            const { communityAddress: oldKeyA } = await createMockedCommunityIpns({});
             const domain = `entry-stopped-under-sub-${Date.now()}.bso`;
+            const target = await createMigrationTargetWithInvalidRecord({ name: domain });
+            const { communityAddress: oldKeyA } = await createMockedCommunityIpns({});
             resolverRecords.set(domain, target.newKey);
 
             const clientA = await createClient();
@@ -391,9 +392,9 @@ describe("RPC community update subscription survives concurrent sibling churn (#
     });
 
     itIfRpc(`subscription survives a setSettings burst during the pre-record migration window`, async () => {
-        const target = await createMigrationTargetWithInvalidRecord();
-        const { communityAddress: oldKey } = await createMockedCommunityIpns({});
         const domain = `churn-setsettings-${Date.now()}.bso`;
+        const target = await createMigrationTargetWithInvalidRecord({ name: domain });
+        const { communityAddress: oldKey } = await createMockedCommunityIpns({});
         resolverRecords.set(domain, target.newKey);
 
         const clientA = await createClient();
@@ -466,8 +467,8 @@ describe("RPC community update subscription survives concurrent sibling churn (#
     // updating instance as {name, publicKey}, whose aliases happen to satisfy the old lookup, which
     // is why the setSettings-burst test above (domain victim, pre-record window) always passed.
     itIfRpc(`a key-addressed subscription survives a settings change after its key migration has completed`, async () => {
-        const target = await createMigrationTargetWithInvalidRecord();
         const domain = `settings-after-migration-${Date.now()}.bso`;
+        const target = await createMigrationTargetWithInvalidRecord({ name: domain });
         resolverRecords.set(domain, target.newKey);
         // The old key's record carries the domain as its name, like real pre-migration records of a
         // domain community do; resolving that name is what triggers the migration server-side

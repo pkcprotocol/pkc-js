@@ -92,7 +92,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         // server's pkc; here they are two instances on one pkc, which is the same registry.
         itSkipIfRpc(`a second loader of a migrated domain still sees the migration`, async () => {
             const communityName = "migration-shared.bso";
-            const migratedKey = signers[0].address;
+            // Both loaders are by name, so the migrated key's record must claim the name or each
+            // loader refuses it and never gets an updatedAt
+            const { communityAddress: migratedKey } = await createMockedCommunityIpns({ name: communityName });
 
             const testPKC = await config.pkcInstancePromise({
                 mockResolve: false,

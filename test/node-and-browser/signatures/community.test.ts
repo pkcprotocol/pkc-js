@@ -406,6 +406,41 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         await tempPKC.destroy();
     });
 
+    // Unknown record props are assigned onto the RemoteCommunity instance, so a signed record carrying one
+    // of its runtime-only markers would plant it: _pendingWarmStartKeyMigration a migration announcement,
+    // _lastRefusedRecordUpdatedAt the silencing of a later record's name-mismatch refusal
+    for (const [runtimeField, value] of [
+        ["_pendingWarmStartKeyMigration", { previousPublicKey: signers[1].address, newPublicKey: signers[2].address }],
+        ["_lastRefusedRecordUpdatedAt", 9999999999]
+    ] as const) {
+        it(`A community record is rejected if it includes the runtime-only ${runtimeField} even when signed`, async () => {
+            const tempPKC: PKCType = await mockRemotePKC();
+
+            const subFixtureClone = clone(newFormatFixture) as CommunityIpfsType & Record<string, unknown>;
+            subFixtureClone[runtimeField] = value;
+            const signature = await _signJson(
+                [...newFormatFixture.signature.signedPropertyNames, runtimeField],
+                subFixtureClone,
+                signers[0],
+                log
+            );
+            subFixtureClone.signature = signature;
+
+            const validation = await verifyCommunity({
+                community: subFixtureClone as CommunityIpfsType,
+                communityIpnsHops: [signers[0].address],
+                resolveAuthorNames: tempPKC.resolveAuthorNames,
+                clientsManager: tempPKC._clientsManager,
+                validatePages: false
+            });
+            expect(validation).to.deep.equal({
+                valid: false,
+                reason: messages.ERR_COMMUNITY_RECORD_INCLUDES_RESERVED_FIELD
+            });
+            await tempPKC.destroy();
+        });
+    }
+
     // The signed anchor claim (#257): a delegated record declares its anchor, a chain-loaded record
     // must claim the chain's anchor, and page comments are checked against the claim regardless of
     // the record's name (the name-wins rotation tolerance has no delegated counterpart).

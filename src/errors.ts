@@ -184,6 +184,7 @@ export enum messages {
     ERR_SIGNATURE_HAS_NO_PUBLIC_KEY = "Signature of publication has no public key",
     ERR_COMMENT_UPDATE_EDIT_SIGNATURE_IS_INVALID = "The author edit of comment (commentUpdate.edit) has an invalid signature",
     ERR_THE_COMMUNITY_IPNS_RECORD_POINTS_TO_DIFFERENT_ADDRESS_THAN_WE_EXPECTED = "The community record address does not correspond to the requested community. requestedCommunity.address !== providedCommunity.address",
+    ERR_COMMUNITY_RECORD_NAME_DOES_NOT_MATCH_REQUESTED_NAME = "The community record does not claim the name it was loaded by: it has no name, or a different one. The record was refused and the last record that claimed the name is kept. Retriable: a later record that claims the name again is accepted",
     ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY = "The community name resolves to a different public key than the one provided. The community may have migrated to a new key.",
     ERR_AUTHOR_NOT_MATCHING_SIGNATURE = "comment.author.address doesn't match comment.signature.publicKey",
     ERR_AUTHOR_NAME_MUST_BE_A_DOMAIN = "author.name must be a domain name (e.g. 'example.bso')",

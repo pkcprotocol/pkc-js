@@ -335,19 +335,28 @@ for (const commentMod of commentModProps) {
                                 const newComment = await remotePKC.createComment(commentToBeRejected);
                                 expect(newComment.raw.comment).to.be.ok;
 
+                                // A transient fetch failure (e.g. a connect timeout to kubo while loading the comment)
+                                // says nothing about whether the rejected comment has a CommentUpdate, and the comment
+                                // retries past it, so it neither counts as the expected error nor ends the wait
+                                const isTransientFetchError = (err: Error) =>
+                                    ["ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P", "ERR_FETCH_CID_P2P_TIMEOUT"].includes(
+                                        (err as Error & { code?: string }).code ?? ""
+                                    );
                                 const errors: Error[] = [];
                                 const failIfUpdated = () =>
                                     newComment.raw.commentUpdate &&
                                     expect.fail("Rejected comment unexpectedly emitted an update event with CommentUpdate");
                                 newComment.on("update", failIfUpdated);
-                                newComment.on("error", (err: Error) => errors.push(err));
+                                newComment.on("error", (err: Error) => {
+                                    if (!isTransientFetchError(err)) errors.push(err);
+                                });
                                 await newComment.update();
 
                                 await new Promise<void>((resolve) => {
                                     let settled = false;
                                     let timeoutId: NodeJS.Timeout;
-                                    const onError = () => {
-                                        if (settled) return;
+                                    const onError = (err: Error) => {
+                                        if (settled || isTransientFetchError(err)) return;
                                         settled = true;
                                         clearTimeout(timeoutId);
                                         newComment.removeListener("error", onError);

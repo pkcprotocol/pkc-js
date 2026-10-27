@@ -77,6 +77,19 @@ export class TrackedInstanceRegistry<T extends object> {
         }
     }
 
+    removeAliases(value: T, aliases: Iterable<string>): void {
+        const entry = this._entries.get(value);
+        if (!entry) return;
+
+        for (const alias of aliases) {
+            if (!entry.delete(alias)) continue;
+            const trackedValues = this._aliases.get(alias);
+            if (!trackedValues) continue;
+            trackedValues.delete(value);
+            if (trackedValues.size === 0) this._aliases.delete(alias);
+        }
+    }
+
     untrack(value: T): void {
         const aliases = this._entries.get(value);
         if (!aliases) return;

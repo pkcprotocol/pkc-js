@@ -4,7 +4,7 @@ import type { RpcRemoteCommunityType, CommunityEvents, CommunityRpcErrorToTransm
 import { keys } from "remeda";
 import { PKCError } from "../pkc-error.js";
 import { parseRpcRemoteCommunityUpdateEventWithPKCErrorIfItFails } from "../schema/schema-util.js";
-import { deepMergeRuntimeFields } from "../util.js";
+import { areEquivalentCommunityAddresses, deepMergeRuntimeFields } from "../util.js";
 import { RpcLocalCommunity } from "./rpc-local-community.js";
 import {
     findStartedCommunity,
@@ -102,6 +102,9 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         const { updatingState: newUpdatingState, ...runtimeFieldsWithoutUpdatingState } = updateRecord.runtimeFields;
         this.raw.runtimeFieldsFromRpc = runtimeFieldsWithoutUpdatingState;
         deepMergeRuntimeFields(this, runtimeFieldsWithoutUpdatingState);
+        // The merge skips undefined, and JSON drops it, so a server whose verdict was cleared (the record
+        // dropped or changed its name) sends no nameResolved at all
+        if (runtimeFieldsWithoutUpdatingState.nameResolved === undefined) this.nameResolved = undefined;
 
         // Emit "update" then updatingstatechange, in the order the non-RPC loop does
         this._changeStateEmitEventEmitStateChangeEvent({
@@ -124,8 +127,13 @@ export class RpcRemoteCommunity extends RemoteCommunity {
             error: (err) => this.emit("error", err),
             updatingstatechange: (updatingState) => this._setUpdatingStateWithEventEmissionIfNewState.bind(this)(updatingState),
             update: (updatingCommunity) => {
+                if (updatingCommunity.raw.communityIpfs && updatingCommunity.updateCid) {
+                    const nameMismatch = this._findRecordNameMismatch(updatingCommunity.raw.communityIpfs);
+                    if (nameMismatch) return this._refuseRecordWithMismatchedName(nameMismatch, updatingCommunity.raw.communityIpfs);
+                }
                 const keyChanged = updatingCommunity.publicKey && updatingCommunity.publicKey !== this.publicKey;
                 const nameResolvedBeforeMirror = this.nameResolved;
+                const nameBeforeMirror = this.name;
                 if (!updatingCommunity.raw.communityIpfs || !updatingCommunity.updateCid) {
                     if (updatingCommunity.publicKey) this._clearDataForKeyMigration(updatingCommunity.publicKey);
                 } else {
@@ -137,7 +145,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
                     if (updatingCommunity.raw.runtimeFieldsFromRpc)
                         deepMergeRuntimeFields(this, updatingCommunity.raw.runtimeFieldsFromRpc);
                 }
-                this._adoptMirroredNameResolved(updatingCommunity, nameResolvedBeforeMirror);
+                this._adoptMirroredNameResolved(updatingCommunity, nameResolvedBeforeMirror, nameBeforeMirror);
                 // Only emit when there's actual data or a key migration — avoid spurious updates for empty subs
                 if ((updatingCommunity.raw.communityIpfs && updatingCommunity.updateCid) || keyChanged) {
                     this.emit("update", this);
@@ -195,7 +203,15 @@ export class RpcRemoteCommunity extends RemoteCommunity {
                     this.clients[clientType][clientUrl].mirror(updatingCommunity.clients[clientType][clientUrl]);
 
         this._updatingRpcCommunityInstanceWithListeners.community._numOfListenersForUpdatingInstance++;
+        if (updatingCommunity.raw.communityIpfs && updatingCommunity.updateCid) {
+            const nameMismatch = this._findRecordNameMismatch(updatingCommunity.raw.communityIpfs);
+            if (nameMismatch) {
+                this._refuseRecordWithMismatchedName(nameMismatch, updatingCommunity.raw.communityIpfs);
+                return;
+            }
+        }
         const nameResolvedBeforeMirror = this.nameResolved;
+        const nameBeforeMirror = this.name;
         if (!updatingCommunity.raw.communityIpfs || !updatingCommunity.updateCid) {
             if (updatingCommunity.publicKey) this._clearDataForKeyMigration(updatingCommunity.publicKey);
         } else {
@@ -206,7 +222,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
             this.updateCid = updatingCommunity.updateCid;
             if (updatingCommunity.raw.runtimeFieldsFromRpc) deepMergeRuntimeFields(this, updatingCommunity.raw.runtimeFieldsFromRpc);
         }
-        this._adoptMirroredNameResolved(updatingCommunity, nameResolvedBeforeMirror);
+        this._adoptMirroredNameResolved(updatingCommunity, nameResolvedBeforeMirror, nameBeforeMirror);
         if (updatingCommunity.raw.communityIpfs || updatingCommunity.updateCid) {
             this.emit("update", this);
         }
@@ -235,8 +251,10 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         this._setState("updating");
         let subscriptionId: number;
         try {
+            // The identity this instance was asked for, not the name its last record claimed: a loader by
+            // public key must not turn into a loader by name when it re-subscribes
             ({ subscriptionId } = await this._pkc._pkcRpcClient!.communityUpdateSubscribe({
-                name: this.name,
+                name: this._requestedName(),
                 publicKey: this.publicKey
             }));
             this._updateRpcSubscriptionId = subscriptionId;
@@ -274,7 +292,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         const updatingSub =
             updatingCommunity ||
             ((await this._pkc.createCommunity({
-                name: this.name,
+                name: this._requestedName(),
                 publicKey: this.publicKey
             })) as RpcRemoteCommunity);
         trackUpdatingCommunity(this._pkc, updatingSub);
@@ -284,6 +302,13 @@ export class RpcRemoteCommunity extends RemoteCommunity {
             // in pkc.createCommunity() this function is called with the community instance itself
             await this._initMirroringUpdatingCommunity(updatingSub);
         await updatingSub._initRpcUpdateSubscription();
+    }
+
+    private _sharesRequestedIdentityWith(other: RpcRemoteCommunity): boolean {
+        const ownName = this._requestedName();
+        const otherName = other._requestedName();
+        if (ownName === undefined || otherName === undefined) return ownName === otherName;
+        return areEquivalentCommunityAddresses(ownName, otherName);
     }
 
     override async update() {
@@ -298,7 +323,12 @@ export class RpcRemoteCommunity extends RemoteCommunity {
                 | undefined;
             if (existingSub) {
                 if (existingSub === this) await this._initRpcUpdateSubscription();
-                else await this._initMirroringUpdatingCommunity(existingSub);
+                else if (this._sharesRequestedIdentityWith(existingSub)) await this._initMirroringUpdatingCommunity(existingSub);
+                // The entry's server subscription checks records against the name the entry asked for, so a
+                // loader asking for another identity (e.g. by key, joining a by-name entry that key-migrated
+                // onto its key) would never receive records that do not claim that name. Subscribe this
+                // instance on its own instead, untracked, since the entry already owns the registry aliases.
+                else await this._initRpcUpdateSubscription();
             } else {
                 const startedSub = findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
                 if (startedSub) await this._initMirroringUpdatingCommunity(startedSub as RpcLocalCommunity);
@@ -377,6 +407,8 @@ export class RpcRemoteCommunity extends RemoteCommunity {
     override async stop() {
         const log = Logger("pkc-js:rpc-remote-community:stop");
         if (this.state === "stopped") return;
+        // The next update() is a new run whose listeners have not been told about any refused record
+        this._lastRefusedRecordUpdatedAt = undefined;
 
         if (this._updatingRpcCommunityInstanceWithListeners) {
             await this._cleanupMirroringUpdatingCommunity();

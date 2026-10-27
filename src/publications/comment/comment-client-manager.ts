@@ -151,6 +151,27 @@ export class CommentClientsManager extends PublicationClientsManager {
         return `${folderCid}/` + postCid + "/update";
     }
 
+    // A post file that is not newer than the CommentUpdate this comment holds is ignored, and if no later cycle
+    // publishes a newer one the comment never sees what changed in it (issue #456). Logs both sides of the comparison
+    // and where the held one came from: _commentUpdateIpfsPath is only set by a postUpdates load, so a held update
+    // taken from a page keeps the path of an older file
+    private _logIgnoredNotNewerPostCommentUpdate(log: Logger, path: string, loaded: CommentUpdateType) {
+        const held = this._comment.raw.commentUpdate;
+        log.trace(`Comment ${this._comment.cid} ignored the CommentUpdate at ${path} as not newer than the one it holds`, {
+            loaded: {
+                updatedAt: loaded.updatedAt,
+                replyCount: loaded.replyCount,
+                pageCids: Object.keys(loaded.replies?.pageCids ?? {})
+            },
+            held: {
+                updatedAt: held?.updatedAt,
+                replyCount: held?.replyCount,
+                pageCids: Object.keys(held?.replies?.pageCids ?? {}),
+                lastPostUpdatesPath: this._comment._commentUpdateIpfsPath
+            }
+        });
+    }
+
     // IPNS-over-pubsub record topic of the comment's community, used to scope bitswap session
     // seed peers when fetching this comment's CIDs through helia (issue #202). Prefer the
     // updating community instance (anchor-aware for delegated/domain communities); otherwise an
@@ -228,7 +249,8 @@ export class CommentClientsManager extends PublicationClientsManager {
                 await this._throwIfCommentUpdateHasInvalidSignature(commentUpdate, subIpns);
                 if (commentUpdate.updatedAt > (this._comment.raw?.commentUpdate?.updatedAt || 0))
                     return { commentUpdate, commentUpdateIpfsPath: path };
-                else return undefined;
+                this._logIgnoredNotNewerPostCommentUpdate(log, path, commentUpdate);
+                return undefined;
             } catch (e) {
                 // there's a problem with the record itself, could be signature or schema or bad json
                 this._comment._invalidCommentUpdateMfsPaths.add(path);
@@ -348,7 +370,8 @@ export class CommentClientsManager extends PublicationClientsManager {
                 if (!commentUpdate) throw Error("Failed to load comment update from gateways. This is a critical logic error");
                 if (commentUpdate.updatedAt > (this._comment.raw?.commentUpdate?.updatedAt || 0))
                     return { commentUpdate, commentUpdateIpfsPath: path };
-                else return undefined;
+                this._logIgnoredNotNewerPostCommentUpdate(log, path, commentUpdate);
+                return undefined;
             } catch (e) {
                 // We need to find out if it's loading error, and if it is we just move on to the next timestamp range
                 // If it's a schema or signature error we should stop and throw

@@ -58,7 +58,7 @@ describe("pkc.getCommunity publicKey fallback over RPC", () => {
         clientPKC.on("error", () => {});
 
         try {
-            const { communityAddress: communityAddress } = await createMockedCommunityIpns({});
+            const { communityAddress: communityAddress } = await createMockedCommunityIpns({ name: "test.sol" });
             const community = await clientPKC.getCommunity({ name: "test.sol", publicKey: communityAddress });
 
             expect(community.address).to.equal("test.sol");
