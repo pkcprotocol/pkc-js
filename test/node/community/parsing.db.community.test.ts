@@ -194,6 +194,54 @@ describe("createSchemaRowParser", () => {
         expect(parsed.quotedCids).to.deep.equal(quotedCids);
     });
 
+    // Items are loose, so an item prop a later protocol version adds must survive parsing, or the row
+    // stops reproducing its own cid.
+    it("parses gallery from JSON string to array, keeping unknown item props", () => {
+        const signature = buildSignature();
+        const gallery = [
+            { url: "https://example.com/a.png", htmlTagName: "img", width: 10, height: 20, alt: "first" },
+            { url: "https://example.com/b.mp4", htmlTagName: "video", someLaterProp: { nested: ["value"] } }
+        ];
+        const rawRow: Record<string, string | number | null> = {
+            cid: "QmZg4TCKqKoMTVHCpQbVmGBkcGaA4vHwaC7xaoZ3nfJm8k",
+            postCid: "QmZg4TCKqKoMTVHCpQbVmGBkcGaA4vHwaC7xaoZ3nfJm8k",
+            depth: 0,
+            authorSignerAddress: "signer",
+            communityAddress: "sub",
+            timestamp: 1700000500,
+            insertedAt: 1700000501,
+            protocolVersion: "1",
+            author: JSON.stringify({ address: "authorAddress" }),
+            signature: JSON.stringify(signature),
+            gallery: JSON.stringify(gallery)
+        };
+
+        const parsed = parseCommentsTableRow(rawRow);
+
+        expect(parsed.gallery).to.deep.equal(gallery);
+        expect(parsed.gallery).to.not.be.a("string");
+    });
+
+    it("treats a null gallery as undefined", () => {
+        const signature = buildSignature();
+        const rawRow: Record<string, string | number | null> = {
+            cid: "QmZg4TCKqKoMTVHCpQbVmGBkcGaA4vHwaC7xaoZ3nfJm8k",
+            postCid: "QmZg4TCKqKoMTVHCpQbVmGBkcGaA4vHwaC7xaoZ3nfJm8k",
+            depth: 0,
+            authorSignerAddress: "signer",
+            communityAddress: "sub",
+            timestamp: 1700000500,
+            insertedAt: 1700000501,
+            protocolVersion: "1",
+            author: JSON.stringify({ address: "authorAddress" }),
+            signature: JSON.stringify(signature),
+            content: "no gallery",
+            gallery: null
+        };
+
+        expect(parseCommentsTableRow(rawRow).gallery).to.be.undefined;
+    });
+
     // crosspost is classified as a JSON column by collectJsonKeys, which reads def.type off the
     // schema. CrosspostSchema carries an explicit z.ZodType annotation to sever the recursive
     // inference cycle, so this pins that the annotation still leaves a JSON-like schema underneath:
