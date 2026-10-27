@@ -1,15 +1,18 @@
 // verifyCommunityList unit tests (docs/protocol/community-lists.md): reserved fields, unsigned
 // signable fields, duplicate entry publicKeys, and signature validity.
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
-import { clone } from "remeda";
+import { clone, omit } from "remeda";
+import Logger from "@pkcprotocol/pkc-logger";
 import signers from "../../fixtures/signers.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { mockRemotePKC } from "../../../dist/node/test/test-util.js";
-import { verifyCommunityList } from "../../../dist/node/signer/signatures.js";
+import { _signJson, verifyCommunityList } from "../../../dist/node/signer/signatures.js";
 import { messages } from "../../../dist/node/errors.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { CommunityListIpfsType } from "../../../dist/node/community-list/types.js";
 import { buildSignedCommunityListRecord, mockCommunityListEntries } from "./communitylist-test-util.js";
+
+const log = Logger("pkc-js:test:community-list:signatures");
 
 // These tests call verifyCommunityList directly against a locally-constructed PKC instance, with no
 // RPC round-trip to exercise, so running them under the RPC config would only repeat the same calls
@@ -71,6 +74,25 @@ describeSkipIfRpc("verifyCommunityList", () => {
             valid: false,
             reason: messages.ERR_COMMUNITY_LIST_RECORD_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
         });
+    });
+
+    it("rejects a record carrying an unknown top-level field that is not in signedPropertyNames", async () => {
+        // anyone can attach a field to a curator's signed list and re-add it under a new CID; a list has
+        // no second producer allowed to add unsigned fields (unlike a community on CommentIpfs)
+        const withUnsignedExtra = <CommunityListIpfsType>{ ...clone(validRecord), links: ["https://attacker.example"] };
+        expect(await verifyCommunityList({ communityList: withUnsignedExtra })).to.deep.equal({
+            valid: false,
+            reason: messages.ERR_COMMUNITY_LIST_RECORD_INCLUDES_SIGNABLE_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
+        });
+    });
+
+    it("accepts a record from a newer publisher that signs an unknown top-level field", async () => {
+        const signer = await pkc.createSigner();
+        const { record } = await buildSignedCommunityListRecord({ pkc, signer });
+        const props = { ...omit(record, ["signature"]), links: ["https://example.com"] };
+        const signature = await _signJson([...record.signature.signedPropertyNames, "links"], props, signer, log);
+        const fromNewerPublisher = <CommunityListIpfsType>{ ...props, signature };
+        expect(await verifyCommunityList({ communityList: fromNewerPublisher })).to.deep.equal({ valid: true });
     });
 
     it("rejects a record with a reserved runtime field", async () => {
