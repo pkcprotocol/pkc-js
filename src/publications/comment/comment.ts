@@ -802,7 +802,7 @@ export class Comment
         if (this.state === "stopped") return; // we may have called stop() before reaching comment update subscription and after loading commentipfs
         if (this.depth === 0) {
             if (!this._communityForUpdating)
-                this._communityForUpdating = await this._clientsManager._createCommunityInstanceWithStateTranslation();
+                this._communityForUpdating = await this._clientsManager._createCommunityInstanceWithStateTranslation({ byPublicKey: true });
 
             if (this.state !== "updating") return; // there are cases where stop() is called in parallel
             if (this._communityForUpdating.community.state === "stopped") {

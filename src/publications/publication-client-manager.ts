@@ -162,19 +162,23 @@ export class PublicationClientsManager extends PKCClientsManager {
         if (translatedState) this.updateLibp2pJsClientState(translatedState, libp2pJsClientKey);
     }
 
-    async _createCommunityInstanceWithStateTranslation() {
+    // `byPublicKey`: load the community by its key alone when the publication has one, so a record that no longer
+    // claims the publication's communityName is still accepted. For comment updates: CommentUpdates are signed by the
+    // community key, and a comment signed under a name keeps that name after the community drops it.
+    async _createCommunityInstanceWithStateTranslation(opts?: { byPublicKey?: boolean }) {
         // basically in Publication or comment we need to be fetching the community record
         // this function will be for translating between the states of the community and its clients to publication/comment states
+        const communityName = opts?.byPublicKey && this._publication.communityPublicKey ? undefined : this._publication.communityName;
         const directCommunityInstance =
-            findUpdatingCommunity(this._pkc, { publicKey: this._publication.communityPublicKey, name: this._publication.communityName }) ||
-            findStartedCommunity(this._pkc, { publicKey: this._publication.communityPublicKey, name: this._publication.communityName });
+            findUpdatingCommunity(this._pkc, { publicKey: this._publication.communityPublicKey, name: communityName }) ||
+            findStartedCommunity(this._pkc, { publicKey: this._publication.communityPublicKey, name: communityName });
         const community =
             directCommunityInstance ||
             // Under RPC, createCommunity() parks on unbounded waits for a community the server hosts,
             // so stop() has to reach this call too, not just the IPNS wait below (issue #277).
             (await this._pkc.createCommunity(
                 {
-                    name: this._publication.communityName,
+                    name: communityName,
                     publicKey: this._publication.communityPublicKey
                 },
                 { abortSignal: this._publication._getCommunityFetchAbortSignal() }

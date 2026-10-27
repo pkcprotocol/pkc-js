@@ -6,6 +6,7 @@ import type { RpcRemoteCommunity } from "../community/rpc-remote-community.js";
 import type { PKC } from "./pkc.js";
 import type { TrackedInstanceRegistry } from "./tracked-instance-registry.js";
 import { PKCError } from "../pkc-error.js";
+import { areEquivalentNames, isStringDomain } from "../domain-util.js";
 
 type TrackedCommunity = RemoteCommunity | RpcRemoteCommunity | RpcLocalCommunity | LocalCommunity;
 type StartedCommunity = LocalCommunity | RpcLocalCommunity;
@@ -149,8 +150,25 @@ export function listRegistryValues<T extends object>(registry: TrackedInstanceRe
     return registry.values();
 }
 
+// An updating instance loaded by a domain accepts every record its key signs, since its loaders by key share it,
+// including a record that claims another domain. Only the domain the instance resolved is proven to point at its
+// key, so a claimed one is left out of its aliases: a loader of that domain must resolve it rather than be handed
+// this key's records. An instance loaded by key has no domain of its own and keeps the name its record claims.
+function withOnlyProvenUpdatingName(community: TrackedCommunity): CommunityWithAliases {
+    const loadedByDomain = isStringDomain(community.address) ? community.address : undefined;
+    if (!loadedByDomain || !community.name || areEquivalentNames(community.name, loadedByDomain)) return community;
+    return { name: undefined, publicKey: community.publicKey, signer: community.signer };
+}
+
+function syncUpdatingCommunityRegistryEntry(pkc: PKC, community: TrackedCommunity): TrackedCommunity {
+    return pkc._updatingCommunities.track({
+        value: community,
+        aliases: persistAliases(community, pkc._updatingCommunities, getCommunityRegistryAliases(withOnlyProvenUpdatingName(community)))
+    });
+}
+
 export function trackUpdatingCommunity(pkc: PKC, community: TrackedCommunity): TrackedCommunity {
-    return syncCommunityRegistryEntry(pkc._updatingCommunities, community);
+    return syncUpdatingCommunityRegistryEntry(pkc, community);
 }
 
 export function trackStartedCommunity(pkc: PKC, community: StartedCommunity): StartedCommunity {
@@ -174,7 +192,7 @@ export function untrackUpdatingComment(pkc: PKC, comment: Comment): void {
 }
 
 export function refreshTrackedCommunityAliases(pkc: PKC, community: TrackedCommunity): void {
-    if (pkc._updatingCommunities.has(community)) syncCommunityRegistryEntry(pkc._updatingCommunities, community);
+    if (pkc._updatingCommunities.has(community)) syncUpdatingCommunityRegistryEntry(pkc, community);
     if (pkc._startedCommunities.has(community as StartedCommunity))
         syncCommunityRegistryEntry(pkc._startedCommunities, community as StartedCommunity);
 }
@@ -187,7 +205,7 @@ export function refreshTrackedCommunityAliases(pkc: PKC, community: TrackedCommu
 export function forgetTrackedUpdatingCommunityName(pkc: PKC, community: TrackedCommunity, name: string): void {
     if (!pkc._updatingCommunities.has(community)) return;
     const staleAliases = isEthAliasDomain(name) ? getEquivalentCommunityAliases(name) : [name];
-    const currentAliases = new Set(getCommunityRegistryAliases(community));
+    const currentAliases = new Set(getCommunityRegistryAliases(withOnlyProvenUpdatingName(community)));
     const aliasesToForget = staleAliases.filter((alias) => !currentAliases.has(alias));
     const aliasHistory = getTrackedAliasHistory(community, pkc._updatingCommunities);
     aliasesToForget.forEach((alias) => aliasHistory.delete(alias));
