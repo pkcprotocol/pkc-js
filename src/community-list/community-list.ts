@@ -10,6 +10,7 @@ import { buildRuntimeAuthor } from "../publications/publication-author.js";
 import {
     calculateIpfsCidV0,
     calculateStringSizeSameAsIpfsAddCidV0,
+    calculateStringSizeSameAsIpfsAddCidV0Sync,
     isStringDomain,
     retryKuboIpfsAddAndProvide,
     shortifyAddress,
@@ -298,7 +299,11 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
         if (this._pkc._pkcRpcClient) {
             const res = await this._pkc._pkcRpcClient.fetchCommunityList({ cid });
             rawString = res.communityListRawString;
-            // The RPC server is not trusted with record validity: check the bytes are the cid's bytes
+            // The RPC server is not trusted with record validity: enforce the load cap before hashing or
+            // parsing, the same error the direct path throws, then check the bytes are the cid's bytes
+            const sizeBytes = calculateStringSizeSameAsIpfsAddCidV0Sync(rawString);
+            if (sizeBytes > MAX_COMMUNITY_LIST_SIZE_BYTES)
+                throw new PKCError("ERR_OVER_DOWNLOAD_LIMIT", { cid, sizeBytes, maxSizeBytes: MAX_COMMUNITY_LIST_SIZE_BYTES });
             const calculatedCid = await calculateIpfsCidV0(rawString);
             if (calculatedCid !== cid) throw new PKCError("ERR_CALCULATED_CID_DOES_NOT_MATCH", { calculatedCid, cid });
         } else {
