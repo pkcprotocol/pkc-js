@@ -259,6 +259,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             const path = this._calculatePathForPostCommentUpdate(folderCid, this._comment.postCid!);
             throwIfAbortSignalAborted(abortSignal);
             const { alreadyJudged, cid } = await this._isPostUpdateFileAlreadyJudged(folderCid, path, log, abortSignal);
+            throwIfAbortSignalAborted(abortSignal); // the resolve gives up silently when superseded or stopped
             if (alreadyJudged) {
                 log.trace("Comment", this._comment.cid, "already judged the CommentUpdate at", path, "skipping it");
                 return undefined;
@@ -386,6 +387,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             const path = this._calculatePathForPostCommentUpdate(folderCid, this._comment.postCid!);
             throwIfAbortSignalAborted(abortSignal);
             const { alreadyJudged, cid } = await this._isPostUpdateFileAlreadyJudged(folderCid, path, log, abortSignal);
+            throwIfAbortSignalAborted(abortSignal); // the resolve gives up silently when superseded or stopped
             if (alreadyJudged) {
                 log.trace("Comment", this._comment.cid, "already judged the CommentUpdate at", path, "skipping it");
                 return undefined;
