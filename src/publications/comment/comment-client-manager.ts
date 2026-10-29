@@ -196,7 +196,7 @@ export class CommentClientsManager extends PublicationClientsManager {
     // Whether the post's file at `path` is one this comment already judged, told without reading it: the same path, or
     // another folder whose entry for this post resolves to the same cid. A bucket folder's cid changes with any post's
     // activity in it, the cid of this post's file only with this post's CommentUpdate (issue #312). Also returns the
-    // resolved cid, for the fetch that follows to record.
+    // resolved cid, for the fetch that follows to record. Throws when the resolve times out (see _resolveIpfsPathToCid).
     private async _isPostUpdateFileAlreadyJudged(
         folderCid: string,
         path: string,
@@ -258,7 +258,17 @@ export class CommentClientsManager extends PublicationClientsManager {
             const folderCid = subIpns.postUpdates![timestampRange];
             const path = this._calculatePathForPostCommentUpdate(folderCid, this._comment.postCid!);
             throwIfAbortSignalAborted(abortSignal);
-            const { alreadyJudged, cid } = await this._isPostUpdateFileAlreadyJudged(folderCid, path, log, abortSignal);
+            let judgedLookup: { alreadyJudged: boolean; cid: string | undefined };
+            try {
+                judgedLookup = await this._isPostUpdateFileAlreadyJudged(folderCid, path, log, abortSignal);
+            } catch (e) {
+                throwIfAbortSignalAborted(abortSignal);
+                // The resolve timed out walking this folder; a fetch would wait out the same timeout on the same blocks
+                log.trace(`Timed out resolving CommentUpdate path (${path}) with IPFS P2P. Trying the next timestamp range`);
+                attemptedPathsToLoadErrors[path] = <Error>e;
+                continue;
+            }
+            const { alreadyJudged, cid } = judgedLookup;
             throwIfAbortSignalAborted(abortSignal); // the resolve gives up silently when superseded or stopped
             if (alreadyJudged) {
                 log.trace("Comment", this._comment.cid, "already judged the CommentUpdate at", path, "skipping it");

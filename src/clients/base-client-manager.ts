@@ -816,7 +816,8 @@ export class BaseClientsManager {
     // The cid an /ipfs/ path names, as CIDv1, or undefined when it cannot be told. Files are content-addressed, so a
     // caller comparing it with the cid it last fetched can skip an unchanged file without reading it (issue #312).
     // Kubo and helia walk only the directory blocks on the way, which an unchanged path already has locally. Undefined
-    // with only gateways. Never throws: the caller then fetches as it would have anyway.
+    // with only gateways. Throws only ERR_FETCH_CID_P2P_TIMEOUT: the walk could not reach the path's blocks in time, and
+    // a fetch of the path would walk the same blocks. Any other failure is undefined, and the caller fetches anyway.
     async _resolveIpfsPathToCid({
         root,
         path,
@@ -844,6 +845,9 @@ export class BaseClientsManager {
             // file looking unchanged and the caller would never fetch it
             return undefined;
         } catch (e) {
+            if (e instanceof PKCError && e.code === "ERR_FETCH_CID_P2P_TIMEOUT") throw e; // helia's own timeout
+            if (e instanceof Error && e.name === "TimeoutError" && !abortSignal?.aborted)
+                throw new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { ipfsPath: `/ipfs/${root}/${path}`, timeoutMs, error: e });
             log.trace("Could not resolve", `${root}/${path}`, "to a cid, the caller will fetch it", e);
             return undefined;
         }
