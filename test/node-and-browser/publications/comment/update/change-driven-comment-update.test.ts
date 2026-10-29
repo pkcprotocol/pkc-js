@@ -7,52 +7,45 @@ import {
     mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue
 } from "../../../../../dist/node/test/test-util.js";
+import { BaseClientsManager } from "../../../../../dist/node/clients/base-client-manager.js";
+import { CommentClientsManager } from "../../../../../dist/node/publications/comment/comment-client-manager.js";
 
 import type { PKC as PKCType } from "../../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
 import type { RemoteCommunity } from "../../../../../dist/node/community/remote-community.js";
 import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publications/comment/types.js";
 
-// Repro suite for issue #312: comments carry no polling timer (handleUpdateEventFromCommunity
-// runs once per community update event), but what each invocation does for a post whose
-// CommentUpdate did NOT change is almost entirely wasted:
-// 1. a post found in the community's preloaded pages with an unchanged updatedAt still falls
-//    into useCommunityPostUpdatesToFetchCommentUpdateForPost (the pages hit only short-circuits
-//    when the pages copy is strictly newer), and
-// 2. the postUpdates folder-cid dedupe (didLastPostUpdateRangeHaveSameFolderCid) only engages
-//    when _commentUpdateIpfsPath was set by a previous postUpdates fetch (never set by a
-//    pages-served post) and its granularity is the whole timestamp bucket, so any unrelated
-//    activity in the bucket re-triggers a walk for every updating post in it.
-// Net effect, measured in test/benchmarks/comment-update-fetch-bench.test.ts: one full
-// <folderCid>/<postCid>/update network walk plus signature verification per community update per
-// idle post, 100% discarded, and a fetching-update-ipfs -> waiting-retry updatingstatechange
-// cycle per walk.
+// Issue #312: a post's CommentUpdate lives at <bucketFolderCid>/<postCid>/update, where postUpdates holds one folder
+// per post-age bucket. Any activity in a bucket changes its folder cid, and every updating post in that bucket used
+// to refetch and re-verify its own update on each community update, then discard it as not newer (measured: one walk
+// per community update per idle post, 100% discarded, plus a fetching-update-ipfs -> waiting-retry state cycle).
 //
-// The waste pin below asserts the bug's presence EXPLICITLY (walks happen today) instead of
-// wrapping the desired behavior in it.fails. it.fails records ANY throw as the expected
-// failure: if the filler posts failed to drive two community updates inside the deadline (a
-// live-community round trip on a loaded runner), the setup expect() would throw, vitest would
-// mark the test green, and the #312 oracle would never have been evaluated. As a plain test a
-// setup failure is loud, and the moment the #312 fix lands the inverted assertion goes red —
-// flip it to `.to.equal(0)` (and pin no updatingstatechange churn alongside) to turn it into
-// the fix's regression pin. The delivery test is a plain green pin guarding that fix against
-// over-deduping.
+// A post's own entry, <bucketFolderCid>/<postCid>, has a cid that changes only when that post's update does. So a
+// community update whose bucket changed for someone else's activity must cost an idle post no fetch of its update
+// file and no updating state churn, and a real change to the post must still arrive.
 //
-// remote-libp2pjs only: the waste exists on the kubo path too (same shared code in
-// comment-client-manager), but the network-fetch oracle instruments the libp2p-js client's cat.
-getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"] }).map((config) => {
+// Each case runs twice: as is (a fresh post sits in the community's preloaded pages) and with the pages lookup
+// disabled, which forces every update through postUpdates, the path a post outside the preloaded page takes.
+//
+// The fetch oracle spies on the two shared fetch entry points every client manager inherits: _fetchCidP2P (kubo and
+// libp2p-js) and fetchFromMultipleGateways (gateways). Under the PKC RPC client the comment is updated by the RPC
+// server's process, so only the updating states it forwards can be observed there.
+getAvailablePKCConfigsToTestAgainst({
+    includeOnlyTheseTests: ["remote-libp2pjs", "remote-kubo-rpc", "remote-ipfs-gateway", "remote-pkc-rpc"]
+}).map((config) => {
     describe(`comment updates are change-driven, not per-community-update refetches (issue #312) - ${config.name}`, () => {
         let pkc: PKCType;
         let publisherPkc: Awaited<ReturnType<typeof mockPKCNoDataPathWithOnlyKuboClient>>;
         const commentsToStop: Comment[] = [];
         const communitiesToStop: RemoteCommunity[] = [];
+        const isRpc = config.testConfigCode === "remote-pkc-rpc";
 
         beforeAll(async () => {
-            // Production updateInterval so community updates arrive via gossip push (issue #308)
-            // rather than the test default's 500ms safety-net polling.
+            // Production updateInterval so community updates arrive the way they do in production (gossip push on
+            // libp2p-js, issue #308) rather than the test default's fast safety-net polling.
             pkc = await config.pkcInstancePromise({ pkcOptions: { updateInterval: 60_000 } });
-            // Publishing runs on a separate kubo-backed pkc so the measuring client's cat()
-            // counts are not polluted by the publishing flow's own fetches.
+            // Publishing runs on a separate kubo-backed pkc so the measuring client's fetch counts are not polluted
+            // by the publishing flow's own fetches.
             publisherPkc = await mockPKCNoDataPathWithOnlyKuboClient({});
         }, 120_000);
         afterAll(async () => {
@@ -83,6 +76,40 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         // community with far fewer concurrent users.
         const communityAddress = signers[7].address;
 
+        // Every fetch of this post's CommentUpdate file, from any client manager in this process
+        const spyOnPostUpdateFileFetches = (postCid: string) => {
+            const fetchedPaths: string[] = [];
+            const isPostUpdateFile = (path: string) => path.includes(`/${postCid}/update`);
+            const originalFetchCidP2P = BaseClientsManager.prototype._fetchCidP2P;
+            const originalFetchFromMultipleGateways = BaseClientsManager.prototype.fetchFromMultipleGateways;
+            const p2pSpy = vi.spyOn(BaseClientsManager.prototype, "_fetchCidP2P").mockImplementation(function (
+                this: BaseClientsManager,
+                ...args: Parameters<BaseClientsManager["_fetchCidP2P"]>
+            ) {
+                if (isPostUpdateFile(String(args[0]))) fetchedPaths.push(String(args[0]));
+                return originalFetchCidP2P.apply(this, args);
+            });
+            const gatewaySpy = vi.spyOn(BaseClientsManager.prototype, "fetchFromMultipleGateways").mockImplementation(function (
+                this: BaseClientsManager,
+                ...args: Parameters<BaseClientsManager["fetchFromMultipleGateways"]>
+            ) {
+                const path = `${args[0].root}/${args[0].path ?? ""}`;
+                if (isPostUpdateFile(path)) fetchedPaths.push(path);
+                return originalFetchFromMultipleGateways.apply(this, args);
+            });
+            return {
+                fetchedPaths,
+                restore: () => {
+                    p2pSpy.mockRestore();
+                    gatewaySpy.mockRestore();
+                }
+            };
+        };
+
+        // Forces every CommentUpdate through postUpdates, as for a post outside the community's preloaded page
+        const disablePagesLookup = () =>
+            vi.spyOn(CommentClientsManager.prototype, "_findCommentInPagesOfUpdatingCommentsOrCommunity").mockReturnValue(undefined);
+
         // Publish a post, set it updating on the measuring pkc, and wait for its first update.
         // Also returns an updating community mirror on the same pkc (it attaches to the same
         // tracked updating instance the comment uses internally) to count community updates.
@@ -100,67 +127,87 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             return { publishedPost, comment, community };
         };
 
-        it("a community update that does not change a post's CommentUpdate still costs a postUpdates walk today (issue #312 inverted pin)", async () => {
-            const { publishedPost, comment, community } = await startIdlePostAndCommunityMirror();
-            await sleep(2000); // let the first update cycle's tail settle
-
-            // Oracle: every P2P file fetch goes through the client functions' cat; a
-            // per-post postUpdates walk is a cat of <folderCid>/<postCid>/update, so any
-            // path containing this post's cid is a walk for it. A future shared
-            // folder-listing fetch (the #312 proposal) does not match, on purpose.
-            const libp2pJsClient = pkc.clients.libp2pJsClients[Object.keys(pkc.clients.libp2pJsClients)[0]];
-            const clientFunctions = libp2pJsClient.heliaWithKuboRpcClientFunctions;
-            const catPaths: string[] = [];
-            const originalCat = clientFunctions.cat.bind(clientFunctions);
-            const catSpy = vi.spyOn(clientFunctions, "cat").mockImplementation((...args) => {
-                catPaths.push(String(args[0]));
-                return originalCat(...args);
-            });
-
+        // Drive community updates with activity UNRELATED to the post: filler posts land in the post's own age
+        // bucket, so they change that bucket's folder cid but never the post's CommentUpdate.
+        const driveUnrelatedCommunityUpdates = async (community: RemoteCommunity, count: number) => {
             let communityUpdates = 0;
             const onCommunityUpdate = () => communityUpdates++;
             community.on("update", onCommunityUpdate);
-
             try {
-                // Drive community updates with activity UNRELATED to the post: filler posts
-                // change the record (and the post's timestamp bucket) but never its
-                // CommentUpdate. Wait for two community updates to land.
-                const deadline = Date.now() + 120_000;
-                while (communityUpdates < 2 && Date.now() < deadline) {
+                const deadline = Date.now() + 180_000;
+                while (communityUpdates < count && Date.now() < deadline) {
                     await publishRandomPost({ communityAddress, pkc: publisherPkc });
-                    const target = Math.min(communityUpdates + 1, 2);
+                    const target = Math.min(communityUpdates + 1, count);
                     while (communityUpdates < target && Date.now() < deadline) await sleep(500);
                 }
-                // A loud setup precondition, not a swallowed one: with it.fails this throw
-                // would have counted as the expected failure and silently skipped the oracle.
-                expect(communityUpdates, "the filler posts must produce community updates").to.be.greaterThanOrEqual(2);
-                await sleep(3000); // give the per-update comment handlers time to finish their walks
-
-                const postUpdatesWalksForThisPost = catPaths.filter((path) => path.includes(publishedPost.cid!));
-                // INVERTED: the desired behavior is zero walks (plus no updatingstatechange
-                // churn on the idle post). This pins the measured #312 waste so the fix
-                // cannot land without flipping this assertion into its regression pin.
-                expect(
-                    postUpdatesWalksForThisPost.length,
-                    `issue #312 fixed? each community update used to trigger a postUpdates network walk for every idle updating post; saw ${postUpdatesWalksForThisPost.length} walks over ${communityUpdates} updates — flip this pin to .to.equal(0) and assert no state churn`
-                ).to.be.greaterThanOrEqual(1);
+                // A loud precondition: without community updates the assertions below would pass vacuously
+                expect(communityUpdates, "the filler posts must produce community updates").to.be.greaterThanOrEqual(count);
+                await sleep(3000); // give the per-update comment handlers time to finish
             } finally {
-                catSpy.mockRestore();
                 community.removeListener("update", onCommunityUpdate);
             }
-        }, 300_000);
+        };
 
-        // Green today and must stay green after the #312 fix: deduping unchanged CommentUpdates
-        // must never swallow a real change.
-        it("a reply published to the post still bumps its CommentUpdate", async () => {
-            const { publishedPost, comment } = await startIdlePostAndCommunityMirror();
-            const replyCountBefore = comment.replyCount ?? 0;
-            await publishRandomReply({ parentComment: publishedPost as unknown as CommentIpfsWithCidDefined, pkc: publisherPkc });
-            await resolveWhenConditionIsTrue({
-                toUpdate: comment,
-                predicate: async () => (comment.replyCount ?? 0) > replyCountBefore
-            });
-            expect(comment.replyCount ?? 0, "the reply must reach the post's CommentUpdate").to.be.greaterThan(replyCountBefore);
-        }, 300_000);
+        for (const viaPages of [true, false]) {
+            const variant = viaPages ? "post in preloaded pages" : "post read through postUpdates only";
+            // Under RPC the comment lives in the server's process, out of reach of a client-side spy
+            const itUnlessRpcWithoutPages = !viaPages && isRpc ? it.skip : it;
+
+            itUnlessRpcWithoutPages(
+                `an idle post costs no fetch and no updating state when unrelated activity changes its postUpdates bucket (${variant})`,
+                async () => {
+                    const pagesSpy = viaPages ? undefined : disablePagesLookup();
+                    try {
+                        const { publishedPost, comment, community } = await startIdlePostAndCommunityMirror();
+                        await sleep(2000); // let the first update cycle's tail settle
+
+                        const fetches = spyOnPostUpdateFileFetches(publishedPost.cid!);
+                        const updatingStates: string[] = [];
+                        const onUpdatingState = (state: string) => updatingStates.push(state);
+                        comment.on("updatingstatechange", onUpdatingState);
+                        try {
+                            await driveUnrelatedCommunityUpdates(community, 2);
+                        } finally {
+                            fetches.restore();
+                            comment.removeListener("updatingstatechange", onUpdatingState);
+                        }
+
+                        if (!isRpc)
+                            expect(fetches.fetchedPaths, "an unchanged CommentUpdate must not be fetched again").to.deep.equal([]);
+                        expect(updatingStates, "an unchanged CommentUpdate must not cycle the updating state").to.not.include(
+                            "fetching-update-ipfs"
+                        );
+                    } finally {
+                        pagesSpy?.mockRestore();
+                    }
+                },
+                400_000
+            );
+
+            itUnlessRpcWithoutPages(
+                `a reply published to the post still bumps its CommentUpdate (${variant})`,
+                async () => {
+                    const pagesSpy = viaPages ? undefined : disablePagesLookup();
+                    try {
+                        const { publishedPost, comment } = await startIdlePostAndCommunityMirror();
+                        const replyCountBefore = comment.replyCount ?? 0;
+                        await publishRandomReply({
+                            parentComment: publishedPost as unknown as CommentIpfsWithCidDefined,
+                            pkc: publisherPkc
+                        });
+                        await resolveWhenConditionIsTrue({
+                            toUpdate: comment,
+                            predicate: async () => (comment.replyCount ?? 0) > replyCountBefore
+                        });
+                        expect(comment.replyCount ?? 0, "the reply must reach the post's CommentUpdate").to.be.greaterThan(
+                            replyCountBefore
+                        );
+                    } finally {
+                        pagesSpy?.mockRestore();
+                    }
+                },
+                300_000
+            );
+        }
     });
 });
