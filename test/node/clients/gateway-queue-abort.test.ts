@@ -1,6 +1,6 @@
 import http, { Server } from "http";
 import type { AddressInfo } from "net";
-import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import { mockGatewayPKC } from "../../../dist/node/test/test-util.js";
 import Logger from "../../../dist/node/logger.js";
 
@@ -11,11 +11,12 @@ import type { PKC } from "../../../dist/node/pkc/pkc.js";
 describe("gateway fetches aborted while gateways are queued", () => {
     const servers: Server[] = [];
     let pkc: PKC;
+    let requestsReceived = 0;
 
     beforeAll(async () => {
         const gatewayUrls: string[] = [];
         for (let i = 0; i < 5; i++) {
-            const server = http.createServer(() => {}); // accepts the request and never answers
+            const server = http.createServer(() => void requestsReceived++); // accepts the request and never answers
             await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
             servers.push(server);
             gatewayUrls.push(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
@@ -31,6 +32,13 @@ describe("gateway fetches aborted while gateways are queued", () => {
         }
     });
 
+    // Abort only once the first 3 gateways are in flight, so the other 2 are sitting in the queue the abort clears
+    const abortOnceThreeGatewaysAreInFlight = async (abort: () => void) => {
+        await vi.waitFor(() => expect(requestsReceived).toBe(3), { timeout: 10_000 });
+        expect(requestsReceived, "the other 2 gateways are still queued").toBe(3);
+        abort();
+    };
+
     const settlesWithin5s = (fetching: Promise<unknown>) =>
         Promise.race([
             fetching.then(
@@ -41,6 +49,7 @@ describe("gateway fetches aborted while gateways are queued", () => {
         ]);
 
     it("fetchFromMultipleGateways rejects with the abort instead of hanging", async () => {
+        requestsReceived = 0;
         const abortController = new AbortController();
         const fetching = pkc._clientsManager.fetchFromMultipleGateways({
             recordIpfsType: "ipfs",
@@ -52,7 +61,7 @@ describe("gateway fetches aborted while gateways are queued", () => {
             timeoutMs: 60_000,
             abortSignal: abortController.signal
         });
-        setTimeout(() => abortController.abort(), 500);
+        await abortOnceThreeGatewaysAreInFlight(() => abortController.abort());
         const settled = await settlesWithin5s(fetching);
         expect(settled).toBe("rejected");
     });
@@ -60,11 +69,12 @@ describe("gateway fetches aborted while gateways are queued", () => {
     it("a community's gateway fetch rejects with the stop instead of hanging", async () => {
         const community = await pkc.createCommunity({ address: (await pkc.createSigner()).address });
         community._createStopAbortController();
+        requestsReceived = 0;
         const clientsManager = community._clientsManager as unknown as {
             _fetchCommunityFromGateways: (ipnsName: string) => Promise<unknown>;
         };
         const fetching = clientsManager._fetchCommunityFromGateways(community.address);
-        setTimeout(() => community._abortStopOperations("test stop"), 500);
+        await abortOnceThreeGatewaysAreInFlight(() => community._abortStopOperations("test stop"));
         const settled = await settlesWithin5s(fetching);
         community._clearStopAbortController();
         expect(settled).toBe("rejected");
