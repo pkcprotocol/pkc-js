@@ -53,16 +53,25 @@ describeSkipIfRpc("page-generator page size cap (#360)", () => {
         const comments = Array.from({ length: ENTRY_COUNT }, () => ({}) as PageComment);
         const sizeOf = () => ENTRY_BYTES;
         const chunks = internals._chunkComments({ comments, firstPageSizeBytes: 1024 * 1024, sizeOf });
+        expect(chunks.flat()).to.have.length(ENTRY_COUNT); // the cap must not drop a tail
+        let serializedEntryCount = 0;
 
         const res = await internals._addChunksToIpfs({
             chunks,
             sortName: "new",
-            serialized: { sizeOf, stringsOf: (entries) => entries.map(() => ENTRY_JSON) },
+            serialized: {
+                sizeOf,
+                stringsOf: (entries) => {
+                    serializedEntryCount += entries.length;
+                    return entries.map(() => ENTRY_JSON);
+                }
+            },
             embedFirst: false,
             source: { resolve: (entries) => entries },
             budget: { acquire: async () => () => {} }
         });
 
+        expect(serializedEntryCount).to.equal(ENTRY_COUNT);
         expect(res.new.cids).to.have.length(chunks.length);
         expect(addedPageSizes).to.have.length(chunks.length);
         for (const size of addedPageSizes) expect(size).to.be.at.most(MAX_PAGE_SIZE);
