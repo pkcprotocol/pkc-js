@@ -13,7 +13,8 @@ import {
     createSubWithNoChallenge,
     resolveWhenConditionIsTrue,
     waitTillPostInCommunityInstancePages,
-    listedCommunityAddresses
+    expectCommunityListed,
+    expectCommunityNotListed
 } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import * as cborg from "cborg";
@@ -91,7 +92,7 @@ describeSkipIfRpc.sequential(`DB importing`, async () => {
     });
 
     it(`Community will show up in pkc.communities if its db was copied to datapath/communities`, async () => {
-        expect(listedCommunityAddresses(pkc)).to.not.include(signers[0].address);
+        expectCommunityNotListed({ pkc, publicKey: signers[0].address, address: signers[0].address });
 
         const regularPKC: PKCType = await mockPKC();
         const databaseToMigrate = {
@@ -100,7 +101,7 @@ describeSkipIfRpc.sequential(`DB importing`, async () => {
         };
         await copyDbToDataPath(databaseToMigrate, pkc);
         await waitUntilPKCCommunitiesIncludeCommunityAddress(pkc, databaseToMigrate.address);
-        expect(listedCommunityAddresses(pkc)).to.include(databaseToMigrate.address);
+        expectCommunityListed({ pkc: pkc, publicKey: signers[0].address, address: databaseToMigrate.address, name: undefined });
         await regularPKC.destroy();
     });
 

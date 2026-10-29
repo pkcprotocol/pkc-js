@@ -24,7 +24,8 @@ import {
     publishRandomPost,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
-    listedCommunityAddresses
+    expectCommunityListed,
+    expectCommunityNotListed
 } from "../../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { messages } from "../../../../dist/node/errors.js";
@@ -152,8 +153,9 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
         });
 
         it("pkc.communities lists the anchor address", async () => {
-            expect(listedCommunityAddresses(pkc)).to.include(anchorSigner.address);
-            expect(listedCommunityAddresses(pkc)).to.not.include(minterAddress);
+            expectCommunityListed({ pkc: pkc, publicKey: anchorSigner.address, address: anchorSigner.address, name: undefined });
+            // the minter is never the identity: no entry has its key, and none is listed under it
+            expectCommunityNotListed({ pkc, publicKey: minterAddress, address: minterAddress });
         });
     });
 

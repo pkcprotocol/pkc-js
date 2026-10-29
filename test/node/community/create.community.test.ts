@@ -8,7 +8,7 @@ import {
     resolveWhenConditionIsTrue,
     jsonifyCommunityAndRemoveInternalProps,
     waitTillPostInCommunityPages,
-    listedCommunityAddresses
+    expectCommunityListed
 } from "../../../dist/node/test/test-util.js";
 import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { timestamp } from "../../../dist/node/util.js";
@@ -53,8 +53,7 @@ describe(`pkc.createCommunity (local)`, async () => {
         // Community has finished its first sync loop, should have address now
         expect(newCommunity.address.startsWith("12D3")).to.be.true;
         expect(newCommunity.signer!.address).to.equal(newCommunity.address);
-        const listedCommunities = listedCommunityAddresses(pkc);
-        expect(listedCommunities).to.include(newCommunity.address);
+        expectCommunityListed({ pkc: pkc, publicKey: newCommunity.publicKey!, address: newCommunity.address, name: undefined });
 
         const remoteCommunity = await remotePKC.getCommunity({ address: newCommunity.address });
 
@@ -269,8 +268,7 @@ describe(`pkc.createCommunity (local)`, async () => {
             | LocalCommunity
             | RpcLocalCommunity;
         // At this point the community should be unlocked and ready to be recreated by another instance
-        const listedCommunities = listedCommunityAddresses(pkc);
-        expect(listedCommunities).to.include(createdCommunity.address);
+        expectCommunityListed({ pkc: pkc, publicKey: communitySigner.address, address: createdCommunity.address, name: undefined });
 
         expect(createdCommunity.address).to.equal(communitySigner.address);
         expect(createdCommunity.title).to.equal(title);
