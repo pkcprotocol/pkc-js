@@ -12,7 +12,7 @@ import { rejectWhenAbortSignalFires, rejectWhenCommunityStopsOrAborts, throwIfAb
 import type { AuthorNameRpcParam, CidRpcParam, PKCCommunitiesEntry } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam, parseRpcFetchCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { listStartedCommunities } from "./tracked-instance-registry-util.js";
-import { findCommunitiesEntry, getCommunitiesEntryAddress } from "../community/communities-entry-util.js";
+import { findCommunitiesEntry } from "../community/communities-entry-util.js";
 import { CommentJson } from "../publications/comment/types.js";
 import type PKCRpcClient from "../clients/rpc-client/pkc-rpc-client.js";
 
@@ -167,7 +167,7 @@ export class PKCWithRpcClient extends PKC {
             } else if (isCommunityRpcLocal) {
                 // No jsonified data — do a fresh fetch
                 const community = new RpcLocalCommunity(this);
-                community.setAddress(getCommunitiesEntryAddress(rpcLocalEntry!));
+                community.setAddress(rpcLocalEntry!.address);
                 // wait for one update here, and then stop
                 const updatePromise = new Promise((resolve) => community.once("update", resolve));
                 let error: PKCError | Error | undefined;

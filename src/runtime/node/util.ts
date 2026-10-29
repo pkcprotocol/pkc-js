@@ -42,7 +42,7 @@ import type {
 } from "../../publications/comment/types.js";
 import { DbHandler } from "./community/db-handler.js";
 import { isCommunityStartLockedSync } from "./community/start-lock.js";
-import { doesCommunitiesEntryMatch } from "../../community/communities-entry-util.js";
+import { doesCommunitiesEntryMatch, toCommunitiesEntry } from "../../community/communities-entry-util.js";
 import type { CommunitiesEntryIdentity, CommunitiesEntryLookup } from "../../community/communities-entry-util.js";
 import type { PKCCommunitiesEntry } from "../../clients/rpc-client/types.js";
 import { areEquivalentNames } from "../../domain-util.js";
@@ -327,7 +327,7 @@ function listCommunitiesEntriesSync(pkc: PKC): PKCCommunitiesEntry[] {
             if (!identity) continue;
             identities.set(communityAddress, identity);
         }
-        entries.push({ ...identity, started: isCommunityStartLockedSync({ dataPath: pkc.dataPath!, communityAddress }) });
+        entries.push(toCommunitiesEntry({ ...identity, started: isCommunityStartLockedSync({ dataPath: pkc.dataPath!, communityAddress }) }));
     }
     return entries;
 }

@@ -31,8 +31,9 @@ describe(`doesCommunitiesEntryMatch`, () => {
     });
 });
 
-// pkc.communities lists { name?, publicKey, started } per local community (issue #455, folding in #141), so a caller
-// that knows a community only by its key can find it, and a thin RPC client reads `started` without loading anything
+// pkc.communities lists { name?, publicKey, address, started } per local community (issue #455, folding in #141), so a
+// caller that knows a community only by its key can find it, and a thin RPC client reads `started` without loading
+// anything. `address` is runtime-only, computed like community.address (name, else publicKey)
 
 const findEntry = (pkc: PKC, publicKey: string): PKCCommunitiesEntry | undefined =>
     pkc.communities.find((entry) => entry.publicKey === publicKey);
@@ -48,12 +49,17 @@ const waitForEntry = (pkc: PKC, publicKey: string, predicate: (entry: PKCCommuni
     });
 
 describe(`pkc.communities entries`, async () => {
-    it(`a community without a name is listed as { publicKey, started: false }`, async () => {
+    it(`a community without a name is listed as { publicKey, address: publicKey, started: false }`, async () => {
         const pkc = await mockPKCV2();
         const community = await createSubWithNoChallenge({}, pkc);
         try {
             await waitForEntry(pkc, community.signer!.address, () => true);
-            expect(findEntry(pkc, community.signer!.address)).to.deep.equal({ publicKey: community.signer!.address, started: false });
+            expect(findEntry(pkc, community.signer!.address)).to.deep.equal({
+                publicKey: community.signer!.address,
+                address: community.signer!.address,
+                started: false
+            });
+            expect(findEntry(pkc, community.signer!.address)?.address).to.equal(community.address);
         } finally {
             await community.delete().catch((): undefined => undefined);
             await pkc.destroy();
@@ -119,7 +125,8 @@ describeSkipIfRpc(`pkc.communities entries of local communities (Node)`, async (
                 if (started) await community.start();
                 await community.edit({ name });
                 // No wait: edit() lists the new identity itself, while the DB still holds the old one
-                expect(findEntry(pkc, publicKey)).to.deep.equal({ name, publicKey, started });
+                expect(findEntry(pkc, publicKey)).to.deep.equal({ name, publicKey, address: name, started });
+                expect(findEntry(pkc, publicKey)?.address).to.equal(community.address);
                 expect(pkc.communities.filter((entry) => entry.publicKey === publicKey)).to.have.length(1);
 
                 // Asked for by key, the community listed under its name is the local one, at its name
@@ -168,7 +175,7 @@ describeSkipIfRpc(`pkc.communities entries of local communities (Node)`, async (
             records.set(name, second.signer.address);
             await second.edit({ name });
             expect(pkc.communities.filter((entry) => entry.name === name)).to.deep.equal([
-                { name, publicKey: second.signer.address, started: false }
+                { name, publicKey: second.signer.address, address: name, started: false }
             ]);
         } finally {
             await second.delete().catch((): undefined => undefined);

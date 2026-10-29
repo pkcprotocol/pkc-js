@@ -80,6 +80,7 @@ import type { CommunityEditChallengeRequestToEncryptType } from "../../publicati
 import { PublicationRpcErrorToTransmit } from "../../publications/types.js";
 import { TypedEmitter } from "tiny-typed-emitter";
 import { sanitizeRpcNotificationResult } from "./json-rpc-util.js";
+import { toCommunitiesWireEntry } from "../../community/communities-entry-util.js";
 import type { ModQueuePageIpfs, PageIpfs } from "../../pages/types.js";
 import { buildPageRuntimeFields, buildPagesRuntimeFields } from "../../pages/util.js";
 import { extractCrosspostRuntimeFields } from "../../publications/comment/crosspost-runtime.js";
@@ -1034,7 +1035,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         };
 
         const pkcSubscribeEvent = ({ communities }: { communities: PKCCommunitiesEntry[] }) =>
-            sendEvent("communitieschange", { communities });
+            sendEvent("communitieschange", { communities: communities.map(toCommunitiesWireEntry) });
 
         const pkc = await this._getPKCInstance();
         pkc.on("communitieschange", pkcSubscribeEvent);
@@ -1043,7 +1044,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             pkc.removeListener("communitieschange", pkcSubscribeEvent);
         };
 
-        sendEvent("communitieschange", { communities: pkc.communities });
+        sendEvent("communitieschange", { communities: pkc.communities.map(toCommunitiesWireEntry) });
 
         return { subscriptionId };
     }

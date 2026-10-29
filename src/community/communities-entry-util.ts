@@ -1,4 +1,5 @@
 import { areEquivalentNames } from "../domain-util.js";
+import type { PKCCommunitiesEntry, PKCCommunitiesWireEntry } from "../clients/rpc-client/types.js";
 
 // Membership checks against pkc.communities (issue #455). An entry is found by its identity key or by an equivalent
 // name, so a caller that only knows a community's key finds it even when it is listed under its domain. Every identifier
@@ -17,7 +18,13 @@ export function findCommunitiesEntry<T extends CommunitiesEntryIdentity>(entries
     return entries.find((entry) => doesCommunitiesEntryMatch(entry, lookup));
 }
 
-// The address a listed community is reached by: its name when it has one, else its identity key
-export function getCommunitiesEntryAddress(entry: CommunitiesEntryIdentity): string {
-    return entry.name ?? entry.publicKey;
+// The runtime entry of pkc.communities, with `address` computed like community.address: its name when it has one, else
+// its identity key. Any other field, including an `address` received over RPC, is dropped
+export function toCommunitiesEntry({ name, publicKey, started }: PKCCommunitiesWireEntry): PKCCommunitiesEntry {
+    return name !== undefined ? { name, publicKey, address: name, started } : { publicKey, address: publicKey, started };
+}
+
+// The entry as the RPC server sends it: `address` is runtime-only, so it stays off the wire
+export function toCommunitiesWireEntry({ name, publicKey, started }: PKCCommunitiesEntry): PKCCommunitiesWireEntry {
+    return name !== undefined ? { name, publicKey, started } : { publicKey, started };
 }

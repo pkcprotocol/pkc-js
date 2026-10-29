@@ -2,7 +2,7 @@ import Logger from "../../../../logger.js";
 import { clone, keys, omit, omitBy, pick } from "remeda";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { sha256 } from "js-sha256";
-import { areEquivalentCommunityAddresses, doesDomainAddressHaveCapitalLetter, isStringDomain } from "../../../../util.js";
+import { doesDomainAddressHaveCapitalLetter, isStringDomain } from "../../../../util.js";
 import { PKCError } from "../../../../pkc-error.js";
 import { parseCommunityEditOptionsSchemaWithPKCErrorIfItFails } from "../../../../schema/schema-util.js";
 import { findStartedCommunity, trackStartedCommunity } from "../../../../pkc/tracked-instance-registry-util.js";
@@ -23,7 +23,7 @@ import { updateDbInternalState, updateInstancePropsWithStartedCommunityOrDb } fr
 import { setResolvedPageSorts } from "./registry-sync.js";
 import { communityIdentityPublicKey } from "./identity.js";
 import { refreshCommunitiesList, setLocalCommunityIdentity } from "../../util.js";
-import { getCommunitiesEntryAddress } from "../../../../community/communities-entry-util.js";
+import { findCommunitiesEntry } from "../../../../community/communities-entry-util.js";
 
 export async function movePostUpdatesFolderToNewAddress(community: LocalCommunity, oldAddress: string, newAddress: string) {
     const log = Logger("pkc-js:local-community:_movePostUpdatesFolderToNewAddress");
@@ -136,14 +136,12 @@ async function applyPagesEdit(community: LocalCommunity, pagesEdit: PagesEdit | 
 export async function validateNewAddressBeforeEditing(community: LocalCommunity, newAddress: string, log: Logger) {
     if (doesDomainAddressHaveCapitalLetter(newAddress))
         throw new PKCError("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER", { communityAddress: newAddress });
-    // Check if any existing community (other than this one) already has an equivalent address
-    // This handles both exact matches and .eth/.bso alias equivalence
-    const existingEquivalent = community._pkc.communities
-        .map(getCommunitiesEntryAddress)
-        .find(
-            (existing) =>
-                areEquivalentCommunityAddresses(existing, newAddress) && !areEquivalentCommunityAddresses(existing, community.address)
-        );
+    // Check if any other community already has the new address as its name (exact or .eth/.bso alias) or its key. This
+    // community's own entry is skipped by its key, which unlike its address does not change with the edit
+    const existingEquivalent = findCommunitiesEntry(
+        community._pkc.communities.filter((entry) => entry.publicKey !== community.publicKey),
+        { address: newAddress }
+    );
     if (existingEquivalent)
         throw new PKCError("ERR_COMMUNITY_OWNER_ATTEMPTED_EDIT_NEW_ADDRESS_THAT_ALREADY_EXISTS", {
             currentCommunityAddress: community.address,

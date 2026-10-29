@@ -52,6 +52,7 @@ import type {
     PKCCommunitiesEntry
 } from "./types.js";
 import { RpcCommunitiesChangeEventResultSchema } from "./schema.js";
+import { toCommunitiesEntry } from "../../community/communities-entry-util.js";
 import {
     parseRpcCommunityIdentifierParam,
     parseRpcAuthorNameParam,
@@ -805,7 +806,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                     "error",
                     new PKCError("ERR_INVALID_RPC_COMMUNITIES_SCHEMA", { zodError: parsed.error, result: res.params.result })
                 );
-            this.emit("communitieschange", { communities: parsed.data.communities });
+            this.emit("communitieschange", { communities: parsed.data.communities.map((entry) => toCommunitiesEntry(entry)) });
         });
         this.emitAllPendingMessages(subscriptionId);
     }

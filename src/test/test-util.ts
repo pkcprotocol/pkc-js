@@ -1,6 +1,5 @@
 import PKCIndex from "../index.js";
 import type { PKCCommunitiesEntry } from "../clients/rpc-client/types.js";
-import { getCommunitiesEntryAddress } from "../community/communities-entry-util.js";
 import {
     calculateStringSizeSameAsIpfsAddCidV0,
     hasTransientNetworkErrorCode,
@@ -2964,5 +2963,5 @@ export async function fetchCidWithTransientRetry({
 
 // The addresses pkc.communities lists: each entry's name, else its identity key (issue #455)
 export function listedCommunityAddresses(pkc: { communities: PKCCommunitiesEntry[] }): string[] {
-    return pkc.communities.map(getCommunitiesEntryAddress);
+    return pkc.communities.map((entry) => entry.address);
 }

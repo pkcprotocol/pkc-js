@@ -1235,12 +1235,13 @@ const signerFromPrivateKey = await pkc.createSigner({privateKey: 'AbCd...', type
 
 ### `pkc.communities`
 
-> The communities stored locally (or, over RPC, on the RPC server), as `{ name?: string, publicKey: string, started: boolean }[]`. Listen for changes with the `communitieschange` event.
+> The communities stored locally (or, over RPC, on the RPC server), as `{ name?: string, publicKey: string, address: string, started: boolean }[]`. Listen for changes with the `communitieschange` event.
 
 | Field | Type | Description |
 | -------- | -------- | -------- |
 | `name` | `string` (optional) | The community's domain name, e.g. `memes.bso`. Absent for a community without a name |
 | `publicKey` | `string` | The community's IPNS public key, its identity |
+| `address` | `string` | Runtime-only, computed the same way as `community.address`: `name` when there is one, else `publicKey`. It is not sent over the RPC wire, each side computes it |
 | `started` | `boolean` | Whether the community is running, the same check as `community.started`: its start lock on the `dataPath` is held, by this process or another one |
 
 The list updates when a community is created, deleted, renamed, started or stopped. A community's `name` and `publicKey` are read from its database once per PKC instance, so a rename done by a different process on the same `dataPath` only shows after a restart. Run one process with the RPC server and have other processes connect to it, rather than sharing a `dataPath` between processes.
@@ -1249,9 +1250,10 @@ The list updates when a community is created, deleted, renamed, started or stopp
 
 ```js
 // start all the communities you own and have stored locally
-for (const { name, publicKey, started } of pkc.communities) {
+for (const { address, publicKey, started } of pkc.communities) {
   if (started) continue
-  const community = await pkc.createCommunity({name, publicKey})
+  const community = await pkc.createCommunity({publicKey})
+  console.log('starting', address) // same as community.address
   await community.start()
 }
 ```
@@ -1286,7 +1288,7 @@ The PKC events.
 
 | Type | Description |
 | -------- | -------- |
-| `{ communities: { name?: string, publicKey: string, started: boolean }[] }` | The new `PKC.communities` property |
+| `{ communities: { name?: string, publicKey: string, address: string, started: boolean }[] }` | The new `PKC.communities` property |
 
 ## Community API
 The community API for getting community updates, or creating, editing, running a community as an owner.

@@ -9,7 +9,7 @@ import {
     RpcEditCommunityParamSchema,
     RpcPublishChallengeAnswersParamSchema,
     RpcResolveAuthorNameResultSchema,
-    PKCCommunitiesEntrySchema,
+    PKCCommunitiesWireEntrySchema,
     RpcFetchCidResultSchema,
     RpcSuccessResultSchema,
     RpcSubscriptionIdResultSchema,
@@ -45,7 +45,9 @@ export type PublishCommunityListRpcParam = z.infer<typeof RpcPublishCommunityLis
 export type FetchCommunityListRpcParam = z.infer<typeof RpcFetchCommunityListParamSchema>;
 
 // Result types (shared between RPC client and server)
-export type PKCCommunitiesEntry = z.infer<typeof PKCCommunitiesEntrySchema>;
+export type PKCCommunitiesWireEntry = z.infer<typeof PKCCommunitiesWireEntrySchema>;
+// An entry of pkc.communities. `address` is runtime-only and computed like community.address: name, else publicKey
+export type PKCCommunitiesEntry = PKCCommunitiesWireEntry & { address: string };
 export type RpcResolveAuthorNameResult = z.infer<typeof RpcResolveAuthorNameResultSchema>;
 export type RpcFetchCidResult = z.infer<typeof RpcFetchCidResultSchema>;
 export type RpcSuccessResult = z.infer<typeof RpcSuccessResultSchema>;
