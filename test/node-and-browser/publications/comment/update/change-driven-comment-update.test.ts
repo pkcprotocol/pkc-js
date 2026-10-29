@@ -28,7 +28,9 @@ import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publica
 // CommentUpdate it holds has nothing to fetch either: no warm-up is allowed before measuring.
 //
 // Each case runs twice: as is (a fresh post sits in the community's preloaded pages) and with the pages lookup
-// disabled, which forces every update through postUpdates, the path a post outside the preloaded page takes.
+// disabled, which forces every update through postUpdates, the path a post outside the preloaded page takes. There a
+// gateway client is the exception: only kubo and libp2p-js can tell the post's entry cid in a way checked against the
+// signed folder, so a gateway client skips an unchanged path only and refetches from a changed bucket.
 //
 // The fetch oracle spies on the two shared fetch entry points every client manager inherits: _fetchCidP2P (kubo and
 // libp2p-js) and fetchFromMultipleGateways (gateways). Under the PKC RPC client the comment is updated by the RPC
@@ -42,6 +44,7 @@ getAvailablePKCConfigsToTestAgainst({
         const commentsToStop: Comment[] = [];
         const communitiesToStop: RemoteCommunity[] = [];
         const isRpc = config.testConfigCode === "remote-pkc-rpc";
+        const isGateway = config.testConfigCode === "remote-ipfs-gateway";
 
         beforeAll(async () => {
             // Production updateInterval so community updates arrive the way they do in production (gossip push on
@@ -109,9 +112,25 @@ getAvailablePKCConfigsToTestAgainst({
             };
         };
 
-        // Forces every CommentUpdate through postUpdates, as for a post outside the community's preloaded page
-        const disablePagesLookup = () =>
-            vi.spyOn(CommentClientsManager.prototype, "_findCommentInPagesOfUpdatingCommentsOrCommunity").mockReturnValue(undefined);
+        // Forces every CommentUpdate through postUpdates, as for a post outside the community's preloaded page: neither
+        // the pages lookup nor the record's own pages may vouch for the post's file
+        const disablePagesLookup = () => {
+            const lookupSpy = vi
+                .spyOn(CommentClientsManager.prototype, "_findCommentInPagesOfUpdatingCommentsOrCommunity")
+                .mockReturnValue(undefined);
+            const recordPagesSpy = vi
+                .spyOn(
+                    CommentClientsManager.prototype as unknown as { _markRecordPostUpdateJudgedIfItsPagesHoldTheHeldUpdate: () => boolean },
+                    "_markRecordPostUpdateJudgedIfItsPagesHoldTheHeldUpdate"
+                )
+                .mockReturnValue(false);
+            return {
+                mockRestore: () => {
+                    lookupSpy.mockRestore();
+                    recordPagesSpy.mockRestore();
+                }
+            };
+        };
 
         // Publish a post, set it updating on the measuring pkc, and wait for its first update.
         // Also returns an updating community mirror on the same pkc (it attaches to the same
@@ -175,10 +194,17 @@ getAvailablePKCConfigsToTestAgainst({
                             comment.removeListener("updatingstatechange", onUpdatingState);
                         }
 
-                        if (!isRpc) expect(fetches.fetchedPaths, "an unchanged CommentUpdate must not be fetched again").to.deep.equal([]);
-                        expect(updatingStates, "an unchanged CommentUpdate must not cycle the updating state").to.not.include(
-                            "fetching-update-ipfs"
-                        );
+                        if (!viaPages && isGateway) {
+                            // A gateway's answer is not checked against the folder, so it is never trusted to say that a
+                            // changed bucket left the post's file unchanged: the post fetches and verifies it again
+                            expect(fetches.fetchedPaths, "a gateway client must refetch from a changed bucket").to.not.be.empty;
+                        } else {
+                            if (!isRpc)
+                                expect(fetches.fetchedPaths, "an unchanged CommentUpdate must not be fetched again").to.deep.equal([]);
+                            expect(updatingStates, "an unchanged CommentUpdate must not cycle the updating state").to.not.include(
+                                "fetching-update-ipfs"
+                            );
+                        }
                     } finally {
                         pagesSpy?.mockRestore();
                     }
