@@ -24,6 +24,17 @@ const remotePKCConfigs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibl
     (config) => config.testConfigCode !== "remote-pkc-rpc" // we're filtering RPC out because we can't reduce its timeout so tests take forever
 );
 
+// A fetch that failed on the way (a connect error or timeout to kubo, or every gateway timing out) says nothing about
+// whether a rejected comment is still retrievable, so tests skip or retry past it instead of asserting on it (issue #461).
+// A gateway error is transient only if every gateway timed out, since any other gateway response is a real answer
+const isTransientFetchError = (err: unknown): boolean => {
+    const { code, details } = err as Error & { code?: string; details?: { gatewayToError?: Record<string, { code?: string }> } };
+    if (code === "ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P" || code === "ERR_FETCH_CID_P2P_TIMEOUT") return true;
+    if (code !== "ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS") return false;
+    const gatewayErrors = Object.values(details?.gatewayToError ?? {});
+    return gatewayErrors.length > 0 && gatewayErrors.every((gatewayError) => gatewayError?.code === "ERR_GATEWAY_TIMED_OUT_OR_ABORTED");
+};
+
 const depthsToTest = [0, 1, 2, 15];
 const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: ["pending"] } };
 
@@ -335,13 +346,9 @@ for (const commentMod of commentModProps) {
                                 const newComment = await remotePKC.createComment(commentToBeRejected);
                                 expect(newComment.raw.comment).to.be.ok;
 
-                                // A transient fetch failure (e.g. a connect timeout to kubo while loading the comment)
-                                // says nothing about whether the rejected comment has a CommentUpdate, and the comment
-                                // retries past it, so it neither counts as the expected error nor ends the wait
-                                const isTransientFetchError = (err: Error) =>
-                                    ["ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P", "ERR_FETCH_CID_P2P_TIMEOUT"].includes(
-                                        (err as Error & { code?: string }).code ?? ""
-                                    );
+                                // A transient fetch failure (e.g. a connect timeout to kubo, or the gateway timing out while
+                                // loading the parent post) says nothing about whether the rejected comment has a CommentUpdate,
+                                // and the comment retries past it, so it neither counts as the expected error nor ends the wait
                                 const errors: Error[] = [];
                                 const failIfUpdated = () =>
                                     newComment.raw.commentUpdate &&
@@ -604,10 +611,16 @@ for (const commentMod of commentModProps) {
                 const originalTimeout = JSON.parse(JSON.stringify(pkc._timeouts["generic-ipfs"]));
                 pkc._timeouts["generic-ipfs"] = 1000;
                 try {
-                    await pkc.fetchCid({ cid: commentToBeRejected.cid! });
-                    expect.fail("should fail");
-                } catch (e) {
-                    expect((e as Error & { code: string }).code).to.equal("ERR_FETCH_CID_P2P_TIMEOUT");
+                    // A connect error to kubo means kubo was never asked for the CID, so retry until it answers with a timeout
+                    let lastError: (Error & { code?: string }) | undefined;
+                    for (let attempt = 0; attempt < 3; attempt++) {
+                        lastError = await pkc.fetchCid({ cid: commentToBeRejected.cid! }).then(
+                            () => expect.fail("should fail"),
+                            (e: Error & { code?: string }) => e
+                        );
+                        if (lastError.code === "ERR_FETCH_CID_P2P_TIMEOUT" || !isTransientFetchError(lastError)) break;
+                    }
+                    expect(lastError?.code).to.equal("ERR_FETCH_CID_P2P_TIMEOUT");
                 } finally {
                     pkc._timeouts["generic-ipfs"] = originalTimeout;
                 }
