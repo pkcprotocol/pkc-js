@@ -134,6 +134,10 @@ export class Comment
     override raw: CommentRawField = {};
     _commentUpdateIpfsPath?: string = undefined; // its IPFS path derived from community.postUpdates.
     _invalidCommentUpdateMfsPaths: Set<string> = new Set<string>();
+    // The postUpdates file this comment last fetched and judged: its path, and its cid when one could be resolved. A
+    // file is content-addressed, so the same path or the same cid is the same CommentUpdate, and a bucket folder that
+    // changed only for other posts' activity costs this comment no fetch (issue #312).
+    _lastJudgedPostUpdate?: { path: string; cid: string | undefined } = undefined;
     private _commentIpfsloadingOperation?: RetryOperation = undefined;
     override _clientsManager!: CommentClientsManager;
     private _updateRpcSubscriptionId?: number = undefined;

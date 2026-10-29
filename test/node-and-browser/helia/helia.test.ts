@@ -6,7 +6,8 @@ import {
     mockPKCV2,
     addStringToIpfs,
     createMockedCommunityIpns,
-    mockCommentToNotUsePagesForUpdates
+    mockCommentToNotUsePagesForUpdates,
+    mockPKCNoDataPathWithOnlyKuboClient
 } from "../../../dist/node/test/test-util.js";
 import signers from "../../fixtures/signers.js";
 import validPageFixture from "../../fixtures/valid_page.json" with { type: "json" };
@@ -17,6 +18,7 @@ import type { IpfsHttpClientPubsubMessage } from "../../../dist/node/types.js";
 import { ipnsNameToIpnsOverPubsubTopic } from "../../../dist/node/util.js";
 import { CommentClientsManager } from "../../../dist/node/publications/comment/comment-client-manager.js";
 import { importer } from "ipfs-unixfs-importer";
+import all from "it-all";
 import { peerIdFromString } from "@libp2p/peer-id";
 import { multihashToIPNSRoutingKey } from "ipns";
 
@@ -646,6 +648,49 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 routing.findProviders = originalFindProviders;
                 // The libp2p-js client instance is shared/reused across tests — restore the default.
                 delete heliaClient.heliaWithKuboRpcClientFunctions._bitswapSessionStalledGetFailoverMs;
+                await testPKC.destroy();
+            }
+        }, 90000);
+
+        // Issue #312: resolve() walks a postUpdates path through its directory blocks to learn the file's cid. A changed
+        // folder's blocks are not local, so the walk fetches them, and it must do so through a session like cat()
+        it("resolving a path through several directory blocks issues at most one routing findProviders query", async () => {
+            const testPKC = await config.pkcInstancePromise({ forceMockPubsub: true });
+            const heliaClient = Object.values(testPKC.clients.libp2pJsClients)[0];
+            const routing = heliaClient._helia.routing;
+            const originalFindProviders = routing.findProviders.bind(routing);
+            heliaClient.heliaWithKuboRpcClientFunctions._bitswapSessionStalledGetFailoverMs = 10 * 60 * 1000; // see the test above
+            const kuboPKC = await mockPKCNoDataPathWithOnlyKuboClient();
+            try {
+                // root/a/b/c/update: four directory blocks on the way to the file, all new to this client
+                const added = await all(
+                    kuboPKC._clientsManager
+                        .getDefaultKuboRpcClient()
+                        ._client.addAll([{ path: "a/b/c/update", content: "resolve-session " + Math.random() }], {
+                            wrapWithDirectory: true
+                        })
+                );
+                const rootCid = added[added.length - 1].cid.toString();
+                const fileCid = added.find((entry) => entry.path === "a/b/c/update")!.cid.toString();
+
+                let findProvidersCalls = 0;
+                routing.findProviders = function (...args: Parameters<typeof originalFindProviders>) {
+                    findProvidersCalls++;
+                    return originalFindProviders(...args);
+                };
+
+                const resolved = await heliaClient.heliaWithKuboRpcClientFunctions.resolve(`/ipfs/${rootCid}/a/b/c/update`, {
+                    timeout: 60_000
+                });
+                expect(resolved).to.equal(`/ipfs/${fileCid}`);
+                expect(
+                    findProvidersCalls,
+                    `walking 4 directory blocks must not trigger a routing lookup per block — expected at most 1 per-walk session query, got ${findProvidersCalls}`
+                ).to.be.at.most(1);
+            } finally {
+                routing.findProviders = originalFindProviders;
+                delete heliaClient.heliaWithKuboRpcClientFunctions._bitswapSessionStalledGetFailoverMs;
+                await kuboPKC.destroy();
                 await testPKC.destroy();
             }
         }, 90000);

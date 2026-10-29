@@ -573,9 +573,12 @@ export class BaseClientsManager {
         if (promises.length === 0) throw Error("No promises to find the first resolve");
         return new Promise<{ res: { res: Response; resText: string }; i: number }>((resolve) =>
             promises.forEach((promise, i) =>
-                promise.then((res) => {
-                    if ("resText" in res) resolve({ res, i });
-                })
+                promise.then(
+                    (res) => {
+                        if ("resText" in res) resolve({ res, i });
+                    },
+                    () => {} // a gateway cleared from the queue; the caller's allSettled accounts for it
+                )
             )
         );
     }
@@ -586,7 +589,8 @@ export class BaseClientsManager {
         const timeoutMs = loadOpts.timeoutMs;
         const concurrencyLimit = 3;
 
-        const queueLimit = pLimit(concurrencyLimit);
+        // rejectOnClear: cleanUp clears the queue, and a cleared gateway must still settle or allSettled below never does
+        const queueLimit = pLimit({ concurrency: concurrencyLimit, rejectOnClear: true });
 
         // Only sort if we have more than 3 gateways
         const gatewaysSorted =
@@ -808,6 +812,55 @@ export class BaseClientsManager {
     }
 
     // TODO rename this to _fetchPathP2P
+
+    // The cid an /ipfs/ path names, as CIDv1, or undefined when it cannot be told. Files are content-addressed, so a
+    // caller comparing it with the cid it last fetched can skip an unchanged file without reading it (issue #312).
+    // Kubo and helia walk only the directory blocks on the way, which an unchanged path already has locally. Undefined
+    // with only gateways. Throws only ERR_FETCH_CID_P2P_TIMEOUT: the walk could not reach the path's blocks in time, and
+    // a fetch of the path would walk the same blocks. Any other failure is undefined, and the caller fetches anyway.
+    async _resolveIpfsPathToCid({
+        root,
+        path,
+        timeoutMs,
+        abortSignal,
+        log,
+        bitswapSessionSeedScopeIpnsPubsubTopic
+    }: {
+        root: string;
+        path: string;
+        timeoutMs: number;
+        abortSignal?: AbortSignal;
+        log: Logger;
+        // See _fetchCidP2P: scopes the helia walk's session seeds, never forwarded to kubo-rpc-client
+        bitswapSessionSeedScopeIpnsPubsubTopic?: string;
+    }): Promise<string | undefined> {
+        try {
+            if (keys(this._pkc.clients.kuboRpcClients).length > 0 || keys(this._pkc.clients.libp2pJsClients).length > 0) {
+                const kuboRpcOrHelia = this.getDefaultKuboRpcClientOrHelia();
+                const seedScopeOptions =
+                    "_helia" in kuboRpcOrHelia && bitswapSessionSeedScopeIpnsPubsubTopic
+                        ? { bitswapSessionSeedScopeIpnsPubsubTopic }
+                        : undefined;
+                const resolved = await this.getIpfsClientWithKuboRpcClientFunctions().resolve(`/ipfs/${root}/${path}`, {
+                    timeout: timeoutMs,
+                    signal: abortSignal,
+                    ...seedScopeOptions
+                });
+                const [, namespace, cid, ...remainder] = resolved.split("/");
+                if (namespace !== "ipfs" || remainder.length > 0) return undefined;
+                return CID.parse(cid).toV1().toString();
+            }
+            // A gateway is not asked: its answer is not checked against the folder, so a gateway could keep a changed
+            // file looking unchanged and the caller would never fetch it
+            return undefined;
+        } catch (e) {
+            if (e instanceof PKCError && e.code === "ERR_FETCH_CID_P2P_TIMEOUT") throw e; // helia's own timeout
+            if (e instanceof Error && e.name === "TimeoutError" && !abortSignal?.aborted)
+                throw new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { ipfsPath: `/ipfs/${root}/${path}`, timeoutMs, error: e });
+            log.trace("Could not resolve", `${root}/${path}`, "to a cid, the caller will fetch it", e);
+            return undefined;
+        }
+    }
 
     async _fetchCidP2P(
         cidV0: string,
