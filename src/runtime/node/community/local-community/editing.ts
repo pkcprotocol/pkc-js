@@ -22,7 +22,7 @@ import { findProcessStartedCommunity, processStartedCommunities, syncProcessStar
 import { updateDbInternalState, updateInstancePropsWithStartedCommunityOrDb } from "./db-state.js";
 import { setResolvedPageSorts } from "./registry-sync.js";
 import { communityIdentityPublicKey } from "./identity.js";
-import { refreshCommunitiesList, setLocalCommunityIdentity } from "../../util.js";
+import { refreshCommunitiesList } from "../../util.js";
 import { findCommunitiesEntry } from "../../../../community/communities-entry-util.js";
 
 export async function movePostUpdatesFolderToNewAddress(community: LocalCommunity, oldAddress: string, newAddress: string) {
@@ -137,9 +137,10 @@ export async function validateNewAddressBeforeEditing(community: LocalCommunity,
     if (doesDomainAddressHaveCapitalLetter(newAddress))
         throw new PKCError("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER", { communityAddress: newAddress });
     // Check if any other community already has the new address as its name (exact or .eth/.bso alias) or its key. This
-    // community's own entry is skipped by its key, which unlike its address does not change with the edit
+    // community's own entry is skipped by its key, which unlike its address does not change with the edit. Not
+    // community.publicKey: that is undefined on a domain-addressed community that has not published a record yet
     const existingEquivalent = findCommunitiesEntry(
-        community._pkc.communities.filter((entry) => entry.publicKey !== community.publicKey),
+        community._pkc.communities.filter((entry) => entry.publicKey !== communityIdentityPublicKey(community)),
         { address: newAddress }
     );
     if (existingEquivalent)
@@ -178,13 +179,8 @@ export function deriveNameAndAddressEdit<T extends Pick<ParsedCommunityEditOptio
 }
 
 // Lists the new address now, not when the filesystem watcher fires (issue #430). The DB still holds the old name at
-// this point (a started community writes the edit on its next update), so the new identity goes into the
-// pkc.communities cache directly instead of being read back from the moved DB (issue #455)
-function listRenamedCommunityNow(community: LocalCommunity, newAddress: string) {
-    setLocalCommunityIdentity(community._pkc, newAddress, {
-        name: isStringDomain(newAddress) ? newAddress : undefined,
-        publicKey: community.anchor?.publicKey ?? community.signer.address // a delegated community is identified by its anchor
-    });
+// this point, which is fine: pkc.communities takes a community's name from its DB's filename (issue #455)
+function listRenamedCommunityNow(community: LocalCommunity) {
     refreshCommunitiesList(community._pkc);
 }
 
@@ -203,7 +199,7 @@ export async function editPropsOnStartedCommunity(
         log(`Attempting to edit community.address from ${oldAddress} to ${parsedEditOptions.address}. We will stop community first`);
         await community.stop();
         await community._dbHandler.changeDbFilename(oldAddress, parsedEditOptions.address);
-        listRenamedCommunityNow(community, parsedEditOptions.address);
+        listRenamedCommunityNow(community);
         community.setAddress(parsedEditOptions.address);
         await community._dbHandler.initDbIfNeeded();
         await community.start();
@@ -259,7 +255,7 @@ export async function editPropsOnNotStartedCommunity(
         await movePostUpdatesFolderToNewAddress(community, community.address, parsedEditOptions.address);
         community._dbHandler.destoryConnection();
         await community._dbHandler.changeDbFilename(community.address, parsedEditOptions.address);
-        listRenamedCommunityNow(community, parsedEditOptions.address);
+        listRenamedCommunityNow(community);
         await community._dbHandler.initDbIfNeeded();
         community.setAddress(parsedEditOptions.address);
     }

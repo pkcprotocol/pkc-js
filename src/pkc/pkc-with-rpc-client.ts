@@ -38,27 +38,7 @@ export class PKCWithRpcClient extends PKC {
 
         this.communities = [];
 
-        // A communities list the RPC server sends in a shape this client can't parse (e.g. a server on an older build)
-        // never becomes a communitieschange, so every wait for the first list would hang. Fail them with the schema
-        // error instead (issue #455)
-        this._promiseToWaitForFirstCommunitieschangeEvent = new Promise((resolve, reject) => {
-            const cleanup = () => {
-                this.removeListener("communitieschange", onCommunitiesChange);
-                this._pkcRpcClient.removeListener("error", onRpcError);
-            };
-            const onCommunitiesChange = (event: { communities: PKCCommunitiesEntry[] }) => {
-                cleanup();
-                resolve(event);
-            };
-            const onRpcError = (error: PKCError | Error) => {
-                if (!isInvalidCommunitiesListError(error)) return;
-                cleanup();
-                reject(error);
-            };
-            this.on("communitieschange", onCommunitiesChange);
-            this._pkcRpcClient.on("error", onRpcError);
-        });
-        this._promiseToWaitForFirstCommunitieschangeEvent.catch(() => {}); // rejects only for a caller that awaits it
+        this._waitForFirstValidCommunitiesList();
 
         this._pkcRpcClient.on("communitieschange", (newSubs) => this.emit("communitieschange", newSubs));
 
@@ -77,6 +57,32 @@ export class PKCWithRpcClient extends PKC {
         this._pkcRpcClient.on("settingschange", (newSettings) => {
             this.emit("settingschange", newSettings.pkcOptions);
         });
+    }
+
+    // A communities list the RPC server sends in a shape this client can't parse (e.g. a server on an older build)
+    // never becomes a communitieschange, so every wait for the first list would hang. Fail them with the schema error
+    // instead (issue #455), then wait again: a later valid list (e.g. after the server is upgraded and the client
+    // resubscribes) lets createCommunity work again without recreating the PKC
+    private _waitForFirstValidCommunitiesList() {
+        this._promiseToWaitForFirstCommunitieschangeEvent = new Promise((resolve, reject) => {
+            const cleanup = () => {
+                this.removeListener("communitieschange", onCommunitiesChange);
+                this._pkcRpcClient.removeListener("error", onRpcError);
+            };
+            const onCommunitiesChange = (event: { communities: PKCCommunitiesEntry[] }) => {
+                cleanup();
+                resolve(event);
+            };
+            const onRpcError = (error: PKCError | Error) => {
+                if (!isInvalidCommunitiesListError(error)) return;
+                cleanup();
+                reject(error);
+                this._waitForFirstValidCommunitiesList();
+            };
+            this.on("communitieschange", onCommunitiesChange);
+            this._pkcRpcClient.on("error", onRpcError);
+        });
+        this._promiseToWaitForFirstCommunitieschangeEvent.catch(() => {}); // rejects only for a caller that awaits it
     }
 
     override async fetchCid(cid: CidRpcParam) {

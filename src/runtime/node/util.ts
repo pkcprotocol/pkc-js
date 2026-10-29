@@ -45,7 +45,7 @@ import { isCommunityStartLockedSync } from "./community/start-lock.js";
 import { doesCommunitiesEntryMatch, toCommunitiesEntry } from "../../community/communities-entry-util.js";
 import type { CommunitiesEntryIdentity, CommunitiesEntryLookup } from "../../community/communities-entry-util.js";
 import type { PKCCommunitiesEntry } from "../../clients/rpc-client/types.js";
-import { areEquivalentNames } from "../../domain-util.js";
+import { areEquivalentNames, isStringDomain } from "../../domain-util.js";
 import Database from "better-sqlite3";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comment/schema.js";
 import type { PageIpfs } from "../../pages/types.js";
@@ -269,10 +269,10 @@ export async function tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc: PKC
 }
 
 // The { name, publicKey } of each local community DB, by filename (issue #455). Per PKC instance and in memory only, so
-// a restart or a new instance reads every DB again. Keyed by filename alone: an edit() that changes the identity writes
-// the new one here itself (setLocalCommunityIdentity), and a file that disappears is evicted on the next refresh, so a
-// community deleted and recreated under the same filename is read again. Edits made by another process on the same
-// dataPath are not seen until restart, which is why one process should run the RPC server and the others connect to it.
+// a restart or a new instance reads every DB again. Keyed by filename alone, which is safe because neither half changes
+// under one filename: the name is the filename itself (see readLocalCommunityIdentity), and the key is fixed for the
+// community's lifetime. A rename moves the file, so it is a new filename, and a file that disappears is evicted on the
+// next refresh, so a community deleted and recreated under the same filename is read again.
 const localCommunityIdentities = new WeakMap<PKC, Map<string, CommunitiesEntryIdentity>>();
 
 function getLocalCommunityIdentities(pkc: PKC): Map<string, CommunitiesEntryIdentity> {
@@ -281,12 +281,11 @@ function getLocalCommunityIdentities(pkc: PKC): Map<string, CommunitiesEntryIden
     return identities;
 }
 
-export function setLocalCommunityIdentity(pkc: PKC, communityAddress: string, identity: CommunitiesEntryIdentity) {
-    getLocalCommunityIdentities(pkc).set(communityAddress, identity.name ? identity : { publicKey: identity.publicKey });
-}
-
-// Reads the identity from the DB's internal record. A delegated community is identified by its anchor, not by the
-// minter it signs with. Returns undefined, without caching, if the DB can't be read yet (mid-creation, mid-migration,
+// Reads the identity key from the DB's internal record. A delegated community is identified by its anchor, not by the
+// minter it signs with. The name is not read from the DB but taken from the filename, which is the community's address,
+// i.e. its name when it has one (issue #430): a rename moves the file before it writes the new name into the DB (a
+// started community only on its next update), so any reader of the moved file in between, such as another PKC instance
+// on the same dataPath, would otherwise get the old name and cache it under the new filename. Returns undefined, without caching, if the DB can't be read yet (mid-creation, mid-migration,
 // corrupt), so the next refresh tries again
 function readLocalCommunityIdentity(pkc: PKC, communityAddress: string): CommunitiesEntryIdentity | undefined {
     const log = Logger("pkc-js:readLocalCommunityIdentity");
@@ -303,9 +302,7 @@ function readLocalCommunityIdentity(pkc: PKC, communityAddress: string): Communi
             log(`Community DB (${communityAddress}) has no internal state yet, leaving it out of pkc.communities for now`);
             return undefined;
         }
-        return typeof internalState.name === "string" && internalState.name.length > 0
-            ? { name: internalState.name, publicKey }
-            : { publicKey };
+        return isStringDomain(communityAddress) ? { name: communityAddress, publicKey } : { publicKey };
     } catch (e) {
         log.error(`Failed to read the identity of community DB (${communityAddress}), leaving it out of pkc.communities for now`, e);
         return undefined;
@@ -327,7 +324,9 @@ function listCommunitiesEntriesSync(pkc: PKC): PKCCommunitiesEntry[] {
             if (!identity) continue;
             identities.set(communityAddress, identity);
         }
-        entries.push(toCommunitiesEntry({ ...identity, started: isCommunityStartLockedSync({ dataPath: pkc.dataPath!, communityAddress }) }));
+        entries.push(
+            toCommunitiesEntry({ ...identity, started: isCommunityStartLockedSync({ dataPath: pkc.dataPath!, communityAddress }) })
+        );
     }
     return entries;
 }

@@ -464,7 +464,7 @@ Subscribe to the pkc rpc settings to receive notifications when they change
 
 #### Notification Format:
 
-The notification format is the same as seen in the pkc-js [PKC Events](https://github.com/pkcprotocol/pkc-js#pkc-events). Each entry is one community stored on the RPC server: `name` (absent for a community without a domain), `publicKey`, and `started` (whether its start lock is held). A notification is sent on subscribe and whenever a community is created, deleted, renamed, started or stopped.
+The notification format is the same as seen in the pkc-js [PKC Events](https://github.com/pkcprotocol/pkc-js#pkc-events)
 
 `settingschange` event:
 
