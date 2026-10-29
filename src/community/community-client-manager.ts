@@ -1183,7 +1183,8 @@ export class CommunityClientsManager extends PKCClientsManager {
         const concurrencyLimit = 3;
         const timeoutMs = this._pkc._timeouts["community-ipns"];
 
-        const queueLimit = pLimit(concurrencyLimit);
+        // rejectOnClear: cleanUp clears the queue, and a cleared gateway must still settle or the race below never does
+        const queueLimit = pLimit({ concurrency: concurrencyLimit, rejectOnClear: true });
 
         // Only sort if we have more than 3 gateways
         const gatewaysSorted =
