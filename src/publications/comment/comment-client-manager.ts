@@ -20,7 +20,8 @@ import {
     ipnsNameToIpnsOverPubsubTopic,
     isAbortError,
     isIpns,
-    resolveWhenPredicateIsTrue
+    resolveWhenPredicateIsTrue,
+    throwIfAbortSignalAborted
 } from "../../util.js";
 import { PublicationClientsManager } from "../publication-client-manager.js";
 import { MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE } from "../../constants.js";
@@ -199,7 +200,8 @@ export class CommentClientsManager extends PublicationClientsManager {
     private async _isPostUpdateFileAlreadyJudged(
         folderCid: string,
         path: string,
-        log: Logger
+        log: Logger,
+        abortSignal: AbortSignal | undefined
     ): Promise<{ alreadyJudged: boolean; cid: string | undefined }> {
         const judged = this._comment._lastJudgedPostUpdate;
         if (judged?.path === path) return { alreadyJudged: true, cid: judged.cid };
@@ -207,7 +209,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             root: folderCid,
             path: path.slice(folderCid.length + 1),
             timeoutMs: this._pkc._timeouts["comment-update-ipfs"],
-            abortSignal: this._combinedAbortSignalForRetry(),
+            abortSignal,
             log
         });
         if (cid === undefined || cid !== judged?.cid) return { alreadyJudged: false, cid };
@@ -239,7 +241,14 @@ export class CommentClientsManager extends PublicationClientsManager {
         return commentUpdate.updatedAt <= (this._comment.raw?.commentUpdate?.updatedAt || 0);
     }
 
-    async _fetchPostCommentUpdateIpfsP2P(subIpns: CommunityIpfsType, timestampRanges: string[], log: Logger): Promise<NewCommentUpdate> {
+    // `abortSignal` is the signal of the handler invocation that started this lookup, taken once: a newer community record
+    // aborts it, and the lookup must then stop instead of moving on to its old record's next bucket (issue #312)
+    async _fetchPostCommentUpdateIpfsP2P(
+        subIpns: CommunityIpfsType,
+        timestampRanges: string[],
+        log: Logger,
+        abortSignal: AbortSignal | undefined
+    ): Promise<NewCommentUpdate> {
         // only get new CommentUpdates
         // not interested in CommentUpdate we already fetched before
         const attemptedPathsToLoadErrors: Record<string, Error> = {};
@@ -248,7 +257,8 @@ export class CommentClientsManager extends PublicationClientsManager {
         for (const timestampRange of timestampRanges) {
             const folderCid = subIpns.postUpdates![timestampRange];
             const path = this._calculatePathForPostCommentUpdate(folderCid, this._comment.postCid!);
-            const { alreadyJudged, cid } = await this._isPostUpdateFileAlreadyJudged(folderCid, path, log);
+            throwIfAbortSignalAborted(abortSignal);
+            const { alreadyJudged, cid } = await this._isPostUpdateFileAlreadyJudged(folderCid, path, log, abortSignal);
             if (alreadyJudged) {
                 log.trace("Comment", this._comment.cid, "already judged the CommentUpdate at", path, "skipping it");
                 return undefined;
@@ -257,10 +267,6 @@ export class CommentClientsManager extends PublicationClientsManager {
             this._updateKuboRpcClientOrHeliaState("fetching-update-ipfs", kuboRpcOrHelia);
             let res: string;
             const commentUpdateTimeoutMs = this._pkc._timeouts["comment-update-ipfs"];
-            // Use a combined abort signal: the comment's stop signal (for user-initiated stop) and
-            // `_freshHandlerAbortController.signal` (aborted when `handleUpdateEventFromCommunity` is
-            // re-entered with newer community state, so we don't keep retrying stale post-update paths).
-            const abortSignal = this._combinedAbortSignalForRetry();
             try {
                 res = await this._retryTransientP2PFetch(
                     () =>
@@ -273,6 +279,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                     { abortSignal, log, context: `post-update ${path}` }
                 );
             } catch (e) {
+                throwIfAbortSignalAborted(abortSignal); // superseded or stopped: not a failure to try the next range for
                 // failed to load the record, maybe our node is offline or the content is unreachable
                 log.trace(`Failed to fetch CommentUpdate from path (${path}) with IPFS P2P. Trying the next timestamp range`);
                 attemptedPathsToLoadErrors[path] = <Error>e;
@@ -352,10 +359,12 @@ export class CommentClientsManager extends PublicationClientsManager {
             });
     }
 
+    // `abortSignal`: see _fetchPostCommentUpdateIpfsP2P
     async _fetchPostCommentUpdateFromGateways(
         subIpns: CommunityIpfsType,
         timestampRanges: string[],
-        log: Logger
+        log: Logger,
+        abortSignal: AbortSignal | undefined
     ): Promise<NewCommentUpdate> {
         const attemptedPathsToLoadErrors: Record<string, Error> = {};
 
@@ -375,7 +384,8 @@ export class CommentClientsManager extends PublicationClientsManager {
 
             const folderCid = subIpns.postUpdates![timestampRange];
             const path = this._calculatePathForPostCommentUpdate(folderCid, this._comment.postCid!);
-            const { alreadyJudged, cid } = await this._isPostUpdateFileAlreadyJudged(folderCid, path, log);
+            throwIfAbortSignalAborted(abortSignal);
+            const { alreadyJudged, cid } = await this._isPostUpdateFileAlreadyJudged(folderCid, path, log, abortSignal);
             if (alreadyJudged) {
                 log.trace("Comment", this._comment.cid, "already judged the CommentUpdate at", path, "skipping it");
                 return undefined;
@@ -394,7 +404,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                     log,
                     maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE,
                     timeoutMs: this._pkc._timeouts["comment-update-ipfs"],
-                    abortSignal: this._comment._getStopAbortSignal()
+                    abortSignal
                 });
                 if (!commentUpdate) throw Error("Failed to load comment update from gateways. This is a critical logic error");
                 this._comment._lastJudgedPostUpdate = { path, cid };
@@ -402,6 +412,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                 this._logIgnoredNotNewerPostCommentUpdate(log, path, commentUpdate);
                 return undefined;
             } catch (e) {
+                throwIfAbortSignalAborted(abortSignal); // superseded or stopped: not a failure to try the next range for
                 // We need to find out if it's loading error, and if it is we just move on to the next timestamp range
                 // If it's a schema or signature error we should stop and throw
                 if (this._shouldWeFetchCommentUpdateFromNextTimestamp(<PKCError>e)) {
@@ -455,12 +466,14 @@ export class CommentClientsManager extends PublicationClientsManager {
         const timestampRanges = getPostUpdateTimestampRange(subIpfs.postUpdates, postTimestamp);
         if (timestampRanges.length === 0) throw Error("Post has no timestamp range bucket");
 
+        // Taken once for the whole lookup: read again later it would be a newer invocation's signal (issue #312)
+        const abortSignal = this._combinedAbortSignalForRetry();
         let newCommentUpdate: NewCommentUpdate;
         try {
             if (Object.keys(this._pkc.clients.kuboRpcClients).length > 0 || Object.keys(this._pkc.clients.libp2pJsClients).length > 0) {
-                newCommentUpdate = await this._fetchPostCommentUpdateIpfsP2P(subIpfs, timestampRanges, log);
+                newCommentUpdate = await this._fetchPostCommentUpdateIpfsP2P(subIpfs, timestampRanges, log, abortSignal);
             } else {
-                newCommentUpdate = await this._fetchPostCommentUpdateFromGateways(subIpfs, timestampRanges, log);
+                newCommentUpdate = await this._fetchPostCommentUpdateFromGateways(subIpfs, timestampRanges, log, abortSignal);
             }
         } catch (e) {
             if (e instanceof Error) {
