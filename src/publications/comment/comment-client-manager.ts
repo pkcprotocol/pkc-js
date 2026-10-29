@@ -215,6 +215,25 @@ export class CommentClientsManager extends PublicationClientsManager {
         return { alreadyJudged: true, cid };
     }
 
+    // A record's preloaded pages and its postUpdates come from the same publish cycle: the CommentUpdates are written to
+    // postUpdates, then the pages are built from the same rows. So when the record's own pages carry the CommentUpdate
+    // this post holds, the post's file under that record's postUpdates is the same CommentUpdate, judged without a fetch
+    // (issue #312). Only the record's own pages count: another instance's or a parent's pages may come from another record.
+    private _markRecordPostUpdateJudgedIfItsPagesHoldTheHeldUpdate(community: RemoteCommunity): boolean {
+        const record = community.raw.communityIpfs;
+        const postCid = this._comment.postCid;
+        const heldUpdatedAt = this._comment.raw?.commentUpdate?.updatedAt;
+        if (!record?.postUpdates || !postCid || !this._comment.cid || typeof this._comment.timestamp !== "number") return false;
+        const inRecordPages = findCommentInPageInstance(community.posts, this._comment.cid);
+        if (!inRecordPages || inRecordPages.commentUpdate.updatedAt !== heldUpdatedAt) return false;
+        const [timestampRange] = getPostUpdateTimestampRange(record.postUpdates, this._comment.timestamp);
+        if (!timestampRange) return false;
+        const path = this._calculatePathForPostCommentUpdate(record.postUpdates[timestampRange], postCid);
+        // The cid is learned when one is next resolved; until then the path alone marks the file as judged
+        if (this._comment._lastJudgedPostUpdate?.path !== path) this._comment._lastJudgedPostUpdate = { path, cid: undefined };
+        return true;
+    }
+
     // A file not newer than the held CommentUpdate is discarded, so it is judged before its signature is verified
     private _isNotNewerThanHeldCommentUpdate(commentUpdate: CommentUpdateType): boolean {
         return commentUpdate.updatedAt <= (this._comment.raw?.commentUpdate?.updatedAt || 0);
@@ -745,6 +764,10 @@ export class CommentClientsManager extends PublicationClientsManager {
                 community.raw.communityIpfs,
                 log
             );
+            this._markRecordPostUpdateJudgedIfItsPagesHoldTheHeldUpdate(community);
+        } else if (this._markRecordPostUpdateJudgedIfItsPagesHoldTheHeldUpdate(community)) {
+            log.trace("Comment", this._comment.cid, "is current with the record's pages, nothing to fetch from postUpdates");
+            this._comment._setUpdatingStateWithEmissionIfNewState("waiting-retry");
         } else
             try {
                 // this is only for posts with depth === 0
