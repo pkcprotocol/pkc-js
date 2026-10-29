@@ -374,9 +374,9 @@ export class CommentClientsManager extends PublicationClientsManager {
         const validateCommentFromGateway: OptionsToLoadFromGateway["validateGatewayResponseFunc"] = async (res) => {
             if (typeof res.resText !== "string") throw Error("Gateway response has no body");
             const commentUpdateBeforeSignature = parseCommentUpdateSchemaWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(res.resText));
-            // Not newer is discarded below whatever its signature, so there is nothing to verify
-            if (!this._isNotNewerThanHeldCommentUpdate(commentUpdateBeforeSignature))
-                await this._throwIfCommentUpdateHasInvalidSignature(commentUpdateBeforeSignature, subIpns);
+            // Verified even when not newer: a gateway's body is not checked against the folder, and an unverified one
+            // would be remembered as judged
+            await this._throwIfCommentUpdateHasInvalidSignature(commentUpdateBeforeSignature, subIpns);
             commentUpdate = commentUpdateBeforeSignature; // at this point, we know the gateway has provided a valid comment update and we can use it
         };
 
