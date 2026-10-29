@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.128](https://github.com/pkcprotocol/pkc-js/compare/v0.0.127...v0.0.128) (2026-10-29)
+
+### Performance
+
+* **comment:** skip a post's unchanged CommentUpdate by its postUpdates file cid ([#312](https://github.com/pkcprotocol/pkc-js/issues/312)) ([#459](https://github.com/pkcprotocol/pkc-js/issues/459)) ([a101ed7](https://github.com/pkcprotocol/pkc-js/commit/a101ed7b7126a9ce40ed20cd5f3e21d8b0f48ace))
+
 ## [0.0.127](https://github.com/pkcprotocol/pkc-js/compare/v0.0.126...v0.0.127) (2026-10-29)
 
 ### Bug Fixes
