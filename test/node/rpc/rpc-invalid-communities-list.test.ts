@@ -64,8 +64,11 @@ class OldShapeCommunitiesRpcServer {
     }
 
     sendInvalidCommunities() {
-        for (const { socket, subscriptionId } of this.communitiesSubscriptions)
-            this._sendCommunities(socket, subscriptionId, ["old-shape.bso"]);
+        this.sendCommunities(["old-shape.bso"]);
+    }
+
+    sendCommunities(communities: unknown) {
+        for (const { socket, subscriptionId } of this.communitiesSubscriptions) this._sendCommunities(socket, subscriptionId, communities);
     }
 
     async destroy() {
@@ -147,6 +150,46 @@ describe("RPC client receiving a communities list it can't parse while waiting f
             clearTimeout(sentinel);
             expect(outcome.status).to.equal("rejected");
             expect(outcome.error?.code).to.equal("ERR_INVALID_RPC_COMMUNITIES_SCHEMA");
+        } finally {
+            await pkc.destroy();
+        }
+    });
+});
+
+// An invalid first list fails the waits running at that moment, but it must not fail every later createCommunity on that
+// PKC: once the server sends a list the client can parse (e.g. the server was upgraded and the client resubscribed),
+// createCommunity has to work again without recreating the PKC
+describe("RPC client receiving a valid communities list after an invalid first one", () => {
+    let server: OldShapeCommunitiesRpcServer;
+
+    beforeAll(async () => {
+        server = await OldShapeCommunitiesRpcServer.create();
+    });
+
+    afterAll(async () => {
+        await server.destroy();
+    });
+
+    it("createCommunity works again once a valid list arrives", async () => {
+        const pkc = await PKC({ pkcRpcClientsOptions: [`ws://127.0.0.1:${server.port}`], httpRoutersOptions: [] });
+        pkc.on("error", () => {});
+        try {
+            const firstError = await pkc.createCommunity({ address: "old-shape.bso" }).then(
+                (): { code?: string } | undefined => undefined,
+                (error: { code?: string }) => error
+            );
+            expect(firstError?.code).to.equal("ERR_INVALID_RPC_COMMUNITIES_SCHEMA");
+
+            const validListArrived = new Promise((resolve) => pkc.once("communitieschange", resolve));
+            server.sendCommunities([]);
+            await validListArrived;
+            expect(pkc.communities).to.deep.equal([]);
+
+            const outcome = await pkc.createCommunity({ address: "remote-after-valid-list.bso" }).then(
+                (community) => ({ address: community.address, errorCode: undefined as string | undefined }),
+                (error: { code?: string }) => ({ address: undefined as string | undefined, errorCode: error.code })
+            );
+            expect(outcome).to.deep.equal({ address: "remote-after-valid-list.bso", errorCode: undefined });
         } finally {
             await pkc.destroy();
         }
