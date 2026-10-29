@@ -1124,6 +1124,42 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     if (pubsubEventHandler.listenerCount(topic) === 0) helia.libp2p.services.pubsub.unsubscribe(topic);
                 }
             },
+            // Walks the path through the directory blocks and stats the target's root block only, so an unchanged
+            // target costs no network: every block on the way is already in the blockstore (issue #312)
+            async resolve(ipfsPath: string, options) {
+                throwIfHeliaIsStoppingOrStopped();
+                const [rootCidString, ...subPathSegments] = ipfsPath.replace(/^\/ipfs\//, "").split("/");
+                const timeoutMs = parseKuboStyleTimeoutMs(options?.timeout);
+                // One internal controller, its listeners detached in the finally: the caller's and the stop signals are
+                // long-lived, so they must not accumulate a listener per resolve
+                const controller = new AbortController();
+                const callerSignal = options?.signal;
+                const abortFromCaller = () => controller.abort(callerSignal?.reason);
+                const abortFromStop = () =>
+                    controller.abort(new PKCError("ERR_HELIAS_STOPPING_OR_STOPPED", { heliaKey: pkcOptions.key, ipfsPath }));
+                if (callerSignal?.aborted) abortFromCaller();
+                else callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
+                if (catStopController.signal.aborted) abortFromStop();
+                else catStopController.signal.addEventListener("abort", abortFromStop, { once: true });
+                const timeoutTimer =
+                    timeoutMs !== undefined
+                        ? setTimeout(() => controller.abort(new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { ipfsPath, timeoutMs })), timeoutMs)
+                        : undefined;
+                try {
+                    const stats = await heliaFs.stat(CID.parse(rootCidString), {
+                        path: subPathSegments.length > 0 ? subPathSegments.join("/") : undefined,
+                        signal: controller.signal
+                    });
+                    return `/ipfs/${stats.cid.toString()}`;
+                } catch (e) {
+                    if (controller.signal.aborted) throw controller.signal.reason instanceof Error ? controller.signal.reason : e;
+                    throw e;
+                } finally {
+                    if (timeoutTimer) clearTimeout(timeoutTimer);
+                    callerSignal?.removeEventListener("abort", abortFromCaller);
+                    catStopController.signal.removeEventListener("abort", abortFromStop);
+                }
+            },
             async add(
                 entry: Parameters<Libp2pJsClient["heliaWithKuboRpcClientFunctions"]["add"]>[0], // More specific types will be checked internally
                 options?: Parameters<Libp2pJsClient["heliaWithKuboRpcClientFunctions"]["add"]>[1]

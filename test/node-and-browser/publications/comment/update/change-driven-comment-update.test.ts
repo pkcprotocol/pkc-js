@@ -24,6 +24,9 @@ import type { CommentIpfsWithCidDefined } from "../../../../../dist/node/publica
 // community update whose bucket changed for someone else's activity must cost an idle post no fetch of its update
 // file and no updating state churn, and a real change to the post must still arrive.
 //
+// An update delivered through a page leaves the comment without the cid of its postUpdates file, so the first
+// community update after one may fetch that file once to learn it; the idle case warms up past that before measuring.
+//
 // Each case runs twice: as is (a fresh post sits in the community's preloaded pages) and with the pages lookup
 // disabled, which forces every update through postUpdates, the path a post outside the preloaded page takes.
 //
@@ -159,7 +162,7 @@ getAvailablePKCConfigsToTestAgainst({
                     const pagesSpy = viaPages ? undefined : disablePagesLookup();
                     try {
                         const { publishedPost, comment, community } = await startIdlePostAndCommunityMirror();
-                        await sleep(2000); // let the first update cycle's tail settle
+                        await driveUnrelatedCommunityUpdates(community, 1); // warm-up, see the header
 
                         const fetches = spyOnPostUpdateFileFetches(publishedPost.cid!);
                         const updatingStates: string[] = [];
@@ -172,8 +175,7 @@ getAvailablePKCConfigsToTestAgainst({
                             comment.removeListener("updatingstatechange", onUpdatingState);
                         }
 
-                        if (!isRpc)
-                            expect(fetches.fetchedPaths, "an unchanged CommentUpdate must not be fetched again").to.deep.equal([]);
+                        if (!isRpc) expect(fetches.fetchedPaths, "an unchanged CommentUpdate must not be fetched again").to.deep.equal([]);
                         expect(updatingStates, "an unchanged CommentUpdate must not cycle the updating state").to.not.include(
                             "fetching-update-ipfs"
                         );

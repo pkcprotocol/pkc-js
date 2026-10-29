@@ -85,12 +85,14 @@ export type OptionsToLoadFromGateway = {
     log: Logger;
 };
 
-const createUrlFromPathResolution = (gateway: string, opts: OptionsToLoadFromGateway): string => {
+type GatewayUrlOptions = Pick<OptionsToLoadFromGateway, "recordIpfsType" | "root" | "path">;
+
+const createUrlFromPathResolution = (gateway: string, opts: GatewayUrlOptions): string => {
     const root = opts.recordIpfsType === "ipfs" ? CID.parse(opts.root).toV1().toString() : convertBase58IpnsNameToBase36Cid(opts.root);
     return `${gateway}/${opts.recordIpfsType}/${root}${opts.path ? "/" + opts.path : ""}`;
 };
 
-const createUrlFromSubdomainResolution = (gateway: string, opts: OptionsToLoadFromGateway): string => {
+const createUrlFromSubdomainResolution = (gateway: string, opts: GatewayUrlOptions): string => {
     const gatewayUrl = new URL(gateway);
     const root =
         opts.recordIpfsType === "ipfs"
@@ -808,6 +810,57 @@ export class BaseClientsManager {
     }
 
     // TODO rename this to _fetchPathP2P
+
+    // The cid an /ipfs/ path names, as CIDv1, or undefined when it cannot be told. Files are content-addressed, so a
+    // caller comparing it with the cid it last fetched can skip an unchanged file without reading it (issue #312).
+    // Kubo and helia walk only the directory blocks on the way, which an unchanged path already has locally; a gateway
+    // answers a HEAD with the target's cid as its ETag. Never throws: the caller then fetches as it would have anyway.
+    async _resolveIpfsPathToCid({
+        root,
+        path,
+        timeoutMs,
+        abortSignal,
+        log
+    }: {
+        root: string;
+        path: string;
+        timeoutMs: number;
+        abortSignal?: AbortSignal;
+        log: Logger;
+    }): Promise<string | undefined> {
+        try {
+            if (keys(this._pkc.clients.kuboRpcClients).length > 0 || keys(this._pkc.clients.libp2pJsClients).length > 0) {
+                const resolved = await this.getIpfsClientWithKuboRpcClientFunctions().resolve(`/ipfs/${root}/${path}`, {
+                    timeout: timeoutMs,
+                    signal: abortSignal
+                });
+                const [, namespace, cid, ...remainder] = resolved.split("/");
+                if (namespace !== "ipfs" || remainder.length > 0) return undefined;
+                return CID.parse(cid).toV1().toString();
+            }
+            const gateways = keys(this._pkc.clients.ipfsGateways);
+            if (gateways.length === 0) return undefined;
+            const signals = [AbortSignal.timeout(timeoutMs), abortSignal].filter((signal): signal is AbortSignal => Boolean(signal));
+            const signal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
+            const urlOptions: GatewayUrlOptions = { recordIpfsType: "ipfs", root, path };
+            return await Promise.any(
+                gateways.map(async (gateway) => {
+                    const url = GATEWAYS_THAT_SUPPORT_SUBDOMAIN_RESOLUTION[gateway]
+                        ? createUrlFromSubdomainResolution(gateway, urlOptions)
+                        : createUrlFromPathResolution(gateway, urlOptions);
+                    const res = await nativeFunctions.fetch(url, { method: "HEAD", signal });
+                    if (res.status !== 200) throw Error(`HEAD ${url} answered ${res.status}`);
+                    // A file's entity-tag is its quoted cid; anything else (a directory listing, a weak tag) is not one
+                    const etag = res.headers.get("etag");
+                    if (!etag || !etag.startsWith('"')) throw Error(`HEAD ${url} has no cid entity-tag: ${etag}`);
+                    return CID.parse(etag.slice(1, -1)).toV1().toString();
+                })
+            );
+        } catch (e) {
+            log.trace("Could not resolve", `${root}/${path}`, "to a cid, the caller will fetch it", e);
+            return undefined;
+        }
+    }
 
     async _fetchCidP2P(
         cidV0: string,

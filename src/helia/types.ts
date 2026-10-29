@@ -39,8 +39,11 @@ export interface IpnsPushChannelState {
     routingKeyByTopic: Map<string, Uint8Array>;
 }
 
-export interface HeliaWithKuboRpcClientFunctions extends Pick<NonNullable<KuboRpcClient["_client"]>, "add" | "cat" | "pubsub" | "stop"> {
+export interface HeliaWithKuboRpcClientFunctions
+    extends Pick<NonNullable<KuboRpcClient["_client"]>, "add" | "cat" | "pubsub" | "stop" | "resolve"> {
     add: KuboRpcClient["_client"]["add"];
+    // An /ipfs/ path to the cid it names, as `/ipfs/<cid>`, without reading the target's content (issue #312)
+    resolve: KuboRpcClient["_client"]["resolve"];
     name: Pick<KuboRpcClient["_client"]["name"], "resolve">;
     // cat accepts one extra option on top of kubo-rpc-client's: the IPNS-over-pubsub record
     // topic of the community whose CID is being fetched, used to scope bitswap session seed

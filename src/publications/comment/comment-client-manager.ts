@@ -192,32 +192,49 @@ export class CommentClientsManager extends PublicationClientsManager {
         else this.updateKuboRpcState(newState as CommentKuboRpcClient["state"], kuboRpcOrHelia.url);
     }
 
+    // Whether the post's file at `path` is one this comment already judged, told without reading it: the same path, or
+    // another folder whose entry for this post resolves to the same cid. A bucket folder's cid changes with any post's
+    // activity in it, the cid of this post's file only with this post's CommentUpdate (issue #312). Also returns the
+    // resolved cid, for the fetch that follows to record.
+    private async _isPostUpdateFileAlreadyJudged(
+        folderCid: string,
+        path: string,
+        log: Logger
+    ): Promise<{ alreadyJudged: boolean; cid: string | undefined }> {
+        const judged = this._comment._lastJudgedPostUpdate;
+        if (judged?.path === path) return { alreadyJudged: true, cid: judged.cid };
+        const cid = await this._resolveIpfsPathToCid({
+            root: folderCid,
+            path: path.slice(folderCid.length + 1),
+            timeoutMs: this._pkc._timeouts["comment-update-ipfs"],
+            abortSignal: this._combinedAbortSignalForRetry(),
+            log
+        });
+        if (cid === undefined || cid !== judged?.cid) return { alreadyJudged: false, cid };
+        this._comment._lastJudgedPostUpdate = { path, cid };
+        return { alreadyJudged: true, cid };
+    }
+
+    // A file not newer than the held CommentUpdate is discarded, so it is judged before its signature is verified
+    private _isNotNewerThanHeldCommentUpdate(commentUpdate: CommentUpdateType): boolean {
+        return commentUpdate.updatedAt <= (this._comment.raw?.commentUpdate?.updatedAt || 0);
+    }
+
     async _fetchPostCommentUpdateIpfsP2P(subIpns: CommunityIpfsType, timestampRanges: string[], log: Logger): Promise<NewCommentUpdate> {
         // only get new CommentUpdates
         // not interested in CommentUpdate we already fetched before
         const attemptedPathsToLoadErrors: Record<string, Error> = {};
         const kuboRpcOrHelia = this.getDefaultKuboRpcClientOrHelia();
 
-        const didLastPostUpdateRangeHaveSameFolderCid = timestampRanges.some((timestampRange) => {
-            if (!this._comment._commentUpdateIpfsPath) return false;
-            const folderCid = subIpns.postUpdates![timestampRange];
-            const lastFolderCid = this._comment._commentUpdateIpfsPath.split("/")[0];
-            return folderCid === lastFolderCid;
-        });
-        if (didLastPostUpdateRangeHaveSameFolderCid) {
-            log(
-                "Comment",
-                this._comment.cid,
-                "last post update range has same folder cid",
-                this._comment._commentUpdateIpfsPath,
-                "will be skipping loading CommentUpdate"
-            );
-            return undefined;
-        }
-        this._comment._setUpdatingStateWithEmissionIfNewState("fetching-update-ipfs");
         for (const timestampRange of timestampRanges) {
             const folderCid = subIpns.postUpdates![timestampRange];
             const path = this._calculatePathForPostCommentUpdate(folderCid, this._comment.postCid!);
+            const { alreadyJudged, cid } = await this._isPostUpdateFileAlreadyJudged(folderCid, path, log);
+            if (alreadyJudged) {
+                log.trace("Comment", this._comment.cid, "already judged the CommentUpdate at", path, "skipping it");
+                return undefined;
+            }
+            this._comment._setUpdatingStateWithEmissionIfNewState("fetching-update-ipfs");
             this._updateKuboRpcClientOrHeliaState("fetching-update-ipfs", kuboRpcOrHelia);
             let res: string;
             const commentUpdateTimeoutMs = this._pkc._timeouts["comment-update-ipfs"];
@@ -246,11 +263,14 @@ export class CommentClientsManager extends PublicationClientsManager {
             }
             try {
                 const commentUpdate = parseCommentUpdateSchemaWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(res));
+                if (this._isNotNewerThanHeldCommentUpdate(commentUpdate)) {
+                    this._comment._lastJudgedPostUpdate = { path, cid };
+                    this._logIgnoredNotNewerPostCommentUpdate(log, path, commentUpdate);
+                    return undefined;
+                }
                 await this._throwIfCommentUpdateHasInvalidSignature(commentUpdate, subIpns);
-                if (commentUpdate.updatedAt > (this._comment.raw?.commentUpdate?.updatedAt || 0))
-                    return { commentUpdate, commentUpdateIpfsPath: path };
-                this._logIgnoredNotNewerPostCommentUpdate(log, path, commentUpdate);
-                return undefined;
+                this._comment._lastJudgedPostUpdate = { path, cid };
+                return { commentUpdate, commentUpdateIpfsPath: path };
             } catch (e) {
                 // there's a problem with the record itself, could be signature or schema or bad json
                 this._comment._invalidCommentUpdateMfsPaths.add(path);
@@ -318,22 +338,6 @@ export class CommentClientsManager extends PublicationClientsManager {
         timestampRanges: string[],
         log: Logger
     ): Promise<NewCommentUpdate> {
-        const didLastPostUpdateRangeHaveSameFolderCid = timestampRanges.some((timestampRange) => {
-            if (!this._comment._commentUpdateIpfsPath) return false;
-            const folderCid = subIpns.postUpdates![timestampRange];
-            const lastFolderCid = this._comment._commentUpdateIpfsPath.split("/")[0];
-            return folderCid === lastFolderCid;
-        });
-        if (didLastPostUpdateRangeHaveSameFolderCid) {
-            log(
-                "Comment",
-                this._comment.cid,
-                "last post update range has same folder cid",
-                this._comment._commentUpdateIpfsPath,
-                "will be skipping loading CommentUpdate"
-            );
-            return undefined;
-        }
         const attemptedPathsToLoadErrors: Record<string, Error> = {};
 
         let commentUpdate: CommentUpdateType | undefined;
@@ -341,17 +345,23 @@ export class CommentClientsManager extends PublicationClientsManager {
         const validateCommentFromGateway: OptionsToLoadFromGateway["validateGatewayResponseFunc"] = async (res) => {
             if (typeof res.resText !== "string") throw Error("Gateway response has no body");
             const commentUpdateBeforeSignature = parseCommentUpdateSchemaWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(res.resText));
-            await this._throwIfCommentUpdateHasInvalidSignature(commentUpdateBeforeSignature, subIpns);
+            // Not newer is discarded below whatever its signature, so there is nothing to verify
+            if (!this._isNotNewerThanHeldCommentUpdate(commentUpdateBeforeSignature))
+                await this._throwIfCommentUpdateHasInvalidSignature(commentUpdateBeforeSignature, subIpns);
             commentUpdate = commentUpdateBeforeSignature; // at this point, we know the gateway has provided a valid comment update and we can use it
         };
-
-        this._comment._setUpdatingStateWithEmissionIfNewState("fetching-update-ipfs");
 
         for (const timestampRange of timestampRanges) {
             // We're validating schema and signature here for every gateway because it's not a regular cid whose content we can verify to match the cid
 
             const folderCid = subIpns.postUpdates![timestampRange];
             const path = this._calculatePathForPostCommentUpdate(folderCid, this._comment.postCid!);
+            const { alreadyJudged, cid } = await this._isPostUpdateFileAlreadyJudged(folderCid, path, log);
+            if (alreadyJudged) {
+                log.trace("Comment", this._comment.cid, "already judged the CommentUpdate at", path, "skipping it");
+                return undefined;
+            }
+            this._comment._setUpdatingStateWithEmissionIfNewState("fetching-update-ipfs");
 
             try {
                 // Validate the Comment Update within the gateway fetching algo
@@ -368,8 +378,8 @@ export class CommentClientsManager extends PublicationClientsManager {
                     abortSignal: this._comment._getStopAbortSignal()
                 });
                 if (!commentUpdate) throw Error("Failed to load comment update from gateways. This is a critical logic error");
-                if (commentUpdate.updatedAt > (this._comment.raw?.commentUpdate?.updatedAt || 0))
-                    return { commentUpdate, commentUpdateIpfsPath: path };
+                this._comment._lastJudgedPostUpdate = { path, cid };
+                if (!this._isNotNewerThanHeldCommentUpdate(commentUpdate)) return { commentUpdate, commentUpdateIpfsPath: path };
                 this._logIgnoredNotNewerPostCommentUpdate(log, path, commentUpdate);
                 return undefined;
             } catch (e) {
@@ -462,7 +472,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         if (newCommentUpdate) {
             this._useLoadedCommentUpdateIfNewInfo(newCommentUpdate, subIpfs, log);
         } else if (newCommentUpdate === undefined) {
-            log.trace(`Comment`, this._comment.cid, "loaded an old comment update. Ignoring it");
+            log.trace(`Comment`, this._comment.cid, "has no newer CommentUpdate under postUpdates");
             this._comment._setUpdatingStateWithEmissionIfNewState("waiting-retry");
         }
     }
