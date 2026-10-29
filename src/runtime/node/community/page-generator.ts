@@ -88,6 +88,11 @@ export function wirePagesFromGeneration<T extends PostsPagesTypeIpfs | RepliesPa
 const MB = 1024 * 1024;
 const NON_PRELOADED_FIRST_PAGE_SIZE = MB; // pageCids first pages are always capped at 1mib, regardless of the preload budget
 const SAFETY_MARGIN = 1024; // 1KiB under every page limit when chunking
+// Pages double in size (1, 1, 2, 4... MiB) until they reach this, then stay at it. A page is built as one string and
+// costs about twice its size in heap to build, and without a cap a sort past ~1.5 GiB needs a page longer than V8's
+// string limit (issue #360). Clients allow each nextCid page twice the size of the page before it, so a capped page
+// always fits what any client accepts.
+const MAX_PAGE_SIZE = 32 * MB;
 const NEXT_CID_PLACEHOLDER = "QmXsYKgNH7XoZXdLko5uDvtWSRNE2AXuQ4u8KxVpCacrZx"; // any CIDv0: what a nextCid costs
 
 // A page is its entries' canonical JSON joined inside this wrapper: keys sorted, and "comments" sorts before
@@ -284,7 +289,6 @@ export class PageGenerator {
         const ipfsClient = this._community._clientsManager.getDefaultKuboRpcClient();
         const listOfPage: ModQueuePageIpfs[] = new Array(chunks.length);
         const cids: string[] = new Array(chunks.length);
-        let expectedSize = MB * Math.pow(2, chunks.length - 1); // expected size of last page
         for (let i = chunks.length - 1; i >= 0; i--) {
             const modQueuePageIpfs: ModQueuePageIpfs = { nextCid: cids[i + 1], comments: chunks[i] };
             if (!modQueuePageIpfs.nextCid) delete modQueuePageIpfs.nextCid; // we don't to include undefined anywhere in the protocol
@@ -296,6 +300,7 @@ export class PageGenerator {
                 provideOptions: { recursive: true },
                 provideInBackground: true
             });
+            const expectedSize = Math.min(MB * Math.pow(2, i), MAX_PAGE_SIZE);
             if (addRes.size > expectedSize)
                 throw new PKCError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
                     addRes,
@@ -306,7 +311,6 @@ export class PageGenerator {
                 });
             cids[i] = addRes.path;
             listOfPage[i] = modQueuePageIpfs;
-            expectedSize = expectedSize / 2; // we're going backward now
         }
         return { pages: listOfPage, cids };
     }
@@ -333,8 +337,8 @@ export class PageGenerator {
         const cids: (string | undefined)[] = new Array(chunks.length);
         for (let pageNum = chunks.length - 1; pageNum >= (embedFirst ? 1 : 0); pageNum--) {
             const nextCid = cids[pageNum + 1];
-            // pageCids pages may grow 1, 2, 4... MiB; the pages after an embedded first page start at 1 MiB
-            const maximumPageSize = MB * Math.pow(2, embedFirst ? Math.max(pageNum - 1, 0) : pageNum);
+            // pageCids pages may grow 1, 2, 4... MiB up to MAX_PAGE_SIZE; the pages after an embedded first page start at 1 MiB
+            const maximumPageSize = Math.min(MB * Math.pow(2, embedFirst ? Math.max(pageNum - 1, 0) : pageNum), MAX_PAGE_SIZE);
             const entries = chunks[pageNum];
             const entrySizes = entries.map(serialized.sizeOf);
             const calculatedSize = pageDagSize(entrySizes, nextCid !== undefined);
@@ -398,7 +402,8 @@ export class PageGenerator {
         return addRes.path;
     }
 
-    // Split comments into pages: the first under firstPageSizeBytes, then 1, 2, 4... MiB, each 1 KiB under its limit.
+    // Split comments into pages: the first under firstPageSizeBytes, then 1, 2, 4... MiB up to MAX_PAGE_SIZE, each 1 KiB
+    // under its limit.
     // A comment counts as what `ipfs add` would report for its JSON alone, so the sum overestimates the page by a few
     // bytes per comment; `sizeOf` gives an entry's UTF-8 JSON size when the caller already serialized it (the page
     // generator does, once per entry for every sort), else each comment is stringified here.
@@ -428,8 +433,9 @@ export class PageGenerator {
         let chunkIndex = 0;
         let accumulatedSize = OBJECT_WRAPPER_WITH_CID;
 
-        // The first page is dynamic; the pages after it 1MB, 2MB, 4MB...
-        const getCurrentMaxSize = (index: number): number => (index === 0 ? FIRST_PAGE_SIZE : MB * Math.pow(2, index - 1));
+        // The first page is dynamic; the pages after it 1MB, 2MB, 4MB... up to MAX_PAGE_SIZE
+        const getCurrentMaxSize = (index: number): number =>
+            index === 0 ? FIRST_PAGE_SIZE : Math.min(MB * Math.pow(2, index - 1), MAX_PAGE_SIZE);
 
         for (let i = 0; i < comments.length; i++) {
             const commentSize = calculateUnixFsDagSizeCidV0(entryBytes[i]);

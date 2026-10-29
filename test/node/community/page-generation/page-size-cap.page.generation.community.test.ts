@@ -1,20 +1,20 @@
 import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { it } from "vitest";
-import { constants as bufferConstants } from "node:buffer";
 import { PageGenerator } from "../../../../dist/node/runtime/node/community/page-generator.js";
 
 import type { PageIpfs } from "../../../../dist/node/pages/types.js";
 
-// Issue #360: page n of a sort is capped at 2^(n-1) MiB with no upper bound, and each page is built as one string.
-// A sort holding more than ~1.5 GiB of entries needs a page whose string exceeds V8's limit, and generation throws
-// `RangeError: Invalid string length`. Every entry here is the same 64 KiB string, so the board is ~1.6 GiB of
-// entries while the test holds only one page's join in memory at a time.
+// Issue #360: page n of a sort was capped at 2^(n-1) MiB with no upper bound, and each page is built as one string,
+// so a sort holding more than ~1.5 GiB of entries needed a page longer than V8's string limit and generation threw
+// `RangeError: Invalid string length`. Pages now stop doubling at 32 MiB. Every entry here is the same 64 KiB
+// string, so the sort is ~1.6 GiB of entries while the test holds only one page's join in memory at a time.
 
 type PageComment = PageIpfs["comments"][number];
 
 const ENTRY_BYTES = 64 * 1024;
 const ENTRY_COUNT = 26_000; // ~1.6 GiB of entries: past the ~1.5 GiB where the uncapped page 11 crosses the string limit
 const ENTRY_JSON = JSON.stringify("x".repeat(ENTRY_BYTES - 2));
+const MAX_PAGE_SIZE = 32 * 1024 * 1024;
 const FAKE_CID = "QmXsYKgNH7XoZXdLko5uDvtWSRNE2AXuQ4u8KxVpCacrZx";
 
 // The private surface of PageGenerator this test drives, the same two calls generation makes for a non-preloaded sort
@@ -32,7 +32,7 @@ interface PageGeneratorInternals {
 
 // Generation is in-process page building against a stubbed kubo client: there is no RPC server in the path
 describeSkipIfRpc("page-generator page size cap (#360)", () => {
-    it("generates every page of a sort holding more than 1.5 GiB of entries", async () => {
+    it("generates every page of a sort holding more than 1.5 GiB of entries, none over 32 MiB", async () => {
         const addedPageSizes: number[] = [];
         const pageGenerator = new PageGenerator({
             address: "page-size-cap-test",
@@ -65,6 +65,9 @@ describeSkipIfRpc("page-generator page size cap (#360)", () => {
 
         expect(res.new.cids).to.have.length(chunks.length);
         expect(addedPageSizes).to.have.length(chunks.length);
-        for (const size of addedPageSizes) expect(size).to.be.at.most(bufferConstants.MAX_STRING_LENGTH);
+        for (const size of addedPageSizes) expect(size).to.be.at.most(MAX_PAGE_SIZE);
+        // Pages grow to the cap and stay there: most of a 1.6 GiB sort sits in full 32 MiB pages
+        const fullPages = addedPageSizes.filter((size) => size > MAX_PAGE_SIZE - 2 * ENTRY_BYTES);
+        expect(fullPages.length).to.be.greaterThan(40);
     });
 });
