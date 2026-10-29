@@ -210,7 +210,8 @@ export class CommentClientsManager extends PublicationClientsManager {
             path: path.slice(folderCid.length + 1),
             timeoutMs: this._pkc._timeouts["comment-update-ipfs"],
             abortSignal,
-            log
+            log,
+            bitswapSessionSeedScopeIpnsPubsubTopic: this._bitswapSessionSeedScopeIpnsPubsubTopic()
         });
         if (cid === undefined || cid !== judged?.cid) return { alreadyJudged: false, cid };
         this._comment._lastJudgedPostUpdate = { path, cid };

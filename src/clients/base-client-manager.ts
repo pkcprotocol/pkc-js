@@ -823,19 +823,28 @@ export class BaseClientsManager {
         path,
         timeoutMs,
         abortSignal,
-        log
+        log,
+        bitswapSessionSeedScopeIpnsPubsubTopic
     }: {
         root: string;
         path: string;
         timeoutMs: number;
         abortSignal?: AbortSignal;
         log: Logger;
+        // See _fetchCidP2P: scopes the helia walk's session seeds, never forwarded to kubo-rpc-client
+        bitswapSessionSeedScopeIpnsPubsubTopic?: string;
     }): Promise<string | undefined> {
         try {
             if (keys(this._pkc.clients.kuboRpcClients).length > 0 || keys(this._pkc.clients.libp2pJsClients).length > 0) {
+                const kuboRpcOrHelia = this.getDefaultKuboRpcClientOrHelia();
+                const seedScopeOptions =
+                    "_helia" in kuboRpcOrHelia && bitswapSessionSeedScopeIpnsPubsubTopic
+                        ? { bitswapSessionSeedScopeIpnsPubsubTopic }
+                        : undefined;
                 const resolved = await this.getIpfsClientWithKuboRpcClientFunctions().resolve(`/ipfs/${root}/${path}`, {
                     timeout: timeoutMs,
-                    signal: abortSignal
+                    signal: abortSignal,
+                    ...seedScopeOptions
                 });
                 const [, namespace, cid, ...remainder] = resolved.split("/");
                 if (namespace !== "ipfs" || remainder.length > 0) return undefined;

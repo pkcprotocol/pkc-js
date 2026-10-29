@@ -42,8 +42,12 @@ export interface IpnsPushChannelState {
 export interface HeliaWithKuboRpcClientFunctions
     extends Pick<NonNullable<KuboRpcClient["_client"]>, "add" | "cat" | "pubsub" | "stop" | "resolve"> {
     add: KuboRpcClient["_client"]["add"];
-    // An /ipfs/ path to the cid it names, as `/ipfs/<cid>`, without reading the target's content (issue #312)
-    resolve: KuboRpcClient["_client"]["resolve"];
+    // An /ipfs/ path to the cid it names, as `/ipfs/<cid>`, without reading the target's content (issue #312). Takes
+    // cat's seed scope option too, for the session that walks the path's directory blocks.
+    resolve(
+        path: Parameters<KuboRpcClient["_client"]["resolve"]>[0],
+        options?: Parameters<KuboRpcClient["_client"]["resolve"]>[1] & { bitswapSessionSeedScopeIpnsPubsubTopic?: string }
+    ): ReturnType<KuboRpcClient["_client"]["resolve"]>;
     name: Pick<KuboRpcClient["_client"]["name"], "resolve">;
     // cat accepts one extra option on top of kubo-rpc-client's: the IPNS-over-pubsub record
     // topic of the community whose CID is being fetched, used to scope bitswap session seed
