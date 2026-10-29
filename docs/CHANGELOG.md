@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.127](https://github.com/pkcprotocol/pkc-js/compare/v0.0.126...v0.0.127) (2026-10-29)
+
+### Bug Fixes
+
+* **pages:** stop page doubling at 32 MiB so a large sort no longer throws RangeError ([#360](https://github.com/pkcprotocol/pkc-js/issues/360)) ([#458](https://github.com/pkcprotocol/pkc-js/issues/458)) ([08c2c9d](https://github.com/pkcprotocol/pkc-js/commit/08c2c9d4b01af646a2800f46c6a47f630be9e71f))
+
 ## [0.0.126](https://github.com/pkcprotocol/pkc-js/compare/v0.0.125...v0.0.126) (2026-10-27)
 
 ### Bug Fixes
