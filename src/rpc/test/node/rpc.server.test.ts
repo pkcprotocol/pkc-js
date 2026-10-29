@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
 import PKCWsServer from "../../../../dist/node/rpc/src/index.js";
-import { mockPKC } from "../../../../dist/node/test/test-util.js";
+import { mockPKC, listedCommunityAddresses } from "../../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../../../test/helpers/conditional-tests.js";
 import { temporaryDirectory } from "tempy";
 
@@ -85,7 +85,7 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
 
         const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(community.address).to.exist; // should be able to create a community successfully over RPC
-        expect(clientPKC.communities).to.include(community.address);
+        expect(listedCommunityAddresses(clientPKC)).to.include(community.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -110,7 +110,7 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
 
         const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(community.address).to.exist; // should be able to create a community successfully over RPC
-        expect(clientPKC.communities).to.include(community.address);
+        expect(listedCommunityAddresses(clientPKC)).to.include(community.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -135,7 +135,7 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
 
         const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(community.address).to.exist; // should be able to create a community successfully over RPC
-        expect(clientPKC.communities).to.include(community.address);
+        expect(listedCommunityAddresses(clientPKC)).to.include(community.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -160,7 +160,7 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
 
         const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(community.address).to.exist; // should be able to create a community successfully over RPC
-        expect(clientPKC.communities).to.include(community.address);
+        expect(listedCommunityAddresses(clientPKC)).to.include(community.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -253,7 +253,7 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
 
         const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(community.address).to.exist; // should be able to create a community successfully over RPC
-        expect(clientPKC.communities).to.include(community.address);
+        expect(listedCommunityAddresses(clientPKC)).to.include(community.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -278,7 +278,7 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
 
         const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(community.address).to.exist; // should be able to create a community successfully over RPC
-        expect(clientPKC.communities).to.include(community.address);
+        expect(listedCommunityAddresses(clientPKC)).to.include(community.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();
@@ -303,7 +303,7 @@ describeSkipIfRpc(`Setting up rpc server`, async () => {
 
         const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         expect(community.address).to.exist; // should be able to create a community successfully over RPC
-        expect(clientPKC.communities).to.include(community.address);
+        expect(listedCommunityAddresses(clientPKC)).to.include(community.address);
 
         await clientPKC.destroy();
         await rpcServer.destroy();

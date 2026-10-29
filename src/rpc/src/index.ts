@@ -114,10 +114,12 @@ import type {
     RpcExportCommunityResult,
     RpcExportCommunityModLogsResult,
     RpcPublishCommunityListResult,
-    RpcFetchCommunityListResult
+    RpcFetchCommunityListResult,
+    PKCCommunitiesEntry
 } from "../../clients/rpc-client/types.js";
 import type { CommunityExportRecord } from "../../community/types.js";
 import { findStartedCommunity } from "../../pkc/tracked-instance-registry-util.js";
+import { findLocalCommunityAddress, listCommunitiesSync } from "../../runtime/node/util.js";
 
 // store started communities to be able to stop them
 // store as a singleton because not possible to start the same community twice at the same time
@@ -365,10 +367,11 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             });
             if (startedAddress) return startedAddress;
         }
-        if (name && this.pkc.communities.includes(name)) return name;
+        // A stored community is found by its name, then by its identity key wherever it is filed (issue #455)
+        const storedByName = name ? findLocalCommunityAddress(this.pkc, { name }) : undefined;
+        if (storedByName) return storedByName;
         if (publicKey && publicKey in this._startedCommunities) return publicKey;
-        if (publicKey && this.pkc.communities.includes(publicKey)) return publicKey;
-        return undefined;
+        return publicKey ? findLocalCommunityAddress(this.pkc, { publicKey }) : undefined;
     }
 
     private _emitError(error: PKCError | Error) {
@@ -480,7 +483,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         // `fetch failed`. Wait for the reconcile to settle before touching the node.
         await pkc._waitForHttpRoutersSetupToSettle();
 
-        const localCommunities = pkc.communities;
+        const localCommunities = listCommunitiesSync(pkc); // the filenames, which are what community_states stores
 
         // Filter phase: determine which communities need starting
         const communitiesToStart: string[] = [];
@@ -1030,7 +1033,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             });
         };
 
-        const pkcSubscribeEvent = (newCommunities: string[]) => sendEvent("communitieschange", { communities: newCommunities });
+        const pkcSubscribeEvent = ({ communities }: { communities: PKCCommunitiesEntry[] }) =>
+            sendEvent("communitieschange", { communities });
 
         const pkc = await this._getPKCInstance();
         pkc.on("communitieschange", pkcSubscribeEvent);

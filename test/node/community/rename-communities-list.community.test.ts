@@ -3,7 +3,8 @@ import {
     createMockNameResolver,
     mockPKCV2,
     createSubWithNoChallenge,
-    resolveWhenConditionIsTrue
+    resolveWhenConditionIsTrue,
+    listedCommunityAddresses
 } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { v4 as uuidV4 } from "uuid";
@@ -39,12 +40,12 @@ describeSkipIfRpc(`pkc.communities right after renaming a local community`, asyn
                             predicate: async () => typeof community.updatedAt === "number"
                         });
                     }
-                    expect(pkc.communities).to.include(keyAddress);
+                    expect(listedCommunityAddresses(pkc)).to.include(keyAddress);
                     (pkc as unknown as { _communityFsWatchAbort?: AbortController })._communityFsWatchAbort?.abort();
 
                     await community.edit({ [editKey]: newName });
-                    expect(pkc.communities).to.include(newName);
-                    expect(pkc.communities).to.not.include(keyAddress);
+                    expect(listedCommunityAddresses(pkc)).to.include(newName);
+                    expect(listedCommunityAddresses(pkc)).to.not.include(keyAddress);
                     const recreated = await pkc.createCommunity({ address: newName });
                     expect(recreated.constructor.name).to.equal("LocalCommunity");
                 } finally {
@@ -79,15 +80,15 @@ describeSkipIfRpc(`pkc.communities right after deleting a local community`, asyn
                     await deleted.start();
                     await resolveWhenConditionIsTrue({ toUpdate: deleted, predicate: async () => typeof deleted.updatedAt === "number" });
                 }
-                expect(pkc.communities).to.include(name);
+                expect(listedCommunityAddresses(pkc)).to.include(name);
                 (pkc as unknown as { _communityFsWatchAbort?: AbortController })._communityFsWatchAbort?.abort();
 
                 await deleted.delete();
-                expect(pkc.communities).to.not.include(name);
+                expect(listedCommunityAddresses(pkc)).to.not.include(name);
 
                 records.set(name, next.signer.address);
                 await next.edit({ name });
-                expect(pkc.communities).to.include(name);
+                expect(listedCommunityAddresses(pkc)).to.include(name);
             } finally {
                 await next.delete().catch((): undefined => undefined);
                 await pkc.destroy();

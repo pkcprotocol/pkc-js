@@ -9,7 +9,8 @@ import {
     resolveWhenConditionIsTrue,
     waitTillPostInCommunityPages,
     mockPKCV2,
-    iterateThroughPagesToFindCommentInParentPagesInstance
+    iterateThroughPagesToFindCommentInParentPagesInstance,
+    listedCommunityAddresses
 } from "../../../dist/node/test/test-util.js";
 import { itSkipIfRpc, itIfRpc } from "../../helpers/conditional-tests.js";
 import path from "path";
@@ -423,7 +424,7 @@ describe(`Start lock`, async () => {
 
             await new Promise((resolve) => setTimeout(resolve, pkc.publishInterval * 2));
 
-            const localCommunities = pkc.communities;
+            const localCommunities = listedCommunityAddresses(pkc);
             expect(localCommunities).to.not.include(startedCommunity.address);
 
             for (const community of [startedCommunity, communityToDelete]) {

@@ -137,6 +137,7 @@ export enum messages {
     ERR_INVALID_RPC_COMMUNITY_STARTED_STATE_SCHEMA = "RPC server transmitted an invalid started state schema",
     ERR_INVALID_RPC_ENCODED_CHALLENGE_REQUEST_WITH_COMMUNITY_AUTHOR_PUBSUB_MSG_SCHEMA = "RPC server transmitted an invalid challenge request schema for RpcLocalCommunity",
     ERR_INVALID_RPC_REMOTE_COMMUNITY_SCHEMA = "Invalid schema of remote community transmitted by RPC",
+    ERR_INVALID_RPC_COMMUNITIES_SCHEMA = "RPC server transmitted a communities list with invalid schema",
     ERR_INVALID_RPC_PUBLICATION_PUBLISHING_STATE_SCHEMA = "Invalid schema of publication.publishingState transmitted by RPC",
     ERR_INVALID_RPC_PUBLICATION_STATE_SCHEMA = "Invalid schema of publication.state transmitted by RPC",
     ERR_INVALID_CID_STRING_SCHEMA = "Invalid cid string schema",

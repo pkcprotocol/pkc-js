@@ -1,5 +1,5 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
-import { mockPKCV2, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
+import { mockPKCV2, resolveWhenConditionIsTrue, listedCommunityAddresses } from "../../../dist/node/test/test-util.js";
 import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 
 import path from "path";
@@ -23,16 +23,16 @@ describe(`community.delete`, async () => {
     });
 
     it(`Deleted community is not listed in pkc.communities`, async () => {
-        const communities = pkc.communities;
+        const communities = listedCommunityAddresses(pkc);
         expect(communities).to.include(community.address);
         const recreatedCommunity = await pkc.createCommunity({ address: community.address });
         await recreatedCommunity.delete();
         await resolveWhenConditionIsTrue({
             toUpdate: pkc,
-            predicate: async () => !pkc.communities.includes(community.address),
+            predicate: async () => !listedCommunityAddresses(pkc).includes(community.address),
             eventName: "communitieschange"
         });
-        const communitiesAfterDeletion = pkc.communities;
+        const communitiesAfterDeletion = listedCommunityAddresses(pkc);
         expect(communitiesAfterDeletion).to.not.include(community.address);
     });
 

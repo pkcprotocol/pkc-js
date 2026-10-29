@@ -23,7 +23,8 @@ import {
     mockRemotePKC,
     publishRandomPost,
     publishWithExpectedResult,
-    resolveWhenConditionIsTrue
+    resolveWhenConditionIsTrue,
+    listedCommunityAddresses
 } from "../../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { messages } from "../../../../dist/node/errors.js";
@@ -151,8 +152,8 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
         });
 
         it("pkc.communities lists the anchor address", async () => {
-            expect(pkc.communities).to.include(anchorSigner.address);
-            expect(pkc.communities).to.not.include(minterAddress);
+            expect(listedCommunityAddresses(pkc)).to.include(anchorSigner.address);
+            expect(listedCommunityAddresses(pkc)).to.not.include(minterAddress);
         });
     });
 

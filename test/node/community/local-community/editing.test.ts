@@ -108,8 +108,7 @@ describe("editing: validateNewAddressBeforeEditing", () => {
         const log = Logger("pkc-js-test:editing");
         const community = {
             address: "old.bso",
-            // pkc.communities is a string[] of community addresses (see Pkc.communities).
-            _pkc: { communities: ["new.bso"] },
+            _pkc: { communities: [{ name: "new.bso", publicKey: "12D3KooWExistingCommunityKey", started: false }] },
             _assertDomainResolvesCorrectly: vi.fn().mockResolvedValue(undefined)
         } as unknown as LocalCommunity;
 
@@ -121,7 +120,7 @@ describe("editing: validateNewAddressBeforeEditing", () => {
         const assertSpy = vi.fn().mockResolvedValue(undefined);
         const community = {
             address: "old.bso",
-            _pkc: { communities: ["old.bso"] },
+            _pkc: { communities: [{ name: "old.bso", publicKey: "12D3KooWOldCommunityKey", started: false }] },
             _assertDomainResolvesCorrectly: assertSpy
         } as unknown as LocalCommunity;
 

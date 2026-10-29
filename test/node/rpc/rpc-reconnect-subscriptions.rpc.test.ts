@@ -42,7 +42,7 @@
 import { describe, it, beforeAll, afterAll, beforeEach, expect } from "vitest";
 import type { Server as HTTPServer } from "node:http";
 import PKC from "../../../dist/node/index.js";
-import { mockRpcServerPKC, publishRandomPost, publishRandomReply } from "../../../dist/node/test/test-util.js";
+import { mockRpcServerPKC, publishRandomPost, publishRandomReply, listedCommunityAddresses } from "../../../dist/node/test/test-util.js";
 import { createInProcessRpcServer, pollUntil, uniqueTmpDataPath, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
 import { describeIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
@@ -446,8 +446,8 @@ describeIfRpc("RPC subscriptions after the websocket auto-reconnects (#425)", ()
 
             it("pkc.communities delivers the new list (communitiesSubscribe)", async () => {
                 const client = await createClient();
-                await pollUntil(() => client.communities.includes(updatingCommunity.address), { timeoutMs: 30_000 });
-                expect(client.communities).toContain(updatingCommunity.address);
+                await pollUntil(() => listedCommunityAddresses(client).includes(updatingCommunity.address), { timeoutMs: 30_000 });
+                expect(listedCommunityAddresses(client)).toContain(updatingCommunity.address);
 
                 let newCommunityAddress: string | undefined;
                 await runReconnectCase({
@@ -457,10 +457,12 @@ describeIfRpc("RPC subscriptions after the websocket auto-reconnects (#425)", ()
                     testCase: {
                         trigger: async () => {
                             newCommunityAddress = (await serverPKC.createCommunity({})).address;
-                            await pollUntil(() => serverPKC.communities.includes(newCommunityAddress!), { timeoutMs: 15_000 });
-                            expect(serverPKC.communities).toContain(newCommunityAddress);
+                            await pollUntil(() => listedCommunityAddresses(serverPKC).includes(newCommunityAddress!), {
+                                timeoutMs: 15_000
+                            });
+                            expect(listedCommunityAddresses(serverPKC)).toContain(newCommunityAddress);
                         },
-                        delivered: () => Boolean(newCommunityAddress && client.communities.includes(newCommunityAddress)),
+                        delivered: () => Boolean(newCommunityAddress && listedCommunityAddresses(client).includes(newCommunityAddress)),
                         cleanup: async () => undefined
                     }
                 });

@@ -7,7 +7,8 @@ import {
     mockPKCNoDataPathWithOnlyKuboClient,
     resolveWhenConditionIsTrue,
     jsonifyCommunityAndRemoveInternalProps,
-    waitTillPostInCommunityPages
+    waitTillPostInCommunityPages,
+    listedCommunityAddresses
 } from "../../../dist/node/test/test-util.js";
 import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { timestamp } from "../../../dist/node/util.js";
@@ -52,7 +53,7 @@ describe(`pkc.createCommunity (local)`, async () => {
         // Community has finished its first sync loop, should have address now
         expect(newCommunity.address.startsWith("12D3")).to.be.true;
         expect(newCommunity.signer!.address).to.equal(newCommunity.address);
-        const listedCommunities = pkc.communities;
+        const listedCommunities = listedCommunityAddresses(pkc);
         expect(listedCommunities).to.include(newCommunity.address);
 
         const remoteCommunity = await remotePKC.getCommunity({ address: newCommunity.address });
@@ -268,7 +269,7 @@ describe(`pkc.createCommunity (local)`, async () => {
             | LocalCommunity
             | RpcLocalCommunity;
         // At this point the community should be unlocked and ready to be recreated by another instance
-        const listedCommunities = pkc.communities;
+        const listedCommunities = listedCommunityAddresses(pkc);
         expect(listedCommunities).to.include(createdCommunity.address);
 
         expect(createdCommunity.address).to.equal(communitySigner.address);

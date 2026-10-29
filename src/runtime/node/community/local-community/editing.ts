@@ -22,7 +22,8 @@ import { findProcessStartedCommunity, processStartedCommunities, syncProcessStar
 import { updateDbInternalState, updateInstancePropsWithStartedCommunityOrDb } from "./db-state.js";
 import { setResolvedPageSorts } from "./registry-sync.js";
 import { communityIdentityPublicKey } from "./identity.js";
-import { refreshCommunitiesList } from "../../util.js";
+import { refreshCommunitiesList, setLocalCommunityIdentity } from "../../util.js";
+import { getCommunitiesEntryAddress } from "../../../../community/communities-entry-util.js";
 
 export async function movePostUpdatesFolderToNewAddress(community: LocalCommunity, oldAddress: string, newAddress: string) {
     const log = Logger("pkc-js:local-community:_movePostUpdatesFolderToNewAddress");
@@ -137,9 +138,12 @@ export async function validateNewAddressBeforeEditing(community: LocalCommunity,
         throw new PKCError("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER", { communityAddress: newAddress });
     // Check if any existing community (other than this one) already has an equivalent address
     // This handles both exact matches and .eth/.bso alias equivalence
-    const existingEquivalent = community._pkc.communities.find(
-        (existing) => areEquivalentCommunityAddresses(existing, newAddress) && !areEquivalentCommunityAddresses(existing, community.address)
-    );
+    const existingEquivalent = community._pkc.communities
+        .map(getCommunitiesEntryAddress)
+        .find(
+            (existing) =>
+                areEquivalentCommunityAddresses(existing, newAddress) && !areEquivalentCommunityAddresses(existing, community.address)
+        );
     if (existingEquivalent)
         throw new PKCError("ERR_COMMUNITY_OWNER_ATTEMPTED_EDIT_NEW_ADDRESS_THAT_ALREADY_EXISTS", {
             currentCommunityAddress: community.address,
@@ -175,6 +179,17 @@ export function deriveNameAndAddressEdit<T extends Pick<ParsedCommunityEditOptio
     return { ...editOptions, address, name: isStringDomain(address) ? address : undefined };
 }
 
+// Lists the new address now, not when the filesystem watcher fires (issue #430). The DB still holds the old name at
+// this point (a started community writes the edit on its next update), so the new identity goes into the
+// pkc.communities cache directly instead of being read back from the moved DB (issue #455)
+function listRenamedCommunityNow(community: LocalCommunity, newAddress: string) {
+    setLocalCommunityIdentity(community._pkc, newAddress, {
+        name: isStringDomain(newAddress) ? newAddress : undefined,
+        publicKey: community.anchor?.publicKey ?? community.signer.address // a delegated community is identified by its anchor
+    });
+    refreshCommunitiesList(community._pkc);
+}
+
 export async function editPropsOnStartedCommunity(
     community: LocalCommunity,
     parsedEditOptions: ParsedCommunityEditOptions,
@@ -190,7 +205,7 @@ export async function editPropsOnStartedCommunity(
         log(`Attempting to edit community.address from ${oldAddress} to ${parsedEditOptions.address}. We will stop community first`);
         await community.stop();
         await community._dbHandler.changeDbFilename(oldAddress, parsedEditOptions.address);
-        refreshCommunitiesList(community._pkc); // list the new address now, not when the filesystem watcher fires
+        listRenamedCommunityNow(community, parsedEditOptions.address);
         community.setAddress(parsedEditOptions.address);
         await community._dbHandler.initDbIfNeeded();
         await community.start();
@@ -246,7 +261,7 @@ export async function editPropsOnNotStartedCommunity(
         await movePostUpdatesFolderToNewAddress(community, community.address, parsedEditOptions.address);
         community._dbHandler.destoryConnection();
         await community._dbHandler.changeDbFilename(community.address, parsedEditOptions.address);
-        refreshCommunitiesList(community._pkc); // list the new address now, not when the filesystem watcher fires
+        listRenamedCommunityNow(community, parsedEditOptions.address);
         await community._dbHandler.initDbIfNeeded();
         community.setAddress(parsedEditOptions.address);
     }

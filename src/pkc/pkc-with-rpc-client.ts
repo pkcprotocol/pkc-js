@@ -12,6 +12,7 @@ import { rejectWhenAbortSignalFires, rejectWhenCommunityStopsOrAborts, throwIfAb
 import type { AuthorNameRpcParam, CidRpcParam } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam, parseRpcFetchCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { listStartedCommunities } from "./tracked-instance-registry-util.js";
+import { findCommunitiesEntry, getCommunitiesEntryAddress } from "../community/communities-entry-util.js";
 import { CommentJson } from "../publications/comment/types.js";
 import type PKCRpcClient from "../clients/rpc-client/pkc-rpc-client.js";
 
@@ -119,8 +120,13 @@ export class PKCWithRpcClient extends PKC {
 
         if (hasIdentifier && effectiveAddress) {
             await this._waitForCommunitiesToBeDefined();
-            const rpcCommunities = this.communities; // should probably be replaced with a direct call for communities
-            const isCommunityRpcLocal = rpcCommunities.includes(effectiveAddress);
+            // Found by address, name or identity key, so a community the RPC lists under its name is local when asked for by key
+            const rpcLocalEntry = findCommunitiesEntry(this.communities, {
+                address: (parsedRpcOptions as Record<string, unknown>).address as string | undefined,
+                name: (parsedRpcOptions as Record<string, unknown>).name as string | undefined,
+                publicKey: (parsedRpcOptions as Record<string, unknown>).publicKey as string | undefined
+            });
+            const isCommunityRpcLocal = Boolean(rpcLocalEntry);
 
             if ("clients" in options && isCommunityRpcLocal) {
                 // Jsonified local community — rehydrate from raw.localCommunity instead of doing a fresh RPC fetch
@@ -139,7 +145,7 @@ export class PKCWithRpcClient extends PKC {
             } else if (isCommunityRpcLocal) {
                 // No jsonified data — do a fresh fetch
                 const community = new RpcLocalCommunity(this);
-                community.setAddress(effectiveAddress!);
+                community.setAddress(getCommunitiesEntryAddress(rpcLocalEntry!));
                 // wait for one update here, and then stop
                 const updatePromise = new Promise((resolve) => community.once("update", resolve));
                 let error: PKCError | Error | undefined;

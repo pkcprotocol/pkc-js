@@ -8,7 +8,8 @@ import {
     resolveWhenConditionIsTrue,
     waitTillPostInCommunityPages,
     waitTillReplyInParentPages,
-    publishWithExpectedResult
+    publishWithExpectedResult,
+    listedCommunityAddresses
 } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { messages } from "../../../dist/node/errors.js";
@@ -116,8 +117,8 @@ for (const editKey of ["name", "address"] as const) {
             const localCommunity = community as LocalCommunity;
             expect(await localCommunity._dbHandler.isCommunityStartLocked(newName)).to.be.true;
             expect(await localCommunity._dbHandler.isCommunityStartLocked(oldName)).to.be.false;
-            expect(pkc.communities).to.include(newName);
-            expect(pkc.communities).to.not.include(oldName);
+            expect(listedCommunityAddresses(pkc)).to.include(newName);
+            expect(listedCommunityAddresses(pkc)).to.not.include(oldName);
         });
 
         it(`hides the comments signed with the old name (#401: N -> M)`, async () => {
@@ -321,8 +322,8 @@ for (const renameCase of pubsubRenameCases) {
             expect(ctx.community.address).to.equal(expectedAddress);
             expect(await ctx.community._dbHandler.isCommunityStartLocked(expectedAddress)).to.be.true;
             expect(await ctx.community._dbHandler.isCommunityStartLocked(ctx.oldName)).to.be.false;
-            expect(ctx.pkc.communities).to.include(expectedAddress);
-            expect(ctx.pkc.communities).to.not.include(ctx.oldName);
+            expect(listedCommunityAddresses(ctx.pkc)).to.include(expectedAddress);
+            expect(listedCommunityAddresses(ctx.pkc)).to.not.include(ctx.oldName);
         });
 
         it(`${renameCase.oldCommentsVisible ? "keeps" : "hides"} the comments signed with the old name`, async () => {

@@ -9,6 +9,7 @@ import {
     RpcEditCommunityParamSchema,
     RpcPublishChallengeAnswersParamSchema,
     RpcResolveAuthorNameResultSchema,
+    PKCCommunitiesEntrySchema,
     RpcFetchCidResultSchema,
     RpcSuccessResultSchema,
     RpcSubscriptionIdResultSchema,
@@ -44,6 +45,7 @@ export type PublishCommunityListRpcParam = z.infer<typeof RpcPublishCommunityLis
 export type FetchCommunityListRpcParam = z.infer<typeof RpcFetchCommunityListParamSchema>;
 
 // Result types (shared between RPC client and server)
+export type PKCCommunitiesEntry = z.infer<typeof PKCCommunitiesEntrySchema>;
 export type RpcResolveAuthorNameResult = z.infer<typeof RpcResolveAuthorNameResultSchema>;
 export type RpcFetchCidResult = z.infer<typeof RpcFetchCidResultSchema>;
 export type RpcSuccessResult = z.infer<typeof RpcSuccessResultSchema>;

@@ -9,7 +9,8 @@ import {
     waitTillPostInCommunityPages,
     mockPKCV2,
     mockRpcServerPKC,
-    mockRpcServerForTests
+    mockRpcServerForTests,
+    listedCommunityAddresses
 } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc, describeIfRpc } from "../../helpers/conditional-tests.js";
 import PKCWsServer from "../../../dist/node/rpc/src/index.js";
@@ -143,10 +144,12 @@ for (const editKey of ["address", "name"] as const) {
         it(`pkc.communities includes the new ENS address, and not the old address`, async () => {
             await resolveWhenConditionIsTrue({
                 toUpdate: pkc,
-                predicate: async () => pkc.communities.includes(bsoNameAddress) && !pkc.communities.includes(community.signer.address),
+                predicate: async () =>
+                    listedCommunityAddresses(pkc).includes(bsoNameAddress) &&
+                    !listedCommunityAddresses(pkc).includes(community.signer.address),
                 eventName: "communitieschange"
             });
-            const subs = pkc.communities;
+            const subs = listedCommunityAddresses(pkc);
             expect(subs).to.include(bsoNameAddress);
             expect(subs).to.not.include(community.signer.address);
         });
@@ -315,15 +318,15 @@ for (const editKey of ["address", "name"] as const) {
             await resolveWhenConditionIsTrue({
                 toUpdate: pkc,
                 predicate: async () =>
-                    pkc.communities.includes(bsoAddress) &&
-                    !pkc.communities.includes(ethAddress) &&
-                    !pkc.communities.includes(community.signer.address),
+                    listedCommunityAddresses(pkc).includes(bsoAddress) &&
+                    !listedCommunityAddresses(pkc).includes(ethAddress) &&
+                    !listedCommunityAddresses(pkc).includes(community.signer.address),
                 eventName: "communitieschange"
             });
 
-            expect(pkc.communities).to.include(bsoAddress);
-            expect(pkc.communities).to.not.include(ethAddress);
-            expect(pkc.communities).to.not.include(community.signer.address);
+            expect(listedCommunityAddresses(pkc)).to.include(bsoAddress);
+            expect(listedCommunityAddresses(pkc)).to.not.include(ethAddress);
+            expect(listedCommunityAddresses(pkc)).to.not.include(community.signer.address);
         });
 
         it(`start locks are moved from signer/.eth to .bso`, async () => {
@@ -683,7 +686,7 @@ for (const editKey of ["address", "name"] as const) {
         it(`Can edit community.address to a new domain even if community-address text record does not match community.signer.address`, async () => {
             const customPKC = await mockPKC();
             const communityAddress = "different-signer.bso";
-            if (customPKC.communities.includes(communityAddress)) {
+            if (listedCommunityAddresses(customPKC).includes(communityAddress)) {
                 const community = (await customPKC.createCommunity({ address: communityAddress })) as LocalCommunity | RpcLocalCommunity;
                 await community.delete();
                 await new Promise((resolve) => customPKC.once("communitieschange", resolve));
