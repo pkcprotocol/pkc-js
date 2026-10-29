@@ -5,6 +5,7 @@ import { isEmpty, keys, unique } from "remeda";
 import Logger from "../logger.js";
 import { BasePages, ModQueuePages, PostsPages, RepliesPages } from "./pages.js";
 import { POSTS_SORT_TYPES, POST_REPLIES_SORT_TYPES, type PageRuntimeFields } from "./util.js";
+import { nextPageMaxSizeBytes } from "./page-size.js";
 import {
     parseJsonWithPKCErrorIfFails,
     parseModQueuePageIpfsSchemaWithPKCErrorIfItFails,
@@ -353,7 +354,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
         if (result.page.nextCid) {
             this.updatePageCidsToSortTypesToIncludeSubsequent(result.page.nextCid, pageCid);
-            this.updatePagesMaxSizeCache([result.page.nextCid], pageMaxSize * 2);
+            this.updatePagesMaxSizeCache([result.page.nextCid], nextPageMaxSizeBytes(pageMaxSize));
         }
         return result;
     }

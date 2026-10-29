@@ -15,15 +15,14 @@ import type { PageIpfs } from "../../../dist/node/pages/types.js";
 //   from page 33 (2^53 bytes, past Number.MAX_SAFE_INTEGER);
 // - the community's own walk over its published pages passes it to kubo's cat as `length`, which kubo rejects from
 //   page 43 (2^63 bytes overflows int64).
-// The allowance stops growing at the largest page any server version published (512 MiB, the last page that could be
-// built before the cap), so deep pages from servers that predate the cap stay loadable.
+// The allowance stops growing at the largest page a community publishes, 32 MiB.
 
 const MiB = 1024 * 1024;
-const MAX_PAGE_ALLOWANCE = 512 * MiB;
+const MAX_PAGE_ALLOWANCE = 32 * MiB;
 
 const expectAllowancesToReachButNeverPassTheCeiling = (allowances: number[]) => {
     for (const allowance of allowances) expect(allowance).to.be.at.most(MAX_PAGE_ALLOWANCE);
-    // Still doubles up to the ceiling, so every page a pre-cap server published stays loadable
+    // Still doubles up to the ceiling, so every page a community publishes stays loadable
     expect(allowances[allowances.length - 1]).to.equal(MAX_PAGE_ALLOWANCE);
 };
 

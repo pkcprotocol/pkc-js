@@ -36,6 +36,7 @@ import {
     extractCrosspostRuntimeFields
 } from "../publications/comment/crosspost-runtime.js";
 import type { CrosspostRuntimeFields } from "../publications/comment/crosspost-runtime.js";
+import { nextPageMaxSizeBytes } from "./page-size.js";
 
 export const TIMEFRAMES_TO_SECONDS: Record<Timeframe, number> = Object.freeze({
     HOUR: 3600, // 60 * 60
@@ -550,7 +551,7 @@ export async function iterateOverPageCidsToFindAllCids(opts: { pages: PagesSourc
     const preloadedPages = "pages" in pages ? Object.values(pages.pages ?? {}) : [];
     for (const preloadedPage of preloadedPages)
         if (typeof preloadedPage?.nextCid === "string" && preloadedPage.nextCid.length > 0)
-            enqueue(preloadedPage.nextCid, FIRST_PAGE_MAX_FILE_SIZE_BYTES * 2);
+            enqueue(preloadedPage.nextCid, nextPageMaxSizeBytes(FIRST_PAGE_MAX_FILE_SIZE_BYTES));
 
     const fetchPage = async (cid: string, maxSizeBytes: number): Promise<PageIpfs> => {
         const rawPage = await clientManager._fetchCidP2P(cid, { maxFileSizeBytes: maxSizeBytes, timeoutMs });
@@ -591,7 +592,7 @@ export async function iterateOverPageCidsToFindAllCids(opts: { pages: PagesSourc
 
             if (!page.nextCid || visited.has(page.nextCid)) continue;
 
-            const expectedNextPageSize = Math.max(maxSize * 2, FIRST_PAGE_MAX_FILE_SIZE_BYTES);
+            const expectedNextPageSize = Math.max(nextPageMaxSizeBytes(maxSize), FIRST_PAGE_MAX_FILE_SIZE_BYTES);
             enqueue(page.nextCid, expectedNextPageSize);
         }
     }

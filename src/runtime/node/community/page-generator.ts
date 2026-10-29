@@ -28,6 +28,7 @@ import {
     scorePageCommentsWithFile,
     stripRepliesFromPageComment
 } from "../../../pages/page-sort-scoring.js";
+import { MAX_PAGE_SIZE_BYTES } from "../../../pages/page-size.js";
 import type { PageSortScope } from "../../../community/types.js";
 import Logger from "../../../logger.js";
 import type { CommunityIpfsType } from "../../../community/types.js";
@@ -88,11 +89,6 @@ export function wirePagesFromGeneration<T extends PostsPagesTypeIpfs | RepliesPa
 const MB = 1024 * 1024;
 const NON_PRELOADED_FIRST_PAGE_SIZE = MB; // pageCids first pages are always capped at 1mib, regardless of the preload budget
 const SAFETY_MARGIN = 1024; // 1KiB under every page limit when chunking
-// Pages double in size (1, 1, 2, 4... MiB) until they reach this, then stay at it. A page is built as one string and
-// costs about twice its size in heap to build, and without a cap a sort past ~1.5 GiB needs a page longer than V8's
-// string limit (issue #360). Clients allow each nextCid page twice the size of the page before it, so a capped page
-// always fits what any client accepts.
-const MAX_PAGE_SIZE = 32 * MB;
 const NEXT_CID_PLACEHOLDER = "QmXsYKgNH7XoZXdLko5uDvtWSRNE2AXuQ4u8KxVpCacrZx"; // any CIDv0: what a nextCid costs
 
 // A page is its entries' canonical JSON joined inside this wrapper: keys sorted, and "comments" sorts before
@@ -300,7 +296,7 @@ export class PageGenerator {
                 provideOptions: { recursive: true },
                 provideInBackground: true
             });
-            const expectedSize = Math.min(MB * Math.pow(2, i), MAX_PAGE_SIZE);
+            const expectedSize = Math.min(MB * Math.pow(2, i), MAX_PAGE_SIZE_BYTES);
             if (addRes.size > expectedSize)
                 throw new PKCError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
                     addRes,
@@ -337,8 +333,8 @@ export class PageGenerator {
         const cids: (string | undefined)[] = new Array(chunks.length);
         for (let pageNum = chunks.length - 1; pageNum >= (embedFirst ? 1 : 0); pageNum--) {
             const nextCid = cids[pageNum + 1];
-            // pageCids pages may grow 1, 2, 4... MiB up to MAX_PAGE_SIZE; the pages after an embedded first page start at 1 MiB
-            const maximumPageSize = Math.min(MB * Math.pow(2, embedFirst ? Math.max(pageNum - 1, 0) : pageNum), MAX_PAGE_SIZE);
+            // pageCids pages may grow 1, 2, 4... MiB up to MAX_PAGE_SIZE_BYTES; the pages after an embedded first page start at 1 MiB
+            const maximumPageSize = Math.min(MB * Math.pow(2, embedFirst ? Math.max(pageNum - 1, 0) : pageNum), MAX_PAGE_SIZE_BYTES);
             const entries = chunks[pageNum];
             const entrySizes = entries.map(serialized.sizeOf);
             const calculatedSize = pageDagSize(entrySizes, nextCid !== undefined);
@@ -402,7 +398,7 @@ export class PageGenerator {
         return addRes.path;
     }
 
-    // Split comments into pages: the first under firstPageSizeBytes, then 1, 2, 4... MiB up to MAX_PAGE_SIZE, each 1 KiB
+    // Split comments into pages: the first under firstPageSizeBytes, then 1, 2, 4... MiB up to MAX_PAGE_SIZE_BYTES, each 1 KiB
     // under its limit.
     // A comment counts as what `ipfs add` would report for its JSON alone, so the sum overestimates the page by a few
     // bytes per comment; `sizeOf` gives an entry's UTF-8 JSON size when the caller already serialized it (the page
@@ -433,9 +429,9 @@ export class PageGenerator {
         let chunkIndex = 0;
         let accumulatedSize = OBJECT_WRAPPER_WITH_CID;
 
-        // The first page is dynamic; the pages after it 1MB, 2MB, 4MB... up to MAX_PAGE_SIZE
+        // The first page is dynamic; the pages after it 1MB, 2MB, 4MB... up to MAX_PAGE_SIZE_BYTES
         const getCurrentMaxSize = (index: number): number =>
-            index === 0 ? FIRST_PAGE_SIZE : Math.min(MB * Math.pow(2, index - 1), MAX_PAGE_SIZE);
+            index === 0 ? FIRST_PAGE_SIZE : Math.min(MB * Math.pow(2, index - 1), MAX_PAGE_SIZE_BYTES);
 
         for (let i = 0; i < comments.length; i++) {
             const commentSize = calculateUnixFsDagSizeCidV0(entryBytes[i]);
