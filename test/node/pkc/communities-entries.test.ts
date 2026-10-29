@@ -13,6 +13,24 @@ import type { PKCCommunitiesEntry } from "../../../dist/node/clients/rpc-client/
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 
+import { doesCommunitiesEntryMatch } from "../../../dist/node/community/communities-entry-util.js";
+
+describe(`doesCommunitiesEntryMatch`, () => {
+    const entry = { name: "memes.bso", publicKey: "12D3KooWMemesKey" };
+    it(`matches by key, by name, by an .eth alias of the name, and by name and key together`, () => {
+        expect(doesCommunitiesEntryMatch(entry, { publicKey: "12D3KooWMemesKey" })).to.be.true;
+        expect(doesCommunitiesEntryMatch(entry, { address: "12D3KooWMemesKey" })).to.be.true;
+        expect(doesCommunitiesEntryMatch(entry, { name: "memes.bso" })).to.be.true;
+        expect(doesCommunitiesEntryMatch(entry, { address: "memes.eth" })).to.be.true;
+        expect(doesCommunitiesEntryMatch(entry, { name: "memes.bso", publicKey: "12D3KooWMemesKey" })).to.be.true;
+    });
+    it(`does not match when the supplied name and key point at different communities, or when nothing is supplied`, () => {
+        expect(doesCommunitiesEntryMatch(entry, { name: "memes.bso", publicKey: "12D3KooWOtherKey" })).to.be.false;
+        expect(doesCommunitiesEntryMatch(entry, { name: "other.bso", publicKey: "12D3KooWMemesKey" })).to.be.false;
+        expect(doesCommunitiesEntryMatch(entry, {})).to.be.false;
+    });
+});
+
 // pkc.communities lists { name?, publicKey, started } per local community (issue #455, folding in #141), so a caller
 // that knows a community only by its key can find it, and a thin RPC client reads `started` without loading anything
 
@@ -114,6 +132,25 @@ describeSkipIfRpc(`pkc.communities entries of local communities (Node)`, async (
             }
         });
     }
+
+    it(`createCommunity({ name, publicKey }) with the name of one local community and the key of another is not local`, async () => {
+        const { pkc, records } = await createPKCWithRecords();
+        const named = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+        const other = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+        const name = `entries-mismatch-${uuidV4()}.bso`;
+        records.set(name, named.signer.address);
+        try {
+            await named.edit({ name });
+            const mismatched = await pkc.createCommunity({ name, publicKey: other.signer.address });
+            expect(mismatched.constructor.name).to.equal("RemoteCommunity");
+            const matched = await pkc.createCommunity({ name, publicKey: named.signer.address });
+            expect(matched.constructor.name).to.equal("LocalCommunity");
+        } finally {
+            await named.delete().catch((): undefined => undefined);
+            await other.delete().catch((): undefined => undefined);
+            await pkc.destroy();
+        }
+    });
 
     it(`a name reused by another community after delete() is listed with the new community's key`, async () => {
         const { pkc, records } = await createPKCWithRecords();

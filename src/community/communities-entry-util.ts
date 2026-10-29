@@ -1,14 +1,16 @@
 import { areEquivalentNames } from "../domain-util.js";
 
 // Membership checks against pkc.communities (issue #455). An entry is found by its identity key or by an equivalent
-// name, so a caller that only knows a community's key finds it even when it is listed under its domain.
+// name, so a caller that only knows a community's key finds it even when it is listed under its domain. Every identifier
+// the caller supplies has to match the same entry: { name: A, publicKey: <B's key> } matches neither A nor B.
 
 export type CommunitiesEntryIdentity = { name?: string; publicKey: string };
 export type CommunitiesEntryLookup = { address?: string; name?: string; publicKey?: string };
 
 export function doesCommunitiesEntryMatch(entry: CommunitiesEntryIdentity, lookup: CommunitiesEntryLookup): boolean {
     const identifiers = [lookup.address, lookup.name, lookup.publicKey].filter((id): id is string => typeof id === "string");
-    return identifiers.some((id) => id === entry.publicKey || (entry.name !== undefined && areEquivalentNames(entry.name, id)));
+    if (identifiers.length === 0) return false;
+    return identifiers.every((id) => id === entry.publicKey || (entry.name !== undefined && areEquivalentNames(entry.name, id)));
 }
 
 export function findCommunitiesEntry<T extends CommunitiesEntryIdentity>(entries: T[], lookup: CommunitiesEntryLookup): T | undefined {

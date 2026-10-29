@@ -217,7 +217,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
     private _httpRouterSetupPromise?: Promise<void>;
     destroyed = false;
-    private _promiseToWaitForFirstCommunitieschangeEvent: Promise<{ communities: PKCCommunitiesEntry[] }>;
+    protected _promiseToWaitForFirstCommunitieschangeEvent: Promise<{ communities: PKCCommunitiesEntry[] }>;
 
     private _storageLRUs: Record<string, LRUStorageInterface> = {}; // Cache name to storage interface
     _memCaches!: PKCMemCaches;

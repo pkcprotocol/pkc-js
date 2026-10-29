@@ -9,7 +9,7 @@ import type { RpcLocalCommunityJson, RpcLocalCommunityUpdateResultType, RpcRemot
 import { z } from "zod";
 import { PKCError } from "../pkc-error.js";
 import { rejectWhenAbortSignalFires, rejectWhenCommunityStopsOrAborts, throwIfAbortSignalAborted } from "../util.js";
-import type { AuthorNameRpcParam, CidRpcParam } from "../clients/rpc-client/types.js";
+import type { AuthorNameRpcParam, CidRpcParam, PKCCommunitiesEntry } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam, parseRpcFetchCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { listStartedCommunities } from "./tracked-instance-registry-util.js";
 import { findCommunitiesEntry, getCommunitiesEntryAddress } from "../community/communities-entry-util.js";
@@ -32,6 +32,28 @@ export class PKCWithRpcClient extends PKC {
         const log = Logger("pkc-js:pkc-with-rpc-client:_init");
 
         this.communities = [];
+
+        // A communities list the RPC server sends in a shape this client can't parse (e.g. a server on an older build)
+        // never becomes a communitieschange, so every wait for the first list would hang. Fail them with the schema
+        // error instead (issue #455)
+        this._promiseToWaitForFirstCommunitieschangeEvent = new Promise((resolve, reject) => {
+            const cleanup = () => {
+                this.removeListener("communitieschange", onCommunitiesChange);
+                this._pkcRpcClient.removeListener("error", onRpcError);
+            };
+            const onCommunitiesChange = (event: { communities: PKCCommunitiesEntry[] }) => {
+                cleanup();
+                resolve(event);
+            };
+            const onRpcError = (error: PKCError | Error) => {
+                if (!(error instanceof PKCError) || error.code !== "ERR_INVALID_RPC_COMMUNITIES_SCHEMA") return;
+                cleanup();
+                reject(error);
+            };
+            this.on("communitieschange", onCommunitiesChange);
+            this._pkcRpcClient.on("error", onRpcError);
+        });
+        this._promiseToWaitForFirstCommunitieschangeEvent.catch(() => {}); // rejects only for a caller that awaits it
 
         this._pkcRpcClient.on("communitieschange", (newSubs) => this.emit("communitieschange", newSubs));
 

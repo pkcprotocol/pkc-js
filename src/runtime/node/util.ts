@@ -333,17 +333,22 @@ function listCommunitiesEntriesSync(pkc: PKC): PKCCommunitiesEntry[] {
 }
 
 // The filename (the address the DB is stored under) of the local community matching a lookup by address, name or
-// identity key, or undefined if there is none. A DB whose identity couldn't be read yet still matches by filename
+// identity key, or undefined if there is none. A DB whose identity couldn't be read yet still matches by filename, when
+// every supplied identifier is that filename
 export function findLocalCommunityAddress(pkc: PKC, lookup: CommunitiesEntryLookup): string | undefined {
     const identities = getLocalCommunityIdentities(pkc);
     const communityAddresses = listCommunitiesSync(pkc);
+    const identifiers = [lookup.address, lookup.name, lookup.publicKey].filter((id): id is string => typeof id === "string");
     return (
         communityAddresses.find((communityAddress) => {
             const identity = identities.get(communityAddress);
             return identity && doesCommunitiesEntryMatch(identity, lookup);
         }) ??
-        communityAddresses.find((communityAddress) =>
-            [lookup.address, lookup.name, lookup.publicKey].some((id) => typeof id === "string" && areEquivalentNames(communityAddress, id))
+        communityAddresses.find(
+            (communityAddress) =>
+                !identities.has(communityAddress) &&
+                identifiers.length > 0 &&
+                identifiers.every((id) => areEquivalentNames(communityAddress, id))
         )
     );
 }
