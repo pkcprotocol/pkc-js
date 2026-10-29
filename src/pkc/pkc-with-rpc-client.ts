@@ -16,6 +16,11 @@ import { findCommunitiesEntry } from "../community/communities-entry-util.js";
 import { CommentJson } from "../publications/comment/types.js";
 import type PKCRpcClient from "../clients/rpc-client/pkc-rpc-client.js";
 
+// A communities list the RPC server sent in a shape this client can't parse (issue #455). It never becomes a
+// communitieschange, so a wait for the list has to fail on this error instead
+const isInvalidCommunitiesListError = (error: PKCError | Error): error is PKCError =>
+    error instanceof PKCError && error.code === "ERR_INVALID_RPC_COMMUNITIES_SCHEMA";
+
 // This is a helper class for separating RPC-client logic from main PKC
 // Not meant to be used with end users
 export class PKCWithRpcClient extends PKC {
@@ -46,7 +51,7 @@ export class PKCWithRpcClient extends PKC {
                 resolve(event);
             };
             const onRpcError = (error: PKCError | Error) => {
-                if (!(error instanceof PKCError) || error.code !== "ERR_INVALID_RPC_COMMUNITIES_SCHEMA") return;
+                if (!isInvalidCommunitiesListError(error)) return;
                 cleanup();
                 reject(error);
             };
@@ -82,6 +87,31 @@ export class PKCWithRpcClient extends PKC {
     override async resolveAuthorName(args: AuthorNameRpcParam) {
         const parsedArgs = parseRpcAuthorNameParam(args);
         return this._pkcRpcClient.resolveAuthorName(parsedArgs);
+    }
+
+    // Like the base wait, plus it fails with the schema error when a list arrives that this client can't parse, which
+    // would otherwise leave RPC createCommunity waiting forever for the new community to be listed
+    override async _awaitCommunitiesToIncludeCommunity(communityAddress: string): Promise<void> {
+        const isListed = () => Boolean(findCommunitiesEntry(this.communities, { address: communityAddress }));
+        if (isListed()) return;
+        await new Promise<void>((resolve, reject) => {
+            const cleanup = () => {
+                this.removeListener("communitieschange", onCommunitiesChange);
+                this._pkcRpcClient.removeListener("error", onRpcError);
+            };
+            const onCommunitiesChange = () => {
+                if (!isListed()) return;
+                cleanup();
+                resolve();
+            };
+            const onRpcError = (error: PKCError | Error) => {
+                if (!isInvalidCommunitiesListError(error)) return;
+                cleanup();
+                reject(error);
+            };
+            this.on("communitieschange", onCommunitiesChange);
+            this._pkcRpcClient.on("error", onRpcError);
+        });
     }
 
     override async destroy() {
