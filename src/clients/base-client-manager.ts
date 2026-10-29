@@ -573,9 +573,12 @@ export class BaseClientsManager {
         if (promises.length === 0) throw Error("No promises to find the first resolve");
         return new Promise<{ res: { res: Response; resText: string }; i: number }>((resolve) =>
             promises.forEach((promise, i) =>
-                promise.then((res) => {
-                    if ("resText" in res) resolve({ res, i });
-                })
+                promise.then(
+                    (res) => {
+                        if ("resText" in res) resolve({ res, i });
+                    },
+                    () => {} // a gateway cleared from the queue; the caller's allSettled accounts for it
+                )
             )
         );
     }
@@ -586,7 +589,8 @@ export class BaseClientsManager {
         const timeoutMs = loadOpts.timeoutMs;
         const concurrencyLimit = 3;
 
-        const queueLimit = pLimit(concurrencyLimit);
+        // rejectOnClear: cleanUp clears the queue, and a cleared gateway must still settle or allSettled below never does
+        const queueLimit = pLimit({ concurrency: concurrencyLimit, rejectOnClear: true });
 
         // Only sort if we have more than 3 gateways
         const gatewaysSorted =
