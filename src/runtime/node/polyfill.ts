@@ -13,7 +13,9 @@ if (Number(process.versions.node.split(".")[0]) >= 18) {
     // Should be removed at some point once kubo-rpc-client fixes their problem with node 18+
     const log = Logger("pkc-js:polyfill");
     log("Patching up the global body timeout");
-    setGlobalDispatcher(new Agent({ bodyTimeout: Number.MAX_SAFE_INTEGER }));
+    // undici 8 negotiates HTTP/2 by default, and setGlobalDispatcher mirrors this agent onto Node's
+    // built-in fetch; keep HTTP/1.1 so gateway, router and kubo-rpc-client fetches behave as before
+    setGlobalDispatcher(new Agent({ bodyTimeout: Number.MAX_SAFE_INTEGER, allowH2: false }));
 }
 
 if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === "undefined") {
