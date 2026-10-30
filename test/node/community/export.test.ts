@@ -13,10 +13,8 @@ import { promises as fsPromises, existsSync, createReadStream, createWriteStream
 import { createHash } from "node:crypto";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
-import net from "node:net";
 import Database from "better-sqlite3";
 import PKC from "../../../dist/node/index.js";
-import PKCWsServer from "../../../dist/node/rpc/src/index.js";
 import {
     mockPKC,
     mockPKCNoDataPathWithOnlyKuboClient,
@@ -29,32 +27,11 @@ import {
     getAvailablePKCConfigsToTestAgainst
 } from "../../../dist/node/test/test-util.js";
 import { itSkipIfRpc, itIfRpc, describeIfRpc } from "../../helpers/conditional-tests.js";
+import { createInProcessRpcServer, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 import type { CommunityExportRecord } from "../../../dist/node/community/types.js";
-
-type PKCWsServerType = Awaited<ReturnType<typeof PKCWsServer.PKCWsServer>>;
-
-// Find a free TCP port so the in-process RPC servers below never collide with the shared test
-// servers (39652/39653) or each other when suites run in parallel.
-async function getAvailablePort(startPort = 39820): Promise<number> {
-    for (let port = startPort; port < startPort + 100; port++) {
-        try {
-            return await new Promise<number>((resolve, reject) => {
-                const server = net.createServer();
-                server.unref();
-                server.on("error", reject);
-                server.listen(port, () => {
-                    server.close(() => resolve(port));
-                });
-            });
-        } catch {
-            continue;
-        }
-    }
-    throw new Error(`No available port found in range ${startPort}-${startPort + 99}`);
-}
 
 // Either flavor of community has `.export()`, `.exports`, `.signer`, and emits `exportschange`.
 type AnyLocalCommunity = LocalCommunity | RpcLocalCommunity;
@@ -800,22 +777,13 @@ describeIfRpc(`community.export() — RPC private-key policy`, () => {
     beforeAll(async () => {
         serverPKC = await mockRpcServerPKC({ dataPath: path.join(process.cwd(), ".pkc-rpc-export-policy-test") });
 
-        const rpcPort = await getAvailablePort();
-        RPC_URL = `ws://localhost:${rpcPort}`;
-
-        rpcServer = await PKCWsServer.PKCWsServer({
-            port: rpcPort,
+        // Port 0 via the shared harness: the OS assigns the port atomically, where probing a port and then listening on
+        // it lost the port to another process in between (EADDRINUSE under --fileParallelism)
+        ({ rpcServer, rpcUrl: RPC_URL } = await createInProcessRpcServer({
+            serverPKC,
             authKey: RPC_AUTH_KEY,
-            allowPrivateKeyExport: false,
-            pkcOptions: {
-                kuboRpcClientsOptions: ["http://localhost:15001/api/v0"],
-                httpRoutersOptions: [],
-                dataPath: serverPKC.dataPath
-            }
-        });
-
-        const server = rpcServer as unknown as Record<string, Function>;
-        server._initPKC(serverPKC);
+            allowPrivateKeyExport: false
+        }));
         mockRpcServerForTests(rpcServer);
 
         clientPKC = await PKC({ pkcRpcClientsOptions: [RPC_URL], dataPath: undefined, httpRoutersOptions: [] });
