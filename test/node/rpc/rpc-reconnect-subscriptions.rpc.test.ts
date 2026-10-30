@@ -42,7 +42,13 @@
 import { describe, it, beforeAll, afterAll, beforeEach, expect } from "vitest";
 import type { Server as HTTPServer } from "node:http";
 import PKC from "../../../dist/node/index.js";
-import { mockRpcServerPKC, publishRandomPost, publishRandomReply } from "../../../dist/node/test/test-util.js";
+import {
+    mockRpcServerPKC,
+    publishRandomPost,
+    publishRandomReply,
+    expectCommunityListed,
+    findListedCommunity
+} from "../../../dist/node/test/test-util.js";
 import { createInProcessRpcServer, pollUntil, uniqueTmpDataPath, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
 import { describeIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
@@ -446,21 +452,43 @@ describeIfRpc("RPC subscriptions after the websocket auto-reconnects (#425)", ()
 
             it("pkc.communities delivers the new list (communitiesSubscribe)", async () => {
                 const client = await createClient();
-                await pollUntil(() => client.communities.includes(updatingCommunity.address), { timeoutMs: 30_000 });
-                expect(client.communities).toContain(updatingCommunity.address);
+                await pollUntil(
+                    () =>
+                        findListedCommunity({ pkc: client, publicKey: updatingCommunity.publicKey! })?.address ===
+                        updatingCommunity.address,
+                    { timeoutMs: 30_000 }
+                );
+                expectCommunityListed({
+                    pkc: client,
+                    publicKey: updatingCommunity.publicKey!,
+                    address: updatingCommunity.address,
+                    name: updatingCommunity.name
+                });
 
-                let newCommunityAddress: string | undefined;
+                let newCommunity: { publicKey: string; address: string; name: string | undefined } | undefined;
                 await runReconnectCase({
                     client,
                     mode,
                     errorEmitters: [client],
                     testCase: {
                         trigger: async () => {
-                            newCommunityAddress = (await serverPKC.createCommunity({})).address;
-                            await pollUntil(() => serverPKC.communities.includes(newCommunityAddress!), { timeoutMs: 15_000 });
-                            expect(serverPKC.communities).toContain(newCommunityAddress);
+                            const created = await serverPKC.createCommunity({});
+                            const listed = { publicKey: created.publicKey!, address: created.address, name: created.name };
+                            newCommunity = listed;
+                            await pollUntil(
+                                () => findListedCommunity({ pkc: serverPKC, publicKey: listed.publicKey })?.address === listed.address,
+                                {
+                                    timeoutMs: 15_000
+                                }
+                            );
+                            expectCommunityListed({ pkc: serverPKC, ...listed });
                         },
-                        delivered: () => Boolean(newCommunityAddress && client.communities.includes(newCommunityAddress)),
+                        delivered: () =>
+                            Boolean(
+                                newCommunity &&
+                                    findListedCommunity({ pkc: client, publicKey: newCommunity.publicKey })?.address ===
+                                        newCommunity.address
+                            ),
                         cleanup: async () => undefined
                     }
                 });

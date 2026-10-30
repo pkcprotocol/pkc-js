@@ -1,5 +1,11 @@
 import { beforeAll, afterAll, describe, it } from "vitest";
-import { mockPKCV2, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
+import {
+    mockPKCV2,
+    resolveWhenConditionIsTrue,
+    expectCommunityListed,
+    expectCommunityNotListed,
+    findListedCommunity
+} from "../../../dist/node/test/test-util.js";
 import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 
 import path from "path";
@@ -23,17 +29,15 @@ describe(`community.delete`, async () => {
     });
 
     it(`Deleted community is not listed in pkc.communities`, async () => {
-        const communities = pkc.communities;
-        expect(communities).to.include(community.address);
+        expectCommunityListed({ pkc, publicKey: community.publicKey!, address: community.address, name: community.name });
         const recreatedCommunity = await pkc.createCommunity({ address: community.address });
         await recreatedCommunity.delete();
         await resolveWhenConditionIsTrue({
             toUpdate: pkc,
-            predicate: async () => !pkc.communities.includes(community.address),
+            predicate: async () => !findListedCommunity({ pkc, publicKey: community.publicKey! }),
             eventName: "communitieschange"
         });
-        const communitiesAfterDeletion = pkc.communities;
-        expect(communitiesAfterDeletion).to.not.include(community.address);
+        expectCommunityNotListed({ pkc, publicKey: community.publicKey!, address: community.address });
     });
 
     itSkipIfRpc(`Deleted community ipfs keys are not listed in ipfs node`, async () => {

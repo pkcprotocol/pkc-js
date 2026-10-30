@@ -9,11 +9,17 @@ import type { RpcLocalCommunityJson, RpcLocalCommunityUpdateResultType, RpcRemot
 import { z } from "zod";
 import { PKCError } from "../pkc-error.js";
 import { rejectWhenAbortSignalFires, rejectWhenCommunityStopsOrAborts, throwIfAbortSignalAborted } from "../util.js";
-import type { AuthorNameRpcParam, CidRpcParam } from "../clients/rpc-client/types.js";
+import type { AuthorNameRpcParam, CidRpcParam, PKCCommunitiesEntry } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam, parseRpcFetchCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { listStartedCommunities } from "./tracked-instance-registry-util.js";
+import { findCommunitiesEntry } from "../community/communities-entry-util.js";
 import { CommentJson } from "../publications/comment/types.js";
 import type PKCRpcClient from "../clients/rpc-client/pkc-rpc-client.js";
+
+// A communities list the RPC server sent in a shape this client can't parse (issue #455). It never becomes a
+// communitieschange, so a wait for the list has to fail on this error instead
+const isInvalidCommunitiesListError = (error: PKCError | Error): error is PKCError =>
+    error instanceof PKCError && error.code === "ERR_INVALID_RPC_COMMUNITIES_SCHEMA";
 
 // This is a helper class for separating RPC-client logic from main PKC
 // Not meant to be used with end users
@@ -31,6 +37,8 @@ export class PKCWithRpcClient extends PKC {
         const log = Logger("pkc-js:pkc-with-rpc-client:_init");
 
         this.communities = [];
+
+        this._waitForFirstValidCommunitiesList();
 
         this._pkcRpcClient.on("communitieschange", (newSubs) => this.emit("communitieschange", newSubs));
 
@@ -51,6 +59,32 @@ export class PKCWithRpcClient extends PKC {
         });
     }
 
+    // A communities list the RPC server sends in a shape this client can't parse (e.g. a server on an older build)
+    // never becomes a communitieschange, so every wait for the first list would hang. Fail them with the schema error
+    // instead (issue #455), then wait again: a later valid list (e.g. after the server is upgraded and the client
+    // resubscribes) lets createCommunity work again without recreating the PKC
+    private _waitForFirstValidCommunitiesList() {
+        this._promiseToWaitForFirstCommunitieschangeEvent = new Promise((resolve, reject) => {
+            const cleanup = () => {
+                this.removeListener("communitieschange", onCommunitiesChange);
+                this._pkcRpcClient.removeListener("error", onRpcError);
+            };
+            const onCommunitiesChange = (event: { communities: PKCCommunitiesEntry[] }) => {
+                cleanup();
+                resolve(event);
+            };
+            const onRpcError = (error: PKCError | Error) => {
+                if (!isInvalidCommunitiesListError(error)) return;
+                cleanup();
+                reject(error);
+                this._waitForFirstValidCommunitiesList();
+            };
+            this.on("communitieschange", onCommunitiesChange);
+            this._pkcRpcClient.on("error", onRpcError);
+        });
+        this._promiseToWaitForFirstCommunitieschangeEvent.catch(() => {}); // rejects only for a caller that awaits it
+    }
+
     override async fetchCid(cid: CidRpcParam) {
         const parsedCid = parseRpcFetchCidParam(cid).cid;
         return this._pkcRpcClient.fetchCid({ cid: parsedCid });
@@ -59,6 +93,31 @@ export class PKCWithRpcClient extends PKC {
     override async resolveAuthorName(args: AuthorNameRpcParam) {
         const parsedArgs = parseRpcAuthorNameParam(args);
         return this._pkcRpcClient.resolveAuthorName(parsedArgs);
+    }
+
+    // Like the base wait, plus it fails with the schema error when a list arrives that this client can't parse, which
+    // would otherwise leave RPC createCommunity waiting forever for the new community to be listed
+    override async _awaitCommunitiesToIncludeCommunity(communityAddress: string): Promise<void> {
+        const isListed = () => Boolean(findCommunitiesEntry(this.communities, { address: communityAddress }));
+        if (isListed()) return;
+        await new Promise<void>((resolve, reject) => {
+            const cleanup = () => {
+                this.removeListener("communitieschange", onCommunitiesChange);
+                this._pkcRpcClient.removeListener("error", onRpcError);
+            };
+            const onCommunitiesChange = () => {
+                if (!isListed()) return;
+                cleanup();
+                resolve();
+            };
+            const onRpcError = (error: PKCError | Error) => {
+                if (!isInvalidCommunitiesListError(error)) return;
+                cleanup();
+                reject(error);
+            };
+            this.on("communitieschange", onCommunitiesChange);
+            this._pkcRpcClient.on("error", onRpcError);
+        });
     }
 
     override async destroy() {
@@ -119,8 +178,13 @@ export class PKCWithRpcClient extends PKC {
 
         if (hasIdentifier && effectiveAddress) {
             await this._waitForCommunitiesToBeDefined();
-            const rpcCommunities = this.communities; // should probably be replaced with a direct call for communities
-            const isCommunityRpcLocal = rpcCommunities.includes(effectiveAddress);
+            // Found by address, name or identity key, so a community the RPC lists under its name is local when asked for by key
+            const rpcLocalEntry = findCommunitiesEntry(this.communities, {
+                address: (parsedRpcOptions as Record<string, unknown>).address as string | undefined,
+                name: (parsedRpcOptions as Record<string, unknown>).name as string | undefined,
+                publicKey: (parsedRpcOptions as Record<string, unknown>).publicKey as string | undefined
+            });
+            const isCommunityRpcLocal = Boolean(rpcLocalEntry);
 
             if ("clients" in options && isCommunityRpcLocal) {
                 // Jsonified local community — rehydrate from raw.localCommunity instead of doing a fresh RPC fetch
@@ -139,7 +203,7 @@ export class PKCWithRpcClient extends PKC {
             } else if (isCommunityRpcLocal) {
                 // No jsonified data — do a fresh fetch
                 const community = new RpcLocalCommunity(this);
-                community.setAddress(effectiveAddress!);
+                community.setAddress(rpcLocalEntry!.address);
                 // wait for one update here, and then stop
                 const updatePromise = new Promise((resolve) => community.once("update", resolve));
                 let error: PKCError | Error | undefined;

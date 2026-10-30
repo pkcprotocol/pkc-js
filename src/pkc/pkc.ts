@@ -1,10 +1,12 @@
 import {
     getDefaultDataPath,
     listCommunitiesSync as nodeListCommunities,
+    findLocalCommunityAddress,
     createKuboRpcClient,
     monitorCommunitiesDirectory,
     tryToDeleteCommunitiesThatFailedToBeDeletedBefore
 } from "../runtime/node/util.js";
+import { findCommunitiesEntry } from "../community/communities-entry-util.js";
 import type {
     StorageInterface,
     GatewayClient,
@@ -25,7 +27,6 @@ import type {
 import { Comment } from "../publications/comment/comment.js";
 import {
     waitForUpdateInCommunityInstanceWithErrorAndTimeout,
-    areEquivalentCommunityAddresses,
     deepMergeRuntimeFields,
     doesDomainAddressHaveCapitalLetter,
     hideClassPrivateProps,
@@ -140,7 +141,7 @@ import type { PageTypeJson } from "../pages/types.js";
 // _initLibp2pJsClientsIfNeeded() rather than statically here. Libp2pJsClient is used only as a type,
 // so it stays a type-only import (erased at build time, no runtime cost).
 import type { Libp2pJsClient } from "../helia/libp2pjsClient.js";
-import type { AuthorNameRpcParam, CidRpcParam, RpcFetchCidResult } from "../clients/rpc-client/types.js";
+import type { AuthorNameRpcParam, CidRpcParam, PKCCommunitiesEntry, RpcFetchCidResult } from "../clients/rpc-client/types.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { cleanWireAuthor, getAuthorNameFromWire, normalizeCreatePublicationAuthor } from "../publications/publication-author.js";
 import { CommunityList } from "../community-list/community-list.js";
@@ -183,7 +184,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             [libp2pJsClientKey: NonNullable<ParsedPKCOptions["libp2pJsClientsOptions"]>[number]["key"]]: Libp2pJsClient;
         };
     };
-    communities!: string[]; // default is [], in case of RPC it will be the aggregate of all RPC servers' communities
+    communities!: PKCCommunitiesEntry[]; // default is [], in case of RPC it will be the aggregate of all RPC servers' communities
 
     settings: {
         challenges?: Record<string, ChallengeFileFactoryInput>;
@@ -216,7 +217,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
     private _httpRouterSetupPromise?: Promise<void>;
     destroyed = false;
-    private _promiseToWaitForFirstCommunitieschangeEvent: Promise<string[]>;
+    protected _promiseToWaitForFirstCommunitieschangeEvent: Promise<{ communities: PKCCommunitiesEntry[] }>;
 
     private _storageLRUs: Record<string, LRUStorageInterface> = {}; // Cache name to storage interface
     _memCaches!: PKCMemCaches;
@@ -324,8 +325,8 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         };
         // nameResolvers contains functions that can't be serialized over RPC, so skip for RPC clients
         this.nameResolvers = this.pkcRpcClientsOptions ? undefined : this.parsedPKCOptions.nameResolvers;
-        this.on("communitieschange", (newCommunities) => {
-            this.communities = newCommunities;
+        this.on("communitieschange", ({ communities }) => {
+            this.communities = communities;
         });
 
         this._promiseToWaitForFirstCommunitieschangeEvent = new Promise((resolve) => this.once("communitieschange", resolve));
@@ -929,11 +930,12 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     async _awaitCommunitiesToIncludeCommunity(communityAddress: string): Promise<void> {
-        if (this.communities.includes(communityAddress)) return;
+        const isListed = () => Boolean(findCommunitiesEntry(this.communities, { address: communityAddress }));
+        if (isListed()) return;
         else
             await resolveWhenPredicateIsTrue({
                 toUpdate: this,
-                predicate: () => this.communities.includes(communityAddress),
+                predicate: isListed,
                 eventName: "communitieschange"
             });
     }
@@ -990,7 +992,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         // jsonfied = JSON.parse(JSON.stringify(communityInstance))
         // should probably exclude internal and instance-exclusive props like states
 
-        if (this.communities.includes(jsonfied.address)) return this._createLocalCommunity(jsonfied);
+        if (findCommunitiesEntry(this.communities, { address: jsonfied.address })) return this._createLocalCommunity(jsonfied);
         else return this._createRemoteCommunityInstance(jsonfied);
     }
 
@@ -1074,11 +1076,12 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             return this._createLocalCommunity(localOptions);
         } else if (hasIdentifier && !hasSigner) {
             // community is already created, need to check if it's local or remote
-            const localCommunities = await nodeListCommunities(this);
-            // Check for exact match or .eth/.bso alias match
-            const localCommunityAddress = localCommunities.find((localAddr) =>
-                areEquivalentCommunityAddresses(localAddr, effectiveAddress!)
-            );
+            // Matches the address, an .eth/.bso alias of it, or the identity key of a community listed under its name
+            const localCommunityAddress = findLocalCommunityAddress(this, {
+                address: (parsedOptions as Record<string, unknown>).address as string | undefined,
+                name: (parsedOptions as Record<string, unknown>).name as string | undefined,
+                publicKey: (parsedOptions as Record<string, unknown>).publicKey as string | undefined
+            });
             if (localCommunityAddress) return this._createLocalCommunity({ address: localCommunityAddress });
             else {
                 const parsedRemoteOptions = parseCreateRemoteCommunityFunctionArgumentSchemaWithPKCErrorIfItFails(options);

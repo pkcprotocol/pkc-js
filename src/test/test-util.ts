@@ -1,4 +1,5 @@
 import PKCIndex from "../index.js";
+import type { PKCCommunitiesEntry } from "../clients/rpc-client/types.js";
 import {
     calculateStringSizeSameAsIpfsAddCidV0,
     hasTransientNetworkErrorCode,
@@ -2958,4 +2959,70 @@ export async function fetchCidWithTransientRetry({
             await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
     }
+}
+
+type PKCWithCommunitiesList = { communities: PKCCommunitiesEntry[] };
+
+// The pkc.communities entry with every supplied field (identity key, address), or undefined. Non-throwing, for polling
+// predicates (issue #455)
+export function findListedCommunity({
+    pkc,
+    publicKey,
+    address
+}: {
+    pkc: PKCWithCommunitiesList;
+    publicKey?: string;
+    address?: string;
+}): PKCCommunitiesEntry | undefined {
+    if (publicKey === undefined && address === undefined) throw Error("findListedCommunity needs a publicKey or an address");
+    return pkc.communities.find(
+        (entry) => (publicKey === undefined || entry.publicKey === publicKey) && (address === undefined || entry.address === address)
+    );
+}
+
+// Asserts pkc.communities lists the community with this identity key under exactly this address and name. A community
+// without a name must be listed without one
+export function expectCommunityListed({
+    pkc,
+    publicKey,
+    address,
+    name
+}: {
+    pkc: PKCWithCommunitiesList;
+    publicKey: string;
+    address: string;
+    name: string | undefined;
+}) {
+    const entry = findListedCommunity({ pkc, publicKey });
+    assert(entry, `Expected pkc.communities to list ${publicKey}, got ${JSON.stringify(pkc.communities)}`);
+    assert.deepStrictEqual(
+        { address: entry.address, name: entry.name },
+        { address, name },
+        `pkc.communities lists ${publicKey} under the wrong address or name`
+    );
+}
+
+// Asserts no pkc.communities entry has this identity key, and none is listed under this address. Pass only `address`
+// for a community that moved (renamed, or a key that took a name) and is still listed under its key; pass both for one
+// that is gone
+export function expectCommunityNotListed({
+    pkc,
+    publicKey,
+    address
+}: {
+    pkc: PKCWithCommunitiesList;
+    publicKey?: string;
+    address?: string;
+}) {
+    if (publicKey === undefined && address === undefined) throw Error("expectCommunityNotListed needs a publicKey or an address");
+    if (publicKey !== undefined)
+        assert(
+            !findListedCommunity({ pkc, publicKey }),
+            `Expected pkc.communities not to list key ${publicKey}, got ${JSON.stringify(pkc.communities)}`
+        );
+    if (address !== undefined)
+        assert(
+            !findListedCommunity({ pkc, address }),
+            `Expected pkc.communities not to list address ${address}, got ${JSON.stringify(pkc.communities)}`
+        );
 }

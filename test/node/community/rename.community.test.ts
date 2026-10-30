@@ -8,7 +8,9 @@ import {
     resolveWhenConditionIsTrue,
     waitTillPostInCommunityPages,
     waitTillReplyInParentPages,
-    publishWithExpectedResult
+    publishWithExpectedResult,
+    expectCommunityListed,
+    expectCommunityNotListed
 } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { messages } from "../../../dist/node/errors.js";
@@ -116,8 +118,8 @@ for (const editKey of ["name", "address"] as const) {
             const localCommunity = community as LocalCommunity;
             expect(await localCommunity._dbHandler.isCommunityStartLocked(newName)).to.be.true;
             expect(await localCommunity._dbHandler.isCommunityStartLocked(oldName)).to.be.false;
-            expect(pkc.communities).to.include(newName);
-            expect(pkc.communities).to.not.include(oldName);
+            expectCommunityListed({ pkc: pkc, publicKey: community.publicKey!, address: newName, name: newName });
+            expectCommunityNotListed({ pkc, address: oldName }); // moved: still listed by its key, under the new name
         });
 
         it(`hides the comments signed with the old name (#401: N -> M)`, async () => {
@@ -321,8 +323,13 @@ for (const renameCase of pubsubRenameCases) {
             expect(ctx.community.address).to.equal(expectedAddress);
             expect(await ctx.community._dbHandler.isCommunityStartLocked(expectedAddress)).to.be.true;
             expect(await ctx.community._dbHandler.isCommunityStartLocked(ctx.oldName)).to.be.false;
-            expect(ctx.pkc.communities).to.include(expectedAddress);
-            expect(ctx.pkc.communities).to.not.include(ctx.oldName);
+            expectCommunityListed({
+                pkc: ctx.pkc,
+                publicKey: ctx.community.publicKey!,
+                address: expectedAddress,
+                name: ctx.community.name
+            });
+            expectCommunityNotListed({ pkc: ctx.pkc, address: ctx.oldName }); // moved: still listed by its key
         });
 
         it(`${renameCase.oldCommentsVisible ? "keeps" : "hides"} the comments signed with the old name`, async () => {

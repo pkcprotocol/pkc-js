@@ -416,7 +416,7 @@ Subscribe to the communities list managed by the pkc rpc to receive notification
 
 #### Notification Format:
 
-The notification format is the same as seen in the pkc-js [PKC Events](https://github.com/pkcprotocol/pkc-js#pkc-events)
+The notification format is the same as seen in the pkc-js [PKC Events](https://github.com/pkcprotocol/pkc-js#pkc-events). Each entry is one community stored on the RPC server: `name` (absent for a community without a domain), `publicKey`, and `started` (whether its start lock is held). A notification is sent on subscribe and whenever a community is created, deleted, renamed, started or stopped.
 
 `communitieschange` event:
 
@@ -425,10 +425,12 @@ The notification format is the same as seen in the pkc-js [PKC Events](https://g
   "jsonrpc": "2.0",
   "method": "communitiesNotification",
   "params": {
-    "result": [
-      "memes.bso",
-      "news.bso"
-    ],
+    "result": {
+      "communities": [
+        { "name": "memes.bso", "publicKey": "12D3KooW...", "started": true },
+        { "publicKey": "12D3KooW...", "started": false }
+      ]
+    },
     "event": "communitieschange",
     "subscription": 23784
   }

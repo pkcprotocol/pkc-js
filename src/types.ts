@@ -19,7 +19,7 @@ import { LRUCache } from "lru-cache";
 import type { CommunityIpfsType } from "./community/types.js";
 import type { PageIpfs } from "./pages/types.js";
 import type { CommentIpfsType } from "./publications/comment/types.js";
-import type { CidRpcParam } from "./clients/rpc-client/types.js";
+import type { CidRpcParam, PKCCommunitiesEntry } from "./clients/rpc-client/types.js";
 
 export type ProtocolVersion = z.infer<typeof ProtocolVersionSchema>;
 export type ChainTicker = z.infer<typeof ChainTickerSchema>;
@@ -79,14 +79,14 @@ export type NativeFunctions = {
 
 export interface PKCEvents {
     error: (error: PKCError | Error) => void;
-    communitieschange: (listOfCommunities: string[]) => void;
+    communitieschange: (event: { communities: PKCCommunitiesEntry[] }) => void;
     settingschange: (newSettings: ParsedPKCOptions) => void;
 }
 
 export interface PKCRpcClientEvents {
     statechange: (state: PKCRpcClient["state"]) => void;
     error: (error: PKCError | Error) => void;
-    communitieschange: (listOfCommunities: string[]) => void;
+    communitieschange: (event: { communities: PKCCommunitiesEntry[] }) => void;
     settingschange: (newSettings: PKCWsServerSettingsSerialized) => void;
 }
 
