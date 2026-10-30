@@ -100,6 +100,7 @@ export class Comment
     postCid?: CommentIpfsType["postCid"];
     pseudonymityMode?: CommentIpfsType["pseudonymityMode"];
     linkHtmlTagName?: CommentPubsubMessagePublication["linkHtmlTagName"];
+    gallery?: CommentPubsubMessagePublication["gallery"];
 
     // CommentEdit and CommentUpdate props
     upvoteCount?: CommentUpdateType["upvoteCount"];
@@ -220,6 +221,7 @@ export class Comment
         this.nsfw = o.nsfw;
         this.flairs = o.flairs;
         this.quotedCids = o.quotedCids;
+        this.gallery = o.gallery;
         this.crosspost = o.crosspost ? cloneCrosspostForRuntime(o.crosspost) : undefined;
     }
 
@@ -362,6 +364,7 @@ export class Comment
         this.title = props.title;
         this.linkHtmlTagName = props.linkHtmlTagName;
         this.quotedCids = props.quotedCids;
+        this.gallery = props.gallery;
         this.crosspost = props.crosspost ? cloneCrosspostForRuntime(props.crosspost) : undefined;
         // Initializing Comment Ipfs props
         if ("depth" in props && typeof props.depth === "number") {

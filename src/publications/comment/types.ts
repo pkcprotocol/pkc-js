@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
     CommentChallengeRequestToEncryptSchema,
+    CommentGalleryItemSchema,
     CommentIpfsSchema,
     CommentPubsubMessagePublicationSchema,
     CommentSignedPropertyNames,
@@ -29,6 +30,8 @@ import Publication from "../publication.js";
 export type CommunityAuthor = z.infer<typeof CommunityAuthorSchema>;
 
 export type CreateCommentOptions = z.infer<typeof CreateCommentOptionsSchema>;
+
+export type CommentGalleryItem = z.infer<typeof CommentGalleryItemSchema>;
 
 export type CommentPubsubMessagePublication = z.infer<typeof CommentPubsubMessagePublicationSchema>;
 
