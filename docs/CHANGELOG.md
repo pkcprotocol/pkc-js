@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.0.129](https://github.com/pkcprotocol/pkc-js/compare/v0.0.128...v0.0.129) (2026-10-30)
+
+### ⚠ BREAKING CHANGES
+
+* **pkc:** pkc.communities entries are objects instead of address
+strings, and communitieschange listeners receive { communities }.
+
+### Features
+
+* **pkc:** list communities as { name, publicKey, address, started } entries ([#460](https://github.com/pkcprotocol/pkc-js/issues/460)) ([276ea3c](https://github.com/pkcprotocol/pkc-js/commit/276ea3c093ed745b78619f90a192cd3625ea8514)), closes [#455](https://github.com/pkcprotocol/pkc-js/issues/455) [#141](https://github.com/pkcprotocol/pkc-js/issues/141)
+
 ## [0.0.128](https://github.com/pkcprotocol/pkc-js/compare/v0.0.127...v0.0.128) (2026-10-29)
 
 ### Performance
