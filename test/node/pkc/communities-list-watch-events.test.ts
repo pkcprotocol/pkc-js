@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
@@ -76,32 +76,33 @@ describe("isCommunitiesListChangeEvent with a held start lock", () => {
 });
 
 // The filter runs inside the watcher callback, where a throw is an uncaught exception that can end the process. A start
-// lock check that fails with anything but ENOENT (EACCES, EIO, ENOTDIR) must not escape it
+// lock check that fails with anything but ENOENT (EACCES, EIO) must not escape it. The failure is stubbed rather than
+// produced on disk: a path under a regular file fails with ENOTDIR on Linux and macOS but with ENOENT on Windows, which
+// checkSync reports as unlocked
 describe("isCommunitiesListChangeEvent when the start lock check fails", () => {
-    const parentFile = path.join(process.cwd(), ".tmp", `communities-watch-events-not-a-dir-${uuidv4()}`);
-
-    beforeAll(() => {
-        fs.mkdirSync(path.dirname(parentFile), { recursive: true });
-        fs.writeFileSync(parentFile, ""); // a file where the dataPath's directory should be: stat fails with ENOTDIR
-    });
-
-    afterAll(() => {
-        fs.rmSync(parentFile, { force: true });
-    });
+    const dataPath = path.join(process.cwd(), ".tmp", `communities-watch-events-check-fails-${uuidv4()}`);
 
     it("does not throw, and counts the event as a change so the refresh decides", () => {
+        const checkSync = vi.spyOn(lockfile, "checkSync").mockImplementation(() => {
+            throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+        });
         const communityAddress = "lock-check-fails.bso";
         const pkc = {
-            dataPath: path.join(parentFile, "data"),
+            dataPath,
             communities: [{ name: communityAddress, publicKey: "12D3KooWLockCheckFails", address: communityAddress, started: false }]
         } as unknown as PKC;
         let result: boolean | undefined;
-        expect(() => (result = isCommunitiesListChangeEvent({ pkc, filename: `${communityAddress}.start.lock` }))).to.not.throw();
+        try {
+            expect(() => (result = isCommunitiesListChangeEvent({ pkc, filename: `${communityAddress}.start.lock` }))).to.not.throw();
+            expect(checkSync).toHaveBeenCalled(); // the stub is the check the filter ran
+        } finally {
+            checkSync.mockRestore();
+        }
         expect(result).to.equal(true);
     });
 
     it("counts an event without a filename as a change", () => {
-        const pkc = { dataPath: path.join(parentFile, "data"), communities: [] } as unknown as PKC;
+        const pkc = { dataPath, communities: [] } as unknown as PKC;
         expect(isCommunitiesListChangeEvent({ pkc, filename: null })).to.equal(true);
     });
 });
