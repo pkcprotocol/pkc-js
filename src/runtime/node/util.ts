@@ -670,6 +670,7 @@ export function isCommunitiesListChangeEvent({ pkc, filename }: { pkc: PKC; file
 }
 
 export async function monitorCommunitiesDirectory(pkc: PKC) {
+    const log = Logger("pkc-js:monitorCommunitiesDirectory");
     const watchAbortController = new AbortController();
     const communitiesPath = path.join(pkc.dataPath!, "communities");
 
@@ -692,7 +693,9 @@ export async function monitorCommunitiesDirectory(pkc: PKC) {
         try {
             refreshCommunitiesList(pkc);
         } catch (error) {
-            // Handle any errors
+            // pkc.communities keeps its last list until a later event refreshes it, e.g. when one community's start lock
+            // check fails (EACCES, EIO), which aborts the whole refresh
+            log.error("Failed to refresh pkc.communities after a change in", communitiesPath, error);
         } finally {
             isProcessingChange = false;
         }
