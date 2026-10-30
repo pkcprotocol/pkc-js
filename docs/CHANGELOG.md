@@ -1,5 +1,7 @@
 # Changelog
 
+## [0.0.130](https://github.com/pkcprotocol/pkc-js/compare/v0.0.129...v0.0.130) (2026-10-30)
+
 ## [0.0.129](https://github.com/pkcprotocol/pkc-js/compare/v0.0.128...v0.0.129) (2026-10-30)
 
 ### ⚠ BREAKING CHANGES
