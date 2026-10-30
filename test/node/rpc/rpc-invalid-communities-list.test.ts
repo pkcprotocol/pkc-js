@@ -337,3 +337,43 @@ describe("RPC client creating a new community after a valid first list, when the
         }
     });
 });
+
+// The saved schema error only stands in for a missing first list. Once a valid list has arrived, an invalid later one
+// leaves pkc.communities at that valid list, which is what any delayed notification does too, so lookups of other
+// communities must keep working on it. Only the wait for a new community to be listed has to fail
+describe("RPC client looking up a community after a valid list was followed by an invalid one", () => {
+    let server: OldShapeCommunitiesRpcServer;
+
+    beforeAll(async () => {
+        server = await OldShapeCommunitiesRpcServer.create({ firstCommunities: [] });
+    });
+
+    afterAll(async () => {
+        await server.destroy();
+    });
+
+    it("createCommunity({ address }) of a remote community still works", async () => {
+        const pkc = await PKC({ pkcRpcClientsOptions: [`ws://127.0.0.1:${server.port}`], httpRoutersOptions: [] });
+        pkc.on("error", () => {});
+        try {
+            // protected: the wait for the server's first list
+            await (pkc as unknown as { _waitForCommunitiesToBeDefined(): Promise<void> })._waitForCommunitiesToBeDefined();
+            expect(pkc.communities).to.deep.equal([]);
+
+            // the server answers with an old-shape list naming the new community, ahead of the response
+            const createError = await pkc.createCommunity({}).then(
+                (): { code?: string } | undefined => undefined,
+                (error: { code?: string }) => error
+            );
+            expect(createError?.code).to.equal("ERR_INVALID_RPC_COMMUNITIES_SCHEMA");
+
+            const outcome = await pkc.createCommunity({ address: "remote-after-invalid-list.bso" }).then(
+                (community) => ({ address: community.address, errorCode: undefined as string | undefined }),
+                (error: { code?: string }) => ({ address: undefined as string | undefined, errorCode: error.code })
+            );
+            expect(outcome).to.deep.equal({ address: "remote-after-invalid-list.bso", errorCode: undefined });
+        } finally {
+            await pkc.destroy();
+        }
+    });
+});

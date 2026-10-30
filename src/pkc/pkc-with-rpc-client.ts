@@ -45,6 +45,7 @@ export class PKCWithRpcClient extends PKC {
         });
         this.on("communitieschange", () => {
             this._invalidCommunitiesListError = undefined;
+            this._hasReceivedValidCommunitiesList = true;
         });
         this._waitForFirstValidCommunitiesList();
 
@@ -69,6 +70,7 @@ export class PKCWithRpcClient extends PKC {
 
     // The schema error of the last communities list this client couldn't parse, until a valid list arrives
     private _invalidCommunitiesListError?: PKCError | Error;
+    private _hasReceivedValidCommunitiesList = false;
 
     // A communities list the RPC server sends in a shape this client can't parse (e.g. a server on an older build)
     // never becomes a communitieschange, so every wait for the first list would hang. Fail them with the schema error
@@ -97,8 +99,10 @@ export class PKCWithRpcClient extends PKC {
         this._promiseToWaitForFirstCommunitieschangeEvent.catch(() => {}); // rejects only for a caller that awaits it
     }
 
+    // The saved error only fails this wait while no valid list has arrived. After one, an invalid later list leaves
+    // pkc.communities at the last valid list, as any delayed notification would, so lookups keep working on it
     protected override async _waitForCommunitiesToBeDefined() {
-        if (this._invalidCommunitiesListError) throw this._invalidCommunitiesListError;
+        if (this._invalidCommunitiesListError && !this._hasReceivedValidCommunitiesList) throw this._invalidCommunitiesListError;
         await super._waitForCommunitiesToBeDefined();
     }
 
