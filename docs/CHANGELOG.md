@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.131](https://github.com/pkcprotocol/pkc-js/compare/v0.0.130...v0.0.131) (2026-10-30)
+
+### Bug Fixes
+
+* **pkc:** fail createCommunity after an early invalid communities list, contain lock check errors ([#465](https://github.com/pkcprotocol/pkc-js/issues/465)) ([15f6708](https://github.com/pkcprotocol/pkc-js/commit/15f670859efa0807835a9c342964259f3406e966))
+
 ## [0.0.130](https://github.com/pkcprotocol/pkc-js/compare/v0.0.129...v0.0.130) (2026-10-30)
 
 ## [0.0.129](https://github.com/pkcprotocol/pkc-js/compare/v0.0.128...v0.0.129) (2026-10-30)
