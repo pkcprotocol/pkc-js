@@ -38,6 +38,14 @@ export class PKCWithRpcClient extends PKC {
 
         this.communities = [];
 
+        // Kept for the PKC's lifetime, not only until the first valid list: an older server with no communities sends
+        // [], which parses, and only its next list (the one naming a new community) fails the schema
+        this._pkcRpcClient.on("error", (error) => {
+            if (isInvalidCommunitiesListError(error)) this._invalidCommunitiesListError = error;
+        });
+        this.on("communitieschange", () => {
+            this._invalidCommunitiesListError = undefined;
+        });
         this._waitForFirstValidCommunitiesList();
 
         this._pkcRpcClient.on("communitieschange", (newSubs) => this.emit("communitieschange", newSubs));
@@ -75,13 +83,11 @@ export class PKCWithRpcClient extends PKC {
             };
             const onCommunitiesChange = (event: { communities: PKCCommunitiesEntry[] }) => {
                 cleanup();
-                this._invalidCommunitiesListError = undefined;
                 resolve(event);
             };
             const onRpcError = (error: PKCError | Error) => {
                 if (!isInvalidCommunitiesListError(error)) return;
                 cleanup();
-                this._invalidCommunitiesListError = error;
                 reject(error);
                 this._waitForFirstValidCommunitiesList();
             };

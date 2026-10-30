@@ -297,3 +297,43 @@ describe("RPC client creating a new community after an invalid list has already 
         }
     });
 });
+
+// An older server with no communities sends [], which parses in both shapes, so the first-list wait succeeds. Its list
+// for the new community is then old-shape, and can arrive before the createCommunity response, so the schema error must
+// still be kept after a valid first list, or _awaitCommunitiesToIncludeCommunity waits for a list the server never re-sends
+describe("RPC client creating a new community after a valid first list, when the next list is invalid", () => {
+    let server: OldShapeCommunitiesRpcServer;
+
+    beforeAll(async () => {
+        server = await OldShapeCommunitiesRpcServer.create({ firstCommunities: [] });
+    });
+
+    afterAll(async () => {
+        await server.destroy();
+    });
+
+    it("createCommunity({}) rejects with ERR_INVALID_RPC_COMMUNITIES_SCHEMA instead of hanging", async () => {
+        const pkc = await PKC({ pkcRpcClientsOptions: [`ws://127.0.0.1:${server.port}`], httpRoutersOptions: [] });
+        pkc.on("error", () => {});
+        try {
+            // protected: the wait for the server's first list
+            await (pkc as unknown as { _waitForCommunitiesToBeDefined(): Promise<void> })._waitForCommunitiesToBeDefined();
+            expect(pkc.communities).to.deep.equal([]);
+
+            let sentinel: NodeJS.Timeout | undefined;
+            const outcome = await Promise.race([
+                pkc.createCommunity({}).then(
+                    () => ({ status: "resolved" as const, errorCode: undefined as string | undefined }),
+                    (error: { code?: string }) => ({ status: "rejected" as const, errorCode: error.code })
+                ),
+                new Promise<{ status: "hung"; errorCode: string | undefined }>((resolve) => {
+                    sentinel = setTimeout(() => resolve({ status: "hung", errorCode: undefined }), 10_000);
+                })
+            ]);
+            clearTimeout(sentinel);
+            expect(outcome).to.deep.equal({ status: "rejected", errorCode: "ERR_INVALID_RPC_COMMUNITIES_SCHEMA" });
+        } finally {
+            await pkc.destroy();
+        }
+    });
+});
