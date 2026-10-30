@@ -652,19 +652,25 @@ const START_LOCK_SUFFIX = ".start.lock";
 // watcher reports that touch with the same event type as taking or releasing the lock ("rename" on Linux). A full
 // refresh stats every community's lock, so refreshing on every touch costs O(started × communities) sync work every
 // few seconds per PKC instance, which blocked the event loop on the Windows CI runner. So a start lock event only
-// counts when that one community's `started` no longer matches its listed entry
+// counts when that one community's `started` no longer matches its listed entry. Runs in the watcher callback, where a
+// throw is uncaught, so a lock check that fails (EACCES, EIO) counts as a change and the refresh handles the error
 export function isCommunitiesListChangeEvent({ pkc, filename }: { pkc: PKC; filename: string | null }): boolean {
     if (typeof filename !== "string") return true;
     if (filename.endsWith(START_LOCK_SUFFIX)) {
         const communityAddress = filename.slice(0, -START_LOCK_SUFFIX.length);
         const entry = pkc.communities.find((listed) => listed.address === communityAddress);
         if (!entry) return true;
-        return entry.started !== isCommunityStartLockedSync({ dataPath: pkc.dataPath!, communityAddress });
+        try {
+            return entry.started !== isCommunityStartLockedSync({ dataPath: pkc.dataPath!, communityAddress });
+        } catch {
+            return true;
+        }
     }
     return !COMMUNITIES_DIR_EXTENSIONS_TO_IGNORE.some((ext) => filename.endsWith(ext));
 }
 
 export async function monitorCommunitiesDirectory(pkc: PKC) {
+    const log = Logger("pkc-js:monitorCommunitiesDirectory");
     const watchAbortController = new AbortController();
     const communitiesPath = path.join(pkc.dataPath!, "communities");
 
@@ -687,7 +693,9 @@ export async function monitorCommunitiesDirectory(pkc: PKC) {
         try {
             refreshCommunitiesList(pkc);
         } catch (error) {
-            // Handle any errors
+            // pkc.communities keeps its last list until a later event refreshes it, e.g. when one community's start lock
+            // check fails (EACCES, EIO), which aborts the whole refresh
+            log.error("Failed to refresh pkc.communities after a change in", communitiesPath, error);
         } finally {
             isProcessingChange = false;
         }

@@ -38,6 +38,15 @@ export class PKCWithRpcClient extends PKC {
 
         this.communities = [];
 
+        // Kept for the PKC's lifetime, not only until the first valid list: an older server with no communities sends
+        // [], which parses, and only its next list (the one naming a new community) fails the schema
+        this._pkcRpcClient.on("error", (error) => {
+            if (isInvalidCommunitiesListError(error)) this._invalidCommunitiesListError = error;
+        });
+        this.on("communitieschange", () => {
+            this._invalidCommunitiesListError = undefined;
+            this._hasReceivedValidCommunitiesList = true;
+        });
         this._waitForFirstValidCommunitiesList();
 
         this._pkcRpcClient.on("communitieschange", (newSubs) => this.emit("communitieschange", newSubs));
@@ -59,10 +68,15 @@ export class PKCWithRpcClient extends PKC {
         });
     }
 
+    // The schema error of the last communities list this client couldn't parse, until a valid list arrives
+    private _invalidCommunitiesListError?: PKCError | Error;
+    private _hasReceivedValidCommunitiesList = false;
+
     // A communities list the RPC server sends in a shape this client can't parse (e.g. a server on an older build)
     // never becomes a communitieschange, so every wait for the first list would hang. Fail them with the schema error
-    // instead (issue #455), then wait again: a later valid list (e.g. after the server is upgraded and the client
-    // resubscribes) lets createCommunity work again without recreating the PKC
+    // instead (issue #455), including waits that start after the list arrived (the server only re-sends on a change),
+    // then wait again: a later valid list (e.g. after the server is upgraded and the client resubscribes) lets
+    // createCommunity work again without recreating the PKC
     private _waitForFirstValidCommunitiesList() {
         this._promiseToWaitForFirstCommunitieschangeEvent = new Promise((resolve, reject) => {
             const cleanup = () => {
@@ -85,6 +99,13 @@ export class PKCWithRpcClient extends PKC {
         this._promiseToWaitForFirstCommunitieschangeEvent.catch(() => {}); // rejects only for a caller that awaits it
     }
 
+    // The saved error only fails this wait while no valid list has arrived. After one, an invalid later list leaves
+    // pkc.communities at the last valid list, as any delayed notification would, so lookups keep working on it
+    protected override async _waitForCommunitiesToBeDefined() {
+        if (this._invalidCommunitiesListError && !this._hasReceivedValidCommunitiesList) throw this._invalidCommunitiesListError;
+        await super._waitForCommunitiesToBeDefined();
+    }
+
     override async fetchCid(cid: CidRpcParam) {
         const parsedCid = parseRpcFetchCidParam(cid).cid;
         return this._pkcRpcClient.fetchCid({ cid: parsedCid });
@@ -96,10 +117,13 @@ export class PKCWithRpcClient extends PKC {
     }
 
     // Like the base wait, plus it fails with the schema error when a list arrives that this client can't parse, which
-    // would otherwise leave RPC createCommunity waiting forever for the new community to be listed
+    // would otherwise leave RPC createCommunity waiting forever for the new community to be listed. That includes a list
+    // that arrived before this wait started (e.g. ahead of the createCommunity response), since the server only re-sends
+    // the list on a change
     override async _awaitCommunitiesToIncludeCommunity(communityAddress: string): Promise<void> {
         const isListed = () => Boolean(findCommunitiesEntry(this.communities, { address: communityAddress }));
         if (isListed()) return;
+        if (this._invalidCommunitiesListError) throw this._invalidCommunitiesListError;
         await new Promise<void>((resolve, reject) => {
             const cleanup = () => {
                 this.removeListener("communitieschange", onCommunitiesChange);

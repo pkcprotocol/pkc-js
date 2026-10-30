@@ -32,7 +32,7 @@ import type { LocalCommunity } from "../../dist/node/runtime/node/community/loca
 
 export type PKCWsServerType = Awaited<ReturnType<typeof PKCWsServer.PKCWsServer>>;
 
-export async function createInProcessRpcServer(opts: { serverPKC: PKCType; authKey: string }): Promise<{
+export async function createInProcessRpcServer(opts: { serverPKC: PKCType; authKey: string; allowPrivateKeyExport?: boolean }): Promise<{
     rpcServer: PKCWsServerType;
     rpcUrl: string;
     port: number;
@@ -40,7 +40,7 @@ export async function createInProcessRpcServer(opts: { serverPKC: PKCType; authK
     setPKCJs(async () => opts.serverPKC);
     let rpcServer: PKCWsServerType;
     try {
-        rpcServer = await PKCWsServer.PKCWsServer({ port: 0, authKey: opts.authKey });
+        rpcServer = await PKCWsServer.PKCWsServer({ port: 0, authKey: opts.authKey, allowPrivateKeyExport: opts.allowPrivateKeyExport });
     } finally {
         // The injected factory has been consumed by now; never leak it to other suites in the worker
         restorePKCJs();
