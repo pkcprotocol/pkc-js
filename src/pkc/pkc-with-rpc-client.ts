@@ -59,10 +59,14 @@ export class PKCWithRpcClient extends PKC {
         });
     }
 
+    // The schema error of the last communities list this client couldn't parse, until a valid list arrives
+    private _invalidCommunitiesListError?: PKCError | Error;
+
     // A communities list the RPC server sends in a shape this client can't parse (e.g. a server on an older build)
     // never becomes a communitieschange, so every wait for the first list would hang. Fail them with the schema error
-    // instead (issue #455), then wait again: a later valid list (e.g. after the server is upgraded and the client
-    // resubscribes) lets createCommunity work again without recreating the PKC
+    // instead (issue #455), including waits that start after the list arrived (the server only re-sends on a change),
+    // then wait again: a later valid list (e.g. after the server is upgraded and the client resubscribes) lets
+    // createCommunity work again without recreating the PKC
     private _waitForFirstValidCommunitiesList() {
         this._promiseToWaitForFirstCommunitieschangeEvent = new Promise((resolve, reject) => {
             const cleanup = () => {
@@ -71,11 +75,13 @@ export class PKCWithRpcClient extends PKC {
             };
             const onCommunitiesChange = (event: { communities: PKCCommunitiesEntry[] }) => {
                 cleanup();
+                this._invalidCommunitiesListError = undefined;
                 resolve(event);
             };
             const onRpcError = (error: PKCError | Error) => {
                 if (!isInvalidCommunitiesListError(error)) return;
                 cleanup();
+                this._invalidCommunitiesListError = error;
                 reject(error);
                 this._waitForFirstValidCommunitiesList();
             };
@@ -83,6 +89,11 @@ export class PKCWithRpcClient extends PKC {
             this._pkcRpcClient.on("error", onRpcError);
         });
         this._promiseToWaitForFirstCommunitieschangeEvent.catch(() => {}); // rejects only for a caller that awaits it
+    }
+
+    protected override async _waitForCommunitiesToBeDefined() {
+        if (this._invalidCommunitiesListError) throw this._invalidCommunitiesListError;
+        await super._waitForCommunitiesToBeDefined();
     }
 
     override async fetchCid(cid: CidRpcParam) {

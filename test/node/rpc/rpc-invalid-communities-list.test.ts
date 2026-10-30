@@ -195,3 +195,44 @@ describe("RPC client receiving a valid communities list after an invalid first o
         }
     });
 });
+
+// The invalid list usually arrives a few ms after the PKC is created, before the app calls createCommunity. Nobody is
+// waiting at that moment, and the server only re-sends the list on a change, so a createCommunity called afterwards must
+// still fail with the schema error rather than wait for a valid list that may never come
+describe("RPC client calling createCommunity after an invalid first list has already arrived", () => {
+    let server: OldShapeCommunitiesRpcServer;
+
+    beforeAll(async () => {
+        server = await OldShapeCommunitiesRpcServer.create();
+    });
+
+    afterAll(async () => {
+        await server.destroy();
+    });
+
+    it("createCommunity rejects with ERR_INVALID_RPC_COMMUNITIES_SCHEMA instead of hanging", async () => {
+        const pkc = await PKC({ pkcRpcClientsOptions: [`ws://127.0.0.1:${server.port}`], httpRoutersOptions: [] });
+        const invalidListArrived = new Promise<void>((resolve) =>
+            pkc.on("error", (error) => {
+                if ((error as { code?: string }).code === "ERR_INVALID_RPC_COMMUNITIES_SCHEMA") resolve();
+            })
+        );
+        try {
+            await invalidListArrived;
+            let sentinel: NodeJS.Timeout | undefined;
+            const outcome = await Promise.race([
+                pkc.createCommunity({ address: "old-shape.bso" }).then(
+                    () => ({ status: "resolved" as const, errorCode: undefined as string | undefined }),
+                    (error: { code?: string }) => ({ status: "rejected" as const, errorCode: error.code })
+                ),
+                new Promise<{ status: "hung"; errorCode: string | undefined }>((resolve) => {
+                    sentinel = setTimeout(() => resolve({ status: "hung", errorCode: undefined }), 10_000);
+                })
+            ]);
+            clearTimeout(sentinel);
+            expect(outcome).to.deep.equal({ status: "rejected", errorCode: "ERR_INVALID_RPC_COMMUNITIES_SCHEMA" });
+        } finally {
+            await pkc.destroy();
+        }
+    });
+});
