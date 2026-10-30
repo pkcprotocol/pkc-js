@@ -644,6 +644,26 @@ export async function createKuboRpcClient(kuboRpcClientOptions: KuboRpcClient["_
     return kuboRpcClient;
 }
 
+const COMMUNITIES_DIR_EXTENSIONS_TO_IGNORE = [".lock", "-journal", "-shm", "-wal"];
+const START_LOCK_SUFFIX = ".start.lock";
+
+// Whether a filesystem event on this file in dataPath/communities can change pkc.communities. A start lock decides a
+// community's `started` (issue #455), but proper-lockfile also touches a held lock's mtime every few seconds, and the
+// watcher reports that touch with the same event type as taking or releasing the lock ("rename" on Linux). A full
+// refresh stats every community's lock, so refreshing on every touch costs O(started × communities) sync work every
+// few seconds per PKC instance, which blocked the event loop on the Windows CI runner. So a start lock event only
+// counts when that one community's `started` no longer matches its listed entry
+export function isCommunitiesListChangeEvent({ pkc, filename }: { pkc: PKC; filename: string | null }): boolean {
+    if (typeof filename !== "string") return true;
+    if (filename.endsWith(START_LOCK_SUFFIX)) {
+        const communityAddress = filename.slice(0, -START_LOCK_SUFFIX.length);
+        const entry = pkc.communities.find((listed) => listed.address === communityAddress);
+        if (!entry) return true;
+        return entry.started !== isCommunityStartLockedSync({ dataPath: pkc.dataPath!, communityAddress });
+    }
+    return !COMMUNITIES_DIR_EXTENSIONS_TO_IGNORE.some((ext) => filename.endsWith(ext));
+}
+
 export async function monitorCommunitiesDirectory(pkc: PKC) {
     const watchAbortController = new AbortController();
     const communitiesPath = path.join(pkc.dataPath!, "communities");
@@ -651,8 +671,6 @@ export async function monitorCommunitiesDirectory(pkc: PKC) {
     // Create directory synchronously if it doesn't exist
     await fsPromises.mkdir(communitiesPath, { recursive: true });
 
-    const extensionsToIgnore = [".lock", "-journal", "-shm", "-wal"];
-    // A start lock appearing or going away changes `started` in pkc.communities, so those are not ignored
     let isProcessingChange = false;
 
     // Initial check
@@ -660,9 +678,7 @@ export async function monitorCommunitiesDirectory(pkc: PKC) {
 
     // Set up watcher with synchronous check
     fsWatch(communitiesPath, { signal: watchAbortController.signal, persistent: false }, (eventType, filename) => {
-        // Skip ignored files
-        if (typeof filename === "string" && !filename.endsWith(".start.lock") && extensionsToIgnore.some((ext) => filename.endsWith(ext)))
-            return;
+        if (!isCommunitiesListChangeEvent({ pkc, filename })) return;
 
         // Prevent overlapping processing
         if (isProcessingChange) return;
