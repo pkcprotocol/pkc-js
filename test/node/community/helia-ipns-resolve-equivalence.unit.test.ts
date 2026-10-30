@@ -72,7 +72,9 @@ describeSkipIfRpc("Helia IPNS single-hop resolution equivalence", () => {
 
         // Immediately after the wrapper resolve returns, the record must be readable offline: the
         // fast path must persist it itself instead of depending on the gossipsub push racing in.
-        const offlineCid = await lastResolvedCid(client._heliaIpnsRouter.resolve(peerIdFromString(freshName).toCID(), { offline: true }));
+        const offlineCid = await lastResolvedCid(
+            client._heliaIpnsRouter.resolve(peerIdFromString(freshName).toMultihash(), { offline: true })
+        );
         expect(offlineCid.toV1().toString()).to.equal(wrapperCid);
     });
 
@@ -90,14 +92,14 @@ describeSkipIfRpc("Helia IPNS single-hop resolution equivalence", () => {
 
         // 2) Resolve the same name through @helia/ipns resolve() (full recursion; a single hop here, so it
         //    yields the same terminal CID). The topic is already warmed by step 1.
-        const resolvedCid = await lastResolvedCid(client._heliaIpnsRouter.resolve(ipnsNameAsPeerId.toCID(), { nocache: true }));
+        const resolvedCid = await lastResolvedCid(client._heliaIpnsRouter.resolve(ipnsNameAsPeerId.toMultihash(), { nocache: true }));
         expect(resolvedCid.toV1().toString()).to.equal(wrapperCid);
 
         // 3) An offline resolve never touches the network — it only succeeds if the record is already in
         //    the datastore. The wrapper (step 1) went straight to router.get, NOT through the resolver's
         //    #findIpnsRecord, yet the pubsub router's handleRecord wrote the fetched record to the (shared)
         //    datastore. So this succeeding proves record caching still happens when we bypass resolve().
-        const offlineCid = await lastResolvedCid(client._heliaIpnsRouter.resolve(ipnsNameAsPeerId.toCID(), { offline: true }));
+        const offlineCid = await lastResolvedCid(client._heliaIpnsRouter.resolve(ipnsNameAsPeerId.toMultihash(), { offline: true }));
         expect(offlineCid.toV1().toString()).to.equal(wrapperCid);
     });
 
@@ -117,7 +119,7 @@ describeSkipIfRpc("Helia IPNS single-hop resolution equivalence", () => {
 
         const seenEventTypes: string[] = [];
         const resolvedCid = await lastResolvedCid(
-            client._heliaIpnsRouter.resolve(ipnsNameAsPeerId.toCID(), {
+            client._heliaIpnsRouter.resolve(ipnsNameAsPeerId.toMultihash(), {
                 nocache: true,
                 onProgress: (evt) => seenEventTypes.push(evt.type)
             })
@@ -155,7 +157,7 @@ describeSkipIfRpc("Helia IPNS single-hop resolution equivalence", () => {
 
         const seenEventTypes: string[] = [];
         const resolvedCid = await lastResolvedCid(
-            client._heliaIpnsRouter.resolve(peerIdFromString(chain.anchorName).toCID(), {
+            client._heliaIpnsRouter.resolve(peerIdFromString(chain.anchorName).toMultihash(), {
                 nocache: true,
                 onProgress: (evt) => seenEventTypes.push(evt.type)
             })
