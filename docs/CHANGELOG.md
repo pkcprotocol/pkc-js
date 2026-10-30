@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.132](https://github.com/pkcprotocol/pkc-js/compare/v0.0.131...v0.0.132) (2026-10-30)
+
+### Features
+
+* **comment:** add comment.gallery for multiple media per comment ([#436](https://github.com/pkcprotocol/pkc-js/issues/436)) ([#457](https://github.com/pkcprotocol/pkc-js/issues/457)) ([f2db558](https://github.com/pkcprotocol/pkc-js/commit/f2db5587bd0a4ee1d1621d0ab4d91c7f08b8765d))
+
+### Bug Fixes
+
+* **deps:** node-forge 1.4.2 (GHSA-86w9-cpqp-85rv), uuid 14, undici 8, libp2p/helia patch bumps ([#467](https://github.com/pkcprotocol/pkc-js/issues/467)) ([321c139](https://github.com/pkcprotocol/pkc-js/commit/321c139a603b2c1b18f238de66e4e3d22ce54c01)), closes [#466](https://github.com/pkcprotocol/pkc-js/issues/466)
+
 ## [0.0.131](https://github.com/pkcprotocol/pkc-js/compare/v0.0.130...v0.0.131) (2026-10-30)
 
 ### Bug Fixes
