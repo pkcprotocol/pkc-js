@@ -11,6 +11,8 @@ import {
     publishStaticCommunityWithPostInPages,
     updateIntervalForExactStateTests
 } from "../../../../../dist/node/test/test-util.js";
+import { signCommunity } from "../../../../../dist/node/signer/signatures.js";
+import { timestamp } from "../../../../../dist/node/util.js";
 import { describeSkipIfRpc } from "../../../../helpers/conditional-tests.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";
@@ -201,15 +203,18 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`updating state is set to failed if we load an invalid CommentUpdate record from postUpdates`, async () => {
-            const dedicatedPKC = await config.pkcInstancePromise();
+            // A STATIC community under its own fresh key rather than the shared live signers[0]: every concurrent
+            // suite publishes to signers[0], and each of those records starts a community fetch cycle at a random
+            // moment. Since issue #312 such a cycle can end without fetching the post's CommentUpdate (a newer record
+            // supersedes the lookup), which broke the old per-cycle state parsing. Here the only records are the one
+            // the fixture publishes and the one this test publishes, so the full state sequence is exact. Long
+            // updateInterval so the loop's timer cannot insert a cycle mid-assertion (see updateIntervalForExactStateTests).
+            const dedicatedPKC = await config.pkcInstancePromise({ pkcOptions: { updateInterval: updateIntervalForExactStateTests } });
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
             try {
-                const community = await dedicatedPKC.getCommunity({ address: communityAddress });
-                const commentUpdateWithInvalidSignatureJson = await createCommentUpdateWithInvalidSignature(
-                    community.posts.pages.hot.comments[0].cid
-                );
-                const createdComment = await dedicatedPKC.createComment({
-                    cid: commentUpdateWithInvalidSignatureJson.cid
-                });
+                const validCommentUpdate = staticCommunity.communityRecord.posts!.pages.hot!.comments[0].commentUpdate;
+                const commentUpdateWithInvalidSignature = { ...validCommentUpdate, updatedAt: validCommentUpdate.updatedAt + 1234 };
+                const createdComment = await dedicatedPKC.createComment({ cid: staticCommunity.commentCid });
 
                 const updatingStates: string[] = [];
                 createdComment.on("updatingstatechange", () => updatingStates.push(createdComment.updatingState));
@@ -220,7 +225,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
                 await createdComment.update();
 
-                await mockPostToReturnSpecificCommentUpdate(createdComment, JSON.stringify(commentUpdateWithInvalidSignatureJson));
+                await mockPostToReturnSpecificCommentUpdate(createdComment, JSON.stringify(commentUpdateWithInvalidSignature));
 
                 await resolveWhenConditionIsTrue({
                     toUpdate: createdComment,
@@ -228,10 +233,16 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     eventName: "error"
                 });
 
-                await publishRandomPost({ communityAddress: communityAddress, pkc: dedicatedPKC }); // force community to publish a new update which will increase loading attempts
+                // A newer record with the same postUpdates folder: the invalid CommentUpdate is not remembered as
+                // judged, so the post must try to load it again
+                const newerRecord = JSON.parse(JSON.stringify(staticCommunity.communityRecord)) as typeof staticCommunity.communityRecord;
+                newerRecord.updatedAt = Math.max(staticCommunity.communityRecord.updatedAt + 1, timestamp());
+                newerRecord.signature = await signCommunity({ community: newerRecord, signer: staticCommunity.ipnsObj.signer });
+                await staticCommunity.ipnsObj.publishToIpns(JSON.stringify(newerRecord));
+
                 await resolveWhenConditionIsTrue({
                     toUpdate: createdComment,
-                    predicate: async () => errors.length >= 2,
+                    predicate: async () => errors.length === 2,
                     eventName: "error"
                 });
 
@@ -245,37 +256,22 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     expect(err.code).to.equal("ERR_COMMENT_UPDATE_SIGNATURE_IS_INVALID");
                 }
 
-                const expectedUpdateStates = [
+                expect(updatingStates).to.deep.equal([
                     "fetching-ipfs",
                     "succeeded",
                     "fetching-community-ipns",
                     "fetching-community-ipfs",
                     "fetching-update-ipfs",
-                    "failed"
-                ];
-                expect(cleanupStateArray(updatingStates).slice(0, expectedUpdateStates.length)).to.deep.equal(expectedUpdateStates);
-
-                // Every later attempt to load the invalid CommentUpdate is another
-                // fetching-community-ipns, fetching-community-ipfs, fetching-update-ipfs, failed cycle. The
-                // comment is attached to the shared live community, whose update loop is arrival-driven,
-                // so a cycle can begin between the second error and stop() and be cut off by it at any
-                // point (#383). A truncated trailing cycle is legitimate: whatever it got to must still be
-                // the next steps of that cycle, and the very next state after the cut is "stopped".
-                const restOfUpdatingStates = updatingStates.slice(expectedUpdateStates.length, updatingStates.length);
-                for (let i = 0; i < restOfUpdatingStates.length; i += 2) {
-                    if (
-                        restOfUpdatingStates[i] === "fetching-community-ipns" &&
-                        restOfUpdatingStates[i + 1] === "fetching-community-ipfs"
-                    ) {
-                        if (restOfUpdatingStates[i + 2] === "stopped") break; // cut off by stop() before the update fetch
-                        expect(restOfUpdatingStates[i + 2]).to.equal("fetching-update-ipfs"); // second attempt to load invalid CommentUpdate
-                        if (restOfUpdatingStates[i + 3] === "stopped") break; // cut off by stop() mid update fetch
-                        expect(restOfUpdatingStates[i + 3]).to.equal("failed");
-                    }
-                }
-                expect(updatingStates[updatingStates.length - 1]).to.equal("stopped");
+                    "failed", // first attempt to load the invalid CommentUpdate
+                    "fetching-community-ipns",
+                    "fetching-community-ipfs",
+                    "fetching-update-ipfs",
+                    "failed", // second attempt, under the newer record
+                    "stopped"
+                ]);
             } finally {
                 await dedicatedPKC.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
             }
         });
     });

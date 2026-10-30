@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.0.131](https://github.com/pkcprotocol/pkc-js/compare/v0.0.130...v0.0.131) (2026-10-30)
+
+### Bug Fixes
+
+* **pkc:** fail createCommunity after an early invalid communities list, contain lock check errors ([#465](https://github.com/pkcprotocol/pkc-js/issues/465)) ([15f6708](https://github.com/pkcprotocol/pkc-js/commit/15f670859efa0807835a9c342964259f3406e966))
+
+## [0.0.130](https://github.com/pkcprotocol/pkc-js/compare/v0.0.129...v0.0.130) (2026-10-30)
+
+## [0.0.129](https://github.com/pkcprotocol/pkc-js/compare/v0.0.128...v0.0.129) (2026-10-30)
+
+### ⚠ BREAKING CHANGES
+
+* **pkc:** pkc.communities entries are objects instead of address
+strings, and communitieschange listeners receive { communities }.
+
+### Features
+
+* **pkc:** list communities as { name, publicKey, address, started } entries ([#460](https://github.com/pkcprotocol/pkc-js/issues/460)) ([276ea3c](https://github.com/pkcprotocol/pkc-js/commit/276ea3c093ed745b78619f90a192cd3625ea8514)), closes [#455](https://github.com/pkcprotocol/pkc-js/issues/455) [#141](https://github.com/pkcprotocol/pkc-js/issues/141)
+
+## [0.0.128](https://github.com/pkcprotocol/pkc-js/compare/v0.0.127...v0.0.128) (2026-10-29)
+
+### Performance
+
+* **comment:** skip a post's unchanged CommentUpdate by its postUpdates file cid ([#312](https://github.com/pkcprotocol/pkc-js/issues/312)) ([#459](https://github.com/pkcprotocol/pkc-js/issues/459)) ([a101ed7](https://github.com/pkcprotocol/pkc-js/commit/a101ed7b7126a9ce40ed20cd5f3e21d8b0f48ace))
+
+## [0.0.127](https://github.com/pkcprotocol/pkc-js/compare/v0.0.126...v0.0.127) (2026-10-29)
+
+### Bug Fixes
+
+* **pages:** stop page doubling at 32 MiB so a large sort no longer throws RangeError ([#360](https://github.com/pkcprotocol/pkc-js/issues/360)) ([#458](https://github.com/pkcprotocol/pkc-js/issues/458)) ([08c2c9d](https://github.com/pkcprotocol/pkc-js/commit/08c2c9d4b01af646a2800f46c6a47f630be9e71f))
+
+## [0.0.126](https://github.com/pkcprotocol/pkc-js/compare/v0.0.125...v0.0.126) (2026-10-27)
+
+### Bug Fixes
+
+* deflake state-order, startup-burst and RPC-timeout tests ([#435](https://github.com/pkcprotocol/pkc-js/issues/435) [#437](https://github.com/pkcprotocol/pkc-js/issues/437) [#265](https://github.com/pkcprotocol/pkc-js/issues/265) [#266](https://github.com/pkcprotocol/pkc-js/issues/266) [#253](https://github.com/pkcprotocol/pkc-js/issues/253)) ([#449](https://github.com/pkcprotocol/pkc-js/issues/449)) ([00d4231](https://github.com/pkcprotocol/pkc-js/commit/00d4231e0a702c4e6935604aedda7a50e36b9a92)), closes [#330](https://github.com/pkcprotocol/pkc-js/issues/330) [#456](https://github.com/pkcprotocol/pkc-js/issues/456)
+
 ## [0.0.125](https://github.com/pkcprotocol/pkc-js/compare/v0.0.124...v0.0.125) (2026-10-27)
 
 ### Features

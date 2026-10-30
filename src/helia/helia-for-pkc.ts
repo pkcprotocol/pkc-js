@@ -397,6 +397,35 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 signal.addEventListener("abort", onAbort, { once: true });
             });
 
+        // A bitswap session over rootCid's DAG, seeded with connected peers (see MAX_BITSWAP_SESSION_SEED_PEERS above).
+        // The caller closes it.
+        const createSeededBitswapSession = (rootCid: CID, scopeIpnsPubsubTopic?: string) => {
+            const session = helia.blockstore.createSession(rootCid, {
+                // helia 7 sessions take providers as libp2p-key CIDs (or multiaddrs), not PeerIds
+                providers: getBitswapSessionSeedPeers(scopeIpnsPubsubTopic).map((peerId) => peerId.toCID())
+            });
+            // Issue #218: the session broker waits on a single elected HAVE peer per
+            // block with no stall timeout, so one slow seeder holding the only HAVE
+            // monopolizes the whole fetch. Route every block get through the
+            // stalled-session failover: after the stall window, the session get is
+            // raced against helia.blockstore.get — the non-session bitswap path that
+            // broadcasts the want to all connected peers — and the first block wins.
+            // See fetchBlockWithStalledSessionFailover for the full semantics.
+            const sessionGet = session.get.bind(session);
+            const fallbackGet = helia.blockstore.get.bind(helia.blockstore);
+            session.get = (blockCid, blockGetOptions) =>
+                fetchBlockWithStalledSessionFailover({
+                    cid: blockCid,
+                    sessionGet,
+                    fallbackGet,
+                    stallTimeoutMs:
+                        heliaWithKuboRpcClientShape._bitswapSessionStalledGetFailoverMs ?? BITSWAP_SESSION_STALLED_GET_FAILOVER_MS,
+                    options: blockGetOptions,
+                    log
+                });
+            return session;
+        };
+
         const ipnsPubsubRouter = createIpnsPubusubRouter(helia);
         const ipnsNameResolver = ipns(helia, {
             routers: [ipnsPubsubRouter]
@@ -992,32 +1021,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                             : undefined;
                     try {
                         for (let attempt = 0; ; attempt++) {
-                            const session = helia.blockstore.createSession(rootCid, {
-                                // helia 7 sessions take providers as libp2p-key CIDs (or multiaddrs), not PeerIds
-                                providers: getBitswapSessionSeedPeers(bitswapSessionSeedScopeIpnsPubsubTopic).map((peerId) =>
-                                    peerId.toCID()
-                                )
-                            });
-                            // Issue #218: the session broker waits on a single elected HAVE peer per
-                            // block with no stall timeout, so one slow seeder holding the only HAVE
-                            // monopolizes the whole fetch. Route every block get through the
-                            // stalled-session failover: after the stall window, the session get is
-                            // raced against helia.blockstore.get — the non-session bitswap path that
-                            // broadcasts the want to all connected peers — and the first block wins.
-                            // See fetchBlockWithStalledSessionFailover for the full semantics.
-                            const sessionGet = session.get.bind(session);
-                            const fallbackGet = helia.blockstore.get.bind(helia.blockstore);
-                            session.get = (blockCid, blockGetOptions) =>
-                                fetchBlockWithStalledSessionFailover({
-                                    cid: blockCid,
-                                    sessionGet,
-                                    fallbackGet,
-                                    stallTimeoutMs:
-                                        heliaWithKuboRpcClientShape._bitswapSessionStalledGetFailoverMs ??
-                                        BITSWAP_SESSION_STALLED_GET_FAILOVER_MS,
-                                    options: blockGetOptions,
-                                    log
-                                });
+                            const session = createSeededBitswapSession(rootCid, bitswapSessionSeedScopeIpnsPubsubTopic);
                             let yieldedAnyBytes = false;
                             try {
                                 const catIterable = unixfs({ blockstore: session }).cat(rootCid, {
@@ -1122,6 +1126,58 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     //@ts-expect-error
                     pubsubEventHandler.removeListener(topic, handler);
                     if (pubsubEventHandler.listenerCount(topic) === 0) helia.libp2p.services.pubsub.unsubscribe(topic);
+                }
+            },
+            // Walks the path through the directory blocks and stats the target's root block only, so an unchanged
+            // target costs no network: every block on the way is already in the blockstore (issue #312)
+            async resolve(ipfsPath: string, options) {
+                throwIfHeliaIsStoppingOrStopped();
+                const [rootCidString, ...subPathSegments] = ipfsPath.replace(/^\/ipfs\//, "").split("/");
+                const timeoutMs = parseKuboStyleTimeoutMs(options?.timeout);
+                // One internal controller, its listeners detached in the finally: the caller's and the stop signals are
+                // long-lived, so they must not accumulate a listener per resolve
+                const controller = new AbortController();
+                const callerSignal = options?.signal;
+                const abortFromCaller = () => controller.abort(callerSignal?.reason);
+                const abortFromStop = () =>
+                    controller.abort(new PKCError("ERR_HELIAS_STOPPING_OR_STOPPED", { heliaKey: pkcOptions.key, ipfsPath }));
+                if (callerSignal?.aborted) abortFromCaller();
+                else callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
+                if (catStopController.signal.aborted) abortFromStop();
+                else catStopController.signal.addEventListener("abort", abortFromStop, { once: true });
+                const timeoutTimer =
+                    timeoutMs !== undefined
+                        ? setTimeout(() => controller.abort(new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { ipfsPath, timeoutMs })), timeoutMs)
+                        : undefined;
+                try {
+                    const rootCid = CID.parse(rootCidString);
+                    // A changed folder's directory blocks are not local, so the walk fetches them: through a session, as
+                    // cat() does, and retrying a session that found no providers the same way
+                    for (let attempt = 0; ; attempt++) {
+                        const session = createSeededBitswapSession(rootCid, options?.bitswapSessionSeedScopeIpnsPubsubTopic);
+                        try {
+                            const stats = await unixfs({ blockstore: session }).stat(rootCid, {
+                                path: subPathSegments.length > 0 ? subPathSegments.join("/") : undefined,
+                                signal: controller.signal
+                            });
+                            return `/ipfs/${stats.cid.toString()}`;
+                        } catch (e) {
+                            if (controller.signal.aborted) throw controller.signal.reason instanceof Error ? controller.signal.reason : e;
+                            if (!isCausedByInsufficientProviders(e)) throw e;
+                            log.trace("Bitswap session found no providers for", ipfsPath, "- retrying, attempt", attempt + 1);
+                        } finally {
+                            session.close();
+                        }
+                        await delayAbortable(Math.min(SESSION_NO_PROVIDERS_RETRY_BASE_DELAY_MS * 2 ** attempt, 8_000), controller.signal);
+                        if (controller.signal.aborted) {
+                            if (controller.signal.reason instanceof Error) throw controller.signal.reason;
+                            throw new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { ipfsPath, timeoutMs });
+                        }
+                    }
+                } finally {
+                    if (timeoutTimer) clearTimeout(timeoutTimer);
+                    callerSignal?.removeEventListener("abort", abortFromCaller);
+                    catStopController.signal.removeEventListener("abort", abortFromStop);
                 }
             },
             async add(

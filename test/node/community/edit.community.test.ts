@@ -9,7 +9,10 @@ import {
     waitTillPostInCommunityPages,
     mockPKCV2,
     mockRpcServerPKC,
-    mockRpcServerForTests
+    mockRpcServerForTests,
+    expectCommunityListed,
+    expectCommunityNotListed,
+    findListedCommunity
 } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc, describeIfRpc } from "../../helpers/conditional-tests.js";
 import PKCWsServer from "../../../dist/node/rpc/src/index.js";
@@ -143,12 +146,11 @@ for (const editKey of ["address", "name"] as const) {
         it(`pkc.communities includes the new ENS address, and not the old address`, async () => {
             await resolveWhenConditionIsTrue({
                 toUpdate: pkc,
-                predicate: async () => pkc.communities.includes(bsoNameAddress) && !pkc.communities.includes(community.signer.address),
+                predicate: async () => findListedCommunity({ pkc, publicKey: community.signer.address })?.address === bsoNameAddress,
                 eventName: "communitieschange"
             });
-            const subs = pkc.communities;
-            expect(subs).to.include(bsoNameAddress);
-            expect(subs).to.not.include(community.signer.address);
+            expectCommunityListed({ pkc: pkc, publicKey: community.signer.address, address: bsoNameAddress, name: bsoNameAddress });
+            expectCommunityNotListed({ pkc, address: community.signer.address }); // moved: the key is listed under its name
         });
 
         // #413: the post was signed with the community's key and no name, so it claims no name that conflicts with the
@@ -315,15 +317,15 @@ for (const editKey of ["address", "name"] as const) {
             await resolveWhenConditionIsTrue({
                 toUpdate: pkc,
                 predicate: async () =>
-                    pkc.communities.includes(bsoAddress) &&
-                    !pkc.communities.includes(ethAddress) &&
-                    !pkc.communities.includes(community.signer.address),
+                    findListedCommunity({ pkc, publicKey: community.signer.address })?.address === bsoAddress &&
+                    !findListedCommunity({ pkc, address: ethAddress }),
                 eventName: "communitieschange"
             });
 
-            expect(pkc.communities).to.include(bsoAddress);
-            expect(pkc.communities).to.not.include(ethAddress);
-            expect(pkc.communities).to.not.include(community.signer.address);
+            expectCommunityListed({ pkc: pkc, publicKey: community.signer.address, address: bsoAddress, name: bsoAddress });
+            // moved: the key is still listed, under its final name
+            expectCommunityNotListed({ pkc, address: ethAddress });
+            expectCommunityNotListed({ pkc, address: community.signer.address });
         });
 
         it(`start locks are moved from signer/.eth to .bso`, async () => {
@@ -683,7 +685,7 @@ for (const editKey of ["address", "name"] as const) {
         it(`Can edit community.address to a new domain even if community-address text record does not match community.signer.address`, async () => {
             const customPKC = await mockPKC();
             const communityAddress = "different-signer.bso";
-            if (customPKC.communities.includes(communityAddress)) {
+            if (findListedCommunity({ pkc: customPKC, address: communityAddress })) {
                 const community = (await customPKC.createCommunity({ address: communityAddress })) as LocalCommunity | RpcLocalCommunity;
                 await community.delete();
                 await new Promise((resolve) => customPKC.once("communitieschange", resolve));

@@ -48,8 +48,11 @@ import type {
     AnchorPublishPreparation,
     PublishedAnchorRecord,
     RpcPublishCommunityListResult,
-    RpcFetchCommunityListResult
+    RpcFetchCommunityListResult,
+    PKCCommunitiesEntry
 } from "./types.js";
+import { RpcCommunitiesChangeEventResultSchema } from "./schema.js";
+import { toCommunitiesEntry } from "../../community/communities-entry-util.js";
 import {
     parseRpcCommunityIdentifierParam,
     parseRpcAuthorNameParam,
@@ -110,7 +113,7 @@ function isRpcSubscriptionNotification(message: unknown): message is RpcSubscrip
 
 export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     state: "stopped" | "connecting" | "failed" | "connected";
-    communities: string[];
+    communities: PKCCommunitiesEntry[];
     settings?: PKCWsServerSettingsSerialized;
 
     private _webSocketClient: WebSocketClient;
@@ -159,8 +162,8 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         this.communities = [];
         this._subscriptionEvents = {};
 
-        this.on("communitieschange", (newSubs) => {
-            this.communities = newSubs;
+        this.on("communitieschange", ({ communities }) => {
+            this.communities = communities;
         });
 
         this.on("settingschange", (newSettings) => {
@@ -797,7 +800,13 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     async initalizeCommunitieschangeEvent() {
         const { subscriptionId } = await this._subscribe("communitiesSubscribe", [], "resubscribe");
         this.getSubscription(subscriptionId).on("communitieschange", (res) => {
-            this.emit("communitieschange", <string[]>res.params.result.communities);
+            const parsed = RpcCommunitiesChangeEventResultSchema.loose().safeParse(res.params.result);
+            if (!parsed.success)
+                return this.emit(
+                    "error",
+                    new PKCError("ERR_INVALID_RPC_COMMUNITIES_SCHEMA", { zodError: parsed.error, result: res.params.result })
+                );
+            this.emit("communitieschange", { communities: parsed.data.communities.map((entry) => toCommunitiesEntry(entry)) });
         });
         this.emitAllPendingMessages(subscriptionId);
     }

@@ -20,7 +20,8 @@ import {
     ipnsNameToIpnsOverPubsubTopic,
     isAbortError,
     isIpns,
-    resolveWhenPredicateIsTrue
+    resolveWhenPredicateIsTrue,
+    throwIfAbortSignalAborted
 } from "../../util.js";
 import { PublicationClientsManager } from "../publication-client-manager.js";
 import { MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE } from "../../constants.js";
@@ -192,39 +193,92 @@ export class CommentClientsManager extends PublicationClientsManager {
         else this.updateKuboRpcState(newState as CommentKuboRpcClient["state"], kuboRpcOrHelia.url);
     }
 
-    async _fetchPostCommentUpdateIpfsP2P(subIpns: CommunityIpfsType, timestampRanges: string[], log: Logger): Promise<NewCommentUpdate> {
+    // Whether the post's file at `path` is one this comment already judged, told without reading it: the same path, or
+    // another folder whose entry for this post resolves to the same cid. A bucket folder's cid changes with any post's
+    // activity in it, the cid of this post's file only with this post's CommentUpdate (issue #312). Also returns the
+    // resolved cid, for the fetch that follows to record. Throws when the resolve times out (see _resolveIpfsPathToCid).
+    private async _isPostUpdateFileAlreadyJudged(
+        folderCid: string,
+        path: string,
+        log: Logger,
+        abortSignal: AbortSignal | undefined
+    ): Promise<{ alreadyJudged: boolean; cid: string | undefined }> {
+        const judged = this._comment._lastJudgedPostUpdate;
+        if (judged?.path === path) return { alreadyJudged: true, cid: judged.cid };
+        const cid = await this._resolveIpfsPathToCid({
+            root: folderCid,
+            path: path.slice(folderCid.length + 1),
+            timeoutMs: this._pkc._timeouts["comment-update-ipfs"],
+            abortSignal,
+            log,
+            bitswapSessionSeedScopeIpnsPubsubTopic: this._bitswapSessionSeedScopeIpnsPubsubTopic()
+        });
+        if (cid === undefined || cid !== judged?.cid) return { alreadyJudged: false, cid };
+        this._comment._lastJudgedPostUpdate = { path, cid };
+        return { alreadyJudged: true, cid };
+    }
+
+    // A record's preloaded pages and its postUpdates come from the same publish cycle: the CommentUpdates are written to
+    // postUpdates, then the pages are built from the same rows. So when the record's own pages carry the CommentUpdate
+    // this post holds, the post's file under that record's postUpdates is the same CommentUpdate, judged without a fetch
+    // (issue #312). Only the record's own pages count: another instance's or a parent's pages may come from another record.
+    private _markRecordPostUpdateJudgedIfItsPagesHoldTheHeldUpdate(community: RemoteCommunity): boolean {
+        const record = community.raw.communityIpfs;
+        const postCid = this._comment.postCid;
+        const heldUpdatedAt = this._comment.raw?.commentUpdate?.updatedAt;
+        if (!record?.postUpdates || !postCid || !this._comment.cid || typeof this._comment.timestamp !== "number") return false;
+        const inRecordPages = findCommentInPageInstance(community.posts, this._comment.cid);
+        if (!inRecordPages || inRecordPages.commentUpdate.updatedAt !== heldUpdatedAt) return false;
+        const [timestampRange] = getPostUpdateTimestampRange(record.postUpdates, this._comment.timestamp);
+        if (!timestampRange) return false;
+        const path = this._calculatePathForPostCommentUpdate(record.postUpdates[timestampRange], postCid);
+        // The cid is learned when one is next resolved; until then the path alone marks the file as judged
+        if (this._comment._lastJudgedPostUpdate?.path !== path) this._comment._lastJudgedPostUpdate = { path, cid: undefined };
+        return true;
+    }
+
+    // A file not newer than the held CommentUpdate is discarded, so it is judged before its signature is verified
+    private _isNotNewerThanHeldCommentUpdate(commentUpdate: CommentUpdateType): boolean {
+        return commentUpdate.updatedAt <= (this._comment.raw?.commentUpdate?.updatedAt || 0);
+    }
+
+    // `abortSignal` is the signal of the handler invocation that started this lookup, taken once: a newer community record
+    // aborts it, and the lookup must then stop instead of moving on to its old record's next bucket (issue #312)
+    async _fetchPostCommentUpdateIpfsP2P(
+        subIpns: CommunityIpfsType,
+        timestampRanges: string[],
+        log: Logger,
+        abortSignal: AbortSignal | undefined
+    ): Promise<NewCommentUpdate> {
         // only get new CommentUpdates
         // not interested in CommentUpdate we already fetched before
         const attemptedPathsToLoadErrors: Record<string, Error> = {};
         const kuboRpcOrHelia = this.getDefaultKuboRpcClientOrHelia();
 
-        const didLastPostUpdateRangeHaveSameFolderCid = timestampRanges.some((timestampRange) => {
-            if (!this._comment._commentUpdateIpfsPath) return false;
-            const folderCid = subIpns.postUpdates![timestampRange];
-            const lastFolderCid = this._comment._commentUpdateIpfsPath.split("/")[0];
-            return folderCid === lastFolderCid;
-        });
-        if (didLastPostUpdateRangeHaveSameFolderCid) {
-            log(
-                "Comment",
-                this._comment.cid,
-                "last post update range has same folder cid",
-                this._comment._commentUpdateIpfsPath,
-                "will be skipping loading CommentUpdate"
-            );
-            return undefined;
-        }
-        this._comment._setUpdatingStateWithEmissionIfNewState("fetching-update-ipfs");
         for (const timestampRange of timestampRanges) {
             const folderCid = subIpns.postUpdates![timestampRange];
             const path = this._calculatePathForPostCommentUpdate(folderCid, this._comment.postCid!);
+            throwIfAbortSignalAborted(abortSignal);
+            let judgedLookup: { alreadyJudged: boolean; cid: string | undefined };
+            try {
+                judgedLookup = await this._isPostUpdateFileAlreadyJudged(folderCid, path, log, abortSignal);
+            } catch (e) {
+                throwIfAbortSignalAborted(abortSignal);
+                // The resolve timed out walking this folder; a fetch would wait out the same timeout on the same blocks
+                log.trace(`Timed out resolving CommentUpdate path (${path}) with IPFS P2P. Trying the next timestamp range`);
+                attemptedPathsToLoadErrors[path] = <Error>e;
+                continue;
+            }
+            const { alreadyJudged, cid } = judgedLookup;
+            throwIfAbortSignalAborted(abortSignal); // the resolve gives up silently when superseded or stopped
+            if (alreadyJudged) {
+                log.trace("Comment", this._comment.cid, "already judged the CommentUpdate at", path, "skipping it");
+                return undefined;
+            }
+            this._comment._setUpdatingStateWithEmissionIfNewState("fetching-update-ipfs");
             this._updateKuboRpcClientOrHeliaState("fetching-update-ipfs", kuboRpcOrHelia);
             let res: string;
             const commentUpdateTimeoutMs = this._pkc._timeouts["comment-update-ipfs"];
-            // Use a combined abort signal: the comment's stop signal (for user-initiated stop) and
-            // `_freshHandlerAbortController.signal` (aborted when `handleUpdateEventFromCommunity` is
-            // re-entered with newer community state, so we don't keep retrying stale post-update paths).
-            const abortSignal = this._combinedAbortSignalForRetry();
             try {
                 res = await this._retryTransientP2PFetch(
                     () =>
@@ -237,6 +291,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                     { abortSignal, log, context: `post-update ${path}` }
                 );
             } catch (e) {
+                throwIfAbortSignalAborted(abortSignal); // superseded or stopped: not a failure to try the next range for
                 // failed to load the record, maybe our node is offline or the content is unreachable
                 log.trace(`Failed to fetch CommentUpdate from path (${path}) with IPFS P2P. Trying the next timestamp range`);
                 attemptedPathsToLoadErrors[path] = <Error>e;
@@ -246,11 +301,14 @@ export class CommentClientsManager extends PublicationClientsManager {
             }
             try {
                 const commentUpdate = parseCommentUpdateSchemaWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(res));
+                if (this._isNotNewerThanHeldCommentUpdate(commentUpdate)) {
+                    this._comment._lastJudgedPostUpdate = { path, cid };
+                    this._logIgnoredNotNewerPostCommentUpdate(log, path, commentUpdate);
+                    return undefined;
+                }
                 await this._throwIfCommentUpdateHasInvalidSignature(commentUpdate, subIpns);
-                if (commentUpdate.updatedAt > (this._comment.raw?.commentUpdate?.updatedAt || 0))
-                    return { commentUpdate, commentUpdateIpfsPath: path };
-                this._logIgnoredNotNewerPostCommentUpdate(log, path, commentUpdate);
-                return undefined;
+                this._comment._lastJudgedPostUpdate = { path, cid };
+                return { commentUpdate, commentUpdateIpfsPath: path };
             } catch (e) {
                 // there's a problem with the record itself, could be signature or schema or bad json
                 this._comment._invalidCommentUpdateMfsPaths.add(path);
@@ -313,27 +371,13 @@ export class CommentClientsManager extends PublicationClientsManager {
             });
     }
 
+    // `abortSignal`: see _fetchPostCommentUpdateIpfsP2P
     async _fetchPostCommentUpdateFromGateways(
         subIpns: CommunityIpfsType,
         timestampRanges: string[],
-        log: Logger
+        log: Logger,
+        abortSignal: AbortSignal | undefined
     ): Promise<NewCommentUpdate> {
-        const didLastPostUpdateRangeHaveSameFolderCid = timestampRanges.some((timestampRange) => {
-            if (!this._comment._commentUpdateIpfsPath) return false;
-            const folderCid = subIpns.postUpdates![timestampRange];
-            const lastFolderCid = this._comment._commentUpdateIpfsPath.split("/")[0];
-            return folderCid === lastFolderCid;
-        });
-        if (didLastPostUpdateRangeHaveSameFolderCid) {
-            log(
-                "Comment",
-                this._comment.cid,
-                "last post update range has same folder cid",
-                this._comment._commentUpdateIpfsPath,
-                "will be skipping loading CommentUpdate"
-            );
-            return undefined;
-        }
         const attemptedPathsToLoadErrors: Record<string, Error> = {};
 
         let commentUpdate: CommentUpdateType | undefined;
@@ -341,17 +385,25 @@ export class CommentClientsManager extends PublicationClientsManager {
         const validateCommentFromGateway: OptionsToLoadFromGateway["validateGatewayResponseFunc"] = async (res) => {
             if (typeof res.resText !== "string") throw Error("Gateway response has no body");
             const commentUpdateBeforeSignature = parseCommentUpdateSchemaWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(res.resText));
+            // Verified even when not newer: a gateway's body is not checked against the folder, and an unverified one
+            // would be remembered as judged
             await this._throwIfCommentUpdateHasInvalidSignature(commentUpdateBeforeSignature, subIpns);
             commentUpdate = commentUpdateBeforeSignature; // at this point, we know the gateway has provided a valid comment update and we can use it
         };
-
-        this._comment._setUpdatingStateWithEmissionIfNewState("fetching-update-ipfs");
 
         for (const timestampRange of timestampRanges) {
             // We're validating schema and signature here for every gateway because it's not a regular cid whose content we can verify to match the cid
 
             const folderCid = subIpns.postUpdates![timestampRange];
             const path = this._calculatePathForPostCommentUpdate(folderCid, this._comment.postCid!);
+            throwIfAbortSignalAborted(abortSignal);
+            const { alreadyJudged, cid } = await this._isPostUpdateFileAlreadyJudged(folderCid, path, log, abortSignal);
+            throwIfAbortSignalAborted(abortSignal); // the resolve gives up silently when superseded or stopped
+            if (alreadyJudged) {
+                log.trace("Comment", this._comment.cid, "already judged the CommentUpdate at", path, "skipping it");
+                return undefined;
+            }
+            this._comment._setUpdatingStateWithEmissionIfNewState("fetching-update-ipfs");
 
             try {
                 // Validate the Comment Update within the gateway fetching algo
@@ -365,14 +417,15 @@ export class CommentClientsManager extends PublicationClientsManager {
                     log,
                     maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE,
                     timeoutMs: this._pkc._timeouts["comment-update-ipfs"],
-                    abortSignal: this._comment._getStopAbortSignal()
+                    abortSignal
                 });
                 if (!commentUpdate) throw Error("Failed to load comment update from gateways. This is a critical logic error");
-                if (commentUpdate.updatedAt > (this._comment.raw?.commentUpdate?.updatedAt || 0))
-                    return { commentUpdate, commentUpdateIpfsPath: path };
+                this._comment._lastJudgedPostUpdate = { path, cid };
+                if (!this._isNotNewerThanHeldCommentUpdate(commentUpdate)) return { commentUpdate, commentUpdateIpfsPath: path };
                 this._logIgnoredNotNewerPostCommentUpdate(log, path, commentUpdate);
                 return undefined;
             } catch (e) {
+                throwIfAbortSignalAborted(abortSignal); // superseded or stopped: not a failure to try the next range for
                 // We need to find out if it's loading error, and if it is we just move on to the next timestamp range
                 // If it's a schema or signature error we should stop and throw
                 if (this._shouldWeFetchCommentUpdateFromNextTimestamp(<PKCError>e)) {
@@ -426,12 +479,14 @@ export class CommentClientsManager extends PublicationClientsManager {
         const timestampRanges = getPostUpdateTimestampRange(subIpfs.postUpdates, postTimestamp);
         if (timestampRanges.length === 0) throw Error("Post has no timestamp range bucket");
 
+        // Taken once for the whole lookup: read again later it would be a newer invocation's signal (issue #312)
+        const abortSignal = this._combinedAbortSignalForRetry();
         let newCommentUpdate: NewCommentUpdate;
         try {
             if (Object.keys(this._pkc.clients.kuboRpcClients).length > 0 || Object.keys(this._pkc.clients.libp2pJsClients).length > 0) {
-                newCommentUpdate = await this._fetchPostCommentUpdateIpfsP2P(subIpfs, timestampRanges, log);
+                newCommentUpdate = await this._fetchPostCommentUpdateIpfsP2P(subIpfs, timestampRanges, log, abortSignal);
             } else {
-                newCommentUpdate = await this._fetchPostCommentUpdateFromGateways(subIpfs, timestampRanges, log);
+                newCommentUpdate = await this._fetchPostCommentUpdateFromGateways(subIpfs, timestampRanges, log, abortSignal);
             }
         } catch (e) {
             if (e instanceof Error) {
@@ -462,7 +517,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         if (newCommentUpdate) {
             this._useLoadedCommentUpdateIfNewInfo(newCommentUpdate, subIpfs, log);
         } else if (newCommentUpdate === undefined) {
-            log.trace(`Comment`, this._comment.cid, "loaded an old comment update. Ignoring it");
+            log.trace(`Comment`, this._comment.cid, "has no newer CommentUpdate under postUpdates");
             this._comment._setUpdatingStateWithEmissionIfNewState("waiting-retry");
         }
     }
@@ -735,6 +790,10 @@ export class CommentClientsManager extends PublicationClientsManager {
                 community.raw.communityIpfs,
                 log
             );
+            this._markRecordPostUpdateJudgedIfItsPagesHoldTheHeldUpdate(community);
+        } else if (this._markRecordPostUpdateJudgedIfItsPagesHoldTheHeldUpdate(community)) {
+            log.trace("Comment", this._comment.cid, "is current with the record's pages, nothing to fetch from postUpdates");
+            this._comment._setUpdatingStateWithEmissionIfNewState("waiting-retry");
         } else
             try {
                 // this is only for posts with depth === 0

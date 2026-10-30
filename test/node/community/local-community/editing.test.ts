@@ -108,12 +108,39 @@ describe("editing: validateNewAddressBeforeEditing", () => {
         const log = Logger("pkc-js-test:editing");
         const community = {
             address: "old.bso",
-            // pkc.communities is a string[] of community addresses (see Pkc.communities).
-            _pkc: { communities: ["new.bso"] },
+            signer: { address: "12D3KooWOldCommunityKey" },
+            _pkc: { communities: [{ name: "new.bso", publicKey: "12D3KooWExistingCommunityKey", address: "new.bso", started: false }] },
             _assertDomainResolvesCorrectly: vi.fn().mockResolvedValue(undefined)
         } as unknown as LocalCommunity;
 
         await expect(validateNewAddressBeforeEditing(community, "new.bso", log)).rejects.toThrow(PKCError);
+    });
+
+    it("rejects when the new address is another listed community's key", async () => {
+        const log = Logger("pkc-js-test:editing");
+        const community = {
+            address: "old.bso",
+            signer: { address: "12D3KooWOldCommunityKey" },
+            _pkc: { communities: [{ name: "new.bso", publicKey: "12D3KooWExistingCommunityKey", address: "new.bso", started: false }] },
+            _assertDomainResolvesCorrectly: vi.fn().mockResolvedValue(undefined)
+        } as unknown as LocalCommunity;
+
+        await expect(validateNewAddressBeforeEditing(community, "12D3KooWExistingCommunityKey", log)).rejects.toThrow(PKCError);
+    });
+
+    // No publicKey: a domain-addressed community has none until it publishes its first record, so the key to skip its own
+    // entry by is the signer's
+    it("does not count the community's own entry, matched by key, when moving to an alias of its own name", async () => {
+        const log = Logger("pkc-js-test:editing");
+        const community = {
+            address: "old.bso",
+            publicKey: undefined,
+            signer: { address: "12D3KooWOldCommunityKey" },
+            _pkc: { communities: [{ name: "old.bso", publicKey: "12D3KooWOldCommunityKey", address: "old.bso", started: false }] },
+            _assertDomainResolvesCorrectly: vi.fn().mockResolvedValue(undefined)
+        } as unknown as LocalCommunity;
+
+        await validateNewAddressBeforeEditing(community, "old.eth", log);
     });
 
     it("passes through for a fresh lowercase address", async () => {
@@ -121,7 +148,8 @@ describe("editing: validateNewAddressBeforeEditing", () => {
         const assertSpy = vi.fn().mockResolvedValue(undefined);
         const community = {
             address: "old.bso",
-            _pkc: { communities: ["old.bso"] },
+            signer: { address: "12D3KooWOldCommunityKey" },
+            _pkc: { communities: [{ name: "old.bso", publicKey: "12D3KooWOldCommunityKey", address: "old.bso", started: false }] },
             _assertDomainResolvesCorrectly: assertSpy
         } as unknown as LocalCommunity;
 

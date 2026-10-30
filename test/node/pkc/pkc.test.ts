@@ -5,7 +5,8 @@ import {
     publishRandomPost,
     mockPKC,
     mockPKCNoDataPathWithOnlyKuboClient,
-    resolveWhenConditionIsTrue
+    resolveWhenConditionIsTrue,
+    expectCommunityListed
 } from "../../../dist/node/test/test-util.js";
 import { itIfRpc, itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
@@ -43,7 +44,7 @@ describe.concurrent(`pkc.communities`, async () => {
             signer: await pkc.createSigner()
         });
         // A new community should be created, and its SQLite db file be listed under pkc.dataPath/communities
-        expect(pkc.communities).to.include(newCommunity.address);
+        expectCommunityListed({ pkc: pkc, publicKey: newCommunity.publicKey!, address: newCommunity.address, name: newCommunity.name });
 
         JSON.stringify(pkc); // Will throw an error if circular json
         await pkc.destroy();
