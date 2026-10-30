@@ -107,10 +107,13 @@ export class PKCWithRpcClient extends PKC {
     }
 
     // Like the base wait, plus it fails with the schema error when a list arrives that this client can't parse, which
-    // would otherwise leave RPC createCommunity waiting forever for the new community to be listed
+    // would otherwise leave RPC createCommunity waiting forever for the new community to be listed. That includes a list
+    // that arrived before this wait started (e.g. ahead of the createCommunity response), since the server only re-sends
+    // the list on a change
     override async _awaitCommunitiesToIncludeCommunity(communityAddress: string): Promise<void> {
         const isListed = () => Boolean(findCommunitiesEntry(this.communities, { address: communityAddress }));
         if (isListed()) return;
+        if (this._invalidCommunitiesListError) throw this._invalidCommunitiesListError;
         await new Promise<void>((resolve, reject) => {
             const cleanup = () => {
                 this.removeListener("communitieschange", onCommunitiesChange);

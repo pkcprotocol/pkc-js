@@ -16,6 +16,18 @@ interface JsonRpcRequest {
     params: unknown[];
 }
 
+const createdCommunityAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
+// Only the fields RpcLocalCommunity.initRpcInternalCommunityBeforeFirstUpdateNoMerge reads from a createCommunity response
+const createdCommunityProps = {
+    localCommunity: {
+        address: createdCommunityAddress,
+        publicKey: createdCommunityAddress,
+        signer: { type: "ed25519", address: createdCommunityAddress, publicKey: "dGVzdA" },
+        settings: {},
+        started: false
+    }
+};
+
 class OldShapeCommunitiesRpcServer {
     wss: WebSocketServer;
     port: number;
@@ -45,6 +57,13 @@ class OldShapeCommunitiesRpcServer {
     private _handleMessage(socket: WebSocket, raw: RawData) {
         const message = JSON.parse(raw.toString()) as JsonRpcRequest;
         if (typeof message.id !== "number") return;
+        if (message.method === "createCommunity") {
+            // A server on an older build lists the new community in the old shape, and the list can reach the client
+            // before the createCommunity response does
+            this.sendInvalidCommunities();
+            socket.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: createdCommunityProps }));
+            return;
+        }
         const subscriptionId = ++this.subscriptionCounter;
         socket.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { subscriptionId } }));
         if (message.method === "communitiesSubscribe") {
@@ -222,6 +241,48 @@ describe("RPC client calling createCommunity after an invalid first list has alr
             let sentinel: NodeJS.Timeout | undefined;
             const outcome = await Promise.race([
                 pkc.createCommunity({ address: "old-shape.bso" }).then(
+                    () => ({ status: "resolved" as const, errorCode: undefined as string | undefined }),
+                    (error: { code?: string }) => ({ status: "rejected" as const, errorCode: error.code })
+                ),
+                new Promise<{ status: "hung"; errorCode: string | undefined }>((resolve) => {
+                    sentinel = setTimeout(() => resolve({ status: "hung", errorCode: undefined }), 10_000);
+                })
+            ]);
+            clearTimeout(sentinel);
+            expect(outcome).to.deep.equal({ status: "rejected", errorCode: "ERR_INVALID_RPC_COMMUNITIES_SCHEMA" });
+        } finally {
+            await pkc.destroy();
+        }
+    });
+});
+
+// createCommunity of a new community (no identifier) never runs the wait for the first list, so it can't see an invalid
+// list saved before the call. And the server's list for the new community can arrive before
+// _awaitCommunitiesToIncludeCommunity starts listening (the response is processed first), so that list's schema error is
+// only saved, not delivered to the wait, and the server sends nothing more until the next change
+describe("RPC client creating a new community after an invalid list has already arrived", () => {
+    let server: OldShapeCommunitiesRpcServer;
+
+    beforeAll(async () => {
+        server = await OldShapeCommunitiesRpcServer.create();
+    });
+
+    afterAll(async () => {
+        await server.destroy();
+    });
+
+    it("createCommunity({}) rejects with ERR_INVALID_RPC_COMMUNITIES_SCHEMA instead of hanging", async () => {
+        const pkc = await PKC({ pkcRpcClientsOptions: [`ws://127.0.0.1:${server.port}`], httpRoutersOptions: [] });
+        const invalidListArrived = new Promise<void>((resolve) =>
+            pkc.on("error", (error) => {
+                if ((error as { code?: string }).code === "ERR_INVALID_RPC_COMMUNITIES_SCHEMA") resolve();
+            })
+        );
+        try {
+            await invalidListArrived;
+            let sentinel: NodeJS.Timeout | undefined;
+            const outcome = await Promise.race([
+                pkc.createCommunity({}).then(
                     () => ({ status: "resolved" as const, errorCode: undefined as string | undefined }),
                     (error: { code?: string }) => ({ status: "rejected" as const, errorCode: error.code })
                 ),
