@@ -971,6 +971,9 @@ export async function verifyCommentUpdate({
     if ("edit" in update && update.edit) {
         if (update.edit.signature.publicKey !== comment.signature.publicKey)
             return { valid: false, reason: messages.ERR_AUTHOR_EDIT_IS_NOT_SIGNED_BY_AUTHOR };
+        // Otherwise a community could attach the author's genuine edit (or deletion) of one comment to another of their comments
+        if (update.edit.commentCid !== update.cid)
+            return { valid: false, reason: messages.ERR_COMMENT_UPDATE_EDIT_IS_FOR_A_DIFFERENT_COMMENT };
         const editSignatureValidation = await _validateSignatureOfPKCRecord(update.edit);
         if (!editSignatureValidation.valid) return { valid: false, reason: messages.ERR_COMMENT_UPDATE_EDIT_SIGNATURE_IS_INVALID };
     }

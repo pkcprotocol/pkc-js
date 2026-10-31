@@ -195,6 +195,7 @@ export enum messages {
     ERR_COMMENT_SHOULD_BE_THE_LATEST_EDIT = "comment.content is not set to the latest comment.authorEdit.content",
     ERR_COMMENT_UPDATE_IS_NOT_SIGNED_BY_COMMUNITY = "Comment update is not signed by the community",
     ERR_AUTHOR_EDIT_IS_NOT_SIGNED_BY_AUTHOR = "Author edit is not signed by original author of comment",
+    ERR_COMMENT_UPDATE_EDIT_IS_FOR_A_DIFFERENT_COMMENT = "The author edit of comment (commentUpdate.edit) is an edit of a different comment: commentUpdate.edit.commentCid !== commentUpdate.cid",
     ERR_COMMENT_UPDATE_DIFFERENT_CID_THAN_COMMENT = "CommentUpdate.cid is different than calculated or provided comment.cid",
     ERR_PAGE_COMMENT_POST_HAS_POST_CID_DEFINED_WITH_DEPTH_0 = "pageComment.comment.postCid is defined even though depth = 0, comments in page need to adhere to strict CommentIpfs and CommentUpdate props",
     ERR_CHALLENGE_MSG_SIGNER_IS_NOT_COMMUNITY = "The signer of challenge pubsub message is not the community",

@@ -741,4 +741,30 @@ describeSkipIfRpc(`commentupdate`, async () => {
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_UPDATE_EDIT_SIGNATURE_IS_INVALID });
     });
+
+    it(`A commentUpdate carrying the author's genuine edit of a different comment is rejected`, async () => {
+        // The community moves the author's untouched, validly signed edit of comment A into the CommentUpdate of
+        // comment B, another comment by the same author, and signs that update with its own key
+        const update = clone(validCommentUpdateWithAuthorEditFixture) as CommentUpdateType;
+        const otherCommentCid = validCommentUpdateFixture.cid;
+        expect(update.edit!.commentCid).to.not.equal(otherCommentCid);
+        update.cid = otherCommentCid;
+        update.signature = await signCommentUpdate({ update, signer: signers[0] });
+        const otherCommentByAuthor: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "postCid" | "depth" | "cid"> = {
+            cid: otherCommentCid,
+            postCid: undefined as unknown as string,
+            depth: 0,
+            signature: validCommentWithAuthorEditFixture.signature // same author key as the edit
+        };
+        const verification = await verifyCommentUpdate({
+            update,
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: community._clientsManager,
+            community: community,
+            comment: otherCommentByAuthor,
+            validatePages: true,
+            validateUpdateSignature: true
+        });
+        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_UPDATE_EDIT_IS_FOR_A_DIFFERENT_COMMENT });
+    });
 });
