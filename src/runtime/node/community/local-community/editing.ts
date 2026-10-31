@@ -193,21 +193,33 @@ export async function editPropsOnStartedCommunity(
     // community._pkc._startedCommunities[community.address] === community
     const log = Logger("pkc-js:local-community:start:editPropsOnStartedCommunity");
     const oldAddress = clone(community.address);
-    if (typeof parsedEditOptions.address === "string" && community.address !== parsedEditOptions.address) {
-        await validateNewAddressBeforeEditing(community, parsedEditOptions.address, log);
-
-        log(`Attempting to edit community.address from ${oldAddress} to ${parsedEditOptions.address}. We will stop community first`);
-        await community.stop();
-        await community._dbHandler.changeDbFilename(oldAddress, parsedEditOptions.address);
-        listRenamedCommunityNow(community);
-        community.setAddress(parsedEditOptions.address);
-        await community._dbHandler.initDbIfNeeded();
-        await community.start();
-        await movePostUpdatesFolderToNewAddress(community, oldAddress, parsedEditOptions.address);
-    }
-
     const uniqueEditId = sha256(deterministicStringify(parsedEditOptions));
-    community._pendingEditProps.push({ ...parsedEditOptions, editId: uniqueEditId });
+    if (typeof parsedEditOptions.address === "string" && community.address !== parsedEditOptions.address) {
+        const newAddress = parsedEditOptions.address;
+        await validateNewAddressBeforeEditing(community, newAddress, log);
+
+        // The whole rename happens while the community is stopped, so its publish loop never runs a cycle on a
+        // half-renamed community (issue #469). start() reloads the internal state from the DB, so the new address has to
+        // be stored there first: before, the restarted loop ran under the old address while the postUpdates folder moved
+        // under it, failing the cycle or silently leaving the posts' new CommentUpdates in a stale /<old address> folder.
+        log(`Attempting to edit community.address from ${oldAddress} to ${newAddress}. We will stop community first`);
+        await community.stop();
+        // Moved before anything else changes, so a failed move leaves the community as it was
+        try {
+            await movePostUpdatesFolderToNewAddress(community, oldAddress, newAddress);
+        } catch (e) {
+            await community.start();
+            throw e;
+        }
+        await community._dbHandler.changeDbFilename(oldAddress, newAddress);
+        listRenamedCommunityNow(community);
+        community.setAddress(newAddress);
+        await community._dbHandler.initDbIfNeeded();
+        await updateDbInternalState(community, parsedEditOptions);
+        // queued before start() so the restarted loop's first record already carries the edit
+        community._pendingEditProps.push({ ...parsedEditOptions, editId: uniqueEditId });
+        await community.start();
+    } else community._pendingEditProps.push({ ...parsedEditOptions, editId: uniqueEditId });
 
     if (community.updateCid)
         await community.initInternalCommunityAfterFirstUpdateNoMerge({

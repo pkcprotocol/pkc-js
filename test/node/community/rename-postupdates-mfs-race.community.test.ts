@@ -13,11 +13,12 @@ import { v4 as uuidV4 } from "uuid";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 
-// Renaming a started community (edit({ address }) or edit({ name })) stops it, renames the DB, starts it again, and only
-// then moves its postUpdates MFS directory from /<old address> to /<new address>. The restarted publish loop runs a cycle
-// while that move is pending, so the postUpdates directory and the move race. Seen in CI as a sync error on the renamed
-// community (`files.flush` of the old directory: "file does not exist", windows, name-added-comments.community.test.ts).
-// Each suite pins one interleaving by holding a call of the restarted cycle until the move is done:
+// Issue #469. Renaming a started community (edit({ address }) or edit({ name })) used to stop it, rename the DB, start it
+// again, and only then move its postUpdates MFS directory from /<old address> to /<new address>. start() reloaded the old
+// address from the DB, so the restarted publish loop ran a cycle under the old address while the move was pending. Seen
+// in CI as a sync error on the renamed community (`files.flush` of the old directory: "file does not exist", windows,
+// name-added-comments.community.test.ts). Each suite pins one interleaving of that race by holding a call the restarted
+// cycle makes on the old directory until the move is done (a fixed rename finishes before the restart, so nothing waits):
 // - flush: the cycle wrote under the old address, the move took the directory, then the cycle flushes the old path (CI)
 // - write: the cycle computed its paths under the old address, the move ran, then the cycle writes, recreating the old
 //   directory, so the posts' new CommentUpdates never reach the directory the community publishes
@@ -35,8 +36,6 @@ for (const editKey of ["address", "name"] as const)
             let domainAddress: string;
             let postCids: string[];
             const errors: Error[] = [];
-            // community.address each time the restarted cycle reached the held call on the old postUpdates directory
-            const addressesAtHeldCall: string[] = [];
 
             const listMfs = async (path: string): Promise<string[] | undefined> => {
                 const kuboClient = community._clientsManager.getDefaultKuboRpcClient()._client;
@@ -117,7 +116,6 @@ for (const editKey of ["address", "name"] as const)
                 let resolveMvDone!: () => void;
                 const mvDone = new Promise<void>((resolve) => (resolveMvDone = resolve));
                 const holdUntilMoved = async () => {
-                    addressesAtHeldCall.push(community.address);
                     resolveHeldCallReached();
                     await mvDone;
                 };
@@ -138,7 +136,8 @@ for (const editKey of ["address", "name"] as const)
                     }) as typeof originalWrite;
                 kuboFiles.mv = (async (...args: Parameters<typeof originalMv>) => {
                     if (args[0] !== `/${publicKey}`) return originalMv.apply(kuboFiles, args);
-                    await Promise.race([heldCallReached, new Promise((resolve) => setTimeout(resolve, 20000))]);
+                    // a move before the restart has no cycle to race with
+                    if (restarted) await Promise.race([heldCallReached, new Promise((resolve) => setTimeout(resolve, 20000))]);
                     try {
                         return await originalMv.apply(kuboFiles, args);
                     } finally {
@@ -154,12 +153,16 @@ for (const editKey of ["address", "name"] as const)
                     kuboFiles.mv = originalMv;
                     resolveMvDone();
                 }
-                expect(addressesAtHeldCall, `the restarted cycle reached its ${heldCall} on the old postUpdates directory`).to.not.be.empty;
                 expect(community.address).to.equal(domainAddress);
                 // two records, so the second comes from a cycle that started after the rename returned
                 await waitForNewRecord();
                 await community.edit({ title: `after rename ${uuidV4()}` });
                 await waitForNewRecord();
+                // the restarted loop did write a new CommentUpdate for every post, so the checks below are not vacuous
+                for (const cid of postCids)
+                    expect(community._dbHandler.queryStoredCommentUpdate({ cid })!.updatedAt, `post ${cid}`).to.be.greaterThan(
+                        latestStoredUpdatedAt
+                    );
             });
 
             afterAll(async () => {
@@ -197,3 +200,83 @@ for (const editKey of ["address", "name"] as const)
             });
         });
     }
+
+// Issue #469: the rename moves the postUpdates folder before it changes anything else, so a move that fails (with
+// anything but "file does not exist", which only means there is no folder yet) leaves the community as it was: still
+// started, under its old address, with its DB and folder untouched.
+// Skipped under RPC: the domain only resolves through this PKC's mock name resolver (stripped by the RPC test server), and
+// the test stubs the community's Kubo client through LocalCommunity internals.
+describeSkipIfRpc(`edit({ address }) on a started community when moving the postUpdates folder fails`, async () => {
+    let pkc: PKCType;
+    let community: LocalCommunity;
+    let publicKey: string;
+    let domainAddress: string;
+    let postCid: string;
+    let editError: unknown;
+
+    beforeAll(async () => {
+        const resolverRecords = new Map<string, string | undefined>();
+        pkc = await mockPKCV2({
+            stubStorage: false,
+            mockResolve: false,
+            pkcOptions: { nameResolvers: [createMockNameResolver({ includeDefaultRecords: true, records: resolverRecords })] }
+        });
+        community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+        publicKey = community.signer.address;
+        domainAddress = `test-rename-mv-fails-${uuidV4()}.bso`;
+        resolverRecords.set(domainAddress, publicKey);
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        postCid = (await publishRandomPost({ communityAddress: publicKey, pkc })).cid!;
+        await resolveWhenConditionIsTrue({
+            toUpdate: community,
+            predicate: async () => community._dbHandler.queryStoredCommentUpdate({ cid: postCid }) !== undefined
+        });
+
+        const kuboFiles = community._clientsManager.getDefaultKuboRpcClient()._client.files;
+        const originalMv = kuboFiles.mv;
+        kuboFiles.mv = (async (...args: Parameters<typeof originalMv>) => {
+            if (args[0] === `/${publicKey}`) throw new Error("simulated MFS move failure");
+            return originalMv.apply(kuboFiles, args);
+        }) as typeof originalMv;
+        try {
+            await community.edit({ address: domainAddress });
+        } catch (e) {
+            editError = e;
+        } finally {
+            kuboFiles.mv = originalMv;
+        }
+    });
+
+    afterAll(async () => {
+        await community?.delete();
+        await pkc?.destroy();
+    });
+
+    it(`edit() rejects with the move's error`, () => {
+        expect((editError as Error | undefined)?.message).to.equal("simulated MFS move failure");
+    });
+
+    it(`the community keeps its old address and is still started`, () => {
+        expect(community.address).to.equal(publicKey);
+        expect(community.state).to.equal("started");
+    });
+
+    it(`pkc.communities still lists the community under its old address`, async () => {
+        const entryOfThisCommunity = () => pkc.communities.find((entry) => entry.publicKey === publicKey);
+        await resolveWhenConditionIsTrue({
+            toUpdate: pkc,
+            predicate: async () => entryOfThisCommunity() !== undefined,
+            eventName: "communitieschange"
+        });
+        expect(entryOfThisCommunity()!.address).to.equal(publicKey);
+    });
+
+    it(`the community keeps publishing under its old address`, async () => {
+        const updateCidBefore = community.updateCid;
+        await community.edit({ title: `after failed rename ${uuidV4()}` });
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => community.updateCid !== updateCidBefore });
+        expect(community.address).to.equal(publicKey);
+        expect(community.name).to.be.undefined;
+    });
+});
