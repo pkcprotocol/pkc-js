@@ -767,4 +767,142 @@ describeSkipIfRpc(`commentupdate`, async () => {
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_UPDATE_EDIT_IS_FOR_A_DIFFERENT_COMMENT });
     });
+
+    // signedPropertyNames is not itself signed, so dropping a name from it only breaks the signature if that field was present
+    const addUnsignedDeletedToEdit = (update: CommentUpdateType) => {
+        const edit = update.edit as NonNullable<CommentUpdateType["edit"]> & { deleted?: boolean };
+        expect(edit.deleted).to.be.undefined;
+        edit.signature = {
+            ...edit.signature,
+            signedPropertyNames: edit.signature.signedPropertyNames.filter((name) => name !== "deleted")
+        };
+        edit.deleted = true;
+    };
+
+    const authorEditCommentForVerify: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "postCid" | "depth" | "cid"> = {
+        cid: validCommentUpdateWithAuthorEditFixture.cid,
+        postCid: undefined as unknown as string,
+        depth: validCommentWithAuthorEditFixture.depth,
+        signature: validCommentWithAuthorEditFixture.signature
+    };
+
+    it(`A commentUpdate.edit carrying a field that is not in edit.signature.signedPropertyNames is rejected`, async () => {
+        // The community adds deleted: true to the author's genuine edit and drops "deleted" from its signedPropertyNames,
+        // so the author's signature still verifies over the fields the author did sign
+        const update = clone(validCommentUpdateWithAuthorEditFixture) as CommentUpdateType;
+        addUnsignedDeletedToEdit(update);
+        update.signature = await signCommentUpdate({ update, signer: signers[0] });
+        const verification = await verifyCommentUpdate({
+            update,
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: community._clientsManager,
+            community: community,
+            comment: authorEditCommentForVerify,
+            validatePages: true,
+            validateUpdateSignature: true
+        });
+        expect(verification).to.deep.equal({
+            valid: false,
+            reason: messages.ERR_COMMENT_UPDATE_EDIT_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
+        });
+    });
+
+    describe(`a cached verification does not skip the edit checks of a page's commentUpdate`, () => {
+        // Pages verify their commentUpdates with validateUpdateSignature: false (the page cid already binds the content), so
+        // the community can serve an honest update first and then a forged one that reuses the honest update's signature
+        const otherCommentByAuthor: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "postCid" | "depth" | "cid"> = {
+            cid: validCommentUpdateFixture.cid,
+            postCid: undefined as unknown as string,
+            depth: 0,
+            signature: validCommentWithAuthorEditFixture.signature // same author key as the fixture edit
+        };
+
+        const verifyWithoutUpdateSignature = (
+            update: CommentUpdateType,
+            comment: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "postCid" | "depth" | "cid">
+        ) =>
+            verifyCommentUpdate({
+                update,
+                resolveAuthorNames: pkc.resolveAuthorNames,
+                clientsManager: community._clientsManager,
+                community: community,
+                comment,
+                validatePages: true,
+                validateUpdateSignature: false
+            });
+
+        const expectForgedUpdateRejectedAfterHonestOne = async ({
+            honest,
+            forge,
+            comment,
+            reason
+        }: {
+            honest: CommentUpdateType;
+            forge: (forged: CommentUpdateType) => void;
+            comment: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "postCid" | "depth" | "cid">;
+            reason: messages;
+        }) => {
+            honest.signature = await signCommentUpdate({ update: honest, signer: signers[0] });
+            expect(await verifyWithoutUpdateSignature(honest, comment)).to.deep.equal({ valid: true });
+            const forged = clone(honest);
+            forge(forged);
+            expect(forged.signature.signature).to.equal(honest.signature.signature);
+            expect(await verifyWithoutUpdateSignature(forged, comment)).to.deep.equal({ valid: false, reason });
+        };
+
+        it(`An edit whose content was changed after the author signed it`, async () => {
+            await expectForgedUpdateRejectedAfterHonestOne({
+                honest: clone(validCommentUpdateWithAuthorEditFixture) as CommentUpdateType,
+                forge: (forged) => {
+                    forged.edit!.content += " (changed by the community)";
+                },
+                comment: authorEditCommentForVerify,
+                reason: messages.ERR_COMMENT_UPDATE_EDIT_SIGNATURE_IS_INVALID
+            });
+        });
+
+        it(`An edit that is not signed by the comment's author`, async () => {
+            await expectForgedUpdateRejectedAfterHonestOne({
+                honest: clone(validCommentUpdateWithAuthorEditFixture) as CommentUpdateType,
+                forge: (forged) => {
+                    forged.edit!.signature = { ...forged.edit!.signature, publicKey: signers[7].publicKey };
+                },
+                comment: authorEditCommentForVerify,
+                reason: messages.ERR_AUTHOR_EDIT_IS_NOT_SIGNED_BY_AUTHOR
+            });
+        });
+
+        it(`The author's genuine edit of a different comment`, async () => {
+            await expectForgedUpdateRejectedAfterHonestOne({
+                honest: clone(validCommentUpdateFixture) as CommentUpdateType,
+                forge: (forged) => {
+                    forged.edit = clone(validCommentUpdateWithAuthorEditFixture.edit) as CommentUpdateType["edit"];
+                    // the update signature is never checked on this path, so its signedPropertyNames can list the new field
+                    forged.signature = { ...forged.signature, signedPropertyNames: [...forged.signature.signedPropertyNames, "edit"] };
+                },
+                comment: otherCommentByAuthor,
+                reason: messages.ERR_COMMENT_UPDATE_EDIT_IS_FOR_A_DIFFERENT_COMMENT
+            });
+        });
+
+        it(`An edit carrying a field that is not in edit.signature.signedPropertyNames`, async () => {
+            await expectForgedUpdateRejectedAfterHonestOne({
+                honest: clone(validCommentUpdateWithAuthorEditFixture) as CommentUpdateType,
+                forge: addUnsignedDeletedToEdit,
+                comment: authorEditCommentForVerify,
+                reason: messages.ERR_COMMENT_UPDATE_EDIT_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES
+            });
+        });
+
+        it(`An update whose cid is a different comment's cid`, async () => {
+            await expectForgedUpdateRejectedAfterHonestOne({
+                honest: clone(validCommentUpdateFixture) as CommentUpdateType,
+                forge: (forged) => {
+                    forged.cid = validCommentUpdateWithAuthorEditFixture.cid;
+                },
+                comment: otherCommentByAuthor,
+                reason: messages.ERR_COMMENT_UPDATE_DIFFERENT_CID_THAN_COMMENT
+            });
+        });
+    });
 });

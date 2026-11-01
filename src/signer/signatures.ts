@@ -958,26 +958,35 @@ export async function verifyCommentUpdate({
         if (!jsonValidation.valid) return jsonValidation;
     }
 
+    // The checks below run before the cache lookup: pages verify with validateUpdateSignature: false, so a cached
+    // update.signature.signature says nothing about the cid or the edit the community attached this time
+    if (update.cid !== comment.cid) return { valid: false, reason: messages.ERR_COMMENT_UPDATE_DIFFERENT_CID_THAN_COMMENT };
+    const edit = "edit" in update ? update.edit : undefined;
+    if (edit) {
+        if (edit.signature.publicKey !== comment.signature.publicKey)
+            return { valid: false, reason: messages.ERR_AUTHOR_EDIT_IS_NOT_SIGNED_BY_AUTHOR };
+        // Otherwise a community could attach the author's genuine edit (or deletion) of one comment to another of their comments
+        if (edit.commentCid !== update.cid) return { valid: false, reason: messages.ERR_COMMENT_UPDATE_EDIT_IS_FOR_A_DIFFERENT_COMMENT };
+        // signedPropertyNames is not itself signed, so a community could drop "deleted" from it and add deleted: true
+        if (!_allFieldsOfRecordInSignedPropertyNames(edit))
+            return { valid: false, reason: messages.ERR_COMMENT_UPDATE_EDIT_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
+    }
+
     const cacheKey = sha256(
         update.signature.signature +
             community.publicKey +
             community.name +
             JSON.stringify(comment) +
+            JSON.stringify(edit ?? null) + // binds the cached edit signature verification to this exact edit
             validatePages +
             validateUpdateSignature
     );
 
     if (clientsManager._pkc._memCaches.commentUpdateVerificationCache.get(cacheKey)) return { valid: true };
-    if ("edit" in update && update.edit) {
-        if (update.edit.signature.publicKey !== comment.signature.publicKey)
-            return { valid: false, reason: messages.ERR_AUTHOR_EDIT_IS_NOT_SIGNED_BY_AUTHOR };
-        // Otherwise a community could attach the author's genuine edit (or deletion) of one comment to another of their comments
-        if (update.edit.commentCid !== update.cid)
-            return { valid: false, reason: messages.ERR_COMMENT_UPDATE_EDIT_IS_FOR_A_DIFFERENT_COMMENT };
-        const editSignatureValidation = await _validateSignatureOfPKCRecord(update.edit);
+    if (edit) {
+        const editSignatureValidation = await _validateSignatureOfPKCRecord(edit);
         if (!editSignatureValidation.valid) return { valid: false, reason: messages.ERR_COMMENT_UPDATE_EDIT_SIGNATURE_IS_INVALID };
     }
-    if (update.cid !== comment.cid) return { valid: false, reason: messages.ERR_COMMENT_UPDATE_DIFFERENT_CID_THAN_COMMENT };
 
     if ("replies" in update && update.replies && validatePages) {
         // Validate update.replies
