@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import Logger from "../../../../logger.js";
 import { clone, keys, omit, omitBy, pick } from "remeda";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
@@ -184,6 +186,54 @@ function listRenamedCommunityNow(community: LocalCommunity) {
     refreshCommunitiesList(community._pkc);
 }
 
+// Puts a started community back under its old address after its rename failed partway (issue #469): moves the
+// postUpdates folder back if it had moved, then restarts the community. edit() rejects with the rename's own error, so a
+// failure here is emitted as an error event instead. A folder that can't be moved back leaves the community stopped,
+// since starting it would publish without its postUpdates.
+async function restoreCommunityAfterFailedRename({
+    community,
+    oldAddress,
+    newAddress,
+    postUpdatesFolderMoved,
+    log
+}: {
+    community: LocalCommunity;
+    oldAddress: string;
+    newAddress: string;
+    postUpdatesFolderMoved: boolean;
+    log: Logger;
+}) {
+    try {
+        if (postUpdatesFolderMoved) await movePostUpdatesFolderToNewAddress(community, newAddress, oldAddress);
+        await community.start();
+    } catch (restoreError) {
+        log.error(`Failed to restore community (${oldAddress}) after its rename to ${newAddress} failed`, restoreError);
+        community.emit("error", restoreError as Error);
+    }
+}
+
+// A DB backup that failed partway leaves a partial DB file at the new address, which lookups by filename would still
+// match. Only removed while the old DB is still there, so a failure after the old one was deleted never loses the DB
+async function removePartialDbCopy({
+    community,
+    oldAddress,
+    newAddress,
+    log
+}: {
+    community: LocalCommunity;
+    oldAddress: string;
+    newAddress: string;
+    log: Logger;
+}) {
+    const communitiesPath = path.join(community._pkc.dataPath!, "communities");
+    if (!fs.existsSync(path.join(communitiesPath, oldAddress))) return;
+    try {
+        await fs.promises.rm(path.join(communitiesPath, newAddress), { force: true });
+    } catch (e) {
+        log.error(`Failed to remove the partial DB copy of community (${oldAddress}) at ${newAddress}`, e);
+    }
+}
+
 export async function editPropsOnStartedCommunity(
     community: LocalCommunity,
     parsedEditOptions: ParsedCommunityEditOptions,
@@ -208,14 +258,20 @@ export async function editPropsOnStartedCommunity(
         try {
             await movePostUpdatesFolderToNewAddress(community, oldAddress, newAddress);
         } catch (e) {
-            await community.start();
+            await restoreCommunityAfterFailedRename({ community, oldAddress, newAddress, postUpdatesFolderMoved: false, log });
             throw e;
         }
-        await community._dbHandler.changeDbFilename(oldAddress, newAddress);
+        try {
+            await community._dbHandler.changeDbFilename(oldAddress, newAddress);
+        } catch (e) {
+            await removePartialDbCopy({ community, oldAddress, newAddress, log });
+            await restoreCommunityAfterFailedRename({ community, oldAddress, newAddress, postUpdatesFolderMoved: true, log });
+            throw e;
+        }
         listRenamedCommunityNow(community);
         community.setAddress(newAddress);
         await community._dbHandler.initDbIfNeeded();
-        await updateDbInternalState(community, parsedEditOptions);
+        await updateDbInternalState(community, { ...parsedEditOptions }); // a copy: it sets _internalStateUpdateId on what it gets
         // queued before start() so the restarted loop's first record already carries the edit
         community._pendingEditProps.push({ ...parsedEditOptions, editId: uniqueEditId });
         await community.start();
