@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.133](https://github.com/pkcprotocol/pkc-js/compare/v0.0.132...v0.0.133) (2026-11-02)
+
+### Bug Fixes
+
+* **community:** finish a rename before restarting so its cycle can't race the postUpdates move ([#470](https://github.com/pkcprotocol/pkc-js/issues/470)) ([b335791](https://github.com/pkcprotocol/pkc-js/commit/b3357912c7ad0b0ec029ef0cc82c62fc33ce74f2)), closes [#469](https://github.com/pkcprotocol/pkc-js/issues/469) [#469](https://github.com/pkcprotocol/pkc-js/issues/469) [#469](https://github.com/pkcprotocol/pkc-js/issues/469) [#469](https://github.com/pkcprotocol/pkc-js/issues/469)
+* **signatures:** reject forged CommentUpdate.edit (other comment, unsigned fields, cache) ([#474](https://github.com/pkcprotocol/pkc-js/issues/474)) ([1acb264](https://github.com/pkcprotocol/pkc-js/commit/1acb26404dd0b5317b880351102e564bf05a9c50)), closes [#473](https://github.com/pkcprotocol/pkc-js/issues/473)
+
 ## [0.0.132](https://github.com/pkcprotocol/pkc-js/compare/v0.0.131...v0.0.132) (2026-10-30)
 
 ### Features
