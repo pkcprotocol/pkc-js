@@ -65,11 +65,12 @@ export type FailedPageSorts = Record<string, PKCError>;
 export type MultiPageGenerationResult<T extends PostsPagesTypeIpfs | RepliesPagesTypeIpfs> = T & {
     allPageCids: AllPageCids;
     failedSorts: FailedPageSorts;
+    flatSortNames: string[]; // what the sorts of this generation are, for the DB row of what it produced (deriveDbReplies)
 };
 
 export type PageGenerationResult<T extends PostsPagesTypeIpfs | RepliesPagesTypeIpfs> =
     | MultiPageGenerationResult<T>
-    | { singlePreloadedPage: SinglePreloadedPageRes; failedSorts: FailedPageSorts } // every preloaded sort fit in one chunk, nothing else generated
+    | { singlePreloadedPage: SinglePreloadedPageRes; failedSorts: FailedPageSorts; flatSortNames: string[] } // every preloaded sort fit in one chunk, nothing else generated
     | undefined; // nothing to paginate
 
 type PageComment = PageIpfs["comments"][number];
@@ -692,12 +693,13 @@ export class PageGenerator {
             return undefined;
         }
 
+        const flatSortNames = sorts.filter((sort) => sort.flat).map((sort) => sort.sortName);
         const everyPreloadedIsSingleChunk = preloaded.length > 0 && preloaded.every(({ chunks }) => chunks.length === 1);
         const skippingOtherSortsIsSound = nonPreloaded.length === 0 || preloaded.every(({ holdsWholeSet }) => holdsWholeSet);
         if (everyPreloadedIsSingleChunk && skippingOtherSortsIsSound) {
             const singlePreloadedPage: SinglePreloadedPageRes = {};
             for (const { sort, chunks } of preloaded) singlePreloadedPage[sort.sortName] = { comments: source.resolve(chunks[0]) };
-            return { singlePreloadedPage, failedSorts };
+            return { singlePreloadedPage, failedSorts, flatSortNames };
         }
 
         // Full generation. Preloaded first, then the others, each in configured order; IPFS adds run in parallel
@@ -713,7 +715,7 @@ export class PageGenerator {
         ]);
         const generatedPages = this._generationResToPages(results) as (T & { allPageCids: AllPageCids }) | undefined;
         if (!generatedPages) return undefined;
-        return { ...generatedPages, failedSorts };
+        return { ...generatedPages, failedSorts, flatSortNames };
     }
 
     private _generationResToPages(

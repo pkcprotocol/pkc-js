@@ -176,7 +176,7 @@ export async function calculateNewCommentUpdate(opts: {
     const newCommentUpdateDbRecord = <CommentUpdatesTableRowInsert>{
         ...newCommentUpdate,
         // Store CID refs instead of full inline page data — see deriveDbReplies()
-        replies: deriveDbReplies({ replies: newCommentUpdate.replies, allPageCids }),
+        replies: deriveDbReplies({ replies: newCommentUpdate.replies, allPageCids, flatSortNames: generatedRepliesPages?.flatSortNames }),
         postUpdatesBucket: newPostUpdateBucket,
         publishedToPostUpdatesMFS: false,
 

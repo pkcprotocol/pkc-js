@@ -68,6 +68,9 @@ Rules:
   one level: every descendant of the post is an entry of the array and no entry carries nested `replies`.
   The CommentUpdate verifier checks such a page against the post (`postCid`) rather than as direct
   replies, the rule fetched flat pages have always had.
+  Its entries were signed with the `replies` a nested sort gave them and the page leaves those out, so their
+  own signatures cannot verify: the post's signature, which covers the page, vouches for them, as a fetched
+  flat page's CID does.
 - `settings` is replaced wholesale on edit, so pass the existing settings along, and an edit that omits
   `pages` unsets it.
 - **Any change to `settings.pages` regenerates every CommentUpdate** on the next pass. Reply pages are

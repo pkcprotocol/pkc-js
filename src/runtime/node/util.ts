@@ -798,8 +798,9 @@ export function calculateInlineRepliesBudget({
 export function deriveDbReplies(opts: {
     replies: CommentUpdateType["replies"];
     allPageCids?: Record<string, string[]>;
+    flatSortNames?: readonly string[];
 }): DbRepliesFormat | undefined {
-    const { replies, allPageCids } = opts;
+    const { replies, allPageCids, flatSortNames } = opts;
     if (!replies) return undefined;
     const result: DbRepliesFormat = {};
 
@@ -808,7 +809,8 @@ export function deriveDbReplies(opts: {
         for (const [sortName, page] of Object.entries(replies.pages)) {
             result[sortName] = {
                 commentCids: page.comments.map((c) => c.commentUpdate.cid),
-                ...(allPageCids?.[sortName]?.length ? { allPageCids: allPageCids[sortName] } : {})
+                ...(allPageCids?.[sortName]?.length ? { allPageCids: allPageCids[sortName] } : {}),
+                ...(flatSortNames?.includes(sortName) ? { flat: true as const } : {})
             };
         }
     }

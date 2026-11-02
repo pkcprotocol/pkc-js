@@ -1000,6 +1000,12 @@ export async function verifyCommentUpdate({
             // flat pages. Flat sorts exist for posts only, so a reply's pages are always verified as its direct replies.
             const isDirectRepliesPage = page.comments.every((pageComment) => pageComment.comment.depth === comment.depth + 1);
             const parentComment = isDirectRepliesPage || comment.depth !== 0 ? comment : { postCid: comment.cid };
+            const isFlatRepliesPage =
+                comment.depth === 0 &&
+                page.comments.some(
+                    ({ comment: entry, commentUpdate }) =>
+                        entry.depth !== 1 || (commentUpdate.signature.signedPropertyNames.includes("replies") && !commentUpdate.replies)
+                );
             const validity = await verifyPage({
                 pageCid,
                 page,
@@ -1009,7 +1015,10 @@ export async function verifyCommentUpdate({
                 community,
                 parentComment,
                 validatePages,
-                validateUpdateSignature,
+                // An entry of a flat page is signed with the `replies` a nested sort gave it, and the page leaves them out
+                // (a page is one level), so its own signature cannot verify. The signature of `update`, which covers the
+                // page byte for byte, is what vouches for it, the way a fetched page's cid does (issue #477).
+                validateUpdateSignature: validateUpdateSignature && !isFlatRepliesPage,
                 abortSignal
             });
             if (!validity.valid) return validity;
