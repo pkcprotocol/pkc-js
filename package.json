@@ -19,6 +19,7 @@
         "test:node": "node test/run-test-config.js --environment node --per-test-logs .tmp/per-test-logs-node test src/rpc/test",
         "test:node:rpc": "cross-env USE_RPC=1 PKC_CONFIGS=remote-pkc-rpc node test/run-test-config.js --environment node --per-test-logs .tmp/per-test-logs-node-rpc test/node test/node-and-browser src/rpc/test/node src/rpc/test/node-and-browser",
         "test:node:parallel:rpc": "cross-env USE_RPC=1 PKC_CONFIGS=remote-pkc-rpc node test/run-test-config.js --environment node --parallel --per-test-logs .tmp/per-test-logs-node-parallel-rpc test/node test/node-and-browser src/rpc/test/node src/rpc/test/node-and-browser",
+        "bench:author-cascade": "node --expose-gc --max-old-space-size=8192 test/benchmarks/author-cascade-bench.mjs",
         "test:mocked:challenges": "node test/run-test-config.js --environment node --per-test-logs .tmp/per-test-logs-mocked-challenges test/challenges",
         "test:node:parallel:all": "node test/run-test-config.js --environment node --parallel --per-test-logs .tmp/per-test-logs-node-parallel-all test/node test/node-and-browser src/rpc/test/node src/rpc/test/node-and-browser",
         "test:node:parallel:local": "cross-env PKC_CONFIGS=local-kubo-rpc node test/run-test-config.js --environment node --parallel --per-test-logs .tmp/per-test-logs-node-parallel-local test/node src/rpc/test/node",
