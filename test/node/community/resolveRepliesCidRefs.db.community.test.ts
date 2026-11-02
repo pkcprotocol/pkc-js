@@ -288,8 +288,9 @@ describeSkipIfRpc("resolveRepliesCidRefsForEntries", function () {
         // "controversial" sort should NOT have inline pages (no commentCids)
         expect(replies.pages.controversial).to.not.exist;
 
-        // Both sorts should have pageCids
-        expect(replies.pageCids.best).to.equal("QmMixedBestPage");
+        // An embedded sort continues through nextCid and is never in pageCids, the form it was signed in (issue #477)
+        expect(replies.pages.best.nextCid).to.equal("QmMixedBestPage");
+        expect(replies.pageCids.best).to.not.exist;
         expect(replies.pageCids.controversial).to.equal("QmControPage");
     });
 
