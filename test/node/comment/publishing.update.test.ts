@@ -7,6 +7,7 @@ import { createSigner } from "../../../dist/node/signer/index.js";
 import { of as calculateIpfsCidV0Lib } from "typestub-ipfs-only-hash";
 import type {
     CommentUpdateType,
+    DbRepliesFormat,
     CommentsTableRowInsert,
     CommentWithinRepliesPostsPageJson,
     CommentIpfsType
@@ -21,16 +22,14 @@ interface PublishingTestContext {
     calculateUpdate: (commentRow: CommentsTableRowInsert) => Promise<{
         newCommentUpdate: CommentUpdateType & { replies?: { pages?: { best?: { comments: { cid: string }[] } } } };
         localMfsPath: string | undefined;
+        newCommentUpdateToWriteToDb: { replies?: DbRepliesFormat };
     }>;
     cleanup: () => Promise<void>;
 }
 
 interface MockPageGeneratorResult {
-    singlePreloadedPage: {
-        best: {
-            comments: CommentWithinRepliesPostsPageJson[];
-        };
-    };
+    singlePreloadedPage: Record<string, { comments: CommentWithinRepliesPostsPageJson[] }>;
+    flatSortNames?: string[];
 }
 
 // Test constants
@@ -44,7 +43,23 @@ const MOCK_SIGNATURE: JsonSignature = {
 };
 const depthsToTest = [1, 2, 3, 15, 30];
 
+// Calculates against a fake community with no sort registry, so it cannot run over RPC
 describeSkipIfRpc("comment.update publishing depth coverage", function () {
+    // The row has to describe the sorts this CommentUpdate was signed with, which only the generation that produced them
+    // knows, not whatever the community's sorts are by the time the row is written (issue #477)
+    it("stores the flat marker the page generation reported, on the row only", async () => {
+        const context = await createPublishingTestContext({ targetDepth: 1, flatSortNames: ["newFlat"] });
+        try {
+            const result = await context.calculateUpdate(context.rowsByDepth.get(0)!);
+            const stored = result.newCommentUpdateToWriteToDb.replies;
+            expect(stored?.newFlat?.flat).to.equal(true);
+            expect(stored?.best?.flat).to.be.undefined;
+            expect(JSON.stringify(result.newCommentUpdate.replies)).to.not.include('"flat"');
+        } finally {
+            await context.cleanup();
+        }
+    });
+
     depthsToTest.forEach((depth) => {
         it(`Local community generates comment updates for replies at depth ${depth}`, async () => {
             const context = await createPublishingTestContext({ targetDepth: depth });
@@ -79,7 +94,13 @@ describeSkipIfRpc("comment.update publishing depth coverage", function () {
     });
 });
 
-async function createPublishingTestContext({ targetDepth }: { targetDepth: number }): Promise<PublishingTestContext> {
+async function createPublishingTestContext({
+    targetDepth,
+    flatSortNames
+}: {
+    targetDepth: number;
+    flatSortNames?: string[];
+}): Promise<PublishingTestContext> {
     const _dbHandler = await createTestDbHandler();
     const { rows, childrenByParent } = await seedCommentChain({
         depth: targetDepth,
@@ -89,7 +110,7 @@ async function createPublishingTestContext({ targetDepth }: { targetDepth: numbe
     const calculatedUpdates = new Map(
         rows.map((row) => [row.cid, _dbHandler.queryCalculatedCommentUpdate({ comment: row }) as CommentUpdateType])
     );
-    const pageGenerator = new MockPageGenerator(childrenByParent, calculatedUpdates);
+    const pageGenerator = new MockPageGenerator(childrenByParent, calculatedUpdates, flatSortNames);
     const signer = await createSigner();
 
     const commentUpdateVerificationCache = new Map<string, boolean>();
@@ -121,6 +142,7 @@ async function createPublishingTestContext({ targetDepth }: { targetDepth: numbe
             }) as Promise<{
                 newCommentUpdate: CommentUpdateType & { replies?: { pages?: { best?: { comments: { cid: string }[] } } } };
                 localMfsPath: string | undefined;
+                newCommentUpdateToWriteToDb: { replies?: DbRepliesFormat };
             }>,
         cleanup: async () => {
             await _dbHandler.destoryConnection();
@@ -199,9 +221,16 @@ class MockPageGenerator {
     childrenByParent: Map<string, CommentsTableRowInsert[]>;
     calculatedUpdates: Map<string, CommentUpdateType>;
 
-    constructor(childrenByParent: Map<string, CommentsTableRowInsert[]>, calculatedUpdates: Map<string, CommentUpdateType>) {
+    flatSortNames?: string[];
+
+    constructor(
+        childrenByParent: Map<string, CommentsTableRowInsert[]>,
+        calculatedUpdates: Map<string, CommentUpdateType>,
+        flatSortNames?: string[]
+    ) {
         this.childrenByParent = childrenByParent;
         this.calculatedUpdates = calculatedUpdates;
+        this.flatSortNames = flatSortNames;
     }
 
     async generatePostPages(comment: { cid: string }): Promise<MockPageGeneratorResult | undefined> {
@@ -215,12 +244,12 @@ class MockPageGenerator {
     _buildPagePayload(parentCid: string): MockPageGeneratorResult | undefined {
         const children = this.childrenByParent.get(parentCid);
         if (!children || children.length === 0) return undefined;
+        const page = {
+            comments: children.map((childRow) => buildRepliesPageEntry(childRow, clone(this.calculatedUpdates.get(childRow.cid))))
+        };
         return {
-            singlePreloadedPage: {
-                best: {
-                    comments: children.map((childRow) => buildRepliesPageEntry(childRow, clone(this.calculatedUpdates.get(childRow.cid))))
-                }
-            }
+            singlePreloadedPage: { best: page, ...Object.fromEntries((this.flatSortNames ?? []).map((sortName) => [sortName, page])) },
+            ...(this.flatSortNames ? { flatSortNames: this.flatSortNames } : {})
         };
     }
 }
