@@ -173,10 +173,13 @@ export async function calculateNewCommentUpdate(opts: {
         );
         community._mfsPathsToRemove.add(oldPostUpdates);
     }
+    const flatSortNames = new Set(
+        (await community._ensurePageSortsLoaded()).replies.filter((sort) => sort.flat).map((sort) => sort.sortName)
+    );
     const newCommentUpdateDbRecord = <CommentUpdatesTableRowInsert>{
         ...newCommentUpdate,
         // Store CID refs instead of full inline page data — see deriveDbReplies()
-        replies: deriveDbReplies({ replies: newCommentUpdate.replies, allPageCids }),
+        replies: deriveDbReplies({ replies: newCommentUpdate.replies, allPageCids, flatSortNames }),
         postUpdatesBucket: newPostUpdateBucket,
         publishedToPostUpdatesMFS: false,
 

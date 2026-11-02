@@ -1448,69 +1448,63 @@ export class DbHandler {
         return rows.map(mapper.map);
     }
 
-    // Nested reply trees out of page entries and the parent each was reached through (its own parentCid, whether
-    // it came from a flat subtree read or from the level walk).
-    // A child listed under two preloaded sorts of the same parent comes back twice and is kept once. `attachReplies`
-    // rebuilds one page per preloaded sort of a parent, in that sort's commentCids order (the CTE's row order is not
-    // the json_each order once the JOINs are involved), and `buildWireCommentUpdate` swaps the DB-format `replies`
-    // for the resolved pages, or for `pageCids` alone when nothing is embedded but pages exist.
-    private _assembleReplyTrees(items: { entry: PageIpfs["comments"][number]; parent: string }[]) {
+    // Rebuilds the wire form of CommentUpdates from their DB-format `replies` (CID refs) out of the given page entries.
+    // There is one rebuild, used at every level, because a page embeds what its comment signed: any difference from the
+    // signed form invalidates that comment's signature and stops the update cycle at the comment embedding it (issue #477).
+    // The signed form (wirePagesFromGeneration + _generationResToPages), per sort:
+    // - embedded (commentCids): pages[sort], in commentCids order, with nextCid when it overflowed, and never in pageCids
+    // - not embedded: pageCids[sort]
+    // - an entry of a flat page carries no `replies`, whatever its own CommentUpdate has (queryFlattenedPageReplies)
+    // Keys stay sorted (see createPositionalCommentRowMapper): `replies` is re-inserted in order, and `pageCids` sorts
+    // before `pages`. A child listed under two preloaded sorts of the same parent comes back twice and is kept once.
+    private _assembleReplyTrees(entries: PageIpfs["comments"]) {
         type Entry = PageIpfs["comments"][number];
         const parsedByCid = new Map<string, Entry>();
-        const childrenByParent = new Map<string, Map<string, Entry>>();
-        for (const { entry, parent } of items) {
+        for (const entry of entries) {
             const cid = entry.commentUpdate.cid;
-            if (parsedByCid.has(cid)) continue;
-            parsedByCid.set(cid, entry);
-            let siblings = childrenByParent.get(parent);
-            if (!siblings) childrenByParent.set(parent, (siblings = new Map()));
-            siblings.set(cid, entry);
+            if (!parsedByCid.has(cid)) parsedByCid.set(cid, entry);
         }
 
-        // Keys stay sorted (see createPositionalCommentRowMapper): `replies` is re-inserted in order, and
-        // `pageCids` sorts before `pages`
-        const buildWireCommentUpdate = (
-            commentUpdate: CommentUpdateType,
-            resolvedReplies: CommentUpdateType["replies"] | undefined
-        ): CommentUpdateType => {
-            const { replies: dbReplies, ...rest } = commentUpdate;
-            if (resolvedReplies) return withSortedKeys({ ...rest, replies: resolvedReplies }) as CommentUpdateType;
-            if (dbReplies) {
-                const pageCids: Record<string, string> = {};
-                for (const sortName of Object.keys(dbReplies as Record<string, DbRepliesSortEntry>).sort()) {
-                    const sortEntry = (dbReplies as Record<string, DbRepliesSortEntry>)[sortName];
-                    if (sortEntry?.allPageCids?.[0]) pageCids[sortName] = sortEntry.allPageCids[0];
-                }
-                if (Object.keys(pageCids).length > 0)
-                    return withSortedKeys({ ...rest, replies: { pageCids, pages: {} } }) as CommentUpdateType;
-            }
-            return rest as CommentUpdateType;
-        };
-
-        const attachReplies = (cid: string): CommentUpdateType["replies"] | undefined => {
-            const children = childrenByParent.get(cid);
-            if (!children?.size) return undefined;
-            const parentDbReplies = parsedByCid.get(cid)?.commentUpdate.replies as Record<string, DbRepliesSortEntry> | undefined;
+        const wireRepliesOf = (dbReplies: Record<string, DbRepliesSortEntry>): CommentUpdateType["replies"] | undefined => {
             const pages: Record<string, PageIpfs> = {};
-            for (const sortName of Object.keys(parentDbReplies ?? {}).sort()) {
-                const sortEntry = parentDbReplies![sortName];
-                if (!sortEntry?.commentCids) continue;
+            const pageCids: Record<string, string> = {};
+            for (const sortName of Object.keys(dbReplies).sort()) {
+                const sortEntry = dbReplies[sortName];
+                if (!sortEntry?.commentCids) {
+                    if (sortEntry?.allPageCids?.[0]) pageCids[sortName] = sortEntry.allPageCids[0];
+                    continue;
+                }
                 const comments: Entry[] = [];
                 for (const childCid of sortEntry.commentCids) {
-                    const child = children.get(childCid);
+                    const child = parsedByCid.get(childCid);
                     if (child)
                         comments.push({
                             comment: child.comment,
-                            commentUpdate: buildWireCommentUpdate(child.commentUpdate, attachReplies(childCid))
+                            commentUpdate: sortEntry.flat ? withoutReplies(child.commentUpdate) : withWireReplies(child.commentUpdate)
                         });
                 }
-                pages[sortName] = { comments };
+                // the legacy nextCid field for old DB rows
+                const nextCid = sortEntry.allPageCids?.[0] ?? (sortEntry as { nextCid?: string }).nextCid;
+                pages[sortName] = { comments, ...(nextCid ? { nextCid } : {}) };
             }
-            if (Object.keys(pages).length === 0) return undefined;
-            return { pages };
+            const hasPageCids = Object.keys(pageCids).length > 0;
+            if (!hasPageCids && Object.keys(pages).length === 0) return undefined;
+            return { ...(hasPageCids ? { pageCids } : {}), pages };
         };
 
-        return { parsedByCid, childrenByParent, buildWireCommentUpdate, attachReplies };
+        const withoutReplies = (commentUpdate: CommentUpdateType): CommentUpdateType => {
+            const { replies: _dbReplies, ...rest } = commentUpdate;
+            return rest as CommentUpdateType;
+        };
+
+        const withWireReplies = (commentUpdate: CommentUpdateType): CommentUpdateType => {
+            const dbReplies = commentUpdate.replies as Record<string, DbRepliesSortEntry> | undefined;
+            const replies = dbReplies && wireRepliesOf(dbReplies);
+            const rest = withoutReplies(commentUpdate);
+            return replies ? (withSortedKeys({ ...rest, replies }) as CommentUpdateType) : rest;
+        };
+
+        return { withWireReplies };
     }
 
     // The page entries under one comment: its direct children that pass the page's exclusions, each carrying the
@@ -1577,12 +1571,7 @@ export class DbHandler {
         const withReplies = entries.filter((entry) => this._entryHasDbReplies(entry));
         if (withReplies.length === 0) return entries;
         const trees = withReplies.every((entry) => entry.comment.depth === 0)
-            ? this._assembleReplyTrees(
-                  this.queryRepliesUnderPosts(withReplies.map((entry) => entry.commentUpdate.cid)).map((entry) => ({
-                      entry,
-                      parent: entry.comment.parentCid!
-                  }))
-              )
+            ? this._assembleReplyTrees(this.queryRepliesUnderPosts(withReplies.map((entry) => entry.commentUpdate.cid)))
             : this._assembleReplyTreesFromCidRefs(withReplies);
         return this._rebuildEntriesFromTrees(entries, trees);
     }
@@ -1601,7 +1590,7 @@ export class DbHandler {
             }
             return cids;
         };
-        const items: { entry: PageIpfs["comments"][number]; parent: string }[] = [];
+        const items: PageIpfs["comments"] = [];
         const seen = new Set<string>();
         let frontier = listedChildren(entries);
         while (frontier.length > 0) {
@@ -1622,7 +1611,7 @@ export class DbHandler {
             );
             for (const entry of level) {
                 seen.add(entry.commentUpdate.cid);
-                items.push({ entry, parent: entry.comment.parentCid! });
+                items.push(entry);
             }
             frontier = listedChildren(level);
         }
@@ -1632,45 +1621,11 @@ export class DbHandler {
     // Each entry's pages rebuilt from the assembled trees in its own commentCids order
     private _rebuildEntriesFromTrees(
         entries: PageIpfs["comments"],
-        { parsedByCid, buildWireCommentUpdate, attachReplies }: ReturnType<DbHandler["_assembleReplyTrees"]>
+        { withWireReplies }: ReturnType<DbHandler["_assembleReplyTrees"]>
     ): PageIpfs["comments"] {
-        return entries.map((entry) => {
-            if (!this._entryHasDbReplies(entry)) return entry;
-            const replies = entry.commentUpdate.replies as Record<string, DbRepliesSortEntry>;
-
-            const resolvedPages: Record<string, PageIpfs> = {};
-            const resolvedPageCids: Record<string, string> = {};
-            for (const sortName of Object.keys(replies).sort()) {
-                const sortEntry = replies[sortName];
-                if (sortEntry?.commentCids) {
-                    const resolvedComments: PageIpfs["comments"] = [];
-                    for (const cid of sortEntry.commentCids) {
-                        const child = parsedByCid.get(cid);
-                        if (child)
-                            resolvedComments.push({
-                                comment: child.comment,
-                                commentUpdate: buildWireCommentUpdate(child.commentUpdate, attachReplies(cid))
-                            });
-                    }
-                    // nextCid from allPageCids[0]; the legacy nextCid field for old DB rows
-                    const nextCidForSort = sortEntry.allPageCids?.[0] ?? (sortEntry as { nextCid?: string }).nextCid;
-                    resolvedPages[sortName] = { comments: resolvedComments, ...(nextCidForSort ? { nextCid: nextCidForSort } : {}) };
-                }
-                if (sortEntry?.allPageCids?.[0]) resolvedPageCids[sortName] = sortEntry.allPageCids[0];
-            }
-
-            const { replies: _dbReplies, ...entryCommentUpdateRest } = entry.commentUpdate;
-            return {
-                ...entry,
-                commentUpdate: withSortedKeys({
-                    ...entryCommentUpdateRest,
-                    replies: {
-                        ...(Object.keys(resolvedPageCids).length > 0 ? { pageCids: resolvedPageCids } : {}),
-                        pages: resolvedPages
-                    }
-                }) as CommentUpdateType
-            };
-        });
+        return entries.map((entry) =>
+            this._entryHasDbReplies(entry) ? { ...entry, commentUpdate: withWireReplies(entry.commentUpdate) } : entry
+        );
     }
 
     queryCommentAndCommentUpdateByCids(

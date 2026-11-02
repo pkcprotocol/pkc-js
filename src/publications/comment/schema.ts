@@ -291,7 +291,8 @@ export const CommentsTableRowSchema = CommentIpfsSchema.extend({
 // DB replies format: flat per-sort CID references instead of full inline page data
 export const DbRepliesSortEntrySchema = z.object({
     commentCids: z.array(CidStringSchema).optional(), // sorted child CIDs (preloaded sorts only)
-    allPageCids: z.array(CidStringSchema).optional() // ALL IPFS page CIDs for this sort (first element = pageCid for that sort)
+    allPageCids: z.array(CidStringSchema).optional(), // ALL IPFS page CIDs for this sort (first element = pageCid for that sort)
+    flat: z.literal(true).optional() // a preloaded flat sort: its entries were signed without their own `replies`
 });
 
 export const DbRepliesSchema = z.record(z.string().min(1), DbRepliesSortEntrySchema);
