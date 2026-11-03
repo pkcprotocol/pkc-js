@@ -87,6 +87,7 @@ interface RawWebSocket {
     addEventListener(type: "close", listener: () => void, options?: { once: boolean }): void;
 }
 const WEBSOCKET_READY_STATE_CLOSED = 3;
+const WEBSOCKET_CLOSE_NORMAL = 1000;
 const DESTROY_SOCKET_CLOSE_TIMEOUT_MS = 5_000;
 
 // Captured at module load so the deferred attach-and-replay (attachSubscriptionHandlersDeferred)
@@ -138,6 +139,15 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     // a challenge exchange the user never saw, so they fail when the connection drops instead
     private _publishSubscriptionIds: Set<number> = new Set();
     private _hasConnectedBefore = false;
+    // What ended the last connection, and the failed attempts to reopen it since, for the errors of an outage
+    private _lastClose?: { closeCode: number; closeReason: string };
+    private _failedReconnectAttempts = 0;
+    // Rejects each call still waiting for its response. rpc-websockets never settles those on close
+    private _callsAwaitingResponse: Set<() => void> = new Set();
+    // The communities and settings subscriptions run in the background with no caller to retry them, and
+    // only a subscription that succeeded is re-issued on reconnect. One whose first attempt failed with
+    // the connection waits here for the next open, or the client would stay connected without the lists
+    private _backgroundSubscriptionsToRetry: Set<() => Promise<void>> = new Set();
     // Sockets the notification handler is attached to; rpc-websockets creates a new one per connection
     private _socketsWithNotificationHandler: WeakSet<object> = new WeakSet();
     // Reconnect backoff: doubles from the base after every failed attempt, capped at the max, and
@@ -213,10 +223,12 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                 this._attachNotificationHandler();
                 this._reconnectIntervalMs = this._reconnectBaseIntervalMs;
                 this._webSocketClient.setReconnectInterval(this._reconnectIntervalMs);
+                this._failedReconnectAttempts = 0;
                 const isReconnect = this._hasConnectedBefore;
                 this._hasConnectedBefore = true;
                 this.setState("connected");
                 if (isReconnect) this._resubscribeAllAfterReconnect();
+                this._retryBackgroundSubscriptions();
             });
             // forward errors to PKC
             this._webSocketClient.on("error", (error) => {
@@ -239,23 +251,30 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                     this.setState("failed");
                     return;
                 }
+                const errorToEmit = this._wrapIfFailedReconnectAttempt(error);
                 // This runs inside ws's error event, ahead of the close event that schedules the next
                 // reconnect attempt. A throw here (an "error" emit with no listener on the PKC) would
                 // skip that close and end the reconnect loop for good, or crash the process
                 try {
-                    this.emit("error", error);
+                    this.emit("error", errorToEmit);
                 } catch (emitError) {
                     log.error("No listener received the RPC websocket error", this._websocketServerUrl, emitError);
                 }
             });
 
-            this._webSocketClient.on("close", () => {
+            this._webSocketClient.on("close", (closeCode: number, closeReason: unknown) => {
                 // destroy() already awaited this close and logged it; a log here would land after
                 // destroy() resolved (#325)
                 if (!this._destroyRequested) log.error("connection with web socket has been closed", this._websocketServerUrl);
                 this._openConnectionPromise = undefined;
                 this.setState("stopped");
-                if (!this._destroyRequested) this._failPublicationsLostWithConnection();
+                if (this._destroyRequested) return;
+                this._lastClose = { closeCode, closeReason: String(closeReason ?? "") };
+                this._rejectCallsLostWithConnection();
+                this._failPublicationsLostWithConnection();
+                if (!this._webSocketClient.willReconnect()) return;
+                if (closeCode === WEBSOCKET_CLOSE_NORMAL) this._scheduleReconnectAfterCleanClose();
+                this.setState("connecting");
             });
 
             // Process error JSON from server into a PKCError instance
@@ -266,7 +285,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                     await this._init();
                     // A dropped/unmatched JSON-RPC response would otherwise leave this promise pending
                     // forever (issue #195) — rpc-websockets applies no timeout of its own
-                    return await pTimeout(originalWebsocketCall(...args), {
+                    return await pTimeout(this._rejectIfConnectionIsLost(originalWebsocketCall(...args), args[0]), {
                         milliseconds: this._callTimeoutMs,
                         message: new PKCError("ERR_RPC_CALL_TIMED_OUT", {
                             rpcMethod: args[0],
@@ -320,7 +339,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                           error: lastWebsocketError,
                           rpcServerUrl: this._websocketServerUrl
                       });
-            this.setState("failed");
+            // The attempts go on, so the state stays as it is. "failed" means the client gave up
             this.emit("error", err);
             throw err;
         }
@@ -345,6 +364,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
 
         this._resubscribeCalls.clear();
         this._publishSubscriptionIds.clear();
+        this._backgroundSubscriptionsToRetry.clear();
         this._serverIdByLocalId.clear();
         this._localIdByServerId.clear();
 
@@ -443,6 +463,50 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         else this._subscriptionEvents[subscriptionId].emit(message.params.event, message);
     }
 
+    // rpc-websockets never reconnects after a close with code 1000, whatever max_reconnects says, which
+    // is what a server shutting down sends (#479). Waiting the interval keeps a server that accepts and
+    // immediately closes from being retried in a tight loop; once an attempt fails, its close is not
+    // 1000 and rpc-websockets' own retries take over. The timer goes in its field so destroy() cancels it
+    private _scheduleReconnectAfterCleanClose() {
+        const webSocketClient = this._webSocketClient as unknown as { reconnect_timer_id?: ReturnType<typeof setTimeout> };
+        webSocketClient.reconnect_timer_id = setTimeout(() => {
+            if (!this._destroyRequested && this._webSocketClient.willReconnect()) this._webSocketClient.connect();
+        }, this._reconnectIntervalMs);
+    }
+
+    private _wrapIfFailedReconnectAttempt(error: Error): Error {
+        if (!this._hasConnectedBefore || this.state === "connected") return error;
+        this._failedReconnectAttempts++;
+        return new PKCError("ERR_RPC_RECONNECT_FAILED", {
+            rpcServerUrl: this._websocketServerUrl,
+            ...this._lastClose,
+            attempt: this._failedReconnectAttempts,
+            nextRetryMs: this._reconnectIntervalMs,
+            // In Node rpc-websockets forwards ws's ErrorEvent, which carries the actual error
+            error: (error as Error & { error?: Error }).error ?? error
+        });
+    }
+
+    private _rejectIfConnectionIsLost<T>(call: Promise<T>, rpcMethod: string): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+            const rejectWithLostConnection = () =>
+                reject(
+                    new PKCError("ERR_RPC_CONNECTION_LOST", {
+                        rpcMethod,
+                        rpcServerUrl: this._websocketServerUrl,
+                        ...this._lastClose
+                    })
+                );
+            this._callsAwaitingResponse.add(rejectWithLostConnection);
+            call.then(resolve, reject).finally(() => this._callsAwaitingResponse.delete(rejectWithLostConnection));
+        });
+    }
+
+    private _rejectCallsLostWithConnection() {
+        for (const rejectCall of this._callsAwaitingResponse) rejectCall();
+        this._callsAwaitingResponse.clear();
+    }
+
     private _backOffReconnectInterval() {
         if (!(this._webSocketClient instanceof WebSocketClient)) return;
         this._reconnectIntervalMs = Math.min(this._reconnectIntervalMs * 2, this._reconnectMaxIntervalMs);
@@ -467,6 +531,8 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         for (const subscriptionId of [...this._resubscribeCalls.keys()])
             this._resubscribe(subscriptionId).catch((error) => {
                 if (this._destroyRequested) return;
+                // The next open issues it again, this is not the subscription's failure
+                if ((error as { code?: unknown })?.code === "ERR_RPC_CONNECTION_LOST") return;
                 if ((error as { code?: unknown })?.code === "ERR_RPC_COMMUNITY_NOT_RUNNING") {
                     // Someone stopped the community on purpose, possibly while we were away; tell the
                     // instance the way a stop reaches a connected client, and do not try again
@@ -481,6 +547,27 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                 this._dispatchNotification(subscriptionId, {
                     params: { event: "error", subscription: subscriptionId, result: error }
                 });
+            });
+    }
+
+    // Rejects like the subscription it runs, and remembers it for the next open when the connection is
+    // what failed. A rejection while connected came from the server, and retrying would not change it
+    private async _runBackgroundSubscription(subscribe: () => Promise<void>): Promise<void> {
+        try {
+            await subscribe();
+        } catch (error) {
+            if (!this._destroyRequested && this.state !== "connected") this._backgroundSubscriptionsToRetry.add(subscribe);
+            throw error;
+        }
+    }
+
+    private _retryBackgroundSubscriptions() {
+        const subscriptions = [...this._backgroundSubscriptionsToRetry];
+        this._backgroundSubscriptionsToRetry.clear();
+        for (const subscribe of subscriptions)
+            this._runBackgroundSubscription(subscribe).catch((error) => {
+                if (this._destroyRequested) return;
+                log.error("Failed to subscribe after connecting to the RPC server", this._websocketServerUrl, error);
             });
     }
 
@@ -798,25 +885,29 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     }
 
     async initalizeCommunitieschangeEvent() {
-        const { subscriptionId } = await this._subscribe("communitiesSubscribe", [], "resubscribe");
-        this.getSubscription(subscriptionId).on("communitieschange", (res) => {
-            const parsed = RpcCommunitiesChangeEventResultSchema.loose().safeParse(res.params.result);
-            if (!parsed.success)
-                return this.emit(
-                    "error",
-                    new PKCError("ERR_INVALID_RPC_COMMUNITIES_SCHEMA", { zodError: parsed.error, result: res.params.result })
-                );
-            this.emit("communitieschange", { communities: parsed.data.communities.map((entry) => toCommunitiesEntry(entry)) });
+        await this._runBackgroundSubscription(async () => {
+            const { subscriptionId } = await this._subscribe("communitiesSubscribe", [], "resubscribe");
+            this.getSubscription(subscriptionId).on("communitieschange", (res) => {
+                const parsed = RpcCommunitiesChangeEventResultSchema.loose().safeParse(res.params.result);
+                if (!parsed.success)
+                    return this.emit(
+                        "error",
+                        new PKCError("ERR_INVALID_RPC_COMMUNITIES_SCHEMA", { zodError: parsed.error, result: res.params.result })
+                    );
+                this.emit("communitieschange", { communities: parsed.data.communities.map((entry) => toCommunitiesEntry(entry)) });
+            });
+            this.emitAllPendingMessages(subscriptionId);
         });
-        this.emitAllPendingMessages(subscriptionId);
     }
 
     async initalizeSettingschangeEvent() {
-        const { subscriptionId } = await this._subscribe("settingsSubscribe", [], "resubscribe");
-        this.getSubscription(subscriptionId).on("settingschange", (res) => {
-            this.emit("settingschange", <PKCWsServerSettingsSerialized>res.params.result);
+        await this._runBackgroundSubscription(async () => {
+            const { subscriptionId } = await this._subscribe("settingsSubscribe", [], "resubscribe");
+            this.getSubscription(subscriptionId).on("settingschange", (res) => {
+                this.emit("settingschange", <PKCWsServerSettingsSerialized>res.params.result);
+            });
+            this.emitAllPendingMessages(subscriptionId);
         });
-        this.emitAllPendingMessages(subscriptionId);
     }
 
     async fetchCid(args: FetchCidRpcParam): Promise<RpcFetchCidResult> {

@@ -428,6 +428,8 @@ export enum messages {
     ERR_RPC_CLIENT_TRYING_TO_DELETE_REMOTE_COMMUNITY = "RPC client is attempting to delete remote community",
     ERR_RPC_CLIENT_TRYING_TO_USE_ANCHOR_METHOD_ON_NON_LOCAL_COMMUNITY = "RPC client is attempting to prepare or publish an anchor record for a community this node does not host locally",
     ERR_RPC_PUBLICATION_LOST_WITH_CONNECTION = "The connection to the PKC RPC server closed while the publication was in flight. The server stopped the publication, so publish it again",
+    ERR_RPC_CONNECTION_LOST = "The connection to the PKC RPC server closed before the response to this call arrived. The server may have run the call. The client is reconnecting on its own",
+    ERR_RPC_RECONNECT_FAILED = "Failed to reconnect to the PKC RPC server. The client keeps retrying until pkc.destroy() is called",
     ERR_RPC_CLIENT_NO_ACTIVE_PUBLISH_SUBSCRIPTION = "Cannot publish challenge answers over PKC RPC: there is no active publish subscription. The challenge exchange has concluded, the publication was stopped, or publish() was never called",
     ERR_GENERIC_RPC_CLIENT_CALL_ERROR = "RPC client received an unknown error when executing call over websocket",
     ERR_RPC_CALL_TIMED_OUT = "RPC client call timed out without receiving a response from the RPC server",

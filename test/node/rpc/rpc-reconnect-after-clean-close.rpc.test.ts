@@ -154,4 +154,34 @@ describeIfRpc("RPC client after the server shuts down (#479)", () => {
             TEST_TIMEOUT_MS
         );
     });
+
+    it(
+        "a client started while the server is down gets pkc.communities once the server comes up",
+        async () => {
+            const dataPath = uniqueTmpDataPath("pkc-rpc-clean-close");
+            const { rpcUrl, port } = await startServer({ dataPath });
+            await stopServer();
+
+            client = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+            const startedClient = client;
+            const errors: ErrorWithCode[] = [];
+            startedClient.on("error", (error) => errors.push(error));
+            const rpcClient = startedClient.clients.pkcRpcClients[rpcUrl] as unknown as RpcClientInternals;
+
+            // The first communitiesSubscribe has given up by the time this error is out
+            await pollUntil(() => errors.some((e) => e.code === "ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC"), { timeoutMs: 30_000 });
+            expect(errors.map((e) => e.code)).toContain("ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC");
+
+            await startServer({ dataPath, port });
+            await pollUntil(() => rpcClient.state === "connected", { timeoutMs: RECONNECT_WINDOW_MS });
+            expect(rpcClient.state).toBe("connected");
+
+            const created = await serverPKC!.createCommunity({});
+            await pollUntil(() => findListedCommunity({ pkc: startedClient, publicKey: created.publicKey! }) !== undefined, {
+                timeoutMs: 15_000
+            });
+            expectCommunityListed({ pkc: startedClient, publicKey: created.publicKey!, address: created.address, name: created.name });
+        },
+        TEST_TIMEOUT_MS
+    );
 });
