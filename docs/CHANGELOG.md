@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.135](https://github.com/pkcprotocol/pkc-js/compare/v0.0.134...v0.0.135) (2026-11-03)
+
+### Bug Fixes
+
+* **rpc:** reconnect after a clean server shutdown and report connection loss ([#480](https://github.com/pkcprotocol/pkc-js/issues/480)) ([d1d97f6](https://github.com/pkcprotocol/pkc-js/commit/d1d97f6c56a3d1ae82db5fb0a00c2608e50758a5)), closes [#479](https://github.com/pkcprotocol/pkc-js/issues/479) [#479](https://github.com/pkcprotocol/pkc-js/issues/479) [#482](https://github.com/pkcprotocol/pkc-js/issues/482)
+
 ## [0.0.134](https://github.com/pkcprotocol/pkc-js/compare/v0.0.133...v0.0.134) (2026-11-03)
 
 ### Bug Fixes
