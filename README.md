@@ -1844,6 +1844,25 @@ for (const chainTicker in clients?.chainProviders) {
 }
 ```
 
+### RPC client connection states
+
+`pkc.clients.pkcRpcClients[url].state` and its `statechange` event report the connection to the RPC server. The client retries a lost connection until `pkc.destroy()` is called, so a process that wants to give up has to call it.
+
+| State | Meaning |
+| -------- | -------- |
+| `connecting` | Opening the connection, or retrying after losing it |
+| `connected` | Connected. Subscriptions are re-issued automatically after a reconnect |
+| `stopped` | Not connected and not trying to. Also passes briefly right after a connection closes, before `connecting` |
+| `failed` | Gave up and will not retry. Today this only happens when the server rejects the client with a 403 (`ERR_RPC_AUTH_REQUIRED`) |
+
+Errors during an outage:
+
+| Code | Where | Meaning |
+| -------- | -------- | -------- |
+| `ERR_RPC_RECONNECT_FAILED` | `pkc.on('error')`, once per failed attempt | A reconnect attempt failed. `details` has `rpcServerUrl`, `closeCode`, `closeReason`, `attempt`, `nextRetryMs` and `error` |
+| `ERR_RPC_CONNECTION_LOST` | Rejects the call | The socket closed before the response arrived. The server may have run the call |
+| `ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC` | Rejects the call and `pkc.on('error')` | A call made while disconnected waited 20 seconds for the connection |
+
 ### `settingschange`
 
 > `Client.settings` property changed.
