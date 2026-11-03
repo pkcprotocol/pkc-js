@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.134](https://github.com/pkcprotocol/pkc-js/compare/v0.0.133...v0.0.134) (2026-11-03)
+
+### Bug Fixes
+
+* **pages:** rebuild reply pages exactly as signed so the update cycle can't wedge ([#477](https://github.com/pkcprotocol/pkc-js/issues/477)) ([#478](https://github.com/pkcprotocol/pkc-js/issues/478)) ([e3f2d9a](https://github.com/pkcprotocol/pkc-js/commit/e3f2d9a11c34e3633d86cda2e0281ebb8c103581))
+
 ## [0.0.133](https://github.com/pkcprotocol/pkc-js/compare/v0.0.132...v0.0.133) (2026-11-02)
 
 ### Bug Fixes
