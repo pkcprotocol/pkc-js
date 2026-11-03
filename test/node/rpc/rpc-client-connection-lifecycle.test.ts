@@ -411,7 +411,10 @@ describe("PKCRpcClient while its connection is down (#479)", () => {
                 expect(errorCode).toBe("ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC");
                 expect(elapsedMs).toBeGreaterThanOrEqual(MEASURED_OPEN_TIMEOUT_SECONDS * 1000 - 50);
             }
-            expect(errors.filter((e) => e.code === "ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC")).toHaveLength(3);
+            const timeouts = errors.filter((e) => e.code === "ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC");
+            expect(timeouts).toHaveLength(3);
+            // Calls after the first _init() see what went wrong too
+            for (const timeout of timeouts) expect(timeout.details?.error).toBeDefined();
         });
 
         it("a call waiting when the server returns succeeds, after an earlier call timed out", async () => {
@@ -448,6 +451,28 @@ describe("PKCRpcClient while its connection is down (#479)", () => {
             // The waits that timed out must not stay subscribed for the rest of the outage
             expect(client.listenerCount("statechange")).toBe(listenersWhenConnected);
         });
+
+        it.each([
+            { closeName: "a clean close", closeCode: WS_CLOSE_NORMAL },
+            { closeName: "a dropped connection", closeCode: WS_CLOSE_ABNORMAL }
+        ])(
+            "a connected client that gets a 403 on reconnect after $closeName fails later calls right away with ERR_RPC_AUTH_REQUIRED",
+            async ({ closeCode }) => {
+                const server = await startServer();
+                const { client } = await connectedClient(server, { fastBackoff: true, openTimeoutSeconds: 5 });
+
+                server.rejectUpgradesWith403 = true;
+                server.cutClients(closeCode);
+                await pollUntil(() => client.state === "failed", { timeoutMs: 5_000 });
+                expect(client.state).toBe("failed");
+
+                const calls = [await timedCall(client), await timedCall(client)];
+
+                expect(calls.map((call) => call.errorCode)).toEqual(["ERR_RPC_AUTH_REQUIRED", "ERR_RPC_AUTH_REQUIRED"]);
+                for (const { elapsedMs } of calls) expect(elapsedMs).toBeLessThan(500);
+                expect(client.state).toBe("failed");
+            }
+        );
 
         it("after a 403 later calls keep failing right away with ERR_RPC_AUTH_REQUIRED", async () => {
             const server = await startServer();

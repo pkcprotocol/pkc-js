@@ -142,6 +142,9 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     // What ended the last connection, and the failed attempts to reopen it since, for the errors of an outage
     private _lastClose?: { closeCode: number; closeReason: string };
     private _failedReconnectAttempts = 0;
+    // On the instance because the socket handlers are attached once, by the first _init(), and later
+    // calls need to see it. A PKCError here means the client gave up, today only a 403
+    private _lastWebsocketError?: Error;
     // Rejects each call still waiting for its response. rpc-websockets never settles those on close
     private _callsAwaitingResponse: Set<() => void> = new Set();
     // The communities and settings subscriptions run in the background with no caller to retry them, and
@@ -203,7 +206,6 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         const log = Logger("pkc-js:pkc-rpc-client:_init");
         if (this._destroyRequested) return;
         // wait for websocket connection to open
-        let lastWebsocketError: Error | undefined;
         if (!(this._webSocketClient instanceof WebSocketClient)) {
             this.setState("connecting");
             // Set up events here
@@ -224,6 +226,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                 this._reconnectIntervalMs = this._reconnectBaseIntervalMs;
                 this._webSocketClient.setReconnectInterval(this._reconnectIntervalMs);
                 this._failedReconnectAttempts = 0;
+                this._lastWebsocketError = undefined;
                 const isReconnect = this._hasConnectedBefore;
                 this._hasConnectedBefore = true;
                 this.setState("connected");
@@ -235,7 +238,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                 // A failed connect attempt emits error before close, and rpc-websockets reads the
                 // interval when the close schedules the next attempt
                 this._backOffReconnectInterval();
-                lastWebsocketError = error;
+                this._lastWebsocketError = error;
                 if (this._destroyRequested) {
                     log("Ignoring websocket error emitted after destroy request", error);
                     return;
@@ -243,11 +246,11 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                 // Detect HTTP 403 from server auth rejection
                 const errorMessage = typeof error?.message === "string" ? error.message : "";
                 if (errorMessage.includes("Unexpected server response: 403")) {
-                    lastWebsocketError = new PKCError("ERR_RPC_AUTH_REQUIRED", {
+                    this._lastWebsocketError = new PKCError("ERR_RPC_AUTH_REQUIRED", {
                         rpcServerUrl: this._websocketServerUrl
                     });
                     this._webSocketClient.setAutoReconnect(false);
-                    this.emit("error", lastWebsocketError);
+                    this.emit("error", this._lastWebsocketError);
                     this.setState("failed");
                     return;
                 }
@@ -308,10 +311,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         }
         // @ts-expect-error
         if (this._webSocketClient.ready) return;
-        if (!this._openConnectionPromise)
-            this._openConnectionPromise = this._waitForConnectionToOpen(() => {
-                if (lastWebsocketError instanceof PKCError) throw lastWebsocketError;
-            });
+        if (!this._openConnectionPromise) this._openConnectionPromise = this._waitForConnectionToOpen();
         const openConnectionPromise = this._openConnectionPromise;
 
         try {
@@ -326,7 +326,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                     ? e
                     : new PKCError("ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC", {
                           timeoutSeconds: this._timeoutSeconds,
-                          error: lastWebsocketError,
+                          error: this._lastWebsocketError,
                           rpcServerUrl: this._websocketServerUrl
                       });
             // The attempts go on, so the state stays as it is, and the next call gets a wait of its own
@@ -338,16 +338,12 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     }
 
     // A timed-out wait must not stay subscribed: a long outage starts a new one for every timeout
-    private async _waitForConnectionToOpen(throwIfFailed: () => void): Promise<void> {
+    private async _waitForConnectionToOpen(): Promise<void> {
         let onStateChange: () => void = () => {};
         const connectionOpened = new Promise<void>((resolve, reject) => {
             onStateChange = () => {
-                try {
-                    if (this.state === "connected") resolve();
-                    else throwIfFailed();
-                } catch (error) {
-                    reject(error);
-                }
+                if (this.state === "connected") resolve();
+                else if (this._lastWebsocketError instanceof PKCError) reject(this._lastWebsocketError);
             };
             this.on("statechange", onStateChange);
             onStateChange();
