@@ -4,7 +4,7 @@ import assert from "assert";
 import { PKCError } from "../../pkc-error.js";
 import EventEmitter from "events";
 import pTimeout from "p-timeout";
-import { hideClassPrivateProps, replaceXWithY, resolveWhenPredicateIsTrue } from "../../util.js";
+import { hideClassPrivateProps, replaceXWithY } from "../../util.js";
 import type { CreateNewLocalCommunityUserOptions } from "../../community/types.js";
 import type { CommentChallengeRequestToEncryptType } from "../../publications/comment/types.js";
 import type { VoteChallengeRequestToEncryptType } from "../../publications/vote/types.js";
@@ -309,23 +309,13 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         // @ts-expect-error
         if (this._webSocketClient.ready) return;
         if (!this._openConnectionPromise)
-            this._openConnectionPromise = pTimeout(
-                resolveWhenPredicateIsTrue({
-                    toUpdate: this,
-                    predicate: () => {
-                        if (this.state === "connected") return true;
-                        if (lastWebsocketError instanceof PKCError) throw lastWebsocketError;
-                        return false;
-                    },
-                    eventName: "statechange"
-                }),
-                {
-                    milliseconds: this._timeoutSeconds * 1000
-                }
-            );
+            this._openConnectionPromise = this._waitForConnectionToOpen(() => {
+                if (lastWebsocketError instanceof PKCError) throw lastWebsocketError;
+            });
+        const openConnectionPromise = this._openConnectionPromise;
 
         try {
-            await this._openConnectionPromise;
+            await openConnectionPromise;
         } catch (e) {
             if (this._destroyRequested) {
                 log("Aborted RPC connection before it finished opening because destroy was requested", this._websocketServerUrl);
@@ -339,9 +329,33 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                           error: lastWebsocketError,
                           rpcServerUrl: this._websocketServerUrl
                       });
-            // The attempts go on, so the state stays as it is. "failed" means the client gave up
+            // The attempts go on, so the state stays as it is, and the next call gets a wait of its own
+            // instead of this rejection. "failed" means the client gave up, so that one stays for later calls
+            if (this.state !== "failed" && this._openConnectionPromise === openConnectionPromise) this._openConnectionPromise = undefined;
             this.emit("error", err);
             throw err;
+        }
+    }
+
+    // A timed-out wait must not stay subscribed: a long outage starts a new one for every timeout
+    private async _waitForConnectionToOpen(throwIfFailed: () => void): Promise<void> {
+        let onStateChange: () => void = () => {};
+        const connectionOpened = new Promise<void>((resolve, reject) => {
+            onStateChange = () => {
+                try {
+                    if (this.state === "connected") resolve();
+                    else throwIfFailed();
+                } catch (error) {
+                    reject(error);
+                }
+            };
+            this.on("statechange", onStateChange);
+            onStateChange();
+        });
+        try {
+            await pTimeout(connectionOpened, { milliseconds: this._timeoutSeconds * 1000 });
+        } finally {
+            this.removeListener("statechange", onStateChange);
         }
     }
 

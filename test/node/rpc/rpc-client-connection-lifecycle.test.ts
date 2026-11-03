@@ -382,6 +382,88 @@ describe("PKCRpcClient while its connection is down (#479)", () => {
         expect(client.state).toBe("connected");
     });
 
+    describe("calls made during a long outage", () => {
+        const MEASURED_OPEN_TIMEOUT_SECONDS = 1;
+
+        async function timedCall(client: PKCRpcClient) {
+            const startedAt = Date.now();
+            let errorCode: string | undefined;
+            try {
+                await client.rpcCall("ping", []);
+            } catch (error) {
+                errorCode = (error as ErrorWithDetails).code;
+            }
+            return { elapsedMs: Date.now() - startedAt, errorCode };
+        }
+
+        it("every call waits the full open timeout, not only the first one", async () => {
+            const server = await startServer();
+            const { client, errors } = await connectedClient(server, {
+                fastBackoff: true,
+                openTimeoutSeconds: MEASURED_OPEN_TIMEOUT_SECONDS
+            });
+            await server.goDown(WS_CLOSE_NORMAL);
+            await pollUntil(() => client.state === "connecting", { timeoutMs: 5_000 });
+
+            const calls = [await timedCall(client), await timedCall(client), await timedCall(client)];
+
+            for (const { elapsedMs, errorCode } of calls) {
+                expect(errorCode).toBe("ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC");
+                expect(elapsedMs).toBeGreaterThanOrEqual(MEASURED_OPEN_TIMEOUT_SECONDS * 1000 - 50);
+            }
+            expect(errors.filter((e) => e.code === "ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC")).toHaveLength(3);
+        });
+
+        it("a call waiting when the server returns succeeds, after an earlier call timed out", async () => {
+            const server = await startServer();
+            const { client } = await connectedClient(server, {
+                fastBackoff: true,
+                openTimeoutSeconds: MEASURED_OPEN_TIMEOUT_SECONDS
+            });
+            await server.goDown(WS_CLOSE_NORMAL);
+            await pollUntil(() => client.state === "connecting", { timeoutMs: 5_000 });
+            expect((await timedCall(client)).errorCode).toBe("ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC");
+
+            const waitingCall = client.rpcCall("ping", []);
+            await server.listen();
+
+            await expect(waitingCall).resolves.toEqual({});
+        });
+
+        it("calls that overlap a timeout share one wait and leave no listeners behind", async () => {
+            const server = await startServer();
+            const { client } = await connectedClient(server, {
+                fastBackoff: true,
+                openTimeoutSeconds: MEASURED_OPEN_TIMEOUT_SECONDS
+            });
+            const listenersWhenConnected = client.listenerCount("statechange");
+            await server.goDown(WS_CLOSE_NORMAL);
+            await pollUntil(() => client.state === "connecting", { timeoutMs: 5_000 });
+
+            const overlapping = await Promise.all([timedCall(client), timedCall(client), timedCall(client)]);
+            expect(overlapping.map((call) => call.errorCode)).toEqual(Array(3).fill("ERR_FAILED_TO_OPEN_CONNECTION_TO_RPC"));
+            await timedCall(client);
+            await timedCall(client);
+
+            // The waits that timed out must not stay subscribed for the rest of the outage
+            expect(client.listenerCount("statechange")).toBe(listenersWhenConnected);
+        });
+
+        it("after a 403 later calls keep failing right away with ERR_RPC_AUTH_REQUIRED", async () => {
+            const server = await startServer();
+            server.rejectUpgradesWith403 = true;
+            const { client } = createClient(server.url, { openTimeoutSeconds: 5 });
+
+            const first = await timedCall(client);
+            const second = await timedCall(client);
+
+            expect(first.errorCode).toBe("ERR_RPC_AUTH_REQUIRED");
+            expect(second.errorCode).toBe("ERR_RPC_AUTH_REQUIRED");
+            expect(second.elapsedMs).toBeLessThan(500);
+            expect(client.state).toBe("failed");
+        });
+    });
+
     // PKC starts these two subscriptions in the background and only logs a failure, so no caller can
     // retry them. A failed first attempt must not leave a connected client without the lists for good
     describe.each([
