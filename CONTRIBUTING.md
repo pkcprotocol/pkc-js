@@ -1,6 +1,6 @@
 # Contributing to pkc-js
 
-pkc-js is the TypeScript SDK for PKC (Public Key Communities), a serverless social protocol built on IPFS, IPNS and libp2p pubsub. It runs in Node and in browsers, and [bitsocial-cli](https://github.com/bitsocialnet/bitsocial-cli), [bitsocial-react-hooks](https://github.com/bitsocialnet/bitsocial-react-hooks) and the clients built on them depend on it. Every successful CI run on `master` publishes a new version to npm, so `master` must stay releasable.
+pkc-js is the TypeScript SDK for PKC (Public Key Communities), a serverless social protocol built on IPFS, IPNS and libp2p pubsub. It runs in Node and in browsers, and [bitsocial-cli](https://github.com/bitsocialnet/bitsocial-cli), [bitsocial-react-hooks](https://github.com/bitsocialnet/bitsocial-react-hooks) and the clients built on them depend on it. A successful CI run on `master` publishes a new version to npm whenever there are commits since the last tag, so `master` must stay releasable.
 
 Before you start, read:
 
