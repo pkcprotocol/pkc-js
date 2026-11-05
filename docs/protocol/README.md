@@ -22,6 +22,7 @@ Concise protocol reference for AI agents and contributors. Each doc covers one d
 | [db-community-address-migration.md](db-community-address-migration.md) | DB v37 migration: subplebbitAddress → communityPublicKey/communityName, CID preservation |
 | [data-path-migration.md](data-path-migration.md) | Directory layout migration for downstream apps: `.plebbit/` → `.pkc/`, `subplebbits/` → `communities/` |
 | [import-performance.md](import-performance.md) | Import/startup cost (issue #120): how to benchmark it, where the time goes, optimization checklist + history |
+| [../versioning.md](../versioning.md) | Release policy (every release is a `0.0.x` patch and why), when CI publishes, release notes from PR titles, marking breaking changes, upgrading downstream, leaving `0.0.x` |
 | [../reachability.md](../reachability.md) | `ERR_COMMUNITY_UNREACHABLE_FROM_THIS_CLIENT` (issue #377): per-provider reachability verdicts, why NAT-hosted unseeded communities fail from libp2p-js clients, the fixes |
 
 ## External specs
