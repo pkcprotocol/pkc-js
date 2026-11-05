@@ -25,7 +25,7 @@ Consequences:
 - Any merged change in those paths publishes a version, including test-only or CI-only changes. Their notes are empty if no commit has a visible type.
 - Pushes that only touch other files, such as `docs/`, `README.md` or `AGENTS.md`, do not run CI or release. Their commits fall into the next release's range, where hidden types do not appear in the notes.
 - Releases run one at a time (the `release` concurrency group). Two overlapping runs once both bumped to `0.0.113` from different commits.
-- The release step ends in `|| true`, so a release-it failure still leaves the job green and the next step reports "No new version to release". To confirm a release, check the npm `latest` dist-tag and the GitHub release, not just the job status.
+- The release step ends in `|| true`, so a release-it failure never fails the job. The next step compares `version` in `package.json` before and after it. A failure before the bump prints "No new version to release" and publishes nothing. A failure after the bump, such as a rejected push or a failed GitHub release, still publishes to npm, possibly with no remote tag, release commit or GitHub release. To confirm a release, check all four: the npm `latest` dist-tag, the `v<version>` tag, the release commit on `master` and the GitHub release.
 
 Do not edit `version` in `package.json` or `docs/CHANGELOG.md` by hand; the release job owns both.
 
@@ -63,5 +63,5 @@ Read every `docs/CHANGELOG.md` entry between the pinned version and the target, 
 There is no plan or date for leaving `0.0.x`; that is a maintainer decision. If it happens:
 
 - CI build runs release-it without `--increment`, so the configured `patch` applies. A deliberate minor or major release needs an explicit `--increment` (990a2a0ad left that option open), which means a one-off change to how the release job runs.
-- npm never reuses a version number, and `0.1.0` and `0.2.0` already exist there, so the first release above `0.0.x` must be `0.3.0` or higher.
+- `0.1.0` and `0.2.0` already exist on npm and are deprecated, and a later `0.1.x` or `0.2.x` would be picked up by `^0.1.0` or `^0.2.0` ranges. The first release above `0.0.x` should be `0.3.0` or higher to stay clear of those lines.
 - From `0.y.z` with `y >= 1`, caret ranges accept later patches on the same line (`^0.3.0` accepts `0.3.1`). Patch releases would then have to stay compatible, and breaking changes would need the next minor.
