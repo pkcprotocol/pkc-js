@@ -142,13 +142,13 @@ Three new RPC methods. `AbortSignal` is a client-side concept and never crosses 
 - Per-community subscription.
 - Initial notification carries the **current** `community.exports` array.
 - Subsequent notifications fire whenever any record on the community changes.
-- Notification shape: `event: "exportschange"`, `result: CommunityExportRecord[]`.
+- Notification shape: `method: "exportschange"`, `event: "exportschange"`, `result: { records: CommunityExportRecord[] }`.
 - The wire-format `record.url` is a **relative URL** (`/exports/<exportId>`); the RPC client absolutizes.
 - Tearing down the subscription does **not** cancel any in-flight exports.
 
-### `cancelExport({ exportId })` → `void`
+### `cancelExport({ exportId })` → `{ success: true }`
 
-- Idempotent: unknown `exportId` returns success without action.
+- Idempotent: unknown `exportId` returns `{ success: true }` without action.
 - Server stops the backup if running, unlinks the `.partial`, sets `error.code = ERR_EXPORT_CANCELLED`, fires `exportschange`.
 
 ### Disconnect behavior
