@@ -28,4 +28,4 @@ Concise protocol reference for AI agents and contributors. Each doc covers one d
 
 | Spec | Why it matters here |
 |------|---------------------|
-| [IPFS path-gateway spec](https://specs.ipfs.tech/http-gateways/path-gateway/) | The contract our ipfs-gateway transport polls against: `ETag` format and `If-None-Match`/304 revalidation, `Cache-Control: max-age` = remaining IPNS record TTL, `X-Ipfs-Roots`, HEAD + `only-if-cached` probes, and `?format=ipns-record` for fetching the verifiable IPNS record itself. Read before touching the gateway fetch path in `src/clients/base-client-manager.ts` or the gateway branch of `src/community/community-client-manager.ts`. |
+| [IPFS path-gateway spec](https://specs.ipfs.tech/http-gateways/path-gateway/) | The contract our ipfs-gateway transport polls against. The parts the code uses: `ETag` format and `If-None-Match`/304 revalidation, `Cache-Control: max-age` = remaining IPNS record TTL, and `?format=ipns-record` for fetching the verifiable IPNS record itself. Read before touching the gateway fetch path in `src/clients/base-client-manager.ts` or the gateway branch of `src/community/community-client-manager.ts`. |

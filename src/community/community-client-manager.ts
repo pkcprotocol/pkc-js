@@ -1408,8 +1408,8 @@ export class CommunityClientsManager extends PKCClientsManager {
         }
 
         const _findRecentCommunity = (): { community: CommunityIpfsType; cid: string } | undefined => {
-            // Try to find a very recent community
-            // If not then go with the most recent community record after fetching from 3 gateways
+            // Adopt the newest verified record any gateway has returned so far, as soon as it is newer than
+            // the one we hold. There is no waiting for more gateways to answer
             const winner = selectWinningGatewayCommunity({
                 gatewayFetches,
                 currentUpdatedAt: this._community.raw.communityIpfs?.updatedAt || 0,
