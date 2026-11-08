@@ -162,6 +162,52 @@ describeSkipIfRpc("connectToPubsubPeers warmup (issue #171 follow-up)", () => {
         expect(node._helia.libp2p.services.pubsub.getSubscribers(topic).map((p) => p.toString())).to.include(subscriber.ID);
     });
 
+    // Issue #475: a provider reachable only on private/loopback addrs (a NAT'd seeder in a VM announcing
+    // 127.0.0.1, 10.0.2.15, fec0::...) is dialed after the providers with a public addr, never ahead of
+    // them. The subscriber is announced as /dns4/localhost. (the trailing dot keeps isPrivate from matching
+    // "localhost", so it counts as public, yet it is local); the
+    // private-only provider is a loopback tarpit yielded first. Records the order dials start in.
+    it("dials providers reachable only on private/loopback addrs after public ones (issue #475)", async () => {
+        const SLOW_ROUTER_DELAY_MS = 800; // keeps the provider stream open, so nothing releases the private-only peer early
+        const topic = topicFor("private-last");
+        const cid = pubsubTopicToDhtKeyCid(topic).toString();
+        const subscriber = await startSubscriberNode(topic);
+        const publicAddrs = subscriber.Addrs.map((addr) => addr.replace(/^\/ip4\/127\.0\.0\.1\//, "/dns4/localhost./"));
+        const tarpitPeerId = await newPeerIdStr();
+        const router = new MockHttpRouter();
+        await router.start();
+        startedRouters.push(router);
+        // MockHttpRouter serves the newest record first, so the private-only tarpit is added last to be yielded first
+        router.addProviderForTesting(cid, { ID: subscriber.ID, Addrs: publicAddrs });
+        router.addProviderForTesting(cid, { ID: tarpitPeerId, Addrs: [await startTarpitWsAddr()] });
+        const slowRouter = new MockHttpRouter({ providerGetDelayMs: SLOW_ROUTER_DELAY_MS });
+        await slowRouter.start();
+        startedRouters.push(slowRouter);
+        slowRouter.addProviderForTesting(cid, { ID: subscriber.ID, Addrs: publicAddrs });
+        const node = await createNode({
+            routers: [router.url, slowRouter.url],
+            libp2pOptions: { connectionManager: { addressDialTimeout: 5_000 } }
+        });
+
+        const dials: { peer: string; atMs: number }[] = [];
+        const libp2p = node._helia.libp2p;
+        const originalDial = libp2p.dial.bind(libp2p);
+        const start = Date.now();
+        libp2p.dial = ((target: Parameters<typeof libp2p.dial>[0], options?: Parameters<typeof libp2p.dial>[1]) => {
+            dials.push({ peer: target.toString(), atMs: Date.now() - start });
+            return originalDial(target, options);
+        }) as typeof libp2p.dial;
+
+        const connections = await connectToPubsubPeers({ helia: node._helia, pubsubTopic: topic, maxPeers: 4, log });
+
+        expect(connections.length, "should have connected to the public subscriber").to.be.greaterThan(0);
+        const describeDials = JSON.stringify(dials);
+        expect(dials[0]?.peer, `dials: ${describeDials}`).to.equal(subscriber.ID);
+        const subscriberDialAt = dials.find((d) => d.peer === subscriber.ID)!.atMs;
+        const tarpitDial = dials.find((d) => d.peer === tarpitPeerId);
+        if (tarpitDial) expect(tarpitDial.atMs, `dials: ${describeDials}`).to.be.greaterThan(subscriberDialAt);
+    });
+
     // Issue #213: libp2p's CompoundContentRouting.findProviders dedupes providers by peer id
     // across routers — the first router's record for a peer is the only one ever yielded. If a
     // fast router serves the subscriber's record with its WSS addr stripped (tcp-only), the one

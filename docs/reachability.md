@@ -3,7 +3,7 @@
 A community is served by whatever nodes announce themselves as providers of its IPNS record: the node that runs it, and any node that seeds it. A client can only load the community if it can open a direct connection to at least one of those providers. Whether it can depends on two things the client checks locally, before any network round trip:
 
 1. **What addresses the providers announce.** A node behind NAT (a home router, carrier-grade NAT, a mobile hotspot, no port forwarding or UPnP) cannot be reached from the outside. Kubo detects this (AutoNAT reports `Private`) and announces only `/p2p-circuit` addresses, meaning "reach me through this relay".
-2. **What transports the client has.** A browser can only open WebSocket (`/wss`) and WebRTC connections. A Node.js libp2p-js client can also open TCP. Kubo can open everything, including relayed connections that it then upgrades to direct ones by hole punching.
+2. **What transports the client has.** A browser can only open WebSocket (`/wss`), WebTransport and WebRTC connections, and pkc-js denies WebRTC by default. A Node.js libp2p-js client can also open TCP. Kubo can open everything, including relayed connections that it then upgrades to direct ones by hole punching.
 
 When the client finds providers but every one of them fails those local checks, pkc-js reports `ERR_COMMUNITY_UNREACHABLE_FROM_THIS_CLIENT` instead of the generic "does this IPNS name exist?" error. The community exists and its providers were found. This client simply cannot connect to any of them.
 
@@ -45,7 +45,7 @@ Pick whichever side you control.
 **You run the community.**
 
 -   Give the node a public address: forward the libp2p port on your router, enable UPnP, or host it on a VPS. Once Kubo's AutoNAT reports `Public`, it announces direct addresses and browsers can connect.
--   Browsers need a WebSocket Secure (`/wss`) or WebRTC-direct address as well. Kubo's AutoTLS provides `/wss` automatically on a publicly reachable node.
+-   Browsers need a WebSocket Secure (`/wss`) or WebTransport (`/webtransport` with certhashes) address as well. Kubo announces WebTransport by default on UDP 4001; some networks filter that port, so also listen on UDP 443 (`bitsocial reachability setup` adds both, and serves `/wss` through an IP certificate). Kubo's AutoTLS provides `/wss` automatically on a publicly reachable node.
 -   Or have a publicly reachable node seed the community with [bitsocial-seeder](https://github.com/bitsocialnet/bitsocial-seeder). Seeders announce themselves as providers, so clients load the community from them even while the owner's node stays behind NAT.
 
 **You are trying to load or post to the community.**

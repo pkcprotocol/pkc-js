@@ -10,7 +10,7 @@ import type {
 } from "../../../dist/node/runtime/node/community/local-community/reprovide-on-address-change.js";
 
 // Pure unit test (no kubo / no PKC). Pins down the publisher-side behaviour that keeps browsers able to
-// connect: when the node's browser-dialable (WSS/WebRTC) self-addresses rotate, the connection-critical
+// connect: when the node's browser-dialable (WSS/WebRTC/WebTransport) self-addresses rotate, the connection-critical
 // CIDs must be re-provided so the HTTP routers carry the fresh addresses. A pure-TCP/quic address change
 // must NOT trigger a re-provide (browsers can't dial those).
 //
@@ -27,6 +27,10 @@ const TCP_ADDR = `/ip4/1.2.3.4/tcp/4001`;
 const WSS_ADDR_A = `/dns4/example-a.libp2p.direct/tcp/443/tls/ws`;
 const WSS_ADDR_B = `/dns4/example-b.libp2p.direct/tcp/443/tls/ws`;
 const WEBRTC_ADDR = `/ip4/1.2.3.4/udp/4001/webrtc-direct/certhash/uEiAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`;
+// kubo announces two certhashes for WebTransport (current + next certificate) and rotates them, so the
+// address string changes even though host and port stay the same.
+const WEBTRANSPORT_ADDR_A = `/ip4/1.2.3.4/udp/443/quic-v1/webtransport/certhash/uEiAQk5I5LfDHFiqGeL85eF7IvNU3TL7KKSDv9ZN3oZRZjw/certhash/uEiDxAAP4p5uGp5KZiQzw385mk5sKr-RNPSTI2FNe-djMQQ`;
+const WEBTRANSPORT_ADDR_B = `/ip4/1.2.3.4/udp/443/quic-v1/webtransport/certhash/uEiDxAAP4p5uGp5KZiQzw385mk5sKr-RNPSTI2FNe-djMQQ/certhash/uEiB1j2YF127qijOUPu7peW4cvVV3GGWGQmeX2uvl3r2xJQ`;
 
 function makeClient(initialIdAddrs: string[]): {
     client: ReprovideKuboRpcClient;
@@ -69,6 +73,10 @@ describe("isBrowserDialableAddr", () => {
     it("keeps WSS and WebRTC addresses", () => {
         expect(isBrowserDialableAddr(WSS_ADDR_A)).toBe(true);
         expect(isBrowserDialableAddr(WEBRTC_ADDR)).toBe(true);
+    });
+    it("keeps WebTransport addresses (pkc-js#475)", () => {
+        expect(isBrowserDialableAddr(WEBTRANSPORT_ADDR_A)).toBe(true);
+        expect(isBrowserDialableAddr("/ip6/2001:db8::1/udp/4001/quic-v1/webtransport")).toBe(true);
     });
     it("rejects plain TCP/QUIC addresses a browser cannot dial", () => {
         expect(isBrowserDialableAddr(TCP_ADDR)).toBe(false);
@@ -116,6 +124,22 @@ describe("reprovideConnectionCidsIfBrowserAddrsChanged", () => {
         const res = await reprovideConnectionCidsIfBrowserAddrsChanged(community);
         expect(res.reprovided).toBe(true);
         expect(provideCalls).toEqual([PUBSUB_ROUTING_CID, IPNS_PUBSUB_ROUTING_CID]);
+    });
+
+    it("re-provides when only a WebTransport certhash rotates", async () => {
+        setIdAddrs([TCP_ADDR, WSS_ADDR_A, WEBTRANSPORT_ADDR_A]);
+        await reprovideConnectionCidsIfBrowserAddrsChanged(community); // baseline
+        setIdAddrs([TCP_ADDR, WSS_ADDR_A, WEBTRANSPORT_ADDR_B]);
+        const res = await reprovideConnectionCidsIfBrowserAddrsChanged(community);
+        expect(res.reprovided).toBe(true);
+        expect(provideCalls).toEqual([PUBSUB_ROUTING_CID, IPNS_PUBSUB_ROUTING_CID]);
+    });
+
+    it("re-provides when a UDP 443 WebTransport listener is added", async () => {
+        await reprovideConnectionCidsIfBrowserAddrsChanged(community); // baseline: TCP + WSS only
+        setIdAddrs([TCP_ADDR, WSS_ADDR_A, WEBTRANSPORT_ADDR_A]);
+        const res = await reprovideConnectionCidsIfBrowserAddrsChanged(community);
+        expect(res.reprovided).toBe(true);
     });
 
     it("does NOT re-provide when only a non-browser-dialable (TCP) address changes", async () => {

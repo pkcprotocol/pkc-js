@@ -38,10 +38,10 @@ export type AddressChangeReprovidable = {
 };
 
 // Transports a browser can actually dial. These are exactly the addresses that rotate/expire frequently
-// (WebRTC-direct certhash rotation, AutoTLS WSS), so they are the ones whose change must trigger a fresh
-// provide. Plain TCP/QUIC changes are irrelevant to browsers.
+// (WebRTC-direct and WebTransport certhash rotation, AutoTLS WSS), so they are the ones whose change must
+// trigger a fresh provide. Plain TCP/QUIC changes are irrelevant to browsers.
 export function isBrowserDialableAddr(addr: string): boolean {
-    return addr.includes("/webrtc") || addr.includes("/ws");
+    return addr.includes("/webrtc") || addr.includes("/ws") || addr.includes("/webtransport");
 }
 
 // Fetch the node's current browser-dialable self-addresses, normalized the way a provider record carries
@@ -76,7 +76,7 @@ function connectionCriticalCids(community: AddressChangeReprovidable): string[] 
 }
 
 /**
- * Re-provide the connection-critical CIDs when the node's browser-dialable (WSS/WebRTC) self-addresses
+ * Re-provide the connection-critical CIDs when the node's browser-dialable (WSS/WebRTC/WebTransport) self-addresses
  * have changed since the last provide. This pushes the current addresses to the HTTP routers so browsers
  * don't get NoValidAddressesError against stale/dead addresses.
  *
