@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.136](https://github.com/pkcprotocol/pkc-js/compare/v0.0.135...v0.0.136) (2026-11-08)
+
+### Bug Fixes
+
+* **rpc:** require the auth key for web pages connecting over loopback ([5f7600c](https://github.com/pkcprotocol/pkc-js/commit/5f7600cef1a1b5ecbdf29603b9217998f3047b65))
+
 ## [0.0.135](https://github.com/pkcprotocol/pkc-js/compare/v0.0.134...v0.0.135) (2026-11-03)
 
 ### Bug Fixes
