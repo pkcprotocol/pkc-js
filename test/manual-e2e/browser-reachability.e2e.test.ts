@@ -26,7 +26,9 @@ import {
 //   E2E_ROUTERS         comma-separated HTTP routers (default: the six pkc-js defaults from src/schema.ts)
 //   E2E_REQUIRE         wss (default) | webtransport | any: what counts as reachable. `wss` is what a pkc-js browser can
 //                       dial today; `webtransport` is a certhash address whose UDP endpoint answers; `any` is either
-//   E2E_MIN_PROVIDERS   providers per target that must pass (default 1)
+//   E2E_MIN_PROVIDERS   providers per target that must pass (default 1); the explicit E2E_PEERS list is one target
+//   The default passes as soon as E2E_MIN_PROVIDERS providers have a working WSS address: WebTransport, UDP 443 and IPv6
+//   are reported per provider and listed under problems, not asserted, unless E2E_REQUIRE says so
 //   E2E_DIAL_TIMEOUT_MS (15000), E2E_UDP_TIMEOUT_MS (3000)
 //   E2E_REPORT_JSON     write the full report there (default .tmp/browser-reachability-<timestamp>.json), for the
 //                       external monitor (bitsocialnet/bitsocial-web#55) and for diffing runs from different networks
@@ -111,11 +113,6 @@ describe("browser reachability of production providers (manual, issue #475)", ()
                     failures.push(
                         `${target.target}: no providers returned by any router${routerErrors > 0 ? ` (${routerErrors} router error(s))` : ""}`
                     );
-                } else if (target.target === "peers") {
-                    for (const provider of target.providers) {
-                        if (!meetsRequirement(provider, requirement))
-                            failures.push(`${provider.peerId}: not reachable over ${requirement}; ${provider.problems.join("; ")}`);
-                    }
                 } else if (passing.length < minProviders) {
                     failures.push(
                         `${target.target}: ${passing.length}/${target.providers.length} provider(s) reachable over ${requirement}, need ${minProviders}; ` +

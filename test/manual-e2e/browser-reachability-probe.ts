@@ -10,8 +10,9 @@
 // for `/webtransport` addresses the probe checks the two things a browser needs before the handshake: the address
 // carries certhashes, and the UDP path answers. The UDP check is a QUIC version-negotiation probe: a 1200-byte
 // long-header packet with an unsupported version, to which every QUIC server must answer with a Version
-// Negotiation packet (RFC 9000 section 6). No TLS, no browser, and it separates "the network drops UDP to this
-// port" from "the node is down" in a round trip. Consumer ISPs that filter IPv4 UDP 4001 are why seeders also
+// Negotiation packet (RFC 9000 section 6). No TLS, no browser. A reply proves a QUIC listener at that address from
+// this network; it does not run the WebTransport handshake or check the certhashes. Silence means the UDP path or
+// the node is unavailable from here, and the same endpoint answering from another network tells which. Consumer ISPs that filter IPv4 UDP 4001 are why seeders also
 // listen on UDP 443 (see docs/reachability.md, "What a seeder must announce").
 //
 // Providers are found the way pkc-js finds them: the community's IPNS name becomes its IPNS-over-pubsub topic,
@@ -70,14 +71,16 @@ export interface ProviderVerdict {
     /** at least one `/tls/ws` or `/wss` address dialed with full certificate verification: what a pkc-js browser can use today */
     wssDialable: boolean;
     webtransportAnnounced: boolean;
-    /** at least one webtransport address whose UDP endpoint answered the QUIC probe */
+    /** at least one certhash webtransport address whose UDP endpoint answered the QUIC probe with Version Negotiation; a reply
+     * of any other shape is some other UDP service or a middlebox and does not count */
     webtransportUdpAnswers: boolean;
     webtransportOnUdp443: boolean;
     hasIpv6: boolean;
     relayOnly: boolean;
     /** wssDialable; pkc-js denies webtransport dials by default (src/helia/dial-transport-filter.ts) */
     browserDialableToday: boolean;
-    /** wssDialable or webtransportUdpAnswers (with certhashes): what a browser can use once pkc-js allows webtransport */
+    /** wssDialable or webtransportUdpAnswers: what a browser can use once pkc-js allows webtransport. The UDP probe shows a
+     * QUIC listener at the address; it does not run the WebTransport handshake or check the certhashes */
     browserDialableWithWebTransport: boolean;
 }
 
@@ -358,12 +361,18 @@ export async function findProvidersViaRouters({
         routers.map(async (router) => {
             try {
                 for (const record of await fetchProvidersFromRouter({ router, cid: providerCid, timeoutMs })) {
-                    // routers write the id as base58 (12D3...) or as a base36 libp2p-key CID (k51...); normalize to one spelling
-                    const peerId = peerIdFromString(record.ID).toString();
-                    const entry = providers.get(peerId) ?? { addrs: new Set<string>(), listedBy: [] };
-                    for (const addr of record.Addrs ?? []) entry.addrs.add(peerIdOf(multiaddr(addr)) ? addr : `${addr}/p2p/${peerId}`);
-                    if (!entry.listedBy.includes(router)) entry.listedBy.push(router);
-                    providers.set(peerId, entry);
+                    // one malformed record (bad id, bad address) must not hide the records after it
+                    try {
+                        // routers write the id as base58 (12D3...) or as a base36 libp2p-key CID (k51...); normalize to one spelling
+                        const peerId = peerIdFromString(record.ID).toString();
+                        const addrs = (record.Addrs ?? []).map((addr) => (peerIdOf(multiaddr(addr)) ? addr : `${addr}/p2p/${peerId}`));
+                        const entry = providers.get(peerId) ?? { addrs: new Set<string>(), listedBy: [] };
+                        for (const addr of addrs) entry.addrs.add(addr);
+                        if (!entry.listedBy.includes(router)) entry.listedBy.push(router);
+                        providers.set(peerId, entry);
+                    } catch (error) {
+                        routerErrors[`${router} (record ${record.ID})`] = describeError(error);
+                    }
                 }
             } catch (error) {
                 routerErrors[router] = describeError(error);
@@ -381,7 +390,7 @@ function judge(
     const problems: string[] = [];
     const wtAddrs = addrs.filter((a) => a.kind === "webtransport");
     const wtWithCerthash = wtAddrs.filter((a) => a.certhashes > 0);
-    const answeredWt = new Set(webtransport.filter((r) => r.answered).map((r) => r.multiaddr));
+    const answeredWt = new Set(webtransport.filter((r) => r.answered && r.versionNegotiation).map((r) => r.multiaddr));
     const verdict: ProviderVerdict = {
         wssDialable: wss.some((r) => r.ok),
         webtransportAnnounced: wtWithCerthash.length > 0,
@@ -413,11 +422,16 @@ function judge(
             if (a.certhashes === 0) problems.push(`WebTransport address without certhash, browsers cannot dial it: ${a.multiaddr}`);
         if (!verdict.webtransportOnUdp443)
             problems.push("WebTransport only on UDP 4001, no UDP 443 listener: unreachable from networks that filter UDP 4001");
-        for (const r of webtransport)
+        for (const r of webtransport) {
             if (!r.answered)
                 problems.push(
                     `UDP ${r.port} on ${r.resolvedIp ?? r.host} did not answer the QUIC probe from this network${r.error ? ` (${r.error})` : ""}`
                 );
+            else if (!r.versionNegotiation)
+                problems.push(
+                    `UDP ${r.port} on ${r.resolvedIp ?? r.host} answered, but not with QUIC Version Negotiation: something other than a QUIC listener is at that address`
+                );
+        }
     }
     if (!verdict.hasIpv6) problems.push("no IPv6 address: IPv4-only networks that filter UDP 4001 depend entirely on the 443 listeners");
     return { verdict, problems };
@@ -544,9 +558,11 @@ export function formatProviderReport(provider: ProviderReport): string {
     }
     for (const r of provider.webtransport) {
         lines.push(
-            r.answered
-                ? `  udp ok    ${r.multiaddr}  ${r.versionNegotiation ? "version negotiation" : "reply"} in ${r.ms} ms`
-                : `  udp DEAD  ${r.multiaddr}  ${r.error ?? "no reply"}`
+            r.answered && r.versionNegotiation
+                ? `  udp ok    ${r.multiaddr}  version negotiation in ${r.ms} ms`
+                : r.answered
+                  ? `  udp ODD   ${r.multiaddr}  reply in ${r.ms} ms is not QUIC version negotiation`
+                  : `  udp DEAD  ${r.multiaddr}  ${r.error ?? "no reply"}`
         );
     }
     for (const a of provider.addrs)

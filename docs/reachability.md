@@ -75,20 +75,24 @@ A browser can open exactly three kinds of libp2p connection: WebSocket Secure, W
 
 3. **Direct addresses only.** A node whose record contains nothing but `/p2p-circuit` relay addresses is behind NAT and is not a provider for any browser or libp2p-js client (`reason: "relay-only-providers"` above). AutoNAT must report `Public`, or the port must be forwarded.
 
-4. **Announced to the HTTP routers, and kept fresh.** pkc-js browsers do not run the DHT; they ask the delegated HTTP routers (`httpRoutersOptions`) for the providers of the community's IPNS-over-pubsub topic. Kubo's reprovider publishes the record there, and each router keeps an announcement for 24 hours, so a node that changes its public IP or restarts with new WebTransport certificates must reannounce within that window. When the TLS proxy terminates WebSocket Secure, the address is announced through `Addresses.AppendAnnounce` (kubo cannot discover it), and the `server` profile's `/ip4/127.0.0.0/ipcidr/8` entry in `Swarm.AddrFilters` must go, or kubo's gater refuses the proxied connections arriving from loopback.
+4. **Announced to the HTTP routers, and kept fresh.** pkc-js browsers do not run the DHT; they ask the delegated HTTP routers (`httpRoutersOptions`) for the providers of the community's IPNS-over-pubsub topic, and those routers serve only what nodes announce to them. A stock kubo reprovides to the DHT alone; it announces to an HTTP router only when that router is in its `Routing.Routers` with `provide` among the `Routing.Methods` (bitsocial-cli writes the pkc-js default routers there on init). Each router keeps an announcement for 24 hours, so a node that changes its public IP or restarts with new WebTransport certificates must reannounce within that window. When the TLS proxy terminates WebSocket Secure, the address is announced through `Addresses.AppendAnnounce` (kubo cannot discover it), and the `server` profile's `/ip4/127.0.0.0/ipcidr/8` entry in `Swarm.AddrFilters` must go, or kubo's gater refuses the proxied connections arriving from loopback.
 
 What does not help a browser: `/tcp/4001`, `/udp/4001/quic-v1` without `/webtransport`, `/webrtc-direct` (denied by pkc-js, #166), relay addresses, and WebSocket Secure on a port other than 443 for clients on restrictive networks.
 
 ### Verifying it
 
-Run the browser-transport-only probe from `test/manual-e2e/` against a community's public key or against a provider's multiaddrs. It dials every WebSocket Secure address with full certificate verification from a libp2p node gated like a browser, and sends a QUIC version-negotiation packet to every WebTransport endpoint, which tells "the network drops UDP to this port" from "the node is down" in one round trip:
+Run the browser-transport-only probe from `test/manual-e2e/` against a community's public key or against a provider's multiaddrs. It dials every WebSocket Secure address with full certificate verification from a libp2p node gated like a browser, and sends a QUIC version-negotiation packet to every WebTransport endpoint:
 
 ```bash
 E2E_TARGETS=<community publicKey> node test/run-test-config.js --pkc-config local-kubo-rpc test/manual-e2e/browser-reachability.e2e.test.ts
 E2E_PEERS=/ip4/<ip>/tcp/443/tls/ws/p2p/<peer id>,/ip4/<ip>/udp/443/quic-v1/webtransport/certhash/<h>/certhash/<h>/p2p/<peer id> node test/run-test-config.js --pkc-config local-kubo-rpc test/manual-e2e/browser-reachability.e2e.test.ts
 ```
 
-It prints one verdict per provider (dialable from pkc-js browsers today, dialable once WebTransport is allowed, IPv6, UDP 443) with the operator-facing problems found, and writes a JSON report under `.tmp/` for the external monitor (bitsocialnet/bitsocial-web#55). Results depend on the network the probe runs from: a UDP 4001 endpoint that is dead from one ISP and alive from another is exactly the case the 443 listeners exist for.
+It prints one verdict per provider (dialable from pkc-js browsers today, dialable once WebTransport is allowed, IPv6, UDP 443) with the operator-facing problems found, and writes a JSON report under `.tmp/` for the external monitor (bitsocialnet/bitsocial-web#55).
+
+What a pass means: with the default `E2E_REQUIRE=wss` the test passes as soon as `E2E_MIN_PROVIDERS` (default 1) providers have a WebSocket Secure address that dialed, which is what a pkc-js browser can use today. WebTransport, UDP 443 and IPv6 are reported and listed under each provider's problems but not asserted; `E2E_REQUIRE=webtransport` asserts the QUIC probe instead. Read the problems list to check the whole contract above.
+
+What the UDP probe can and cannot tell: a reply that is a QUIC Version Negotiation packet proves a QUIC listener answers at that address from this network; it does not run the WebTransport handshake or validate the certhashes, so "dialable with WebTransport" in the report means "a browser would get as far as the handshake". A timeout means the UDP path or the node is unavailable from this network, not which one. Results depend on the network the probe runs from: a UDP 4001 endpoint that is dead from one ISP and alive from another is exactly the case the 443 listeners exist for.
 
 ## Where the check lives
 
