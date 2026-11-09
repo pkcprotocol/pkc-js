@@ -206,6 +206,22 @@ export function findProcessResourceGrowth(before: ProcessResourceSnapshot, after
     return growth;
 }
 
+// Per-type minimum over a few samples: a loader's background work (libp2p dials, gossipsub heartbeats,
+// an updating community's loop) keeps short-lived timers in flight at any moment. A per-operation leak
+// is present in every sample; a transient timer is not.
+async function settledProcessResources(samples = 3, intervalMs = 200): Promise<ProcessResourceSnapshot> {
+    const snapshots: ProcessResourceSnapshot[] = [];
+    for (let i = 0; i < samples; i++) {
+        if (i > 0) await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        snapshots.push(snapshotProcessResources());
+    }
+    const types = new Set(snapshots.flatMap((snapshot) => Object.keys(snapshot.activeResources)));
+    const activeResources: Record<string, number> = {};
+    for (const type of types) activeResources[type] = Math.min(...snapshots.map((snapshot) => snapshot.activeResources[type] ?? 0));
+    const fds = snapshots.map((snapshot) => snapshot.openFds).filter((count): count is number => count !== undefined);
+    return { openFds: fds.length ? Math.min(...fds) : undefined, activeResources };
+}
+
 // Runs `iteration` N times after one warm-up run, and reports everything that grew by at least one
 // entry per two iterations: instances that were not collected, containers under `roots`, and
 // process resources. A shared harness so every scenario asserts the same way.
@@ -238,7 +254,7 @@ export async function measureRepeatedOperation(opts: {
         containerGrowth: findPerIterationGrowth(containersBefore, snapshotRetention(opts.roots()), minGrowth).filter(
             (growth) => !opts.allowedGrowth?.some((allowed) => allowed.path.test(growth.path))
         ),
-        processResourceGrowth: findProcessResourceGrowth(resourcesBefore, snapshotProcessResources(), minGrowth)
+        processResourceGrowth: findProcessResourceGrowth(resourcesBefore, await settledProcessResources(), minGrowth)
     };
 }
 

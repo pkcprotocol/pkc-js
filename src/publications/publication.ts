@@ -870,9 +870,15 @@ class Publication extends TypedEmitter<PublicationEvents> {
         return this._pkc.destroyed || Boolean(this._publishRunAbortController?.signal.aborted);
     }
 
+    // Fresh cache entry first, then a community instance this PKC keeps updating or running (its own loop
+    // keeps the record current), then a stale cache entry, which _fetchCommunityForPublishing refreshes
     _getCommunityCache(): NonNullable<Publication["_community"]> | undefined {
-        const cached = this._pkc._memCaches.communityForPublishing.get(this.communityAddress, { allowStale: true });
-        if (cached) return cached;
+        const cache = this._pkc._memCaches.communityForPublishing;
+        if (cache.has(this.communityAddress)) return cache.get(this.communityAddress);
+        return this._getCommunityFromLiveInstance() ?? cache.get(this.communityAddress, { allowStale: true });
+    }
+
+    private _getCommunityFromLiveInstance(): NonNullable<Publication["_community"]> | undefined {
         const subInstance =
             findUpdatingCommunity(this._pkc, { publicKey: this.communityPublicKey, name: this.communityName }) ||
             findStartedCommunity(this._pkc, { publicKey: this.communityPublicKey, name: this.communityName });
@@ -906,8 +912,12 @@ class Publication extends TypedEmitter<PublicationEvents> {
         if (cachedCommunity) {
             // We will use the cached community even though it's stale
             // And in the background we will fetch a new one and update the cache
-            // cache.has will return false if the item is stale
-            if (!this._pkc._memCaches.communityForPublishing.has(this.communityAddress)) {
+            // cache.has will return false if the item is stale. A record served by a live updating or
+            // started instance is current already: its own loop fetches it. Refreshing it anyway fired a
+            // pkc.getCommunity() per publish, since over RPC nothing ever made the cache entry fresh (#490)
+            const isFresh =
+                this._pkc._memCaches.communityForPublishing.has(this.communityAddress) || this._getCommunityFromLiveInstance() !== undefined;
+            if (!isFresh) {
                 log("The cache of community is stale, we will use the cached and update in the background");
                 // Held on the publication so stop() can drain it. Without that the refresh outlives
                 // the PKC and goes on creating community instances after teardown (issue #270).
@@ -916,6 +926,19 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         publicKey: this.communityPublicKey,
                         name: this.communityName,
                         abortSignal: this._getCommunityFetchAbortSignal()
+                    })
+                    .then((community) => {
+                        // The non-RPC network fetch writes this cache itself; getCommunity over RPC does
+                        // not, which left the entry stale and refreshed it again on every publish (#490)
+                        const record = community.raw.communityIpfs;
+                        if (record && community.publicKey)
+                            this._pkc._memCaches.communityForPublishing.set(this.communityAddress, {
+                                address: community.address,
+                                publicKey: community.publicKey,
+                                name: community.name,
+                                encryption: record.encryption,
+                                pubsubTopic: record.pubsubTopic
+                            });
                     })
                     .catch((e) => {
                         // Cancelling the refresh is what stop() asked for, so it is not an error.
