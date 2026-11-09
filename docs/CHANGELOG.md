@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.138](https://github.com/pkcprotocol/pkc-js/compare/v0.0.137...v0.0.138) (2026-11-09)
+
+### Bug Fixes
+
+* **ci:** release only after a push to master, not a fork PR's CI run ([#501](https://github.com/pkcprotocol/pkc-js/issues/501)) ([f8baf41](https://github.com/pkcprotocol/pkc-js/commit/f8baf41645579494427af1776f3a76e46f4e7464))
+
 ## [0.0.137](https://github.com/pkcprotocol/pkc-js/compare/v0.0.136...v0.0.137) (2026-11-09)
 
 ## [0.0.136](https://github.com/pkcprotocol/pkc-js/compare/v0.0.135...v0.0.136) (2026-11-08)
