@@ -107,7 +107,17 @@ export type RetentionSnapshot = Map<string, number>;
 
 const SKIPPED_CONSTRUCTOR_NAMES = new Set(["LRUCache", "Promise", "Date", "RegExp", "WeakMap", "WeakSet", "WeakRef"]);
 
-export function snapshotRetention(roots: Record<string, unknown>, opts?: { maxDepth?: number; maxNodes?: number }): RetentionSnapshot {
+// Paths of the AbortSignals reachable from `roots`, so a report can name a signal instead of "a signal"
+export function findAbortSignalPaths(roots: Record<string, unknown>): Map<AbortSignal, string> {
+    const paths = new Map<AbortSignal, string>();
+    snapshotRetention(roots, { onAbortSignal: (signal, path) => paths.set(signal, path) });
+    return paths;
+}
+
+export function snapshotRetention(
+    roots: Record<string, unknown>,
+    opts?: { maxDepth?: number; maxNodes?: number; onAbortSignal?: (signal: AbortSignal, path: string) => void }
+): RetentionSnapshot {
     const maxDepth = opts?.maxDepth ?? 4;
     const maxNodes = opts?.maxNodes ?? 50_000;
     const snapshot: RetentionSnapshot = new Map();
@@ -130,6 +140,7 @@ export function snapshotRetention(roots: Record<string, unknown>, opts?: { maxDe
             snapshot.set(`${path}#listeners`, total);
         }
         if (typeof AbortSignal !== "undefined" && obj instanceof AbortSignal) {
+            opts?.onAbortSignal?.(obj, path);
             snapshot.set(`${path}#abortListeners`, getEventListeners(obj, "abort").length);
             return;
         }
@@ -222,6 +233,15 @@ async function settledProcessResources(samples = 3, intervalMs = 200): Promise<P
     return { openFds: fds.length ? Math.min(...fds) : undefined, activeResources };
 }
 
+// Sources still un-aborted after the runs that received at least minGrowth AbortSignal.any() registrations:
+// a signal that lives across iterations and is composed once per iteration
+function findLongLivedAnySources(anyCallsPerSource: Map<AbortSignal, number>, minGrowth: number, paths: Map<AbortSignal, string>) {
+    return [...anyCallsPerSource.entries()]
+        .filter(([source, calls]) => !source.aborted && calls >= minGrowth)
+        .map(([source, calls]) => ({ source: paths.get(source) ?? "(signal not reachable from the roots)", anyCalls: calls }))
+        .sort((a, b) => b.anyCalls - a.anyCalls);
+}
+
 // Runs `iteration` N times after one warm-up run, and reports everything that grew by at least one
 // entry per two iterations: instances that were not collected, containers under `roots`, and
 // process resources. A shared harness so every scenario asserts the same way.
@@ -233,7 +253,12 @@ export async function measureRepeatedOperation(opts: {
     // Containers that grow per iteration by design but are bounded some other way (a time-based
     // grace queue, for example). Every entry must say why, so the allow-list stays reviewable.
     allowedGrowth?: { path: RegExp; reason: string }[];
-}): Promise<{ instancesStillAlive: string[]; containerGrowth: RetentionGrowth[]; processResourceGrowth: RetentionGrowth[] }> {
+}): Promise<{
+    instancesStillAlive: string[];
+    containerGrowth: RetentionGrowth[];
+    processResourceGrowth: RetentionGrowth[];
+    abortSignalAnyOnLongLivedSources: { source: string; anyCalls: number }[];
+}> {
     const tracker = createCollectionTracker();
     // Kept out of this frame: a suspended async frame holds its last value in a saved register
     const runOnce = async (i: number, track: boolean) => {
@@ -245,7 +270,20 @@ export async function measureRepeatedOperation(opts: {
     const containersBefore = snapshotRetention(opts.roots());
     const resourcesBefore = snapshotProcessResources();
 
-    for (let i = 0; i < opts.iterations; i++) await runOnce(i, true);
+    // On Node 20/22 every AbortSignal.any() over a source that has not aborted retains memory for as long
+    // as that source lives (#502). Count the registrations each source receives during the measured runs.
+    const anyCallsPerSource = new Map<AbortSignal, number>();
+    const originalAny = AbortSignal.any;
+    AbortSignal.any = function (signals: Iterable<AbortSignal>) {
+        const list = [...signals];
+        for (const source of list) if (!source.aborted) anyCallsPerSource.set(source, (anyCallsPerSource.get(source) ?? 0) + 1);
+        return originalAny.call(AbortSignal, list);
+    } as typeof AbortSignal.any;
+    try {
+        for (let i = 0; i < opts.iterations; i++) await runOnce(i, true);
+    } finally {
+        AbortSignal.any = originalAny;
+    }
 
     const instancesStillAlive = await tracker.aliveLabels();
     const minGrowth = Math.max(2, Math.ceil(opts.iterations / 2));
@@ -254,7 +292,8 @@ export async function measureRepeatedOperation(opts: {
         containerGrowth: findPerIterationGrowth(containersBefore, snapshotRetention(opts.roots()), minGrowth).filter(
             (growth) => !opts.allowedGrowth?.some((allowed) => allowed.path.test(growth.path))
         ),
-        processResourceGrowth: findProcessResourceGrowth(resourcesBefore, await settledProcessResources(), minGrowth)
+        processResourceGrowth: findProcessResourceGrowth(resourcesBefore, await settledProcessResources(), minGrowth),
+        abortSignalAnyOnLongLivedSources: findLongLivedAnySources(anyCallsPerSource, minGrowth, findAbortSignalPaths(opts.roots()))
     };
 }
 

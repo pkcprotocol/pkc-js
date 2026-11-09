@@ -158,8 +158,9 @@ export class PKCWithRpcClient extends PKC {
     override async getComment(getCommentArgs: GetCommentArgs) {
         const { abortSignal, ...cidArgs } = getCommentArgs;
         const parsedArgs = parseRpcCidParam(cidArgs);
+        const combined = this._combineWithDestroyAbortSignal(abortSignal);
         const cancellation = rejectWhenAbortSignalFires({
-            abortSignal: this._combineWithDestroyAbortSignal(abortSignal),
+            abortSignal: combined.signal,
             error: () => new PKCError("ERR_GET_COMMENT_ABORTED", { getCommentArgs: parsedArgs, abortReason: abortSignal?.reason })
         });
         let commentIpfs: Awaited<ReturnType<PKCRpcClient["getComment"]>>;
@@ -167,6 +168,7 @@ export class PKCWithRpcClient extends PKC {
             commentIpfs = await Promise.race([this._pkcRpcClient.getComment(parsedArgs), cancellation.promise]);
         } finally {
             cancellation.cleanup();
+            combined.dispose();
         }
         return this.createComment({ ...parsedArgs, raw: { ...(parsedArgs as CommentJson)?.raw, comment: commentIpfs } });
     }
@@ -238,9 +240,10 @@ export class PKCWithRpcClient extends PKC {
                 // function) is left with a promise that never settles — issue #277. The instance is
                 // tracked in _updatingCommunities before the first wait, so a third-party stop()
                 // reaches it too, and that is the second way out.
+                const combined = this._combineWithDestroyAbortSignal(opts?.abortSignal);
                 const cancellation = rejectWhenCommunityStopsOrAborts({
                     community,
-                    abortSignal: this._combineWithDestroyAbortSignal(opts?.abortSignal)
+                    abortSignal: combined.signal
                 });
                 try {
                     await Promise.race([community._createAndSubscribeToNewUpdatingCommunity(community), cancellation.promise]);
@@ -253,6 +256,7 @@ export class PKCWithRpcClient extends PKC {
                     throw e;
                 } finally {
                     cancellation.cleanup();
+                    combined.dispose();
                 }
                 await community.stop();
                 if (error) throw error;

@@ -104,6 +104,34 @@ export function sleepUntilTimeoutOrAbort(ms: number, signal?: AbortSignal): Prom
     return interruptibleSleep({ ms, signal }).promise;
 }
 
+// AbortSignal.any() replacement for compositions that include a long-lived signal (the pkc destroy
+// signal, a comment's stop signal). On Node 20/22 every AbortSignal.any() call retains memory for as
+// long as any source has not aborted, so composing with a signal that lives as long as the pkc grows
+// the heap by one unit per call (#502). This links the sources with plain abort listeners instead.
+// Call dispose() once the operation settles: listeners left on a long-lived signal are the #144 leak.
+export function linkAbortSignals(signals: (AbortSignal | undefined)[]): { signal: AbortSignal | undefined; dispose: () => void } {
+    const sources = signals.filter((signal): signal is AbortSignal => Boolean(signal));
+    if (sources.length <= 1) return { signal: sources[0], dispose: () => {} };
+    const controller = new AbortController();
+    const alreadyAborted = sources.find((source) => source.aborted);
+    if (alreadyAborted) {
+        controller.abort(alreadyAborted.reason);
+        return { signal: controller.signal, dispose: () => {} };
+    }
+    const listeners = sources.map((source) => {
+        const onAbort = () => {
+            dispose();
+            controller.abort(source.reason);
+        };
+        source.addEventListener("abort", onAbort, { once: true });
+        return { source, onAbort };
+    });
+    const dispose = () => {
+        for (const { source, onAbort } of listeners) source.removeEventListener("abort", onAbort);
+    };
+    return { signal: controller.signal, dispose };
+}
+
 // Race `promise` against `signal` aborting, rejecting with an AbortError if the signal fires first.
 // The abort listener is detached once the race settles regardless of who wins, so it never leaks on
 // a long-lived signal — `{ once: true }` alone only removes it when abort fires, which leaks one

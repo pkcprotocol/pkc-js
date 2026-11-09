@@ -11,7 +11,7 @@ import {
     parseModQueuePageIpfsSchemaWithPKCErrorIfItFails,
     parsePageIpfsSchemaWithPKCErrorIfItFails
 } from "../schema/schema-util.js";
-import { hideClassPrivateProps, throwIfAbortSignalAborted } from "../util.js";
+import { hideClassPrivateProps, linkAbortSignals, throwIfAbortSignalAborted } from "../util.js";
 import { PKC } from "../pkc/pkc.js";
 import { sha256 } from "js-sha256";
 import { PagesIpfsGatewayClient, PagesKuboRpcClient, PagesLibp2pJsClient, PagesPKCRpcStateClient } from "./pages-clients.js";
@@ -323,11 +323,43 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
         // Combine the user-provided abort signal with the PKC-level destroy signal so in-flight fetches
         // reject promptly when pkc.destroy() runs instead of blocking its serial stop() awaits.
-        const destroySignal = this._pkc._getDestroyAbortSignal();
-        const signals = [opts.abortSignal, destroySignal].filter((s): s is AbortSignal => Boolean(s));
-        const combinedSignal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
-        throwIfAbortSignalAborted(combinedSignal);
+        // Linked with listeners, not AbortSignal.any(): on Node 20/22 that retains memory per call for as
+        // long as the destroy signal lives (#502). Disposed in the finally below.
+        const linked = linkAbortSignals([opts.abortSignal, this._pkc._getDestroyAbortSignal()]);
+        const combinedSignal = linked.signal!;
+        try {
+            throwIfAbortSignalAborted(combinedSignal);
+            return await this._fetchPageAfterSignalCombined({
+                pageCid,
+                log,
+                pageMaxSize,
+                isFirstPage,
+                sortTypesFromPageCids,
+                sortTypesFromMemcache,
+                combinedSignal
+            });
+        } finally {
+            linked.dispose();
+        }
+    }
 
+    private async _fetchPageAfterSignalCombined({
+        pageCid,
+        log,
+        pageMaxSize,
+        isFirstPage,
+        sortTypesFromPageCids,
+        sortTypesFromMemcache,
+        combinedSignal
+    }: {
+        pageCid: string;
+        log: Logger;
+        pageMaxSize: number;
+        isFirstPage: boolean;
+        sortTypesFromPageCids: string[] | undefined;
+        sortTypesFromMemcache: string[] | undefined;
+        combinedSignal: AbortSignal;
+    }) {
         let result: { page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields };
         try {
             if (this._pkc._pkcRpcClient) {

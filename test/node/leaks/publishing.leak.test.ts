@@ -39,7 +39,7 @@ for (const config of getAvailablePKCConfigsToTestAgainst({ includeAllPossibleCon
                     return { post };
                 }
             });
-            expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [] });
+            expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [], abortSignalAnyOnLongLivedSources: [] });
         });
 
         it(`publishing ${ITERATIONS} posts while the same PKC updates the community (#490)`, async () => {
@@ -56,7 +56,7 @@ for (const config of getAvailablePKCConfigsToTestAgainst({ includeAllPossibleCon
                         return { post };
                     }
                 });
-                expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [] });
+                expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [], abortSignalAnyOnLongLivedSources: [] });
             } finally {
                 await community.stop();
             }

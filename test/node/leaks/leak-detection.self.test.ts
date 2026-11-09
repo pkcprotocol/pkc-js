@@ -35,7 +35,7 @@ describe("leak-detection self-test", () => {
             iterations: ITERATIONS,
             iteration: async () => ({ instance: { payload: new Array(1000).fill(0) } })
         });
-        expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [] });
+        expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [], abortSignalAnyOnLongLivedSources: [] });
     });
 
     it("catches every planted leak class", async () => {
@@ -51,6 +51,7 @@ describe("leak-detection self-test", () => {
                 owner.on("change", () => instance); // listener per operation
                 owner.longLivedAbort.signal.addEventListener("abort", () => {}, { once: true }); // #144-#147
                 timers.push(setInterval(() => {}, 60_000)); // timer per operation
+                AbortSignal.any([new AbortController().signal, owner.longLivedAbort.signal]); // #502
                 return { instance };
             }
         });
@@ -66,5 +67,6 @@ describe("leak-detection self-test", () => {
             ].sort()
         );
         expect(result.processResourceGrowth.map((g) => g.path)).toContain("process.activeResources.Timeout");
+        expect(result.abortSignalAnyOnLongLivedSources).toEqual([{ source: "owner.longLivedAbort.signal", anyCalls: ITERATIONS }]);
     });
 });

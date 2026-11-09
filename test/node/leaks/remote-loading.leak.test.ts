@@ -45,7 +45,7 @@ for (const config of getAvailablePKCConfigsToTestAgainst({ includeAllPossibleCon
                     return { community };
                 }
             });
-            expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [] });
+            expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [], abortSignalAnyOnLongLivedSources: [] });
         });
 
         it(`getCommunity ${ITERATIONS} times`, async () => {
@@ -57,7 +57,7 @@ for (const config of getAvailablePKCConfigsToTestAgainst({ includeAllPossibleCon
                     return { community };
                 }
             });
-            expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [] });
+            expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [], abortSignalAnyOnLongLivedSources: [] });
         });
 
         it(`createComment + update + stop ${ITERATIONS} times`, async () => {
@@ -72,7 +72,7 @@ for (const config of getAvailablePKCConfigsToTestAgainst({ includeAllPossibleCon
                     return { comment };
                 }
             });
-            expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [] });
+            expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [], abortSignalAnyOnLongLivedSources: [] });
         });
     });
 }

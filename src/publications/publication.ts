@@ -833,15 +833,15 @@ class Publication extends TypedEmitter<PublicationEvents> {
         return getPKCAddressFromPublicKeySync(encryptionPublicKey);
     }
 
-    // Fires when this publication is stopped or its pkc is destroyed. Built once and cached rather
-    // than composed per call: AbortSignal.any() registers on both sources every time it is called.
+    // Fires when this publication is stopped, which pkc.destroy() also does: a publication stays in
+    // pkc._publishingPublications until its run and any background refresh settle, and destroy() stops
+    // every one of them. Not composed with the destroy signal itself: on Node 20/22 each AbortSignal.any()
+    // over that never-aborted signal retained memory for the life of the pkc, once per publish (#502). The
+    // remaining user, createCommunity() on a comment's update path, combines with destroy on its own.
     _getCommunityFetchAbortSignal(): AbortSignal {
         if (!this._communityFetchAbortSignal) {
             this._communityFetchAbortController = new AbortController();
-            this._communityFetchAbortSignal = AbortSignal.any([
-                this._communityFetchAbortController.signal,
-                this._pkc._getDestroyAbortSignal()
-            ]);
+            this._communityFetchAbortSignal = this._communityFetchAbortController.signal;
         }
         return this._communityFetchAbortSignal;
     }
@@ -916,7 +916,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
             // started instance is current already: its own loop fetches it. Refreshing it anyway fired a
             // pkc.getCommunity() per publish, since over RPC nothing ever made the cache entry fresh (#490)
             const isFresh =
-                this._pkc._memCaches.communityForPublishing.has(this.communityAddress) || this._getCommunityFromLiveInstance() !== undefined;
+                this._pkc._memCaches.communityForPublishing.has(this.communityAddress) ||
+                this._getCommunityFromLiveInstance() !== undefined;
             if (!isFresh) {
                 log("The cache of community is stale, we will use the cached and update in the background");
                 // Held on the publication so stop() can drain it. Without that the refresh outlives
@@ -1399,7 +1400,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     log(`Published a challenge request of publication`, this.getType(), "with provider", providerUrl);
                     this.emit("challengerequest", decryptedRequest);
                     if (currentPubsubProviderIndex !== providers.length)
-                        await sleepUntilTimeoutOrAbort(this._publishToDifferentProviderThresholdSeconds * 1000, this._getPublishRunWaitSignal());
+                        await sleepUntilTimeoutOrAbort(
+                            this._publishToDifferentProviderThresholdSeconds * 1000,
+                            this._getPublishRunWaitSignal()
+                        );
                     if (this._isPublishRunOver()) return;
                 }
                 await sleepUntilTimeoutOrAbort(this._setProviderFailureThresholdSeconds * 1000, this._getPublishRunWaitSignal());

@@ -58,6 +58,6 @@ describeSkipIfRpc("leak: LocalCommunity publish cycles", () => {
                 return { vote };
             }
         });
-        expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [] });
+        expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [], abortSignalAnyOnLongLivedSources: [] });
     });
 });
