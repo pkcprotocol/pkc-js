@@ -3,6 +3,7 @@ import type { PubsubClient, PubsubSubscriptionHandler } from "../types.js";
 import { v4 as uuidV4 } from "uuid";
 import { Buffer } from "buffer";
 import { hideClassPrivateProps } from "../util.js";
+import { sha256 } from "js-sha256";
 
 const DEFAULT_PORT = 25963;
 const defaultServerUrl = `ws://localhost:${DEFAULT_PORT}`;
@@ -89,7 +90,9 @@ class MockPubsubHttpClient {
             publish: async (topic: string, message: Uint8Array) => {
                 await ensurePubsubActive(this._connectionState);
                 const ioClient = this.getIoClient();
-                const messageKey = Buffer.from(message).toString("base64");
+                // A digest, not the message: the set holds every key for 30 s and a challenge request is
+                // several KB, which read as several KB retained per publish in the leak soak (#496)
+                const messageKey = sha256(message);
                 this._recentlyPublishedMessages.add(messageKey);
                 // Unref'd: one dedupe timer per published message must not keep the process alive, nor show up
                 // as a timer per publish in the leak suite's active-resource count (#496)
@@ -143,7 +146,7 @@ class MockPubsubHttpClient {
     private _ensureTopicListener(topic: string) {
         if (this._topicListeners.has(topic)) return;
         const callback = (msg: Buffer) => {
-            const messageKey = msg.toString("base64");
+            const messageKey = sha256(msg);
             if (this._recentlyPublishedMessages.has(messageKey)) {
                 this._recentlyPublishedMessages.delete(messageKey);
                 return;

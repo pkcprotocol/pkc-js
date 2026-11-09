@@ -851,13 +851,15 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this._communityFetchAbortSignal = undefined;
     }
 
+    // Deliberately not composed with the pkc destroy signal: pkc.destroy() stops every publication in
+    // _publishingPublications, which ends its run through _postSucessOrFailurePublishing, and on Node 22
+    // each AbortSignal.any() over the never-aborted destroy signal retains ~180 bytes for the life of the pkc
     private _beginPublishRun() {
         this._publishRunAbortController = new AbortController();
-        // Composed once per run: AbortSignal.any() registers on both sources every time it is called
-        this._publishRunWaitSignal = AbortSignal.any([this._publishRunAbortController.signal, this._pkc._getDestroyAbortSignal()]);
+        this._publishRunWaitSignal = this._publishRunAbortController.signal;
     }
 
-    // Fires when the current publish run has finished or the pkc is destroyed
+    // Fires when the current publish run has finished (verification, failure, stop() or pkc.destroy())
     private _getPublishRunWaitSignal(): AbortSignal {
         if (!this._publishRunWaitSignal) this._beginPublishRun();
         return this._publishRunWaitSignal!;
@@ -1499,6 +1501,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
             // a pubsub unsubscribe for a topic that was never subscribed. Deleting twice is a no-op,
             // so the throw sites that do funnel are unaffected.
             this._unregisterFromPkcOncePublishWorkSettles();
+            // pkc.destroy() can no longer reach an unregistered publication, so end the run's waits here
+            this._publishRunAbortController?.abort();
             throw e;
         }
     }

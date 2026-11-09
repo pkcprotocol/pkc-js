@@ -1,0 +1,139 @@
+# Leak soak (#496): memory growth rate of pkc-js over hundreds of operations (tier 2) and a long
+# daemon-shaped run (tier 3). See test/soak/memory-growth.soak.test.ts for what is measured and why.
+#
+# - Nightly: every scenario for SOAK_ITERATIONS iterations.
+# - Weekly: the daemon-communities scenario for 90 minutes.
+# - Pull requests labelled `performance`: the nightly set, on every push while the label is on.
+# - workflow_dispatch: any scenario set, iterations or duration.
+#
+# Each scenario writes soak-report.json (slopes, samples, kubo daemon RSS), uploaded on every run so
+# trends can be compared across nights. A failing scenario also keeps a baseline and a final heap
+# snapshot, a constructor-count diff and retainer paths of the suspect types.
+name: CI leak soak
+
+on:
+    schedule:
+        - cron: "17 3 * * *" # nightly
+        - cron: "41 4 * * 0" # weekly long run (Sunday)
+    workflow_dispatch:
+        inputs:
+            scenarios:
+                description: "Comma-separated scenario names (empty = all)"
+                required: false
+                default: ""
+            iterations:
+                description: "SOAK_ITERATIONS"
+                required: false
+                default: "300"
+            duration_minutes:
+                description: "SOAK_DURATION_MINUTES (overrides iterations when set)"
+                required: false
+                default: ""
+    pull_request:
+        branches:
+            - master
+        types: [labeled, opened, reopened, synchronize]
+
+concurrency:
+    group: leak-soak-${{ github.event.pull_request.number || github.run_id }}
+    cancel-in-progress: true
+
+jobs:
+    soak:
+        if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'performance') }}
+        runs-on: ubuntu-latest
+        timeout-minutes: ${{ github.event.schedule == '41 4 * * 0' && 130 || 45 }}
+        strategy:
+            fail-fast: false
+            matrix:
+                scenario:
+                    - remote-community-update-stop
+                    - comment-update-stop
+                    - publish-remote-kubo
+                    - local-community-cycles
+                    - daemon-communities
+                    - rpc-get-community
+        env:
+            SOAK_REPORT_DIR: ${{ github.workspace }}/.tmp/soak/${{ matrix.scenario }}
+            SOAK_ITERATIONS: ${{ github.event.inputs.iterations || '300' }}
+            # Weekly: only daemon-communities runs, for 90 minutes; the other matrix entries skip below
+            SOAK_DURATION_MINUTES: ${{ github.event.schedule == '41 4 * * 0' && '90' || github.event.inputs.duration_minutes }}
+        steps:
+            - name: Decide whether this scenario runs
+              id: select
+              shell: bash
+              run: |
+                  scenario="${{ matrix.scenario }}"
+                  wanted="${{ github.event.inputs.scenarios }}"
+                  run=true
+                  if [ "${{ github.event.schedule }}" = "41 4 * * 0" ] && [ "$scenario" != "daemon-communities" ]; then run=false; fi
+                  if [ -n "$wanted" ] && [[ ",$wanted," != *",$scenario,"* ]]; then run=false; fi
+                  echo "run=$run" >> "$GITHUB_OUTPUT"
+            - uses: actions/checkout@v4
+              if: steps.select.outputs.run == 'true'
+            - uses: actions/setup-node@v4
+              if: steps.select.outputs.run == 'true'
+              with:
+                  node-version: 22
+                  cache: "npm"
+            # Retry: the kubo postinstall downloads its binary from dist.ipfs.tech, which intermittently
+            # returns 5xx and aborts the install with no retry of its own.
+            - name: npm ci (with retry)
+              if: steps.select.outputs.run == 'true'
+              shell: bash
+              run: |
+                  for attempt in 1 2 3; do
+                    npm ci && exit 0
+                    echo "npm ci attempt $attempt failed; retrying in 15s..."
+                    sleep 15
+                  done
+                  exit 1
+            - run: npm run build
+              if: steps.select.outputs.run == 'true'
+            - name: Start test server
+              if: steps.select.outputs.run == 'true'
+              shell: bash
+              run: npm run test:server:node > test_server.log 2>&1 & npm run test:server:wait-on
+            - name: Run soak (${{ matrix.scenario }})
+              if: steps.select.outputs.run == 'true'
+              shell: bash
+              env:
+                  SOAK_SCENARIOS: ${{ matrix.scenario }}
+                  VITEST_TIMEOUT: "7200000"
+              run: node test/run-test-config.js --pkc-config local-kubo-rpc --environment node test/soak/memory-growth.soak.test.ts
+            - name: Summarize
+              if: ${{ always() && steps.select.outputs.run == 'true' }}
+              shell: bash
+              run: |
+                  node -e '
+                    const fs = require("fs");
+                    const file = process.env.SOAK_REPORT_DIR + "/soak-report.json";
+                    if (!fs.existsSync(file)) { console.log("no report"); process.exit(0); }
+                    const r = JSON.parse(fs.readFileSync(file, "utf8"));
+                    const lines = ["| scenario | heap B/iter | rss B/iter | rss gated | over budget |", "|---|---|---|---|---|"];
+                    for (const [n, e] of Object.entries(r.scenarios))
+                      lines.push(`| ${n} | ${e.bytesPerIteration.heapUsed} | ${e.bytesPerIteration.rss} | ${e.rssGated} | ${e.overBudget.map((o) => o.metric).join(", ") || "-"} |`);
+                    fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n");
+                  '
+            - name: Upload soak report
+              if: ${{ always() && steps.select.outputs.run == 'true' }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: soak-report-${{ matrix.scenario }}
+                  path: ${{ env.SOAK_REPORT_DIR }}/soak-report.json
+                  if-no-files-found: ignore
+            - name: Upload heap snapshots
+              if: ${{ failure() && steps.select.outputs.run == 'true' }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: soak-heap-snapshots-${{ matrix.scenario }}
+                  path: ${{ env.SOAK_REPORT_DIR }}/*.heapsnapshot
+                  retention-days: 7
+                  if-no-files-found: ignore
+            - name: Upload test server log
+              if: ${{ failure() && steps.select.outputs.run == 'true' }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: soak-test-server-log-${{ matrix.scenario }}
+                  path: test_server.log
+                  if-no-files-found: ignore

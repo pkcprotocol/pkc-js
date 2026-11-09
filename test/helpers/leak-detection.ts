@@ -241,3 +241,86 @@ export async function measureRepeatedOperation(opts: {
         processResourceGrowth: findProcessResourceGrowth(resourcesBefore, snapshotProcessResources(), minGrowth)
     };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Memory growth rate (tier 2 soak, #496): sample process memory after a forced gc every few
+// iterations and fit a least-squares slope, so the result is bytes retained per iteration rather
+// than a single noisy before/after delta. RSS is sampled too: native leaks (#488, SQLite statements
+// in malloc) never show up in heapUsed.
+// ---------------------------------------------------------------------------------------------
+export interface MemorySample {
+    iteration: number;
+    heapUsed: number;
+    external: number;
+    arrayBuffers: number;
+    rss: number;
+}
+
+export type MemoryMetric = Exclude<keyof MemorySample, "iteration">;
+
+export function slopePerIteration(samples: MemorySample[], metric: MemoryMetric): number {
+    const n = samples.length;
+    if (n < 2) return 0;
+    const meanX = samples.reduce((sum, s) => sum + s.iteration, 0) / n;
+    const meanY = samples.reduce((sum, s) => sum + s[metric], 0) / n;
+    let numerator = 0;
+    let denominator = 0;
+    for (const s of samples) {
+        numerator += (s.iteration - meanX) * (s[metric] - meanY);
+        denominator += (s.iteration - meanX) ** 2;
+    }
+    return denominator === 0 ? 0 : numerator / denominator;
+}
+
+async function sampleMemory(iteration: number): Promise<MemorySample> {
+    // Node buffers a PerformanceResourceTiming entry for every fetch() (kubo RPC calls, gateways) in
+    // a global timeline capped at 250 entries. It fills during the first iterations and reads as
+    // growth, but it is bounded and not pkc-js state.
+    performance.clearResourceTimings();
+    await forceGc();
+    const usage = process.memoryUsage();
+    return { iteration, heapUsed: usage.heapUsed, external: usage.external, arrayBuffers: usage.arrayBuffers, rss: usage.rss };
+}
+
+export async function measureMemoryGrowth(opts: {
+    iteration: (i: number) => Promise<unknown>;
+    warmupIterations: number;
+    iterations: number;
+    // When set, keep iterating until this much time has passed instead of stopping at `iterations`
+    durationMs?: number;
+    sampleEvery: number;
+    // Called once right after warm-up, before the first sample, e.g. to take a baseline heap snapshot
+    afterWarmup?: () => Promise<void> | void;
+}): Promise<{
+    samples: MemorySample[];
+    slopes: Record<MemoryMetric, number>;
+    fullRunSlopes: Record<MemoryMetric, number>;
+    durationMs: number;
+}> {
+    // Kept out of the sampling frame: a suspended async frame holds its last value in a saved register
+    const runOnce = async (i: number) => {
+        await opts.iteration(i);
+    };
+    for (let i = 0; i < opts.warmupIterations; i++) await runOnce(-1 - i);
+    await opts.afterWarmup?.();
+    const startedAt = Date.now();
+    const samples: MemorySample[] = [await sampleMemory(0)];
+    const keepGoing = (i: number) => (opts.durationMs !== undefined ? Date.now() - startedAt < opts.durationMs : i <= opts.iterations);
+    for (let i = 1; keepGoing(i); i++) {
+        await runOnce(i);
+        if (i % opts.sampleEvery === 0) samples.push(await sampleMemory(i));
+    }
+    const metrics: MemoryMetric[] = ["heapUsed", "external", "arrayBuffers", "rss"];
+    // Fitted over the second half of the samples: a leak's slope is constant, while allocator and JIT
+    // ramp-up (most visible in rss) settles in the first iterations and would otherwise dominate
+    const steadyState = samples.slice(Math.floor(samples.length / 2));
+    const slopes = Object.fromEntries(metrics.map((metric) => [metric, slopePerIteration(steadyState, metric)])) as Record<
+        MemoryMetric,
+        number
+    >;
+    const fullRunSlopes = Object.fromEntries(metrics.map((metric) => [metric, slopePerIteration(samples, metric)])) as Record<
+        MemoryMetric,
+        number
+    >;
+    return { samples, slopes, fullRunSlopes, durationMs: Date.now() - startedAt };
+}

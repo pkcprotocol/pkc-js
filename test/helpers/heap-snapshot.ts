@@ -113,10 +113,12 @@ export function findRetainerPaths(path: string, constructorName: string, opts?: 
         return `.${s.strings[nameOrIndex]}`;
     };
 
+    // A class's prototype object carries the class name too; it is not an instance
+    const isPrototypeObject = (node: number) => retainers[node].some(([, e]) => edgeLabel(e) === ".prototype");
     const targets: number[] = [];
     for (let i = 0; i < nodeCount && targets.length < limit; i++) {
         const { type, name } = nodeLabel(s, i);
-        if (type === "object" && name === constructorName) targets.push(i);
+        if (type === "object" && name === constructorName && !isPrototypeObject(i)) targets.push(i);
     }
 
     // Node 0 is the synthetic root
@@ -149,4 +151,72 @@ export function findRetainerPaths(path: string, constructorName: string, opts?: 
         }
         return chain;
     });
+}
+
+// Objects present in `finalPath` but not in `baselinePath` (V8 node ids are stable across snapshots
+// taken in the same process), grouped by a short retainer signature: the edge and owner one and two
+// levels up. Answers "what grew, and under what", where a constructor count only says "Object grew".
+export function groupNewObjectsByRetainer(baselinePath: string, finalPath: string, opts?: { top?: number }) {
+    const baseline = parseSnapshot(baselinePath);
+    const readIds = (path: string, s: ParsedSnapshot) => {
+        const meta = (JSON.parse(readFileSync(path, "utf8")) as { snapshot: { meta: { node_fields: string[] } } }).snapshot.meta;
+        const offset = meta.node_fields.indexOf("id");
+        const ids: number[] = [];
+        for (let i = 0; i < s.nodes.length; i += s.nodeFieldCount) ids.push(s.nodes[i + offset]);
+        return ids;
+    };
+    const baselineIds = new Set(readIds(baselinePath, baseline));
+    const s = parseSnapshot(finalPath);
+    const finalIds = readIds(finalPath, s);
+    const nodeCount = s.nodes.length / s.nodeFieldCount;
+    const weakType = s.edgeTypes.indexOf("weak");
+
+    const firstRetainer = new Int32Array(nodeCount).fill(-1);
+    const firstRetainerEdge = new Int32Array(nodeCount).fill(-1);
+    for (let from = 0, e = 0; from < nodeCount; from++) {
+        const edgeEnd = e + s.nodes[from * s.nodeFieldCount + s.edgeCountOffset] * s.edgeFieldCount;
+        for (; e < edgeEnd; e += s.edgeFieldCount) {
+            if (s.edges[e + s.edgeTypeOffset] === weakType) continue;
+            const to = s.edges[e + s.edgeToNodeOffset] / s.nodeFieldCount;
+            if (firstRetainer[to] === -1) {
+                firstRetainer[to] = from;
+                firstRetainerEdge[to] = e;
+            }
+        }
+    }
+    const edgeName = (e: number) => {
+        const type = s.edgeTypes[s.edges[e + s.edgeTypeOffset]];
+        return type === "element" || type === "hidden" ? "[i]" : `.${s.strings[s.edges[e + s.edgeNameOffset]]}`;
+    };
+    // Strings and numbers by type only: grouping by content would give every unique string its own row
+    const describe = (node: number) => {
+        const { type, name } = nodeLabel(s, node);
+        if (type === "string" || type === "concatenated string" || type === "sliced string" || type === "number") return `(${type})`;
+        return `(${type}) ${name.slice(0, 50)}`;
+    };
+
+    const groups = new Map<string, { count: number; selfSize: number }>();
+    const selfSizeOffset = (JSON.parse(readFileSync(finalPath, "utf8")) as { snapshot: { meta: { node_fields: string[] } } }).snapshot.meta.node_fields.indexOf(
+        "self_size"
+    );
+    for (let i = 0; i < nodeCount; i++) {
+        if (baselineIds.has(finalIds[i])) continue;
+        const { type } = nodeLabel(s, i);
+        if (!["object", "array", "string", "concatenated string", "sliced string", "number", "closure"].includes(type)) continue;
+        const parent = firstRetainer[i];
+        const grandParent = parent === -1 ? -1 : firstRetainer[parent];
+        const signature = [
+            describe(i),
+            parent === -1 ? "<no retainer>" : `${edgeName(firstRetainerEdge[i])} of ${describe(parent)}`,
+            grandParent === -1 ? "" : `${edgeName(firstRetainerEdge[parent])} of ${describe(grandParent)}`
+        ].join("  <-  ");
+        const group = groups.get(signature) ?? { count: 0, selfSize: 0 };
+        group.count++;
+        group.selfSize += s.nodes[i * s.nodeFieldCount + selfSizeOffset];
+        groups.set(signature, group);
+    }
+    return [...groups.entries()]
+        .map(([signature, g]) => ({ signature, ...g }))
+        .sort((a, b) => b.selfSize - a.selfSize)
+        .slice(0, opts?.top ?? 25);
 }

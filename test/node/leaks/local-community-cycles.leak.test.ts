@@ -2,10 +2,13 @@
 //
 // A daemon runs these cycles for weeks, so anything kept per cycle (a prepared statement per cycle
 // like #488, an abort listener per loop iteration like #146, a timer, an fd) eventually takes it
-// down. Each iteration publishes a post into the community and waits for the cycle that includes
-// it; the walk covers the community itself (DbHandler, page generator, update loop state) and the PKC.
+// down. Each iteration publishes a vote from a fresh author on one fixed post and waits for the next
+// cycle. A vote reruns the whole cycle (CommentUpdate calculation, pages, IPNS) without adding an
+// entry to the pages, so what the community holds in memory legitimately stays the same size; a new
+// post per iteration would grow the preloaded page and read as retention. The walk covers the
+// community itself (DbHandler, page generator, update loop state) and the PKC.
 import { beforeAll, afterAll, it, expect } from "vitest";
-import { createSubWithNoChallenge, mockPKC, publishRandomPost, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
+import { createSubWithNoChallenge, mockPKC, publishRandomPost, publishVote, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
 import { measureRepeatedOperation } from "../../helpers/leak-detection.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
@@ -19,12 +22,17 @@ const ITERATIONS = 8;
 describeSkipIfRpc("leak: LocalCommunity publish cycles", () => {
     let pkc: PKCType;
     let community: LocalCommunity;
+    let postCid: string;
 
     beforeAll(async () => {
         pkc = await mockPKC();
         community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        const post = await publishRandomPost({ communityAddress: community.address, pkc });
+        postCid = post.cid!;
+        await post.stop();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => community.lastPostCid === postCid });
     });
 
     afterAll(async () => {
@@ -32,7 +40,7 @@ describeSkipIfRpc("leak: LocalCommunity publish cycles", () => {
         await pkc?.destroy();
     });
 
-    it(`${ITERATIONS} publish cycles, one new post each`, async () => {
+    it(`${ITERATIONS} publish cycles, one vote each`, async () => {
         const result = await measureRepeatedOperation({
             roots: () => ({ pkc, community }),
             iterations: ITERATIONS,
@@ -43,13 +51,11 @@ describeSkipIfRpc("leak: LocalCommunity publish cycles", () => {
                 }
             ],
             iteration: async () => {
-                const post = await publishRandomPost({ communityAddress: community.address, pkc });
-                await resolveWhenConditionIsTrue({
-                    toUpdate: community,
-                    predicate: async () => Boolean(community.lastPostCid === post.cid)
-                });
-                await post.stop();
-                return { post };
+                const updatedAtBeforeVote = community.updatedAt!;
+                const vote = await publishVote({ commentCid: postCid, communityAddress: community.address, vote: 1, pkc });
+                await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => community.updatedAt! > updatedAtBeforeVote });
+                await vote.stop();
+                return { vote };
             }
         });
         expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [] });
