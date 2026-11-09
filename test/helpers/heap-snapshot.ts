@@ -123,24 +123,35 @@ export function findRetainerPaths(path: string, constructorName: string, opts?: 
 
     // Node 0 is the synthetic root
     return targets.map((target) => {
+        // Level-by-level BFS over the retainer edges, so maxDepth bounds the path length, not the
+        // number of nodes visited (a soak heap's frontier easily outgrows any fixed node budget)
         const previous = new Map<number, [number, number]>();
-        const queue = [target];
         const seen = new Set([target]);
+        let frontier = [target];
         let found = -1;
-        for (let depth = 0; queue.length && depth < maxDepth * 1000 && found === -1; depth++) {
-            const current = queue.shift()!;
-            for (const [from, e] of retainers[current]) {
-                if (seen.has(from)) continue;
-                seen.add(from);
-                previous.set(from, [current, e]);
-                if (from === 0) {
-                    found = from;
-                    break;
+        for (let depth = 0; frontier.length && depth < maxDepth && found === -1; depth++) {
+            const next: number[] = [];
+            for (let i = 0; i < frontier.length && found === -1; i++) {
+                const current = frontier[i];
+                for (const [from, e] of retainers[current]) {
+                    if (seen.has(from)) continue;
+                    seen.add(from);
+                    previous.set(from, [current, e]);
+                    if (from === 0) {
+                        found = from;
+                        break;
+                    }
+                    next.push(from);
                 }
-                queue.push(from);
             }
+            frontier = next;
         }
-        if (found === -1) return [`${constructorName}: no path to a GC root`];
+        if (found === -1)
+            return [
+                frontier.length
+                    ? `${constructorName}: no GC root within ${maxDepth} retainer hops (search limit reached, the object may still be reachable)`
+                    : `${constructorName}: no path to a GC root`
+            ];
         const chain: string[] = [];
         let node = found;
         while (node !== target) {

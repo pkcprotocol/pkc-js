@@ -42,7 +42,10 @@ jobs:
     soak:
         if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'performance') }}
         runs-on: ubuntu-latest
-        timeout-minutes: ${{ github.event.schedule == '41 4 * * 0' && 130 || 45 }}
+        # Duration runs (the weekly cron, or a dispatch with duration_minutes) need the long timeout: install,
+        # build and server start come on top of the duration. VITEST_TIMEOUT below caps a run at 120 minutes,
+        # so duration_minutes above ~110 cannot finish either way.
+        timeout-minutes: ${{ (github.event.schedule == '41 4 * * 0' || github.event.inputs.duration_minutes != '') && 130 || 45 }}
         strategy:
             fail-fast: false
             matrix:

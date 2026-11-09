@@ -20,7 +20,7 @@
 // and publishing like a long-running daemon. The kubo daemon's RSS is sampled alongside.
 //
 // NOT part of any per-PR CI glob. Run by .github/workflows/CI-leak-soak.yml (nightly: iterations,
-// weekly: duration), on demand, and on pull requests labelled `perf`. Locally, with the test server up:
+// weekly: duration), on demand, and on pull requests labelled `performance`. Locally, with the test server up:
 //
 //   node test/run-test-config.js --pkc-config local-kubo-rpc test/soak/memory-growth.soak.test.ts
 //   SOAK_DURATION_MINUTES=60 SOAK_SCENARIOS=daemon-communities VITEST_TIMEOUT=7200000 \
@@ -308,19 +308,25 @@ describe("memory growth soak (#496)", () => {
                     samples: result.samples,
                     overBudget
                 };
-                if (overBudget.length > 0) {
-                    takeHeapSnapshot(finalSnapshot);
-                    entry.constructorGrowth = diffConstructorCounts(
-                        countObjectsByConstructor(baselineSnapshot),
-                        countObjectsByConstructor(finalSnapshot),
-                        Math.ceil(ITERATIONS / 2)
-                    ).slice(0, 30);
-                    entry.newObjectsByRetainer = groupNewObjectsByRetainer(baselineSnapshot, finalSnapshot);
-                    entry.retainerPaths = Object.fromEntries(
-                        suspectConstructors.map((name) => [name, findRetainerPaths(finalSnapshot, name, { limit: 2 })])
-                    );
-                } else rmSync(baselineSnapshot, { force: true });
+                // Recorded before the diagnostics: they parse large heap snapshots in a process that is
+                // already over budget, and a failure there must not cost the report its slopes and samples
                 (report.scenarios as Record<string, unknown>)[scenario.name] = entry;
+                if (overBudget.length > 0) {
+                    try {
+                        takeHeapSnapshot(finalSnapshot);
+                        entry.constructorGrowth = diffConstructorCounts(
+                            countObjectsByConstructor(baselineSnapshot),
+                            countObjectsByConstructor(finalSnapshot),
+                            Math.ceil(((entry.measuredIterations as number | undefined) ?? ITERATIONS) / 2)
+                        ).slice(0, 30);
+                        entry.newObjectsByRetainer = groupNewObjectsByRetainer(baselineSnapshot, finalSnapshot);
+                        entry.retainerPaths = Object.fromEntries(
+                            suspectConstructors.map((name) => [name, findRetainerPaths(finalSnapshot, name, { limit: 2 })])
+                        );
+                    } catch (e) {
+                        entry.diagnosticsError = e instanceof Error ? (e.stack ?? e.message) : String(e);
+                    }
+                } else rmSync(baselineSnapshot, { force: true });
                 expect(overBudget).toEqual([]);
             } finally {
                 await teardown();

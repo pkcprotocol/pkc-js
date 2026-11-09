@@ -38,6 +38,25 @@ describe("leak-detection self-test", () => {
         expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [], abortSignalAnyOnLongLivedSources: [] });
     });
 
+    // The AbortSignal.any() counting must not itself retain what it counts: an instance whose own
+    // never-aborted signal is composed, with an abort listener that closes over the instance, is
+    // collectable once dropped
+    it("does not keep an instance alive through its own composed signal", async () => {
+        const owner = new FakeRegistryOwner();
+        const result = await measureRepeatedOperation({
+            roots: () => ({ owner }),
+            iterations: ITERATIONS,
+            iteration: async () => {
+                const ownAbort = new AbortController();
+                const instance = { ownAbort, stop: () => undefined as unknown };
+                ownAbort.signal.addEventListener("abort", () => instance.stop());
+                AbortSignal.any([ownAbort.signal]);
+                return { instance };
+            }
+        });
+        expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [], abortSignalAnyOnLongLivedSources: [] });
+    });
+
     it("catches every planted leak class", async () => {
         const owner = new FakeRegistryOwner();
         const result = await measureRepeatedOperation({

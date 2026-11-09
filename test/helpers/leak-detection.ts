@@ -272,11 +272,19 @@ export async function measureRepeatedOperation(opts: {
 
     // On Node 20/22 every AbortSignal.any() over a source that has not aborted retains memory for as long
     // as that source lives (#502). Count the registrations each source receives during the measured runs.
-    const anyCallsPerSource = new Map<AbortSignal, number>();
+    // Held weakly: a strong map would keep every per-instance source alive through the collection check
+    // below, and with it any owner its abort listeners close over, which would then read as a leak
+    const anyCallsPerSource = new WeakMap<AbortSignal, number>();
+    const anySources: WeakRef<AbortSignal>[] = [];
     const originalAny = AbortSignal.any;
     AbortSignal.any = function (signals: Iterable<AbortSignal>) {
         const list = [...signals];
-        for (const source of list) if (!source.aborted) anyCallsPerSource.set(source, (anyCallsPerSource.get(source) ?? 0) + 1);
+        for (const source of list) {
+            if (source.aborted) continue;
+            const calls = anyCallsPerSource.get(source);
+            if (calls === undefined) anySources.push(new WeakRef(source));
+            anyCallsPerSource.set(source, (calls ?? 0) + 1);
+        }
         return originalAny.call(AbortSignal, list);
     } as typeof AbortSignal.any;
     try {
@@ -293,7 +301,17 @@ export async function measureRepeatedOperation(opts: {
             (growth) => !opts.allowedGrowth?.some((allowed) => allowed.path.test(growth.path))
         ),
         processResourceGrowth: findProcessResourceGrowth(resourcesBefore, await settledProcessResources(), minGrowth),
-        abortSignalAnyOnLongLivedSources: findLongLivedAnySources(anyCallsPerSource, minGrowth, findAbortSignalPaths(opts.roots()))
+        // Resolved only after the collection check: what is still alive here is long-lived by definition
+        abortSignalAnyOnLongLivedSources: findLongLivedAnySources(
+            new Map(
+                anySources
+                    .map((ref) => ref.deref())
+                    .filter((source): source is AbortSignal => source !== undefined)
+                    .map((source) => [source, anyCallsPerSource.get(source) ?? 0])
+            ),
+            minGrowth,
+            findAbortSignalPaths(opts.roots())
+        )
     };
 }
 

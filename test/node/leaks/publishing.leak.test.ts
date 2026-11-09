@@ -17,7 +17,15 @@ import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 const ITERATIONS = 6;
 const communityAddress = signers[0].address;
 
-for (const config of getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true })) {
+// local-kubo-rpc is left out: it publishes over the pubsub of the offline Kubo (15001), which is not peered
+// with the pubsub node the test server's communities listen on (15002), so its challenge requests never
+// reach signers[0]. Local-community retention is covered by local-community-cycles.leak.test.ts.
+const publisherConfigs = getAvailablePKCConfigsToTestAgainst({
+    includeAllPossibleConfigOnEnv: true,
+    includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs", "remote-ipfs-gateway", "remote-pkc-rpc"]
+});
+
+for (const config of publisherConfigs) {
     describe(`leak: repeated publishing - ${config.name}`, () => {
         let pkc: PKCType;
 
