@@ -13,7 +13,7 @@
 // provides; there is nothing to exercise under the non-RPC configs.
 import { describe, beforeAll, afterAll, expect } from "vitest";
 import PKC from "../../../dist/node/index.js";
-import { createInProcessRpcServer, uniqueTmpDataPath, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
+import { createInProcessRpcServer, pollUntil, uniqueTmpDataPath, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
 import { createCollectionTracker } from "../../helpers/leak-detection.js";
 import { mockRpcServerPKC } from "../../../dist/node/test/test-util.js";
 import { itIfRpc } from "../../helpers/conditional-tests.js";
@@ -67,21 +67,52 @@ describe("leak: RPC client retains RpcLocalCommunity instances of a server-hoste
                 const baseline = registrySizes(client);
 
                 const tracker = createCollectionTracker();
-                for (let i = 0; i < ITERATIONS; i++) {
-                    const community = await client[method]({ address: communityAddress });
-                    if (method === "createCommunity") await community.update();
-                    await community.stop();
-                    tracker.track(community, `${method} #${i}`);
-                }
+                // In a function of its own: a suspended async frame keeps its last loop value in a
+                // saved register, which would keep the final instance alive for as long as this test waits
+                const runIterations = async () => {
+                    for (let i = 0; i < ITERATIONS; i++) {
+                        const community = await client[method]({ address: communityAddress });
+                        if (method === "createCommunity") await community.update();
+                        await community.stop();
+                        tracker.track(community, `${method} #${i}`);
+                    }
+                };
+                await runIterations();
 
                 const alive = await tracker.aliveLabels();
-                expect({ registries: registrySizes(client), instancesStillAlive: alive.length }).toEqual({
+                expect({ registries: registrySizes(client), instancesStillAlive: alive }).toEqual({
                     registries: baseline,
-                    instancesStillAlive: 0
+                    instancesStillAlive: []
                 });
             } finally {
                 await client.destroy();
             }
         });
     }
+
+    itIfRpc("an exportschange listener holds the exports subscription of a stopped instance until it is removed", async () => {
+        const client = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+        client.on("error", () => {});
+        try {
+            const warmup = await client.getCommunity({ address: communityAddress });
+            await warmup.stop();
+            const baseline = registrySizes(client);
+
+            const community = await client.getCommunity({ address: communityAddress });
+            const listener = () => {};
+            community.on("exportschange", listener);
+            await pollUntil(() => registrySizes(client).resubscribeCalls === baseline.resubscribeCalls + 1, { timeoutMs: 5_000 });
+            const whileListening = registrySizes(client).resubscribeCalls;
+
+            community.removeListener("exportschange", listener);
+            await pollUntil(() => registrySizes(client).resubscribeCalls === baseline.resubscribeCalls, { timeoutMs: 5_000 });
+
+            expect({ whileListening, afterRemoval: registrySizes(client) }).toEqual({
+                whileListening: baseline.resubscribeCalls + 1,
+                afterRemoval: baseline
+            });
+        } finally {
+            await client.destroy();
+        }
+    });
 });

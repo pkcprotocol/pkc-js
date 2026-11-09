@@ -222,7 +222,7 @@ export class PKCWithRpcClient extends PKC {
                     else community.initRpcInternalCommunityBeforeFirstUpdateNoMerge(rawRecord);
                 }
                 if (jsonified.raw) Object.assign(community.raw, jsonified.raw);
-                await community._attachExportsSubscription();
+                await community._loadExportsSnapshot();
                 return community;
             } else if (isCommunityRpcLocal) {
                 // No jsonified data — do a fresh fetch
@@ -256,7 +256,7 @@ export class PKCWithRpcClient extends PKC {
                 }
                 await community.stop();
                 if (error) throw error;
-                await community._attachExportsSubscription();
+                await community._loadExportsSnapshot();
                 return community;
             } else {
                 log.trace("Creating a remote RPC community instance with address", effectiveAddress);
@@ -282,7 +282,7 @@ export class PKCWithRpcClient extends PKC {
             await community.initRpcInternalCommunityBeforeFirstUpdateNoMerge(communityPropsAfterCreation);
             community.emit("update", community);
             await this._awaitCommunitiesToIncludeCommunity(communityPropsAfterCreation.localCommunity.address);
-            await community._attachExportsSubscription();
+            await community._loadExportsSnapshot();
             return community;
         } else throw Error("Failed to create community rpc instance, are you sure you provided the correct args?");
     }
