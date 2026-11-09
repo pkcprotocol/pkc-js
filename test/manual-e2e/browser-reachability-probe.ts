@@ -70,10 +70,12 @@ export interface UdpProbeResult {
 export interface ProviderVerdict {
     /** at least one `/tls/ws` or `/wss` address dialed with full certificate verification: what a pkc-js browser can use today */
     wssDialable: boolean;
+    /** at least one webtransport address with certhashes; a certhash-less one is announced but no browser can dial it */
     webtransportAnnounced: boolean;
     /** at least one certhash webtransport address whose UDP endpoint answered the QUIC probe with Version Negotiation; a reply
      * of any other shape is some other UDP service or a middlebox and does not count */
     webtransportUdpAnswers: boolean;
+    /** a certhash webtransport address on UDP 443, the port that survives networks filtering UDP 4001 */
     webtransportOnUdp443: boolean;
     hasIpv6: boolean;
     relayOnly: boolean;
@@ -365,9 +367,16 @@ export async function findProvidersViaRouters({
                     try {
                         // routers write the id as base58 (12D3...) or as a base36 libp2p-key CID (k51...); normalize to one spelling
                         const peerId = peerIdFromString(record.ID).toString();
-                        const addrs = (record.Addrs ?? []).map((addr) => (peerIdOf(multiaddr(addr)) ? addr : `${addr}/p2p/${peerId}`));
                         const entry = providers.get(peerId) ?? { addrs: new Set<string>(), listedBy: [] };
-                        for (const addr of addrs) entry.addrs.add(addr);
+                        for (const addr of record.Addrs ?? []) {
+                            // and one unparseable address (a protocol newer than our multiaddr, a garbled string) must not drop
+                            // the record's good /tls/ws and /webtransport addresses with it
+                            try {
+                                entry.addrs.add(peerIdOf(multiaddr(addr)) ? addr : `${addr}/p2p/${peerId}`);
+                            } catch (error) {
+                                routerErrors[`${router} (record ${record.ID} addr ${addr})`] = describeError(error);
+                            }
+                        }
                         if (!entry.listedBy.includes(router)) entry.listedBy.push(router);
                         providers.set(peerId, entry);
                     } catch (error) {
@@ -420,8 +429,13 @@ function judge(
     else {
         for (const a of wtAddrs)
             if (a.certhashes === 0) problems.push(`WebTransport address without certhash, browsers cannot dial it: ${a.multiaddr}`);
-        if (!verdict.webtransportOnUdp443)
-            problems.push("WebTransport only on UDP 4001, no UDP 443 listener: unreachable from networks that filter UDP 4001");
+        // a certhash-less 443 address is already reported above; its fix is the certhash config, not another listener
+        if (!wtAddrs.some((a) => a.port === 443)) {
+            const ports = [...new Set(wtAddrs.map((a) => a.port).filter((p): p is number => p !== undefined))]
+                .sort((x, y) => x - y)
+                .join(", ");
+            problems.push(`WebTransport only on UDP ${ports}, no UDP 443 listener: unreachable from networks that filter UDP ${ports}`);
+        }
         for (const r of webtransport) {
             if (!r.answered)
                 problems.push(
