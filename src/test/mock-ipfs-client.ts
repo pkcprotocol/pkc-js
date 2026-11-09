@@ -91,7 +91,10 @@ class MockPubsubHttpClient {
                 const ioClient = this.getIoClient();
                 const messageKey = Buffer.from(message).toString("base64");
                 this._recentlyPublishedMessages.add(messageKey);
-                setTimeout(() => this._recentlyPublishedMessages.delete(messageKey), 30 * 1000);
+                // Unref'd: one dedupe timer per published message must not keep the process alive, nor show up
+                // as a timer per publish in the leak suite's active-resource count (#496)
+                const forgetTimer = setTimeout(() => this._recentlyPublishedMessages.delete(messageKey), 30 * 1000);
+                if (typeof forgetTimer === "object" && "unref" in forgetTimer) forgetTimer.unref();
                 if (typeof this.dropRate === "number") {
                     if (Math.random() > this.dropRate) ioClient.emit(topic, message);
                 } else ioClient.emit(topic, message);

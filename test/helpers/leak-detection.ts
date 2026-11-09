@@ -15,6 +15,7 @@
 // Registry sizes (RPC client subscription maps, DbHandler statement cache, ...) are read directly
 // by each test, since they are private fields that only that test knows about.
 import { readdirSync } from "node:fs";
+import { EventEmitter, getEventListeners } from "node:events";
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
 
@@ -86,4 +87,157 @@ export function countActiveResources(): Record<string, number> {
     const counts: Record<string, number> = {};
     for (const type of process.getActiveResourcesInfo()) counts[type] = (counts[type] ?? 0) + 1;
     return counts;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Retention snapshots: a generic walk of an object graph (a PKC, a community) that records the
+// size of every container it reaches, so a test does not have to know which private registry an
+// operation might grow. Compare two snapshots taken N iterations apart with findPerIterationGrowth.
+//
+// Recorded per path:
+// - Map / Set size, array length, own property count of every other object
+// - total listener count of every EventEmitter (path suffix `#listeners`)
+// - abort listener count of every AbortSignal (path suffix `#abortListeners`, the #144-#147 class)
+//
+// Skipped: LRUCache instances (bounded by construction), typed arrays and buffers, accessors (a
+// getter can have side effects), and anything past maxDepth or the node budget.
+// ---------------------------------------------------------------------------------------------
+
+export type RetentionSnapshot = Map<string, number>;
+
+const SKIPPED_CONSTRUCTOR_NAMES = new Set(["LRUCache", "Promise", "Date", "RegExp", "WeakMap", "WeakSet", "WeakRef"]);
+
+export function snapshotRetention(roots: Record<string, unknown>, opts?: { maxDepth?: number; maxNodes?: number }): RetentionSnapshot {
+    const maxDepth = opts?.maxDepth ?? 4;
+    const maxNodes = opts?.maxNodes ?? 50_000;
+    const snapshot: RetentionSnapshot = new Map();
+    const visited = new WeakSet<object>();
+    let nodes = 0;
+
+    const visit = (value: unknown, path: string, depth: number): void => {
+        if (value === null || (typeof value !== "object" && typeof value !== "function")) return;
+        if (typeof value === "function") return;
+        const obj = value as object;
+        if (visited.has(obj) || nodes >= maxNodes) return;
+        visited.add(obj);
+        nodes++;
+        if (ArrayBuffer.isView(obj) || obj instanceof ArrayBuffer) return;
+        const constructorName = (obj as { constructor?: { name?: string } }).constructor?.name;
+        if (constructorName && SKIPPED_CONSTRUCTOR_NAMES.has(constructorName)) return;
+
+        if (obj instanceof EventEmitter) {
+            const total = obj.eventNames().reduce((sum, name) => sum + obj.listenerCount(name), 0);
+            snapshot.set(`${path}#listeners`, total);
+        }
+        if (typeof AbortSignal !== "undefined" && obj instanceof AbortSignal) {
+            snapshot.set(`${path}#abortListeners`, getEventListeners(obj, "abort").length);
+            return;
+        }
+        if (typeof AbortController !== "undefined" && obj instanceof AbortController) {
+            visit(obj.signal, `${path}.signal`, depth + 1);
+            return;
+        }
+        if (obj instanceof Map) {
+            snapshot.set(path, obj.size);
+            if (depth < maxDepth) for (const [key, entry] of obj) visit(entry, `${path}[${String(key)}]`, depth + 1);
+            return;
+        }
+        if (obj instanceof Set) {
+            snapshot.set(path, obj.size);
+            return;
+        }
+        if (Array.isArray(obj)) {
+            snapshot.set(path, obj.length);
+            return;
+        }
+        // Own property names, not keys: hideClassPrivateProps makes private fields non-enumerable.
+        // Recorded for every object, not only plain records: TrackedInstanceRegistry is a Proxy whose
+        // ownKeys are the aliases it tracks, and a class instance that keeps gaining properties grows too.
+        const names = Object.getOwnPropertyNames(obj);
+        snapshot.set(path, names.length);
+        if (depth >= maxDepth) return;
+        for (const name of names) {
+            const descriptor = Object.getOwnPropertyDescriptor(obj, name);
+            if (!descriptor || !("value" in descriptor)) continue;
+            visit(descriptor.value, `${path}.${name}`, depth + 1);
+        }
+    };
+
+    for (const [name, root] of Object.entries(roots)) visit(root, name, 0);
+    return snapshot;
+}
+
+export interface RetentionGrowth {
+    path: string;
+    before: number;
+    after: number;
+}
+
+// Paths present in both snapshots that grew by at least minGrowth. Paths that only exist in one
+// snapshot are ignored: they are per-entry paths (a Map value keyed by an id) or new subtrees.
+export function findPerIterationGrowth(before: RetentionSnapshot, after: RetentionSnapshot, minGrowth: number): RetentionGrowth[] {
+    const growth: RetentionGrowth[] = [];
+    for (const [path, afterSize] of after) {
+        const beforeSize = before.get(path);
+        if (beforeSize === undefined) continue;
+        if (afterSize - beforeSize >= minGrowth) growth.push({ path, before: beforeSize, after: afterSize });
+    }
+    return growth.sort((a, b) => b.after - b.before - (a.after - a.before));
+}
+
+export interface ProcessResourceSnapshot {
+    openFds: number | undefined;
+    activeResources: Record<string, number>;
+}
+
+export function snapshotProcessResources(): ProcessResourceSnapshot {
+    return { openFds: countOpenFds(), activeResources: countActiveResources() };
+}
+
+// Process-level resources (fds, timers, sockets, ...) that grew by at least minGrowth
+export function findProcessResourceGrowth(before: ProcessResourceSnapshot, after: ProcessResourceSnapshot, minGrowth: number): RetentionGrowth[] {
+    const growth: RetentionGrowth[] = [];
+    if (before.openFds !== undefined && after.openFds !== undefined && after.openFds - before.openFds >= minGrowth)
+        growth.push({ path: "process.openFds", before: before.openFds, after: after.openFds });
+    for (const [type, afterCount] of Object.entries(after.activeResources)) {
+        const beforeCount = before.activeResources[type] ?? 0;
+        if (afterCount - beforeCount >= minGrowth) growth.push({ path: `process.activeResources.${type}`, before: beforeCount, after: afterCount });
+    }
+    return growth;
+}
+
+// Runs `iteration` N times after one warm-up run, and reports everything that grew by at least one
+// entry per two iterations: instances that were not collected, containers under `roots`, and
+// process resources. A shared harness so every scenario asserts the same way.
+export async function measureRepeatedOperation(opts: {
+    roots: () => Record<string, unknown>;
+    iterations: number;
+    // Returns the objects the iteration created and then dropped; they must be collectable
+    iteration: (i: number) => Promise<Record<string, object>>;
+    // Containers that grow per iteration by design but are bounded some other way (a time-based
+    // grace queue, for example). Every entry must say why, so the allow-list stays reviewable.
+    allowedGrowth?: { path: RegExp; reason: string }[];
+}): Promise<{ instancesStillAlive: string[]; containerGrowth: RetentionGrowth[]; processResourceGrowth: RetentionGrowth[] }> {
+    const tracker = createCollectionTracker();
+    // Kept out of this frame: a suspended async frame holds its last value in a saved register
+    const runOnce = async (i: number, track: boolean) => {
+        const created = await opts.iteration(i);
+        if (track) for (const [label, target] of Object.entries(created)) tracker.track(target, `#${i} ${label}`);
+    };
+    await runOnce(-1, false);
+    await forceGc();
+    const containersBefore = snapshotRetention(opts.roots());
+    const resourcesBefore = snapshotProcessResources();
+
+    for (let i = 0; i < opts.iterations; i++) await runOnce(i, true);
+
+    const instancesStillAlive = await tracker.aliveLabels();
+    const minGrowth = Math.max(2, Math.ceil(opts.iterations / 2));
+    return {
+        instancesStillAlive,
+        containerGrowth: findPerIterationGrowth(containersBefore, snapshotRetention(opts.roots()), minGrowth).filter(
+            (growth) => !opts.allowedGrowth?.some((allowed) => allowed.path.test(growth.path))
+        ),
+        processResourceGrowth: findProcessResourceGrowth(resourcesBefore, snapshotProcessResources(), minGrowth)
+    };
 }
