@@ -26,6 +26,7 @@ import { peerIdFromString } from "@libp2p/peer-id";
 import { identify, type Identify } from "@libp2p/identify";
 import type { Ping } from "@libp2p/ping";
 import { createSocket } from "node:dgram";
+import { BlockList, isIP } from "node:net";
 import { lookup } from "node:dns/promises";
 import { randomFillSync } from "node:crypto";
 import { ipnsNameToIpnsOverPubsubTopic, pubsubTopicToDhtKeyCid } from "../../dist/node/util.js";
@@ -38,6 +39,9 @@ export interface ClassifiedAddr {
     /** ip4 / ip6 literal or the DNS name */
     host?: string;
     hostFamily?: "ip4" | "ip6" | "dns4" | "dns6" | "dns";
+    /** the host is an ip4/ip6 literal in a loopback, private, link-local, ULA, CGNAT, multicast or reserved range: a browser on
+     * the internet cannot reach it and probing it would hit the probing machine's own LAN or its local kubo instead */
+    nonPublicHost: boolean;
     port?: number;
     /** `/certhash` components on the address; kubo announces two (current and next certificate) */
     certhashes: number;
@@ -65,6 +69,8 @@ export interface UdpProbeResult {
     versionNegotiation: boolean;
     ms?: number;
     error?: string;
+    /** no packet was sent: the dns name resolved to a non-public address (the local kubo would have answered for the provider) */
+    skipped?: string;
 }
 
 export interface ProviderVerdict {
@@ -130,6 +136,47 @@ export interface ProbeOptions {
 
 const KNOWN_HOST_COMPONENTS = new Set(["ip4", "ip6", "dns4", "dns6", "dns"]);
 
+// RFC 6890 special-purpose ranges plus multicast; an address here is never dialable from a browser on the internet
+const NON_PUBLIC_RANGES = new BlockList();
+for (const [net, prefix] of [
+    ["0.0.0.0", 8],
+    ["10.0.0.0", 8],
+    ["100.64.0.0", 10],
+    ["127.0.0.0", 8],
+    ["169.254.0.0", 16],
+    ["172.16.0.0", 12],
+    ["192.0.0.0", 24],
+    ["192.0.2.0", 24],
+    ["192.168.0.0", 16],
+    ["198.18.0.0", 15],
+    ["198.51.100.0", 24],
+    ["203.0.113.0", 24],
+    ["224.0.0.0", 4],
+    ["240.0.0.0", 4]
+] as const)
+    NON_PUBLIC_RANGES.addSubnet(net, prefix, "ipv4");
+for (const [net, prefix] of [
+    ["::", 128],
+    ["::1", 128],
+    ["64:ff9b:1::", 48],
+    ["100::", 64],
+    ["2001:db8::", 32],
+    ["fc00::", 7],
+    ["fe80::", 10],
+    ["fec0::", 10],
+    ["ff00::", 8]
+] as const)
+    NON_PUBLIC_RANGES.addSubnet(net, prefix, "ipv6");
+
+/** true for an IP literal in a range no browser on the internet can reach; false for a public IP or a non-IP string */
+export function isNonPublicIp(ip: string): boolean {
+    const version = isIP(ip);
+    if (version === 4) return NON_PUBLIC_RANGES.check(ip, "ipv4");
+    // BlockList matches an IPv4-mapped IPv6 address (::ffff:a.b.c.d) against the ipv4 rules by itself
+    if (version === 6) return NON_PUBLIC_RANGES.check(ip, "ipv6");
+    return false;
+}
+
 export function classifyMultiaddr(ma: Multiaddr): ClassifiedAddr {
     const components = ma.getComponents();
     const names = components.map((c) => c.name);
@@ -151,6 +198,8 @@ export function classifyMultiaddr(ma: Multiaddr): ClassifiedAddr {
         kind,
         host: hostComponent?.value,
         hostFamily,
+        nonPublicHost:
+            (hostFamily === "ip4" || hostFamily === "ip6") && hostComponent?.value !== undefined && isNonPublicIp(hostComponent.value),
         port: portComponent?.value !== undefined ? Number(portComponent.value) : undefined,
         certhashes: names.filter((n) => n === "certhash").length
     };
@@ -216,6 +265,15 @@ export async function probeQuicEndpoint({
     } catch (error) {
         return { host, port, answered: false, versionNegotiation: false, error: `dns: ${describeError(error)}` };
     }
+    if (isNonPublicIp(resolvedIp))
+        return {
+            host,
+            port,
+            resolvedIp,
+            answered: false,
+            versionNegotiation: false,
+            skipped: `${host} resolves to the non-public address ${resolvedIp}; a reply would come from this machine's network, not the provider`
+        };
     return new Promise((resolve) => {
         const socket = createSocket(family === 6 ? "udp6" : "udp4");
         const start = Date.now();
@@ -397,7 +455,10 @@ function judge(
     webtransport: UdpProbeResult[]
 ): { verdict: ProviderVerdict; problems: string[] } {
     const problems: string[] = [];
-    const wtAddrs = addrs.filter((a) => a.kind === "webtransport");
+    // non-public addresses are reported below and count for nothing: a browser on the internet cannot reach them, and
+    // probing them would hit the probing machine's own LAN or local kubo and attribute its answer to the provider
+    const publicAddrs = addrs.filter((a) => !a.nonPublicHost);
+    const wtAddrs = publicAddrs.filter((a) => a.kind === "webtransport");
     const wtWithCerthash = wtAddrs.filter((a) => a.certhashes > 0);
     const answeredWt = new Set(webtransport.filter((r) => r.answered && r.versionNegotiation).map((r) => r.multiaddr));
     const verdict: ProviderVerdict = {
@@ -405,25 +466,28 @@ function judge(
         webtransportAnnounced: wtWithCerthash.length > 0,
         webtransportUdpAnswers: wtWithCerthash.some((a) => answeredWt.has(a.multiaddr)),
         webtransportOnUdp443: wtWithCerthash.some((a) => a.port === 443),
-        hasIpv6: addrs.some((a) => a.hostFamily === "ip6" || a.hostFamily === "dns6"),
-        relayOnly: addrs.length > 0 && addrs.every((a) => a.kind === "relay"),
+        hasIpv6: publicAddrs.some((a) => isBrowserDialableKind(a.kind) && (a.hostFamily === "ip6" || a.hostFamily === "dns6")),
+        relayOnly: publicAddrs.length > 0 && publicAddrs.every((a) => a.kind === "relay"),
         browserDialableToday: false,
         browserDialableWithWebTransport: false
     };
     verdict.browserDialableToday = verdict.wssDialable;
     verdict.browserDialableWithWebTransport = verdict.wssDialable || verdict.webtransportUdpAnswers;
 
-    if (addrs.length === 0) problems.push("announces no addresses");
+    if (publicAddrs.length === 0) problems.push(addrs.length === 0 ? "announces no addresses" : "announces no public addresses");
+    for (const a of addrs)
+        if (a.nonPublicHost && isBrowserDialableKind(a.kind))
+            problems.push(`announces a non-public address, unreachable from the internet and not probed: ${a.multiaddr}`);
     if (verdict.relayOnly)
         problems.push(
             "announces only /p2p-circuit relay addresses: the node is behind NAT and no browser or libp2p-js client can reach it"
         );
-    const wssAddrs = addrs.filter((a) => a.kind === "wss");
+    const wssAddrs = publicAddrs.filter((a) => a.kind === "wss");
     if (wssAddrs.length === 0) problems.push("announces no WebSocket Secure (/tls/ws) address: pkc-js browsers cannot dial it today");
     else if (!verdict.wssDialable) for (const r of wss) problems.push(`WSS dial failed ${r.multiaddr}: ${r.error}`);
     if (wssAddrs.length > 0 && !wssAddrs.some((a) => a.port === 443))
         problems.push("WSS is announced only on a non-443 port; networks that allow outbound 443 only cannot reach it");
-    if (addrs.some((a) => a.kind === "ws"))
+    if (publicAddrs.some((a) => a.kind === "ws"))
         problems.push("announces a plain /ws address, which an https page cannot open (mixed content); only /tls/ws counts");
     if (wtAddrs.length === 0) problems.push("announces no WebTransport address");
     else {
@@ -437,7 +501,8 @@ function judge(
             problems.push(`WebTransport only on UDP ${ports}, no UDP 443 listener: unreachable from networks that filter UDP ${ports}`);
         }
         for (const r of webtransport) {
-            if (!r.answered)
+            if (r.skipped) problems.push(`UDP ${r.port} not probed: ${r.skipped}`);
+            else if (!r.answered)
                 problems.push(
                     `UDP ${r.port} on ${r.resolvedIp ?? r.host} did not answer the QUIC probe from this network${r.error ? ` (${r.error})` : ""}`
                 );
@@ -447,7 +512,10 @@ function judge(
                 );
         }
     }
-    if (!verdict.hasIpv6) problems.push("no IPv6 address: IPv4-only networks that filter UDP 4001 depend entirely on the 443 listeners");
+    if (!verdict.hasIpv6)
+        problems.push(
+            "no public IPv6 WSS or WebTransport address: IPv4-only networks that filter UDP 4001 depend entirely on the 443 listeners"
+        );
     return { verdict, problems };
 }
 
@@ -469,15 +537,18 @@ async function probeProvider({
     const multiaddrs = [...addrStrings].map((s) => multiaddr(s));
     const addrs = multiaddrs.map(classifyMultiaddr);
 
+    // non-public hosts are never dialed or probed (judge reports them); the WSS dial would be harmless, since the Noise
+    // handshake verifies the peer id, but the UDP probe has no identity check and the local kubo would answer for the provider
     const wss: WssDialResult[] = [];
     for (const ma of multiaddrs) {
-        if (classifyMultiaddr(ma).kind !== "wss") continue;
+        const a = classifyMultiaddr(ma);
+        if (a.kind !== "wss" || a.nonPublicHost) continue;
         wss.push(await dialWss({ node, addr: ma, timeoutMs: dialTimeoutMs }));
     }
 
     const webtransport = await Promise.all(
         addrs
-            .filter((a) => a.kind === "webtransport" && a.host !== undefined && a.port !== undefined)
+            .filter((a) => a.kind === "webtransport" && !a.nonPublicHost && a.host !== undefined && a.port !== undefined)
             .map(async (a): Promise<UdpProbeResult> => {
                 const family = a.hostFamily === "ip6" || a.hostFamily === "dns6" ? 6 : 4;
                 const result = await probeQuicEndpoint({ host: a.host!, port: a.port!, family, timeoutMs: udpTimeoutMs });
@@ -572,15 +643,18 @@ export function formatProviderReport(provider: ProviderReport): string {
     }
     for (const r of provider.webtransport) {
         lines.push(
-            r.answered && r.versionNegotiation
-                ? `  udp ok    ${r.multiaddr}  version negotiation in ${r.ms} ms`
-                : r.answered
-                  ? `  udp ODD   ${r.multiaddr}  reply in ${r.ms} ms is not QUIC version negotiation`
-                  : `  udp DEAD  ${r.multiaddr}  ${r.error ?? "no reply"}`
+            r.skipped
+                ? `  udp SKIP  ${r.multiaddr}  ${r.skipped}`
+                : r.answered && r.versionNegotiation
+                  ? `  udp ok    ${r.multiaddr}  version negotiation in ${r.ms} ms`
+                  : r.answered
+                    ? `  udp ODD   ${r.multiaddr}  reply in ${r.ms} ms is not QUIC version negotiation`
+                    : `  udp DEAD  ${r.multiaddr}  ${r.error ?? "no reply"}`
         );
     }
     for (const a of provider.addrs)
-        if (!isBrowserDialableKind(a.kind)) lines.push(`  ${a.kind.padEnd(9)} ${a.multiaddr}  (not browser-dialable)`);
+        if (a.nonPublicHost) lines.push(`  ${a.kind.padEnd(9)} ${a.multiaddr}  (non-public address, skipped)`);
+        else if (!isBrowserDialableKind(a.kind)) lines.push(`  ${a.kind.padEnd(9)} ${a.multiaddr}  (not browser-dialable)`);
     for (const p of provider.problems) lines.push(`  ! ${p}`);
     return lines.join("\n");
 }

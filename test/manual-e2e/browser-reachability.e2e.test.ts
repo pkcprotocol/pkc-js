@@ -13,8 +13,9 @@ import {
 // pkc-js reach at least one provider of this community?" without a browser: a libp2p node gated to WebSocket Secure
 // dials every /tls/ws address with full certificate verification, and every /webtransport address gets a QUIC
 // version-negotiation probe on its UDP endpoint (see browser-reachability-probe.ts). NOT part of any CI glob (CI runs
-// test/node, test/node-and-browser, test/browser, test/challenges) and needs no test server; it talks to the
-// production HTTP routers and seeders, so results depend on the network it runs from. Run it by hand:
+// test/node, test/node-and-browser, test/browser, test/challenges). The probe itself needs no test server, but
+// run-test-config.js refuses to start without one, so have `npm run test:server:node` running. It talks to the production
+// HTTP routers and seeders, so results depend on the network it runs from. Run it by hand:
 //
 //   E2E_TARGETS=<community publicKey>[,<publicKey>...] node test/run-test-config.js --pkc-config local-kubo-rpc test/manual-e2e/browser-reachability.e2e.test.ts
 //
