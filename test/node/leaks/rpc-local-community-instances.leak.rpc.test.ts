@@ -115,4 +115,48 @@ describe("leak: RPC client retains RpcLocalCommunity instances of a server-hoste
             await client.destroy();
         }
     });
+
+    // The instance clears its exports subscription id before the unsubscribe call, so nothing can retry
+    // a call that rejects (the connection dropping mid-call, for example). The RPC client must release
+    // its own per-subscription state either way, or that state is kept for the life of the PKC.
+    itIfRpc("an unsubscribe call that rejects still releases the subscription's client-side state", async () => {
+        const client = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+        client.on("error", () => {});
+        try {
+            const warmup = await client.getCommunity({ address: communityAddress });
+            await warmup.stop();
+            const baseline = registrySizes(client);
+
+            const community = await client.getCommunity({ address: communityAddress });
+            const listener = () => {};
+            community.on("exportschange", listener);
+            await pollUntil(() => registrySizes(client).subscriptionEvents === baseline.subscriptionEvents + 1, { timeoutMs: 5_000 });
+
+            const webSocketClient = (client as unknown as { _pkcRpcClient: { _webSocketClient: { call: WebSocketCall } } })._pkcRpcClient
+                ._webSocketClient;
+            const originalCall = webSocketClient.call;
+            let rejectedUnsubscribes = 0;
+            webSocketClient.call = function (this: unknown, method: string, params: unknown[]): Promise<unknown> {
+                if (method === "unsubscribe") {
+                    rejectedUnsubscribes += 1;
+                    return Promise.reject(new Error("connection dropped mid-call (simulated)"));
+                }
+                return originalCall.call(this, method, params);
+            };
+            try {
+                community.removeListener("exportschange", listener);
+                await pollUntil(() => rejectedUnsubscribes === 1, { timeoutMs: 5_000 });
+                await pollUntil(() => registrySizes(client).subscriptionEvents === baseline.subscriptionEvents, { timeoutMs: 2_000 }).catch(
+                    (): undefined => undefined
+                );
+            } finally {
+                webSocketClient.call = originalCall;
+            }
+            expect({ rejectedUnsubscribes, registries: registrySizes(client) }).toEqual({ rejectedUnsubscribes: 1, registries: baseline });
+        } finally {
+            await client.destroy();
+        }
+    });
 });
+
+type WebSocketCall = (method: string, params: unknown[]) => Promise<unknown>;

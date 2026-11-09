@@ -865,9 +865,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
         return this._publishRunWaitSignal!;
     }
 
-    // True once a wait on _getPublishRunWaitSignal() was cut short because the run is over
-    private _isPublishRunOver(): boolean {
-        return this._pkc.destroyed || Boolean(this._publishRunAbortController?.signal.aborted);
+    // True once the run that handed out runSignal is over. Takes the run's own signal, not the current
+    // controller: stop() followed by publish() in the same tick installs the next run's controller before
+    // the previous run's waits wake up, and they must still see their own run as over
+    private _isPublishRunOver(runSignal: AbortSignal): boolean {
+        return this._pkc.destroyed || runSignal.aborted;
     }
 
     // Fresh cache entry first, then a community instance this PKC keeps updating or running (its own loop
@@ -1314,13 +1316,15 @@ class Publication extends TypedEmitter<PublicationEvents> {
         currentPubsubProviderIndex: number;
         acceptedChallengeTypes: DecryptedChallengeRequestMessageType["acceptedChallengeTypes"];
     }) {
-        await sleepUntilTimeoutOrAbort(this._publishToDifferentProviderThresholdSeconds * 1000, this._getPublishRunWaitSignal());
+        // The run this watchdog belongs to; every check below asks about this run, never the current one
+        const runSignal = this._getPublishRunWaitSignal();
+        await sleepUntilTimeoutOrAbort(this._publishToDifferentProviderThresholdSeconds * 1000, runSignal);
 
         // pkc.destroy() and the end of the run (verification, failure, stop()) abort the sleep above, so
         // neither teardown nor garbage collection waits it out. Bail before doing any re-publish work:
         // otherwise we'd create a signer on a destroyed pkc (throwing ERR_PKC_IS_DESTROYED), re-publish a
         // stopped publication, or re-subscribe/re-dial peers that nothing is left to tear down.
-        if (this._isPublishRunOver()) return;
+        if (this._isPublishRunOver(runSignal)) return;
         if (this._didWeReceiveChallengeOrChallengeVerification()) return;
 
         // this provider did not get us a challenge or challenge verification
@@ -1360,6 +1364,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 currentPubsubProviderIndex += 1;
                 while (!this._didWeReceiveChallengeOrChallengeVerification() && currentPubsubProviderIndex < providers.length) {
                     const providerUrl = providers[currentPubsubProviderIndex];
+                    if (this._isPublishRunOver(runSignal)) return;
                     const challengeRequest = await this._generateChallengeRequestToPublish(providerUrl, acceptedChallengeTypes);
 
                     this._updatePublishingStateWithEmission("publishing-challenge-request");
@@ -1402,12 +1407,12 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     if (currentPubsubProviderIndex !== providers.length)
                         await sleepUntilTimeoutOrAbort(
                             this._publishToDifferentProviderThresholdSeconds * 1000,
-                            this._getPublishRunWaitSignal()
+                            runSignal
                         );
-                    if (this._isPublishRunOver()) return;
+                    if (this._isPublishRunOver(runSignal)) return;
                 }
-                await sleepUntilTimeoutOrAbort(this._setProviderFailureThresholdSeconds * 1000, this._getPublishRunWaitSignal());
-                if (this._isPublishRunOver()) return;
+                await sleepUntilTimeoutOrAbort(this._setProviderFailureThresholdSeconds * 1000, runSignal);
+                if (this._isPublishRunOver(runSignal)) return;
                 // Kept although stop() now ends the wait above through the run signal: a stopped
                 // publication must not be treated as a failure and emit ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS.
                 // The enclosing `else` narrowed `this.state` to exclude "stopped", but stop() during the
