@@ -26,7 +26,14 @@
 // publish) against the test server's kubo instead of the stub, the way update-pipeline-bench does; the cycle is
 // then what the publisher actually waits for. Needs the test server up. BENCH_SCENARIOS (comma list; default all
 // four) picks the publications to measure; every cascading one costs a whole-board cycle, so a huge board runs fewer.
-import { performance } from "node:perf_hooks";
+// BENCH_STAGES=1 adds a per-stage breakdown of each measured cycle: wall-clock timers on the DbHandler and
+// PageGenerator methods and on every kubo RPC call, reported as the wall time during which at least one call of
+// that label was in flight (concurrent calls are not double counted) plus the summed per-call time, together with
+// the GC pause time. Labels nest (a page generation contains its DB reads and kubo adds), so they do not add up to
+// the cycle; whatever no label covers (signing and verifying each CommentUpdate, the JSON work around them) is the
+// cycle minus the outermost stages. BENCH_CPU_PROF=<dir> also writes one V8 CPU profile per measured cycle, for
+// test/benchmarks/cpuprofile-summary.mjs.
+import { performance, PerformanceObserver } from "node:perf_hooks";
 import path from "node:path";
 import os from "node:os";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -40,6 +47,8 @@ import {
 } from "../../dist/node/runtime/node/community/local-community/ipns-publishing.js";
 import { calculateStringSizeSameAsIpfsAddCidV0 } from "../../dist/node/util.js";
 import { CommunityIpfsSchema } from "../../dist/node/community/schema.js";
+import { DbHandler } from "../../dist/node/runtime/node/community/db-handler.js";
+import { PageGenerator } from "../../dist/node/runtime/node/community/page-generator.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 
 const COMMENTS = Number(process.env.BENCH_COMMENTS) > 0 ? Number(process.env.BENCH_COMMENTS) : 1000;
@@ -55,7 +64,114 @@ const SCENARIOS = (
 ).split(",");
 const OUT =
     process.env.BENCH_OUT || path.resolve(process.cwd(), ".tmp", "bench", `author-cascade-${COMMENTS}${REAL_KUBO ? "-kubo" : ""}.json`);
+const STAGES = process.env.BENCH_STAGES === "1";
+const CPU_PROF_DIR = process.env.BENCH_CPU_PROF ? path.resolve(process.env.BENCH_CPU_PROF) : undefined;
 const { seedBoard } = await import("./page-generation-bench.mjs");
+
+// Stage timers. A label's wall time is the union of the intervals during which one of its calls was in flight, so
+// fifty concurrent page generations count once; sumMs adds every call's own duration.
+const stages = new Map();
+let stagesOn = false;
+const stageEnter = (label) => {
+    let stage = stages.get(label);
+    if (!stage) stages.set(label, (stage = { inflight: 0, since: 0, wallMs: 0, sumMs: 0, calls: 0 }));
+    const start = performance.now();
+    if (stage.inflight++ === 0) stage.since = start;
+    stage.calls++;
+    return { stage, start };
+};
+const stageExit = ({ stage, start }) => {
+    const end = performance.now();
+    stage.sumMs += end - start;
+    if (--stage.inflight === 0) stage.wallMs += end - stage.since;
+};
+const timeStage = (target, name, label) => {
+    const original = target[name];
+    if (typeof original !== "function" || original.__benchStage) return;
+    const wrapped = function (...args) {
+        if (!stagesOn) return original.apply(this, args);
+        const token = stageEnter(label);
+        let result;
+        try {
+            result = original.apply(this, args);
+        } catch (error) {
+            stageExit(token);
+            throw error;
+        }
+        if (result && typeof result.then === "function") return result.finally(() => stageExit(token));
+        if (result && typeof result[Symbol.asyncIterator] === "function")
+            return (async function* () {
+                try {
+                    yield* result;
+                } finally {
+                    stageExit(token);
+                }
+            })();
+        stageExit(token);
+        return result;
+    };
+    wrapped.__benchStage = true;
+    try {
+        target[name] = wrapped;
+    } catch {
+        // a read-only property stays untimed
+    }
+};
+const publicMethods = (proto) =>
+    Object.getOwnPropertyNames(proto).filter(
+        (name) => name !== "constructor" && typeof Object.getOwnPropertyDescriptor(proto, name).value === "function"
+    );
+if (STAGES) {
+    for (const name of publicMethods(DbHandler.prototype).filter((name) => !name.startsWith("_")))
+        timeStage(DbHandler.prototype, name, `db.${name}`);
+    for (const name of publicMethods(PageGenerator.prototype)) timeStage(PageGenerator.prototype, name, `pages.${name}`);
+}
+const timeKuboClient = (client) => {
+    for (const name of Object.keys(client)) {
+        const value = client[name];
+        if (typeof value === "function") timeStage(client, name, `kubo.${name}`);
+        else if (value && typeof value === "object")
+            for (const sub of Object.keys(value)) if (typeof value[sub] === "function") timeStage(value, sub, `kubo.${name}.${sub}`);
+    }
+};
+let gcMs = 0;
+if (STAGES)
+    new PerformanceObserver((list) => list.getEntries().forEach((entry) => (gcMs += entry.duration))).observe({ entryTypes: ["gc"] });
+const startStages = () => {
+    stages.clear();
+    gcMs = 0;
+    stagesOn = STAGES;
+};
+const stopStages = () => {
+    stagesOn = false;
+    if (!STAGES) return undefined;
+    const out = { gcMs: Math.round(gcMs) };
+    const sorted = [...stages.entries()].sort((a, b) => b[1].wallMs - a[1].wallMs);
+    for (const [label, stage] of sorted)
+        if (stage.wallMs >= 1 || stage.sumMs >= 1)
+            out[label] = { wallMs: Math.round(stage.wallMs), sumMs: Math.round(stage.sumMs), calls: stage.calls };
+    return out;
+};
+let profilerSession;
+const startProfile = async () => {
+    if (!CPU_PROF_DIR) return;
+    if (!profilerSession) {
+        const { Session } = await import("node:inspector/promises");
+        profilerSession = new Session();
+        profilerSession.connect();
+        await profilerSession.post("Profiler.enable");
+        await profilerSession.post("Profiler.setSamplingInterval", { interval: 2000 });
+    }
+    await profilerSession.post("Profiler.start");
+};
+const stopProfile = async (label) => {
+    if (!profilerSession) return undefined;
+    const { profile } = await profilerSession.post("Profiler.stop");
+    mkdirSync(CPU_PROF_DIR, { recursive: true });
+    const file = path.join(CPU_PROF_DIR, `author-cascade-${COMMENTS}-${label}.cpuprofile`);
+    writeFileSync(file, JSON.stringify(profile));
+    return file;
+};
 
 const SIGNATURE = { type: "ed25519", signature: "sig", publicKey: Buffer.alloc(32, 7).toString("base64"), signedPropertyNames: [] };
 const BOARD_AUTHOR = "author-0"; // what the seeder names its only author
@@ -76,9 +192,11 @@ async function runCycle(community) {
         // then the record (posts pages, MFS stat, add, IPNS publish), which also marks the cids published.
         const start = performance.now();
         const cids = await updateCommentsAndWritePostUpdates(community);
+        const commentUpdatesMs = ms(start);
         community._communityUpdateTrigger = true; // a vote inserted straight into the DB does not arm it
+        const recordStart = performance.now();
         await updateCommunityIpnsIfNeeded(community, cids);
-        return { updated: cids.length, cycleMs: ms(start) };
+        return { updated: cids.length, cycleMs: ms(start), commentUpdatesMs, recordMs: ms(recordStart) };
     }
     // The publish cycle's consumer: keep only cids, the way syncIpnsWithDb does, so the heap does not grow with the board
     let updated = 0;
@@ -172,7 +290,13 @@ async function scenario(community, label, mutate) {
     const cpuBefore = process.cpuUsage();
     const kuboBefore = kuboCpuMs();
     const { flagged, flagMs } = flagQuery(community);
-    const { updated, cycleMs } = await runCycle(community);
+    const cycleCpuBefore = process.cpuUsage();
+    await startProfile();
+    startStages();
+    const { updated, cycleMs, ...phases } = await runCycle(community);
+    const stageBreakdown = stopStages();
+    const cycleCpu = process.cpuUsage(cycleCpuBefore);
+    const profile = await stopProfile(label);
     const cpu = process.cpuUsage(cpuBefore);
     const kuboAfter = kuboCpuMs();
     log({
@@ -181,8 +305,12 @@ async function scenario(community, label, mutate) {
         flagMs,
         updated,
         cycleMs,
+        ...phases,
         cpuMs: Math.round((cpu.user + cpu.system) / 1000),
-        ...(kuboBefore !== undefined ? { kuboCpuMs: kuboAfter - kuboBefore } : {})
+        cycleCpuMs: Math.round((cycleCpu.user + cycleCpu.system) / 1000),
+        ...(kuboBefore !== undefined ? { kuboCpuMs: kuboAfter - kuboBefore } : {}),
+        ...(stageBreakdown ? { stages: stageBreakdown } : {}),
+        ...(profile ? { profile } : {})
     });
 }
 
@@ -203,6 +331,7 @@ async function main() {
             await calculateStringSizeSameAsIpfsAddCidV0(deterministicStringify(record));
             CommunityIpfsSchema.safeParse(record);
         };
+        if (STAGES) timeKuboClient(community._clientsManager.getDefaultKuboRpcClient()._client);
     } else
         community._clientsManager.getDefaultKuboRpcClient = () => ({
             _client: {
@@ -213,6 +342,7 @@ async function main() {
                 routing: { async *provide() {} }
             }
         });
+    if (STAGES) timeStage(community, "_calculateNewPostUpdates", "record.calculateNewPostUpdates");
     const dbFile = path.join(DATA_PATH, "communities", community.address);
     try {
         const seedStart = performance.now();
