@@ -24,6 +24,14 @@ process.env["DEBUG"] = process.env["DEBUG"] || "*";
 
 const pkcConfig = process.env["PKC_CONFIGS"] || "local-kubo-rpc";
 
+// The kubo daemons are killed from process "exit" hooks, which a signal's default action skips, leaving
+// them running with the test ports taken. Turn SIGINT/SIGTERM into a normal exit so the hooks run.
+for (const [signal, exitCode] of [
+    ["SIGINT", 130],
+    ["SIGTERM", 143]
+])
+    process.on(signal, () => process.exit(exitCode));
+
 // setupTestServerLog is called after .tmp/ cleanup in the main IIFE
 const setupTestServerLog = () => {
     const logTimestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -265,15 +273,40 @@ const startIpfsNode = async (nodeArgs) => {
         stderrStream.end();
     });
 
+    // Rejects if the daemon exits (or fails to spawn) before it is ready: waiting only for the "Daemon is
+    // ready" line would leave a daemon that died during startup, and with it the whole test server, pending
+    // forever
     const ipfsDaemonIsReady = () =>
-        new Promise((resolve) => {
-            ipfsProcess.stdout.on("data", (data) => {
+        new Promise((resolve, reject) => {
+            const stopWaiting = () => {
+                ipfsProcess.stdout.off("data", onData);
+                ipfsProcess.off("exit", onExit);
+                ipfsProcess.off("error", onError);
+            };
+            const onData = (data) => {
                 if (data.toString().match("Daemon is ready")) {
+                    stopWaiting();
                     resolve();
                 }
-            });
+            };
+            const onExit = (code, signal) => {
+                stopWaiting();
+                reject(new Error(`ipfs daemon for ${nodeBaseName} exited before it was ready (code ${code}, signal ${signal})`));
+            };
+            const onError = (error) => {
+                stopWaiting();
+                reject(error);
+            };
+            ipfsProcess.stdout.on("data", onData);
+            ipfsProcess.once("exit", onExit);
+            ipfsProcess.once("error", onError);
         });
     await ipfsDaemonIsReady();
+
+    // Attached before anything else is awaited, so an exit right after startup still gets a restart. A daemon
+    // that exits before it is ready is not restarted from here: startIpfsNode rejects instead, which fails the
+    // initial start and lets restartIpfsNode retry.
+    ipfsProcess.on("exit", () => restartIpfsNode(nodeArgs));
 
     try {
         const idRes = await fetch(`http://localhost:${nodeArgs.apiPort}/api/v0/id`, { method: "POST" }).then((res) => res.json());
@@ -284,9 +317,19 @@ const startIpfsNode = async (nodeArgs) => {
         console.error(`Failed to fetch /api/v0/id for kubo ${nodeBaseName}:`, e);
     }
 
-    // Restart on exit with port-wait retry logic
-    ipfsProcess.on("exit", async () => {
-        console.log("ipfs node", nodeArgs, "has been shut down. Will attempt to restart");
+    return { ipfsProcess };
+};
+
+// pkc-js shuts a kubo node down after changing its HTTP routers and expects it back, so a node that exited
+// is restarted, retrying a few times: one failed attempt (e.g. its API port still busy after the wait
+// below) would otherwise leave it down for the rest of the run while port 14952 still reports ready.
+// Retries back off (1s, 2s, 4s, 8s): with the API port already free the port wait below returns at once,
+// and back-to-back attempts would use up every retry on a cause that clears with time.
+const MAX_IPFS_NODE_RESTART_ATTEMPTS = 5;
+const restartIpfsNode = async (nodeArgs) => {
+    console.log("ipfs node", nodeArgs, "has been shut down. Will attempt to restart");
+    for (let attempt = 1; attempt <= MAX_IPFS_NODE_RESTART_ATTEMPTS; attempt++) {
+        if (attempt > 1) await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 2)));
         // Wait for ports to be released (TCP TIME_WAIT)
         const maxWait = 10000; // 10 seconds
         const interval = 500;
@@ -299,11 +342,12 @@ const startIpfsNode = async (nodeArgs) => {
         }
         try {
             await startIpfsNode(nodeArgs);
+            return;
         } catch (e) {
-            console.error("Failed to restart ipfs node", nodeArgs.dir, e);
+            console.error(`Failed to restart ipfs node (attempt ${attempt}/${MAX_IPFS_NODE_RESTART_ATTEMPTS})`, nodeArgs.dir, e);
         }
-    });
-    return { ipfsProcess };
+    }
+    console.error(`Giving up restarting ipfs node ${nodeArgs.dir}: tests that use its API port ${nodeArgs.apiPort} will fail`);
 };
 
 const startIpfsNodes = async () => {
