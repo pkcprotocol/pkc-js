@@ -407,6 +407,8 @@ PubsubSignature {
   - [`pkc.createVote(createVoteOptions)`](#pkccreatevotecreatevoteoptions)
   - [`pkc.createSigner(createSignerOptions)`](#pkccreatesignercreatesigneroptions)
   - `pkc.communities`
+  - [`pkc.getLogs(query)`](#pkcgetlogsquery)
+  - `pkc.logger`
   - `pkc.clients`
   - [`pkc.getDefaults()`](#pkcgetdefaults) *(not yet implemented)*
   - `pkc.fetchCid({cid})`
@@ -557,6 +559,7 @@ An object which may have the following keys:
 | userAgent | `string` or `undefined` | `/pkc-js:<version>/` | User-agent string sent on outgoing HTTP requests. |
 | challenges | `Record<string, ChallengeFileFactory>` or `undefined` | `undefined` | Instance-level challenge registry; keys shadow built-in challenges with the same name. See [docs/protocol/challenge-flow.md](docs/protocol/challenge-flow.md). |
 | pageSorts | `Record<string, PageSortFileFactory>` or `undefined` | `undefined` | Instance-level page sort registry (`PKC.pageSorts`); keys shadow built-in sorts with the same name and are referenced by `settings.pages[].name`. See [docs/protocol/page-sorts.md](docs/protocol/page-sorts.md). |
+| logger | `{instance?: Logger, buffer?: {maxBytes: number}}` or `undefined` | `undefined` | The instance's root logger, see [`pkc.getLogs(query)`](#pkcgetlogsquery). `instance` is a root created with `createLogger()` from `@pkcprotocol/pkc-logger` (hand one over to attach listeners before the instance exists, or to share one buffer between instances); `buffer.maxBytes` sizes the buffer of the root pkc-js creates otherwise (default 4 MiB, `0` disables capture). Passing both is rejected. Never sent over RPC: a server keeps its own root across `setSettings`. |
 
 #### Returns
 
@@ -1266,6 +1269,54 @@ for (const { address, publicKey, started } of pkc.communities) {
   console.log('starting', address) // same as community.address
   await community.start()
 }
+```
+
+### `pkc.getLogs(query)`
+
+> The log lines this instance captured, filtered by identifier tags, a regex and a time range, or, with `rpcUrl`, the lines an RPC server captured. Every logger in pkc-js is a child of the instance's root (`pkc.logger`, from `@pkcprotocol/pkc-logger`), so a line lands in that root's in-memory buffer with the tags of the object that logged it. Capture follows the `DEBUG` namespace selection: a line whose namespace is not enabled costs nothing and is not kept, so enable `DEBUG=pkc-js*` (or a narrower pattern) to fill the buffer. The buffer and the listeners attached to `pkc.logger` outlive `pkc.destroy()`.
+
+#### Parameters
+
+| Name | Type | Description |
+| -------- | -------- | -------- |
+| `query.tags` | `Record<string, string>` (optional) | Every listed key must be present on the line with exactly that value (AND). Keys are matched exactly, so one cid takes two queries: `{tags: {cid}}` for the comment's own lines and `{tags: {parentCid: cid}}` for its replies' lines that concern it |
+| `query.regex` | `{source: string, flags?: string}` (optional) | Tested against `namespace + " " + msg`. Compiled before anything is read, locally and on the server, so an invalid pattern throws `ERR_INVALID_LOG_QUERY`. Trusted input: a backtracking pattern runs synchronously, so never forward one from an untrusted source |
+| `query.since`, `query.until` | `number` (optional) | Inclusive bounds on the line's epoch milliseconds |
+| `query.limit` | `number` (optional) | Max lines returned, default 1000, cap 10000 |
+| `query.cursor`, `query.order` | `number`, `"asc"` or `"desc"` (optional) | Resume after (`asc`, the default) or before (`desc`) a `seq`; pass the previous result's `nextCursor` |
+| `query.rpcUrl` | `string` (optional) | Read that RPC server's buffer instead of the local one, through its `getLogs` method. Must equal one of this instance's `pkcRpcClientsOptions` as an exact string (no normalization), otherwise `ERR_PKC_NOT_CONNECTED_TO_RPC` with the configured URLs in `details`. The server serves only its own buffer and rejects an `rpcUrl` in its own params, so a call is never chained to a third daemon |
+
+The tag keys pkc-js sets:
+
+| Key | On |
+| -------- | -------- |
+| `publicKey` | A community's lines: start, the update loop, each challenge exchange, edit, delete and settings calls, the community's db handler, page generator, pages and clients, and the challenge and page sort files it loads (their `log` argument) |
+| `signature` | A publication's lines, from signing or receipt on: `publish()` on the client side, and each exchange on the community side (`challenge-exchange` namespace), including `getChallenge()`'s `log` |
+| `cid` | A comment's lines once its cid is known: after the challenge verification on publish, and around its update loop |
+| `parentCid` | A reply's lines that also concern its parent: fetching the update from the parent's pages, the post's update event |
+
+#### Returns
+
+| Type | Description |
+| -------- | -------- |
+| `Promise<{entries: LogEntry[], nextCursor?: number}>` | `entries` are frozen `{seq, time, level, namespace, msg, tags}` records, oldest first unless `order: "desc"`; `nextCursor` is the last returned `seq`, absent when nothing matched |
+
+Errors: `ERR_INVALID_LOG_QUERY` for an invalid regex, an unknown field or a value out of range, before anything is scanned; `ERR_PKC_NOT_CONNECTED_TO_RPC` for an `rpcUrl` that is not configured.
+
+The shared libp2p-js client (`libp2pJsClientsOptions[].key`) is created once per key and reused by every instance that names it; its lines go to the buffer of the instance that created it, so a later instance reusing the client does not see them in its own `getLogs()`.
+
+#### Example
+
+```js
+// DEBUG=pkc-js* node script.js
+const { entries } = await pkc.getLogs({ tags: { publicKey: community.publicKey }, regex: { source: "challenge" } })
+for (const entry of entries) console.log(new Date(entry.time).toISOString(), entry.namespace, entry.msg)
+
+// the same, on the RPC daemon this instance is connected to
+const remote = await pkc.getLogs({ tags: { cid: comment.cid }, rpcUrl: pkc.pkcRpcClientsOptions[0] })
+
+// a host that wants a file: listen on the root, the entries also reach the buffer
+const stop = pkc.logger.addListener((entry) => fileStream.write(JSON.stringify(entry) + "\n"))
 ```
 
 ### `pkc.getDefaults()` *(not yet implemented)*
