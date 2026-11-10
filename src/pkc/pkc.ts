@@ -40,6 +40,7 @@ import Vote from "../publications/vote/vote.js";
 import { createSigner, verifyCommentPubsubMessage } from "../signer/index.js";
 import { CommentEdit } from "../publications/comment-edit/comment-edit.js";
 import Logger from "../logger.js";
+import { createLogger, type Logger as PkcLogger } from "@pkcprotocol/pkc-logger";
 import env from "../version.js";
 import { verifyCommentEdit, verifyCommentIpfs, verifyCommentUpdate, verifyCommunityEdit } from "../signer/signatures.js";
 import Stats from "../stats.js";
@@ -191,9 +192,16 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         pageSorts?: Record<string, PageSortFileFactoryInput>; // PKC.pageSorts: page sorts a consumer registered or shadowed, by name (issue #73)
     };
 
+    // The root logger of this instance (issue #493): every logger in the tree below it is a child, so its buffer holds
+    // every captured line this instance and the objects it creates emitted, queryable through pkc.getLogs(). It has
+    // no namespace (each first-level child supplies its full `pkc-js:...` prefix, so DEBUG patterns keep working) and
+    // destroy() leaves it alone: the buffer and the listeners a host attached outlive the instance on purpose.
+    logger: PkcLogger;
+
     // private props
 
     _pkcRpcClient?: PKCRpcClient; // default rpc client for now. For now we will default to clients.pkcRpcClients[0]
+    _log: PkcLogger; // pkc-js:pkc, the child every object this instance creates derives its own logger from
     private _pubsubSubscriptions: Record<string, PubsubSubscriptionHandler> = {};
     _clientsManager!: PKCClientsManager;
     _userPKCOptions: InputPKCOptions; // this is the raw input from user
@@ -260,7 +268,12 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     constructor(options: InputPKCOptions) {
         super();
         this._userPKCOptions = options;
-        this.parsedPKCOptions = parsePKCUserOptionsSchemaWithPKCErrorIfItFails(options);
+        // `logger` never reaches parsedPKCOptions: that record is serialized to RPC clients in `settingschange` and
+        // compared by setSettings, and a logger instance is a function object that cannot cross the wire.
+        const { logger: loggerOption, ...parsedOptionsWithoutLogger } = parsePKCUserOptionsSchemaWithPKCErrorIfItFails(options);
+        this.parsedPKCOptions = parsedOptionsWithoutLogger;
+        this.logger = loggerOption?.instance ?? createLogger({ buffer: loggerOption?.buffer });
+        this._log = this.logger.child({ namespace: "pkc-js:pkc" });
 
         // Make nameResolver function props non-enumerable so they're excluded from JSON serialization and spread
         if (this.parsedPKCOptions.nameResolvers) {

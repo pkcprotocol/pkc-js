@@ -52,6 +52,10 @@ export const challenges = PKC.challenges;
 export const pageSorts = PKC.pageSorts;
 export const createAnchorIpnsRecord = PKC.createAnchorIpnsRecord;
 
+// Public re-exports: the logger contract (issue #493). `pkcOptions.logger.instance` takes a root created with
+// @pkcprotocol/pkc-logger's createLogger(); `pkc.logger` exposes it and `pkc.getLogs()` returns its entries.
+export type { Logger, LogEntry, LogQuery, LogQueryResult, Tags } from "@pkcprotocol/pkc-logger";
+
 // Public re-exports: name-resolver contract — let third-party resolver
 // packages (e.g. @bitsocial/bso-resolver) consume these types directly from
 // the root entry instead of deep-importing from "./schema.js".

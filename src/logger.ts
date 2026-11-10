@@ -14,7 +14,7 @@ const loggers = new Map<string, Logger>();
 function Logger(namespace: string): Logger {
     let logger = loggers.get(namespace);
     if (!logger) {
-        logger = BaseLogger(namespace);
+        logger = BaseLogger({ namespace });
         loggers.set(namespace, logger);
     }
     return logger;

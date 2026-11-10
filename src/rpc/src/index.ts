@@ -1200,11 +1200,14 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
             log(`RPC client called setSettings, the clients need to call all subscription methods again`);
             const oldPKC = this.pkc;
-            // Strip nameResolvers from client settings — RPC server ignores them for now
-            const { nameResolvers: _stripNr, ...pkcOptionsWithoutNameResolvers } = settings.pkcOptions;
+            // Strip nameResolvers from client settings — RPC server ignores them for now. `logger` is stripped too: the
+            // replacement instance adopts this server's root (issue #493), so the log buffer and the listeners a host
+            // attached survive the swap, and a client cannot resize or replace the server's buffer.
+            const { nameResolvers: _stripNr, logger: _stripLogger, ...pkcOptionsWithoutNameResolvers } = settings.pkcOptions;
             const newPKC = await this._createPKCInstanceFromSetSettings({
                 ...pkcOptionsWithoutNameResolvers,
-                nameResolvers: this.pkc.parsedPKCOptions.nameResolvers
+                nameResolvers: this.pkc.parsedPKCOptions.nameResolvers,
+                logger: { instance: this.pkc.logger }
             } as InputPKCOptions);
             this._initPKC(newPKC); // swap to new instance first so new RPC calls don't hit a destroyed pkc
 

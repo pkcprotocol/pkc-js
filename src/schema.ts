@@ -6,6 +6,7 @@ import type { libp2pDefaults } from "@helia/libp2p";
 import { createHelia } from "helia";
 import type { KuboRpcClientCreateOption } from "./util.js";
 import type { ChallengeFileFactoryInput, PageSortFileFactoryInput } from "./community/types.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 
 // This file will have misc schemas, as well as PKC class schema
 
@@ -141,8 +142,27 @@ const defaultPubsubKuboRpcClientsOptions = [
 
 const defaultIpfsGatewayUrls = ["https://ipfsgateway.xyz", "https://gateway.plebpubsub.xyz", "https://gateway.forumindex.com"] as const;
 
+// pkcOptions.logger (issue #493). `instance` is a root from @pkcprotocol/pkc-logger's createLogger(); `buffer` sizes the
+// root pkc-js creates when no instance is given. Only one of them makes sense: a caller who hands over a root already
+// sized its buffer. Neither crosses the RPC wire: the PKC constructor strips this key from parsedPKCOptions.
+const LoggerInstanceSchema = z.custom<Logger>(
+    (value) => typeof value === "function" && typeof (value as Partial<Logger>).child === "function",
+    { message: "pkcOptions.logger.instance must be a root logger from @pkcprotocol/pkc-logger createLogger()" }
+);
+
+export const PKCLoggerOptionSchema = z
+    .object({
+        instance: LoggerInstanceSchema.optional(),
+        buffer: z.object({ maxBytes: z.number().int().nonnegative() }).strict().optional()
+    })
+    .strict()
+    .refine((value) => !(value.instance && value.buffer), {
+        message: "pkcOptions.logger accepts either instance or buffer, not both: an instance already has its own buffer"
+    });
+
 export const PKCUserOptionsSchema = PKCUserOptionBaseSchema.extend({
     // used in await PKC({PKCOption}), will set defaults here
+    logger: PKCLoggerOptionSchema.optional(),
     ipfsGatewayUrls: PKCUserOptionBaseSchema.shape.ipfsGatewayUrls
         .default([...defaultIpfsGatewayUrls])
         .transform((val) => (val === undefined ? [...defaultIpfsGatewayUrls] : val)),
