@@ -361,10 +361,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 reason: challengeMsgValidity.reason
             });
             log.error("received challenge message with invalid signature", error.toString());
-            this._changePublicationStateEmitEventEmitStateChangeEvent({
-                newPublishingState: "failed",
-                event: { name: "error", args: [error] }
-            });
+            // Not from the community, so it says nothing about this exchange: report it without moving
+            // publishingState to "failed", which the community's real answer would then overwrite
+            this.emit("error", error);
             return;
         }
 
@@ -451,10 +450,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 reason: signatureValidation.reason
             });
             log.error("Publication received a challenge verification with invalid signature", error);
-            this._changePublicationStateEmitEventEmitStateChangeEvent({
-                newPublishingState: "failed",
-                event: { name: "error", args: [error] }
-            });
+            // Anyone on the topic can send one for our challengeRequestId; like an invalid challenge, it is not
+            // the community's verdict, so it leaves publishingState alone
+            this.emit("error", error);
             return;
         }
         let decryptedChallengeVerification: DecryptedChallengeVerification | undefined;
@@ -479,7 +477,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         challenegVerificationMsg: msg
                     });
                     log.error("could not decrypt challengeverification.encrypted", pkcError);
-                    this.emit("error", pkcError);
+                    await this._endExchangeWithUnreadableChallengeVerification({ verification: msg, error: pkcError });
                     return;
                 }
 
@@ -489,7 +487,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     decryptedJson = await parseJsonWithPKCErrorIfFails(decryptedRawString);
                 } catch (e) {
                     log.error("could not parse decrypted challengeverification.encrypted as a json", e);
-                    this.emit("error", <PKCError>e);
+                    await this._endExchangeWithUnreadableChallengeVerification({ verification: msg, error: <PKCError>e });
                     return;
                 }
 
@@ -497,7 +495,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     decryptedChallengeVerification = parseDecryptedChallengeVerification(decryptedJson);
                 } catch (e) {
                     log.error("could not parse challengeverification.encrypted due to invalid schema", e);
-                    this.emit("error", <PKCError>e);
+                    await this._endExchangeWithUnreadableChallengeVerification({ verification: msg, error: <PKCError>e });
                     return;
                 }
             }
@@ -544,6 +542,27 @@ class Publication extends TypedEmitter<PublicationEvents> {
             }
         });
         await this._postSucessOrFailurePublishing();
+    }
+
+    // A success verification the community signed but whose encrypted part we cannot read. The exchange is over and the
+    // no-response watchdog stopped watching once the challenge arrived, so end it here rather than stay "publishing" and
+    // subscribed for good. It ends as failed: we cannot see what the community stored, so there is no result (for a
+    // comment, not even its cid) to report as succeeded
+    private async _endExchangeWithUnreadableChallengeVerification({
+        verification,
+        error
+    }: {
+        verification: ChallengeVerificationMessageType;
+        error: PKCError | Error;
+    }) {
+        const exchange = this._challengeExchanges[verification.challengeRequestId.toString()];
+        if (exchange.challengeVerification) return; // a copy delivered by another provider ended it already (#349)
+        exchange.challengeVerification = verification;
+        await this._postSucessOrFailurePublishing();
+        this._changePublicationStateEmitEventEmitStateChangeEvent({
+            newPublishingState: "failed",
+            event: { name: "error", args: [error] }
+        });
     }
 
     private async _handleChallengeExchange(pubsubMsg: IpfsHttpClientPubsubMessage) {
