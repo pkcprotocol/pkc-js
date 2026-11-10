@@ -889,12 +889,11 @@ export async function handleChallengeAnswer(community: LocalCommunity, challenge
         );
     const answerSignatureValidation = await verifyChallengeAnswer({ answer: challengeAnswer, validateTimestampRange: true });
 
-    if (!answerSignatureValidation.valid) {
-        cleanUpChallengeAnswerPromise(community, challengeAnswer.challengeRequestId.toString());
-        community._ongoingChallengeExchanges.delete(challengeAnswer.challengeRequestId.toString());
-        delete community._challengeExchangesFromLocalPublishers[challengeAnswer.challengeRequestId.toString()];
+    // Only drop the message. The challengeRequestId is public on the topic, so an answer that fails verification
+    // may come from anyone, and the exchange it names belongs to whoever holds the request's key: clearing it here
+    // would reject that publisher's real answer as having no request. The answer timeout still bounds the exchange.
+    if (!answerSignatureValidation.valid)
         throw new PKCError(getErrorCodeFromMessage(answerSignatureValidation.reason), { challengeAnswer });
-    }
 
     const decryptedRawString = await decryptOrRespondWithFailure(community, challengeAnswer);
 
