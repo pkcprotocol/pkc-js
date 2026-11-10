@@ -6,7 +6,7 @@ import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
 import { STORAGE_KEYS } from "../../../../constants.js";
 import { parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails } from "../../../../schema/schema-util.js";
-import { deriveDbPosts, resolveDbPostsCidRefs, importSignerIntoKuboNode } from "../../util.js";
+import { deriveDbPosts, resolveDbPostsCidRefs, importSignerIntoKuboNode, forgetCommunityThatFailedToBeDeleted } from "../../util.js";
 import { SignerWithPublicKeyAddress } from "../../../../signer/index.js";
 import { getIpfsKeyFromPrivateKey, getPublicKeyFromPrivateKey } from "../../../../signer/util.js";
 import { findStartedCommunity } from "../../../../pkc/tracked-instance-registry-util.js";
@@ -250,6 +250,8 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
     // This function should be called only once per community
     const log = Logger("pkc-js:local-community:_createNewLocalCommunityDb");
     await community.initDbHandlerIfNeeded();
+    // A failed deletion of this address may still be queued for the next start, which would delete the new DB
+    await forgetCommunityThatFailedToBeDeleted({ communityAddress: community.address, pkc: community._pkc });
     await community._dbHandler.initDbIfNeeded({ fileMustExist: false });
     await community._dbHandler.createOrMigrateTablesIfNeeded();
     await initSignerProps(community, community.signer); // init this.encryption as well

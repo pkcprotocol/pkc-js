@@ -12,7 +12,12 @@ import assert from "assert";
 import fs from "fs";
 import os from "os";
 import Logger from "../../../logger.js";
-import { deleteOldCommunityInWindows, deriveCommentIpfsFromCommentTableRow, getDefaultCommunityDbConfig } from "../util.js";
+import {
+    deleteOldCommunityInWindows,
+    deriveCommentIpfsFromCommentTableRow,
+    forgetCommunityThatFailedToBeDeleted,
+    getDefaultCommunityDbConfig
+} from "../util.js";
 import env from "../../../version.js";
 import Database, { type Database as BetterSqlite3Database, type Statement } from "better-sqlite3";
 import { sha256 } from "js-sha256";
@@ -3544,6 +3549,8 @@ export class DbHandler {
                 const sourceDb = new Database(oldPathString, { fileMustExist: true });
                 await sourceDb.backup(newPathString); // backup is synchronous in better-sqlite3 v8+
                 sourceDb.close();
+                // The live DB is at the new path now. Before the old file is removed, so a failure here leaves it intact
+                await forgetCommunityThatFailedToBeDeleted({ communityAddress: newDbName, pkc: this._community._pkc });
                 if (os.type() === "Windows_NT") await deleteOldCommunityInWindows(oldPathString, this._community._pkc);
                 else await fs.promises.rm(oldPathString, { force: true });
             }

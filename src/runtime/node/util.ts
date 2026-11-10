@@ -227,6 +227,26 @@ async function recordCommunityThatFailedToBeDeleted({
     log(`Updated persistent deleted communities in storage`, communitiesThatWeFailedToDelete);
 }
 
+// Called when a live community DB is written to communities/<communityAddress> (a rename onto it, a new community): the
+// file there is no longer the one whose deletion failed, and tryToDeleteCommunitiesThatFailedToBeDeletedBefore would
+// delete the live DB on the next start
+export async function forgetCommunityThatFailedToBeDeleted({
+    communityAddress,
+    pkc
+}: {
+    communityAddress: string;
+    pkc: Pick<PKC, "_storage">;
+}) {
+    const log = Logger("pkc-js:community:forgetCommunityThatFailedToBeDeleted");
+    const storageKey = STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES];
+    const communitiesThatWeFailedToDelete = <string[] | undefined>await pkc._storage.getItem(storageKey);
+    if (!Array.isArray(communitiesThatWeFailedToDelete) || !communitiesThatWeFailedToDelete.includes(communityAddress)) return;
+    const remaining = communitiesThatWeFailedToDelete.filter((address) => address !== communityAddress);
+    if (remaining.length === 0) await pkc._storage.removeItem(storageKey);
+    else await pkc._storage.setItem(storageKey, remaining);
+    log(`A live DB is being written to communities/${communityAddress}, removed it from the persistent deleted communities`, remaining);
+}
+
 export async function tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc: PKC, log: Logger) {
     const deletedPersistentCommunities = <string[] | undefined>(
         await pkc._storage.getItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES])
