@@ -1,4 +1,3 @@
-import Logger from "../../../../logger.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { STORAGE_KEYS } from "../../../../constants.js";
 import { deriveCommunityChallengesOrThrow, type ChallengeLoadFailure } from "../challenges/index.js";
@@ -45,7 +44,7 @@ const sameFactories = (a: readonly unknown[] | undefined, b: readonly unknown[])
 // was down is caught too. A change is handled like a settings.pages edit: every CommentUpdate is regenerated (reply
 // pages are only rebuilt for flagged comments) and the record is republished with the new community.pageSorts.
 export async function syncPageSortsWithRegistry(community: LocalCommunity): Promise<void> {
-    const log = Logger("pkc-js:local-community:registry-sync:page-sorts");
+    const log = community._log;
     await community._dbHandler.initDbIfNeeded();
     const pagesSettings = community.settings?.pages;
     const currentFactories = lookupPageSortFactories({ pagesSettings, pkc: community._pkc });
@@ -62,7 +61,7 @@ export async function syncPageSortsWithRegistry(community: LocalCommunity): Prom
     const changed = inMemory || (previousFingerprint !== undefined && previousFingerprint !== fingerprint);
     await setResolvedPageSorts(community, resolved, factories);
     if (changed) {
-        log("Page sort factories changed in the registry, regenerating every CommentUpdate", community.address);
+        log("page-sorts: Page sort factories changed in the registry, regenerating every CommentUpdate", community.address);
         community._dbHandler.forceUpdateOnAllComments();
         community._communityUpdateTrigger = true;
     } else if (deterministicStringify(community.pageSorts ?? null) !== previousPublicPageSorts) community._communityUpdateTrigger = true;
@@ -73,7 +72,7 @@ export async function syncPageSortsWithRegistry(community: LocalCommunity): Prom
 // an unchanged record costs no IPNS publish. The owner gets one error event per distinct set of unloadable entries
 // rather than one per cycle; the next start() refuses to come online until it is fixed (issue #428).
 export async function syncChallengesWithRegistry(community: LocalCommunity): Promise<void> {
-    const log = Logger("pkc-js:local-community:registry-sync:challenges");
+    const log = community._log;
     const challengeSettings = community.settings?.challenges;
     if (!Array.isArray(challengeSettings)) return;
     let challenges: NonNullable<LocalCommunity["challenges"]>;
@@ -84,7 +83,11 @@ export async function syncChallengesWithRegistry(community: LocalCommunity): Pro
             communityAddress: community.address
         });
     } catch (e) {
-        log.error("Could not recompute community.challenges from the registry, keeping the previous ones", community.address, e);
+        log.error(
+            "challenges: Could not recompute community.challenges from the registry, keeping the previous ones",
+            community.address,
+            e
+        );
         const reported = deterministicStringify(
             ((e as PKCError).details?.failures as ChallengeLoadFailure[] | undefined)?.map((f) => [
                 f.challengeIndex,
@@ -101,7 +104,7 @@ export async function syncChallengesWithRegistry(community: LocalCommunity): Pro
     }
     community._reportedChallengeLoadFailures = undefined;
     if (deterministicStringify(challenges) === deterministicStringify(community.challenges ?? null)) return;
-    log("community.challenges changed in the registry, republishing", community.address);
+    log("challenges: community.challenges changed in the registry, republishing", community.address);
     community.challenges = challenges;
     community._communityUpdateTrigger = true;
 }

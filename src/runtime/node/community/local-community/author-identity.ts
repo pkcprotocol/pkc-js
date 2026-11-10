@@ -1,4 +1,3 @@
-import Logger from "../../../../logger.js";
 import { areEquivalentNames, derivePublicationFromChallengeRequest, isStringDomain } from "../../../../util.js";
 import { getPKCAddressFromPublicKeySync } from "../../../../signer/util.js";
 import { getAuthorNameFromWire } from "../../../../publications/publication-author.js";
@@ -90,7 +89,7 @@ export function authorIdentityMatcherForRequest({
     community,
     request
 }: {
-    community: Pick<LocalCommunity, "_clientsManager" | "_pkc">;
+    community: Pick<LocalCommunity, "_clientsManager" | "_pkc" | "_log">;
     request: Parameters<typeof derivePublicationFromChallengeRequest>[0];
 }): AuthorIdentityMatcher {
     const publication = derivePublicationFromChallengeRequest(request) as { signature?: { publicKey?: string } } | undefined;
@@ -105,10 +104,10 @@ export function createAuthorIdentityMatcher({
     community,
     publication
 }: {
-    community: Pick<LocalCommunity, "_clientsManager" | "_pkc">;
+    community: Pick<LocalCommunity, "_clientsManager" | "_pkc" | "_log">;
     publication: { author?: Parameters<typeof getAuthorNameFromWire>[0]; signature: { publicKey: string } };
 }): AuthorIdentityMatcher {
-    const log = Logger("pkc-js:local-community:author-identity");
+    const log = community._log;
     const signerAddress = getPKCAddressFromPublicKeySync(publication.signature.publicKey);
     const wireName = getAuthorNameFromWire(publication.author);
 
@@ -126,13 +125,18 @@ export function createAuthorIdentityMatcher({
                     });
                     if (resolvedAuthorName === signerAddress) return MATCH;
                     if (resolvedAuthorName === null) {
-                        log("Author name has no record while matching identity", wireName);
+                        log("author-identity: Author name has no record while matching identity", wireName);
                         return { matched: false, nameFailure: { reason: authorNameResolveFailureReason({ error: null }) } };
                     }
                     // Resolved to somebody else: an impostor claiming a listed domain. No explanation is owed.
                     return NO_MATCH;
                 } catch (e) {
-                    log("Failed to resolve author name while matching identity", wireName, e instanceof PKCError ? e.code : undefined, e);
+                    log(
+                        "author-identity: Failed to resolve author name while matching identity",
+                        wireName,
+                        e instanceof PKCError ? e.code : undefined,
+                        e
+                    );
                     return { matched: false, nameFailure: { reason: authorNameResolveFailureReason({ error: e }), error: e } };
                 }
             })();

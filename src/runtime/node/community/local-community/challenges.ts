@@ -1,5 +1,5 @@
-import Logger from "../../../../logger.js";
 import { clone, keys, omit, pick } from "remeda";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import * as cborg from "cborg";
 import pTimeout from "p-timeout";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
@@ -30,6 +30,7 @@ import {
 } from "../../../../pubsub-messages/schema.js";
 import { parseDecryptedChallengeAnswerWithPKCErrorIfItFails, parseJsonWithPKCErrorIfFails } from "../../../../schema/schema-util.js";
 import { GetChallengeAnswers, getChallengeVerification, type ChallengeResultAggregate } from "../challenges/index.js";
+import { challengeExchangeLog } from "./exchange-log.js";
 import type { Challenge } from "../../../../community/types.js";
 import type {
     ChallengeAnswerMessageType,
@@ -65,6 +66,7 @@ const describeMisconfiguredChallenge = (e: Error): string =>
         : e.message;
 
 export function cleanUpChallengeAnswerPromise(community: LocalCommunity, challengeRequestIdString: string) {
+    community._challengeExchangeLogs?.delete(challengeRequestIdString);
     community._challengeAnswerPromises.delete(challengeRequestIdString);
     community._challengeAnswerResolveReject.delete(challengeRequestIdString);
     delete community._challengeExchangesFromLocalPublishers[challengeRequestIdString];
@@ -74,11 +76,11 @@ export async function decryptOrRespondWithFailure(
     community: LocalCommunity,
     request: ChallengeRequestMessageType | ChallengeAnswerMessageType
 ): Promise<string> {
-    const log = Logger("pkc-js:local-community:_decryptOrRespondWithFailure");
+    const log = community._log;
     try {
         return await decryptEd25519AesGcmPublicKeyBuffer(request.encrypted, community.signer.privateKey, request.signature.publicKey);
     } catch (e) {
-        log.error(`Failed to decrypt request (${request.challengeRequestId.toString()}) due to error`, e);
+        log.error(`_decryptOrRespondWithFailure: Failed to decrypt request (${request.challengeRequestId.toString()}) due to error`, e);
         await publishFailedChallengeVerification(
             community,
             { reason: messages.ERR_COMMUNITY_FAILED_TO_DECRYPT_PUBSUB_MSG },
@@ -94,7 +96,7 @@ export async function publishChallenges(
     challenges: Omit<Challenge, "verify">[],
     request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor
 ) {
-    const log = Logger("pkc-js:local-community:_publishChallenges");
+    const log = challengeExchangeLog(community, request.challengeRequestId);
     const toEncryptChallenge = <DecryptedChallenge>{ challenges };
     const toSignChallenge: Omit<ChallengeMessageType, "signature"> = cleanUpBeforePublishing({
         type: "CHALLENGE",
@@ -111,7 +113,7 @@ export async function publishChallenges(
 
     const challengeMessage = <ChallengeMessageType>{
         ...toSignChallenge,
-        signature: await signChallengeMessage({ challengeMessage: toSignChallenge, signer: community.signer })
+        signature: await signChallengeMessage({ challengeMessage: toSignChallenge, signer: community.signer, log: community._log })
     };
     community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("publishing-challenge");
 
@@ -121,7 +123,7 @@ export async function publishChallenges(
     if (challengeTopic && !community._challengeExchangesFromLocalPublishers[request.challengeRequestId.toString()])
         await community._clientsManager.pubsubPublish(challengeTopic, challengeMessage);
     log(
-        `Community ${community.address} with pubsub topic ${challengeTopic} published ${challengeMessage.type} over pubsub: `,
+        `_publishChallenges: Community ${community.address} with pubsub topic ${challengeTopic} published ${challengeMessage.type} over pubsub: `,
         pick(toSignChallenge, ["timestamp"]),
         toEncryptChallenge.challenges.map((challenge) => challenge.type)
     );
@@ -138,7 +140,7 @@ export async function publishFailedChallengeVerification(
     challengeRequestId: ChallengeRequestMessageType["challengeRequestId"]
 ) {
     // challengeSucess=false
-    const log = Logger("pkc-js:local-community:_publishFailedChallengeVerification");
+    const log = challengeExchangeLog(community, challengeRequestId);
 
     const toSignVerification: Omit<ChallengeVerificationMessageType, "signature"> = cleanUpBeforePublishing({
         type: "CHALLENGEVERIFICATION",
@@ -153,13 +155,17 @@ export async function publishFailedChallengeVerification(
 
     const challengeVerification = <ChallengeVerificationMessageType>{
         ...toSignVerification,
-        signature: await signChallengeVerification({ challengeVerification: toSignVerification, signer: community.signer })
+        signature: await signChallengeVerification({
+            challengeVerification: toSignVerification,
+            signer: community.signer,
+            log: community._log
+        })
     };
 
     community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("publishing-challenge-verification");
     const challengeTopic = challengeExchangePubsubTopic(community);
     log(
-        `Will publish ${challengeVerification.type} over pubsub topic ${challengeTopic} on community ${community.address}:`,
+        `_publishFailedChallengeVerification: Will publish ${challengeVerification.type} over pubsub topic ${challengeTopic} on community ${community.address}:`,
         omit(toSignVerification, ["challengeRequestId"])
     );
 
@@ -179,7 +185,7 @@ export async function publishIdempotentDuplicateVerification(
     challengeRequestId: ChallengeRequestMessageType["challengeRequestId"],
     duplicateReason: string
 ) {
-    const log = Logger("pkc-js:local-community:_publishIdempotentDuplicateVerification");
+    const log = challengeExchangeLog(community, challengeRequestId);
 
     let encrypted: ChallengeVerificationMessageType["encrypted"] | undefined;
     let toEncryptDecrypted: DecryptedChallengeVerification | undefined;
@@ -190,7 +196,7 @@ export async function publishIdempotentDuplicateVerification(
         if (!existingComment) {
             return publishFailedChallengeVerification(community, { reason: duplicateReason }, challengeRequestId);
         }
-        log("Returning idempotent success for duplicate comment", existingComment.cid);
+        log("_publishIdempotentDuplicateVerification: Returning idempotent success for duplicate comment", existingComment.cid);
 
         const authorSignerAddress = await getPKCAddressFromPublicKey(existingComment.signature.publicKey);
         const authorDomain = getAuthorNameFromWire(existingComment.author);
@@ -213,7 +219,8 @@ export async function publishIdempotentDuplicateVerification(
             ...commentUpdateNoSig,
             signature: await signCommentUpdateForChallengeVerification({
                 update: commentUpdateNoSig,
-                signer: community.signer
+                signer: community.signer,
+                log: community._log
             })
         };
         // Rebuild the exact record that hashes to existingComment.cid (drops the row's own postCid on
@@ -229,7 +236,7 @@ export async function publishIdempotentDuplicateVerification(
         );
     } else {
         // For edits/moderations: success has no encrypted data (same as normal success)
-        log("Returning idempotent success for duplicate", duplicateReason);
+        log("_publishIdempotentDuplicateVerification: Returning idempotent success for duplicate", duplicateReason);
     }
 
     const toSignMsg: Omit<ChallengeVerificationMessageType, "signature"> = cleanUpBeforePublishing({
@@ -244,7 +251,7 @@ export async function publishIdempotentDuplicateVerification(
     });
     const challengeVerification = <ChallengeVerificationMessageType>{
         ...toSignMsg,
-        signature: await signChallengeVerification({ challengeVerification: toSignMsg, signer: community.signer })
+        signature: await signChallengeVerification({ challengeVerification: toSignMsg, signer: community.signer, log: community._log })
     };
 
     community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("publishing-challenge-verification");
@@ -305,7 +312,8 @@ export async function storePublicationAndEncryptForChallengeVerification({
         ...commentUpdateOfVerificationNoSignature,
         signature: await signCommentUpdateForChallengeVerification({
             update: commentUpdateOfVerificationNoSignature,
-            signer: community.signer
+            signer: community.signer,
+            log: community._log
         })
     };
 
@@ -335,7 +343,7 @@ export async function publishChallengeVerification({
     challengeAggregate?: ChallengeResultAggregate;
     authorIdentityMatcher?: AuthorIdentityMatcher;
 }) {
-    const log = Logger("pkc-js:local-community:_publishChallengeVerification");
+    const log = challengeExchangeLog(community, request.challengeRequestId);
     if (!challengeResult.challengeSuccess)
         return publishFailedChallengeVerification(community, challengeResult, request.challengeRequestId);
     else {
@@ -362,11 +370,14 @@ export async function publishChallengeVerification({
                 // publication is accepted, so answer with the stored copy rather than a failure.
                 // This is not a replay of an already stored row, so it does not count against
                 // _duplicatePublicationAttempts.
-                log("Publication was stored by an overlapping exchange, answering idempotently", request.challengeRequestId.toString());
+                log(
+                    "_publishChallengeVerification: Publication was stored by an overlapping exchange, answering idempotently",
+                    request.challengeRequestId.toString()
+                );
                 return publishIdempotentDuplicateVerification(community, request, request.challengeRequestId, error.message);
             }
             failureReason = error.message;
-            log.error("Failed to store store Publication And Encrypt For ChallengeVerification", e);
+            log.error("_publishChallengeVerification: Failed to store store Publication And Encrypt For ChallengeVerification", e);
         }
 
         const toSignMsg: Omit<ChallengeVerificationMessageType, "signature"> = cleanUpBeforePublishing({
@@ -381,7 +392,7 @@ export async function publishChallengeVerification({
         });
         const challengeVerification = <ChallengeVerificationMessageType>{
             ...toSignMsg,
-            signature: await signChallengeVerification({ challengeVerification: toSignMsg, signer: community.signer })
+            signature: await signChallengeVerification({ challengeVerification: toSignMsg, signer: community.signer, log: community._log })
         };
 
         community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("publishing-challenge-verification");
@@ -398,7 +409,7 @@ export async function publishChallengeVerification({
         delete community._challengeExchangesFromLocalPublishers[request.challengeRequestId.toString()];
         cleanUpChallengeAnswerPromise(community, request.challengeRequestId.toString());
         log.trace(
-            `Published ${challengeVerification.type} over pubsub topic ${challengeTopic}:`,
+            `_publishChallengeVerification: Published ${challengeVerification.type} over pubsub topic ${challengeTopic}:`,
             omit(objectToEmit, ["signature", "encrypted", "challengeRequestId"])
         );
     }
@@ -584,12 +595,15 @@ async function parseChallengeRequest(
     try {
         await respondWithErrorIfSignatureOfPublicationIsInvalid(community, decryptedRequestMsg); // This function will throw an error if signature is invalid
     } catch (e) {
-        log.error("Signature of challengerequest.publication is invalid, emitting an error event and aborting the challenge exchange", e);
+        log.error(
+            "_publishChallengeVerification: Signature of challengerequest.publication is invalid, emitting an error event and aborting the challenge exchange",
+            e
+        );
         community.emit("challengerequest", decryptedRequestWithCommunityAuthor);
         return undefined;
     }
 
-    log.trace("Received a valid challenge request", decryptedRequestWithCommunityAuthor);
+    log.trace("_publishChallengeVerification: Received a valid challenge request", decryptedRequestWithCommunityAuthor);
 
     community.emit("challengerequest", decryptedRequestWithCommunityAuthor);
 
@@ -715,14 +729,17 @@ async function runChallengeExchangeIfNeeded(
         if (e instanceof PKCError && e.code === "ERR_COMMUNITY_TIMED_OUT_WAITING_FOR_CHALLENGE_ANSWER") {
             // The author never answered. Not a challenge bug, so no error event: fail the exchange so
             // its state is released and a request waiting on it can run its own.
-            log("Timed out waiting for the challenge answer, failing the exchange", answerPromiseKey);
+            log("_publishChallengeVerification: Timed out waiting for the challenge answer, failing the exchange", answerPromiseKey);
             cleanUpChallengeAnswerPromise(community, answerPromiseKey);
             challengeVerification = { challengeSuccess: false, reason: messages.ERR_COMMUNITY_TIMED_OUT_WAITING_FOR_CHALLENGE_ANSWER };
             return challengeVerification;
         }
         // getChallengeVerification will throw if one of the getChallenge function throws, which indicates a bug with the challenge script
         // notify the community owner that that one of his challenge is misconfigured via an error event
-        log.error("getChallenge failed, the community owner needs to check the challenge code. The error is: ", e);
+        log.error(
+            "_publishChallengeVerification: getChallenge failed, the community owner needs to check the challenge code. The error is: ",
+            e
+        );
         community.emit("error", <PKCError>e);
 
         // notify the author that his publication wasn't published because the community is misconfigured
@@ -766,15 +783,15 @@ async function runVerificationAndStorePublication(
 }
 
 export async function handleChallengeRequest(community: LocalCommunity, request: ChallengeRequestMessageType, isLocalPublisher: boolean) {
-    const log = Logger("pkc-js:local-community:handleChallengeRequest");
+    let log = community._log;
 
     if (community._ongoingChallengeExchanges.has(request.challengeRequestId.toString())) {
-        log("Received a duplicate challenge request", request.challengeRequestId.toString());
+        log("handleChallengeRequest: Received a duplicate challenge request", request.challengeRequestId.toString());
         return; // This is a duplicate challenge request
     }
     if (isLocalPublisher) {
         // we need to mark the challenge exchange as ongoing for local publishers and skip publishing it over pubsub
-        log("Marking challenge exchange as ongoing for local publisher");
+        log("handleChallengeRequest: Marking challenge exchange as ongoing for local publisher");
         community._challengeExchangesFromLocalPublishers[request.challengeRequestId.toString()] = true;
     }
     community._ongoingChallengeExchanges.set(request.challengeRequestId.toString(), true);
@@ -799,11 +816,15 @@ export async function handleChallengeRequest(community: LocalCommunity, request:
     // while this request was still being validated; that would count the request as a replay of a
     // stored row and spend the author's single post-storage idempotent retry.
     const publicationSignature = decrypted.publication.signature.signature;
+    // From here on this exchange logs with the publication's signature (issue #493); the answer and verification
+    // handlers find the same child by challengeRequestId. See exchange-log.ts.
+    log = community._log.child({ namespace: "challenge-exchange", tags: { signature: publicationSignature } });
+    community._challengeExchangeLogs.set(request.challengeRequestId.toString(), log);
     let waitedForInFlightExchange = false;
     while (community._inFlightPublicationExchanges.has(publicationSignature)) {
         waitedForInFlightExchange = true;
         log(
-            "Received a challenge request for a signed publication whose challenge exchange is in flight, waiting for it to settle",
+            "handleChallengeRequest: Received a challenge request for a signed publication whose challenge exchange is in flight, waiting for it to settle",
             request.challengeRequestId.toString()
         );
         // The in-flight exchange bounds its own answer wait by the same ttl; this is the backstop
@@ -814,7 +835,7 @@ export async function handleChallengeRequest(community: LocalCommunity, request:
         }).then((result) => result !== false);
         if (!settled) {
             log(
-                "The in-flight challenge exchange did not settle within the challenge exchange ttl, proceeding with this request",
+                "handleChallengeRequest: The in-flight challenge exchange did not settle within the challenge exchange ttl, proceeding with this request",
                 request.challengeRequestId.toString()
             );
             break;
@@ -878,8 +899,6 @@ export async function parseChallengeAnswerOrRespondWithFailure(
 }
 
 export async function handleChallengeAnswer(community: LocalCommunity, challengeAnswer: ChallengeAnswerMessageType) {
-    const log = Logger("pkc-js:local-community:handleChallengeAnswer");
-
     if (!community._ongoingChallengeExchanges.has(challengeAnswer.challengeRequestId.toString()))
         // Respond with error to answers without challenge request
         return publishFailedChallengeVerification(
@@ -913,13 +932,15 @@ export async function handleChallengeAnswer(community: LocalCommunity, challenge
 }
 
 export async function handleChallengeExchange(community: LocalCommunity, pubsubMsg: IpfsHttpClientPubsubMessage) {
-    const log = Logger("pkc-js:local-community:handleChallengeExchange");
+    const log = community._log;
 
     const timeReceived = timestamp();
 
     const pubsubKilobyteSize = Buffer.byteLength(pubsubMsg.data) / 1000;
     if (pubsubKilobyteSize > 80) {
-        log.error(`Received a pubsub message at (${timeReceived}) with size of ${pubsubKilobyteSize}. Silently dropping it`);
+        log.error(
+            `handleChallengeExchange: Received a pubsub message at (${timeReceived}) with size of ${pubsubKilobyteSize}. Silently dropping it`
+        );
         return;
     }
 
@@ -928,7 +949,7 @@ export async function handleChallengeExchange(community: LocalCommunity, pubsubM
     try {
         decodedMsg = cborg.decode(pubsubMsg.data);
     } catch (e) {
-        log.error(`Failed to decode pubsub message received at (${timeReceived})`, (<Error>e).toString());
+        log.error(`handleChallengeExchange: Failed to decode pubsub message received at (${timeReceived})`, (<Error>e).toString());
         return;
     }
 
@@ -954,24 +975,26 @@ export async function handleChallengeExchange(community: LocalCommunity, pubsubM
     }
 
     if (!parsedPubsubMsg) {
-        log.error(`Failed to parse the schema of pubsub message received at (${timeReceived})`, decodedMsg);
+        log.error(`handleChallengeExchange: Failed to parse the schema of pubsub message received at (${timeReceived})`, decodedMsg);
         return;
     }
 
     if (parsedPubsubMsg.type === "CHALLENGE" || parsedPubsubMsg.type === "CHALLENGEVERIFICATION") {
-        log.trace(`Received a pubsub message that is not meant to by processed by the community - ${parsedPubsubMsg.type}. Will ignore it`);
+        log.trace(
+            `handleChallengeExchange: Received a pubsub message that is not meant to by processed by the community - ${parsedPubsubMsg.type}. Will ignore it`
+        );
         return;
     } else if (parsedPubsubMsg.type === "CHALLENGEREQUEST") {
         try {
             await handleChallengeRequest(community, parsedPubsubMsg, false);
         } catch (e) {
-            log.error(`Failed to process challenge request message received at (${timeReceived})`, e);
+            log.error(`handleChallengeExchange: Failed to process challenge request message received at (${timeReceived})`, e);
         }
     } else if (parsedPubsubMsg.type === "CHALLENGEANSWER") {
         try {
             await handleChallengeAnswer(community, parsedPubsubMsg);
         } catch (e) {
-            log.error(`Failed to process challenge answer message received at (${timeReceived})`, e);
+            log.error(`handleChallengeExchange: Failed to process challenge answer message received at (${timeReceived})`, e);
         }
     }
 }

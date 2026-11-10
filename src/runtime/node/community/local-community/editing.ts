@@ -1,6 +1,6 @@
 import fs from "node:fs";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import path from "node:path";
-import Logger from "../../../../logger.js";
 import { clone, keys, omit, omitBy, pick } from "remeda";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { sha256 } from "js-sha256";
@@ -28,13 +28,13 @@ import { refreshCommunitiesList } from "../../util.js";
 import { findCommunitiesEntry } from "../../../../community/communities-entry-util.js";
 
 export async function movePostUpdatesFolderToNewAddress(community: LocalCommunity, oldAddress: string, newAddress: string) {
-    const log = Logger("pkc-js:local-community:_movePostUpdatesFolderToNewAddress");
+    const log = community._log;
     const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
     try {
         await kuboRpc._client.files.mv(`/${oldAddress}`, `/${newAddress}`); // Could throw
     } catch (e) {
         if (e instanceof Error && e.message !== "file does not exist") {
-            log.error("Failed to move directory of post updates in MFS", community.address, e);
+            log.error("_movePostUpdatesFolderToNewAddress: Failed to move directory of post updates in MFS", community.address, e);
             throw e; // A critical error
         }
     }
@@ -118,7 +118,8 @@ export async function parsePagesToEdit(
     const resolved = await resolvePageSortsOrThrow({
         pagesSettings: newSettings.pages,
         pkc: community._pkc,
-        communityAddress: community.address
+        communityAddress: community.address,
+        log: community._log
     });
     const pagesChanged = deterministicStringify(community.settings?.pages ?? null) !== deterministicStringify(newSettings.pages ?? null);
     return { pageSorts: derivePublicPageSorts({ pagesSettings: newSettings.pages, resolved }), resolved, factories, pagesChanged };
@@ -152,7 +153,7 @@ export async function validateNewAddressBeforeEditing(community: LocalCommunity,
             currentSubs: community._pkc.communities
         });
     community._assertDomainResolvesCorrectly(newAddress).catch((err: PKCError) => {
-        log.error(err);
+        log.error("_movePostUpdatesFolderToNewAddress:", err);
         community.emit("error", err);
     });
 }
@@ -207,7 +208,10 @@ async function restoreCommunityAfterFailedRename({
         if (postUpdatesFolderMoved) await movePostUpdatesFolderToNewAddress(community, newAddress, oldAddress);
         await community.start();
     } catch (restoreError) {
-        log.error(`Failed to restore community (${oldAddress}) after its rename to ${newAddress} failed`, restoreError);
+        log.error(
+            `_movePostUpdatesFolderToNewAddress: Failed to restore community (${oldAddress}) after its rename to ${newAddress} failed`,
+            restoreError
+        );
         community.emit("error", restoreError as Error);
     }
 }
@@ -230,7 +234,10 @@ async function removePartialDbCopy({
     try {
         await fs.promises.rm(path.join(communitiesPath, newAddress), { force: true });
     } catch (e) {
-        log.error(`Failed to remove the partial DB copy of community (${oldAddress}) at ${newAddress}`, e);
+        log.error(
+            `_movePostUpdatesFolderToNewAddress: Failed to remove the partial DB copy of community (${oldAddress}) at ${newAddress}`,
+            e
+        );
     }
 }
 
@@ -241,7 +248,7 @@ export async function editPropsOnStartedCommunity(
 ): Promise<LocalCommunity> {
     // 'community' is the started community with state="started"
     // community._pkc._startedCommunities[community.address] === community
-    const log = Logger("pkc-js:local-community:start:editPropsOnStartedCommunity");
+    const log = community._log;
     const oldAddress = clone(community.address);
     const uniqueEditId = sha256(deterministicStringify(parsedEditOptions));
     if (typeof parsedEditOptions.address === "string" && community.address !== parsedEditOptions.address) {
@@ -252,7 +259,9 @@ export async function editPropsOnStartedCommunity(
         // half-renamed community (issue #469). start() reloads the internal state from the DB, so the new address has to
         // be stored there first: before, the restarted loop ran under the old address while the postUpdates folder moved
         // under it, failing the cycle or silently leaving the posts' new CommentUpdates in a stale /<old address> folder.
-        log(`Attempting to edit community.address from ${oldAddress} to ${newAddress}. We will stop community first`);
+        log(
+            `editPropsOnStartedCommunity: Attempting to edit community.address from ${oldAddress} to ${newAddress}. We will stop community first`
+        );
         await community.stop();
         // Moved before anything else changes, so a failed move leaves the community as it was
         try {
@@ -292,7 +301,7 @@ export async function editPropsOnStartedCommunity(
     await applyPagesEdit(community, pagesEdit);
     community._communityUpdateTrigger = true;
     log(
-        `Community (${community.address}) props (${keys(parsedEditOptions)}) has been edited. Will be including edited props in next update: `,
+        `editPropsOnStartedCommunity: Community (${community.address}) props (${keys(parsedEditOptions)}) has been edited. Will be including edited props in next update: `,
         pick(community, keys(parsedEditOptions))
     );
     community.emit("update", community);
@@ -309,17 +318,21 @@ export async function editPropsOnNotStartedCommunity(
     pagesEdit?: PagesEdit
 ): Promise<LocalCommunity> {
     // sceneario 3, the community is not running anywhere, we need to edit the db and update this instance
-    const log = Logger("pkc-js:local-community:edit:editPropsOnNotStartedCommunity");
+    const log = community._log;
     const oldAddress = clone(community.address);
     await community.initDbHandlerIfNeeded();
     await community._dbHandler.initDbIfNeeded();
     if (typeof parsedEditOptions.address === "string" && community.address !== parsedEditOptions.address) {
         await validateNewAddressBeforeEditing(community, parsedEditOptions.address, log);
 
-        log(`Attempting to edit community.address from ${oldAddress} to ${parsedEditOptions.address}`);
+        log(`editPropsOnNotStartedCommunity: Attempting to edit community.address from ${oldAddress} to ${parsedEditOptions.address}`);
 
         // in this sceneario we're editing a community that's not started anywhere
-        log("will rename the community", community.address, "db in edit() because the community is not being ran anywhere else");
+        log(
+            "editPropsOnNotStartedCommunity: will rename the community",
+            community.address,
+            "db in edit() because the community is not being ran anywhere else"
+        );
         await movePostUpdatesFolderToNewAddress(community, community.address, parsedEditOptions.address);
         community._dbHandler.destoryConnection();
         await community._dbHandler.changeDbFilename(community.address, parsedEditOptions.address);

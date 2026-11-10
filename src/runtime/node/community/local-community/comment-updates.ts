@@ -1,6 +1,6 @@
 import { stringify as deterministicStringify } from "safe-stable-stringify";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import pLimit from "p-limit";
-import Logger from "../../../../logger.js";
 import { timestamp, writeKuboFilesWithTimeout } from "../../../../util.js";
 import env from "../../../../version.js";
 import { calculateInlineRepliesBudget } from "../../util.js";
@@ -71,10 +71,13 @@ export async function calculateNewCommentUpdate(opts: {
     };
 }): Promise<CommentUpdateToWriteToDbAndPublishToIpfs> {
     const { community, comment, batchStartTimestamp, precomputed } = opts;
-    const log = Logger("pkc-js:local-community:_calculateNewCommentUpdate");
+    const log = community._log;
 
     // If we're here that means we're gonna calculate the new update and publish it
-    log.trace(`Attempting to calculate new CommentUpdate for comment (${comment.cid}) on community`, community.address);
+    log.trace(
+        `_calculateNewCommentUpdate: Attempting to calculate new CommentUpdate for comment (${comment.cid}) on community`,
+        community.address
+    );
 
     // This comment will have the local new CommentUpdate, which we will publish to IPFS fiels
     // It includes new author.community as well as updated values in CommentUpdate (except for replies field)
@@ -92,7 +95,7 @@ export async function calculateNewCommentUpdate(opts: {
             : currentTimestamp;
     // The updatedAt values are what a client compares against when it ignores a CommentUpdate as not newer (issue #456)
     log.trace(
-        "Calculated comment update for comment",
+        "_calculateNewCommentUpdate: Calculated comment update for comment",
         comment.cid,
         "on community",
         community.address,
@@ -149,7 +152,7 @@ export async function calculateNewCommentUpdate(opts: {
 
     const newCommentUpdate: CommentUpdateType = {
         ...commentUpdatePriorToSigning,
-        signature: await signCommentUpdate({ update: commentUpdatePriorToSigning, signer: community.signer })
+        signature: await signCommentUpdate({ update: commentUpdatePriorToSigning, signer: community.signer, log: community._log })
     };
 
     await validateCommentUpdateSignature(community, newCommentUpdate, comment, log);
@@ -204,11 +207,14 @@ export async function validateCommentUpdateSignature(
         community,
         comment,
         validatePages: community._pkc.validatePages,
-        validateUpdateSignature: true
+        validateUpdateSignature: true,
+        log: community._log
     };
     const validation = await verifyCommentUpdate(verificationOpts);
     if (!validation.valid) {
-        log.error(`CommentUpdate (${comment.cid}) signature is invalid due to (${validation.reason}). This is a critical error`);
+        log.error(
+            `_calculateNewCommentUpdate: CommentUpdate (${comment.cid}) signature is invalid due to (${validation.reason}). This is a critical error`
+        );
         throw new PKCError("ERR_COMMENT_UPDATE_SIGNATURE_IS_INVALID", { validation, verificationOpts });
     }
 }
@@ -230,7 +236,7 @@ export async function updateCommentsThatNeedToBeUpdated(
     // their cids. A caller that wants every row, such as a test walking a small board, omits it.
     onCommentUpdatesWritten?: (rows: CommentUpdateToWriteToDbAndPublishToIpfs[]) => void | Promise<void>
 ): Promise<CommentUpdateToWriteToDbAndPublishToIpfs[] | void> {
-    const log = Logger(`pkc-js:local-community:_updateCommentsThatNeedToBeUpdated`);
+    const log = community._log;
 
     // Must be captured before the flag query below reads the DB — see the batchStartTimestamp
     // param of calculateNewCommentUpdate (issue #209).
@@ -246,7 +252,9 @@ export async function updateCommentsThatNeedToBeUpdated(
     if (commentsToUpdateCount === 0) return onCommentUpdatesWritten ? undefined : [];
 
     community._communityUpdateTrigger = true;
-    log(`Will update ${commentsToUpdateCount} comments in this update loop for community (${community.address})`);
+    log(
+        `_updateCommentsThatNeedToBeUpdated: Will update ${commentsToUpdateCount} comments in this update loop for community (${community.address})`
+    );
 
     // Deepest depth first across the whole board: a comment's counts, last reply and reply pages read its children's
     // CommentUpdates, so every child is calculated and written before any parent. Within a depth the fields of every
@@ -301,7 +309,7 @@ export async function writePostUpdatesToMfs(
     community: LocalCommunity,
     postCommentUpdateRows: (CommentUpdateToWriteToDbAndPublishToIpfs & { localMfsPath: string })[]
 ): Promise<number> {
-    const log = Logger("pkc-js:local-community:sync:_syncPostUpdatesFilesystemWithIpfs");
+    const log = community._log;
 
     const postUpdatesDirectory = `/${community.address}`;
 
@@ -312,7 +320,9 @@ export async function writePostUpdatesToMfs(
     const liveCommentUpdates = postCommentUpdateRows.filter((row) => community._dbHandler.commentExistsInDb(row.newCommentUpdate.cid));
     const purgedMidSyncCount = postCommentUpdateRows.length - liveCommentUpdates.length;
     if (purgedMidSyncCount > 0)
-        log(`Skipping ${purgedMidSyncCount} post CommentUpdate(s) for community ${community.address} whose comment was purged mid-sync`);
+        log(
+            `_syncPostUpdatesFilesystemWithIpfs: Skipping ${purgedMidSyncCount} post CommentUpdate(s) for community ${community.address} whose comment was purged mid-sync`
+        );
 
     const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
     const removedMfsPaths: string[] = await rmUnneededMfsPaths(community);
@@ -364,7 +374,7 @@ export async function writePostUpdatesToMfs(
     const rowsPurgedDuringWrites = liveCommentUpdates.filter((row) => !community._dbHandler.commentExistsInDb(row.newCommentUpdate.cid));
     if (rowsPurgedDuringWrites.length > 0) {
         log(
-            `${rowsPurgedDuringWrites.length} post CommentUpdate(s) of community ${community.address} were purged during the MFS writes. Removing their MFS entries`
+            `_syncPostUpdatesFilesystemWithIpfs: ${rowsPurgedDuringWrites.length} post CommentUpdate(s) of community ${community.address} were purged during the MFS writes. Removing their MFS entries`
         );
         for (const row of rowsPurgedDuringWrites) community._mfsPathsToRemove.add(row.localMfsPath);
         await rmUnneededMfsPaths(community);
@@ -372,7 +382,7 @@ export async function writePostUpdatesToMfs(
     }
 
     log(
-        "Community",
+        "_syncPostUpdatesFilesystemWithIpfs: Community",
         community.address,
         "Synced",
         liveCommentUpdates.length,
@@ -407,11 +417,13 @@ export async function adjustPostUpdatesBucketsIfNeeded(community: LocalCommunity
     if (!community.postUpdates) return;
     // Look for posts whose buckets should be changed
 
-    const log = Logger("pkc-js:local-community:start:_adjustPostUpdatesBucketsIfNeeded");
+    const log = community._log;
     const postsWithOutdatedPostUpdateBucket = community._dbHandler.queryPostsWithOutdatedBuckets(community._postUpdatesBuckets);
     if (postsWithOutdatedPostUpdateBucket.length === 0) return;
 
     community._dbHandler.forceUpdateOnAllCommentsWithCid(postsWithOutdatedPostUpdateBucket.map((post) => post.cid));
 
-    log(`Found ${postsWithOutdatedPostUpdateBucket.length} posts with outdated buckets and forced their updates`);
+    log(
+        `_adjustPostUpdatesBucketsIfNeeded: Found ${postsWithOutdatedPostUpdateBucket.length} posts with outdated buckets and forced their updates`
+    );
 }

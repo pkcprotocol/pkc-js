@@ -1,5 +1,5 @@
-import Logger from "../../../../logger.js";
 import { clone, difference, keys, pick } from "remeda";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { default as lodashDeepMerge } from "lodash.merge";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { calculateIpfsCidV0, getErrorCodeFromMessage, isStringDomain, retryKuboIpfsAddAndProvide, timestamp } from "../../../../util.js";
@@ -167,7 +167,8 @@ export async function prepareCommentWithAnonymity({
     }
     anonymizedComment.signature = await signComment({
         comment: { ...anonymizedComment, signer: aliasSigner, communityAddress: community.address },
-        pkc: community._pkc
+        pkc: community._pkc,
+        log: community._log
     });
 
     return {
@@ -193,7 +194,8 @@ export async function prepareCommentEditWithAlias(community: LocalCommunity, ori
     delete commentEditSignedByAlias.author;
     commentEditSignedByAlias.signature = await signCommentEdit({
         edit: { ...commentEditSignedByAlias, signer: aliasSigner, communityAddress: community.address },
-        pkc: community._pkc
+        pkc: community._pkc,
+        log: community._log
     });
 
     return commentEditSignedByAlias;
@@ -273,7 +275,7 @@ export async function storeCommentEdit(
     commentEditRaw: CommentEditPubsubMessagePublication,
     challengeRequestId: ChallengeRequestMessageType["challengeRequestId"]
 ): Promise<undefined> {
-    const log = Logger("pkc-js:local-community:storeCommentEdit");
+    const log = community._log;
     const strippedOutEditPublication = CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema.strip().parse(commentEditRaw); // we strip out here so we don't store any extra props in commentedits table
     strippedOutEditPublication.author = cleanWireAuthor(strippedOutEditPublication.author); // strip runtime-only author fields (address, publicKey, etc.)
 
@@ -300,7 +302,7 @@ export async function storeCommentEdit(
         (key) => (key as string) !== "communityAddress"
     ); // communityAddress is excluded because it's been converted to communityPublicKey/communityName above
     if (extraPropsInEdit.length > 0) {
-        log("Found extra props on CommentEdit", extraPropsInEdit, "Will be adding them to extraProps column");
+        log("storeCommentEdit: Found extra props on CommentEdit", extraPropsInEdit, "Will be adding them to extraProps column");
         editTableRow.extraProps = pick(commentEditRaw, extraPropsInEdit);
     }
 
@@ -320,7 +322,7 @@ export async function storeCommentEdit(
         const isDisapproved = disapprovalResult && !disapprovalResult.approved;
 
         if (isPending || isDisapproved) {
-            log("Author deleted a pending/disapproved comment, purging immediately", commentEditRaw.commentCid);
+            log("storeCommentEdit: Author deleted a pending/disapproved comment, purging immediately", commentEditRaw.commentCid);
             community._dbHandler.purgeComment(commentEditRaw.commentCid);
         }
     }
@@ -334,7 +336,7 @@ export async function storeCommentModeration(
     commentModRaw: CommentModerationPubsubMessagePublication,
     challengeRequestId: ChallengeRequestMessageType["challengeRequestId"]
 ): Promise<undefined> {
-    const log = Logger("pkc-js:local-community:storeCommentModeration");
+    const log = community._log;
     const strippedOutModPublication = CommentModerationPubsubMessagePublicationSchema.strip().parse(commentModRaw); // we strip out here so we don't store any extra props in commentedits table
     strippedOutModPublication.author = cleanWireAuthor(strippedOutModPublication.author); // strip runtime-only author fields (address, publicKey, etc.)
 
@@ -379,13 +381,13 @@ export async function storeCommentModeration(
         (key) => (key as string) !== "communityAddress"
     ); // communityAddress is excluded because it's been converted to communityPublicKey/communityName above
     if (extraPropsInMod.length > 0) {
-        log("Found extra props on CommentModeration", extraPropsInMod, "Will be adding them to extraProps column");
+        log("storeCommentModeration: Found extra props on CommentModeration", extraPropsInMod, "Will be adding them to extraProps column");
         modTableRow.extraProps = pick(commentModRaw, extraPropsInMod);
     }
 
     if (modTableRow.commentModeration.purged) {
         log(
-            "commentModeration.purged=true, and therefore will delete the post/comment and all its reply tree from the db as well as unpin the cids from ipfs",
+            "storeCommentModeration: commentModeration.purged=true, and therefore will delete the post/comment and all its reply tree from the db as well as unpin the cids from ipfs",
             "comment cid is",
             modTableRow.commentCid
         );
@@ -415,7 +417,12 @@ export async function storeCommentModeration(
         }
         community._communityUpdateTrigger = true;
 
-        log("Purged comment", modTableRow.commentCid, "and its comment and comment update children", "out of DB and IPFS");
+        log(
+            "storeCommentModeration: Purged comment",
+            modTableRow.commentCid,
+            "and its comment and comment update children",
+            "out of DB and IPFS"
+        );
 
         // Best-effort: the purge is already committed, so a kubo hiccup (e.g. MFS lock contention with
         // repo gc) must not report it as failed. The paths stay in _mfsPathsToRemove and the publish
@@ -424,26 +431,28 @@ export async function storeCommentModeration(
         try {
             await rmUnneededMfsPaths(community, { numOfRetries: 0 });
         } catch (e) {
-            log.error("Failed to remove MFS paths of purged comment", modTableRow.commentCid, "the sync loop will retry", e);
+            log.error(
+                "storeCommentModeration: Failed to remove MFS paths of purged comment",
+                modTableRow.commentCid,
+                "the sync loop will retry",
+                e
+            );
         }
         return;
     } else if ("approved" in modTableRow.commentModeration) {
         if (modTableRow.commentModeration.approved) {
             log(
-                "commentModeration.approved=true, and therefore move comment from pending approval and add it to IPFS",
+                "storeCommentModeration: commentModeration.approved=true, and therefore move comment from pending approval and add it to IPFS",
                 "comment cid is",
                 modTableRow.commentCid
             );
 
-            await community._addCommentRowToIPFS(
-                commentToBeEdited,
-                Logger("pkc-js:local-community:storeCommentModeration:_addCommentRowToIPFS")
-            );
+            await community._addCommentRowToIPFS(commentToBeEdited, log);
             community._dbHandler.approvePendingComment({ cid: modTableRow.commentCid });
         } else {
             const shouldPurgeDisapprovedComment = Object.keys(modTableRow.commentModeration).length === 1; // no other props were included, if so purge the comment
             log(
-                "commentModeration.approved=false, and therefore this comment will be removed entirely from DB",
+                "storeCommentModeration: commentModeration.approved=false, and therefore this comment will be removed entirely from DB",
                 "should we purge this comment? = ",
                 shouldPurgeDisapprovedComment,
                 "comment cid is",
@@ -455,7 +464,7 @@ export async function storeCommentModeration(
     }
     community._dbHandler.insertCommentModerations([modTableRow]);
     community._communityUpdateTrigger = true;
-    log("Inserted comment moderation", "of comment", modTableRow.commentCid, "into db", "with props", modTableRow);
+    log("storeCommentModeration: Inserted comment moderation", "of comment", modTableRow.commentCid, "into db", "with props", modTableRow);
 }
 
 export async function storeVote(
@@ -463,7 +472,7 @@ export async function storeVote(
     newVoteProps: VotePubsubMessagePublication,
     challengeRequestId: ChallengeRequestMessageType["challengeRequestId"]
 ) {
-    const log = Logger("pkc-js:local-community:storeVote");
+    const log = community._log;
 
     const authorSignerAddress = await getPKCAddressFromPublicKey(newVoteProps.signature.publicKey);
     community._dbHandler.deleteVote(authorSignerAddress, newVoteProps.commentCid);
@@ -474,7 +483,7 @@ export async function storeVote(
     };
     const extraPropsInVote = difference(keys(newVoteProps), keys(VotePubsubMessagePublicationSchema.shape));
     if (extraPropsInVote.length > 0) {
-        log("Found extra props on Vote", extraPropsInVote, "Will be adding them to extraProps column");
+        log("storeVote: Found extra props on Vote", extraPropsInVote, "Will be adding them to extraProps column");
         voteTableRow.extraProps = pick(newVoteProps, extraPropsInVote);
     }
 
@@ -483,7 +492,7 @@ export async function storeVote(
     // does flag the comment on a fresh vote, but it only runs inside the sync, after the loop's sleep,
     // and the sleep's own wake-up check never looks at votes (issue #226).
     community._communityUpdateTrigger = true;
-    log("Inserted vote", "of comment", voteTableRow.commentCid, "into db", "with props", voteTableRow);
+    log("storeVote: Inserted vote", "of comment", voteTableRow.commentCid, "into db", "with props", voteTableRow);
     return undefined;
 }
 
@@ -492,12 +501,12 @@ export async function storeCommunityEditPublication(
     editProps: CommunityEditPubsubMessagePublication,
     challengeRequestId: ChallengeRequestMessageType["challengeRequestId"]
 ) {
-    const log = Logger("pkc-js:local-community:storeCommunityEdit");
+    const log = community._log;
 
     const authorSignerAddress = await getPKCAddressFromPublicKey(editProps.signature.publicKey);
     const authorIdentity = getAuthorNameFromWire(editProps.author) || authorSignerAddress;
     log(
-        "Received community edit",
+        "storeCommunityEdit: Received community edit",
         editProps.communityEdit,
         "from author",
         authorIdentity,
@@ -507,7 +516,7 @@ export async function storeCommunityEditPublication(
     );
 
     const propsAfterEdit = pick(community, keys(editProps.communityEdit));
-    log("Current props from community edit (not edited yet)", propsAfterEdit);
+    log("storeCommunityEdit: Current props from community edit (not edited yet)", propsAfterEdit);
     lodashDeepMerge(propsAfterEdit, editProps.communityEdit);
     await community.edit(propsAfterEdit);
     return undefined;
@@ -524,7 +533,7 @@ export async function storeComment(
     }
 ): Promise<{ comment: CommentIpfsType; cid: CommentUpdateType["cid"] }> {
     const { commentPubsub, pendingApproval, pseudonymityMode, originalCommentSignatureEncoded, challengeAggregate } = opts;
-    const log = Logger("pkc-js:local-community:handleChallengeExchange:storeComment");
+    const log = community._log;
 
     // aggregatedComment is spread LAST: any key collision with author-signed keys is already blocked
     // by validateChallengeResultExtras, so this only ever adds NEW top-level keys (e.g. countryCode)
@@ -601,7 +610,7 @@ export async function storeComment(
     ); // communityAddress is excluded because it's been converted to communityPublicKey/communityName above
 
     if (unknownProps.length > 0) {
-        log("Found extra props on Comment", unknownProps, "Will be adding them to extraProps column");
+        log("storeComment: Found extra props on Comment", unknownProps, "Will be adding them to extraProps column");
         commentRow.extraProps = pick(commentIpfs, unknownProps);
     }
     if (challengeAggregate?.aggregatedCommentUpdate && Object.keys(challengeAggregate.aggregatedCommentUpdate).length > 0) {
@@ -630,7 +639,7 @@ export async function storeComment(
     // calculateLatestUpdateTrigger, but those queries exclude pending rows, and the mod-queue check
     // only runs after the loop's sleep. Wake it here so the queue page is published now (issue #335).
     if (pendingApproval) community._communityUpdateTrigger = true;
-    log("Inserted comment", commentRow.cid, "into db", "with props", commentRow);
+    log("storeComment: Inserted comment", commentRow.cid, "into db", "with props", commentRow);
 
     return { comment: commentIpfs, cid: commentCid };
 }
