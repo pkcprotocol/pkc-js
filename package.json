@@ -88,7 +88,7 @@
         "@libp2p/peer-id": "6.0.18",
         "@multiformats/multiaddr": "13.0.3",
         "@noble/curves": "2.2.0",
-        "@pkcprotocol/pkc-logger": "0.1.0",
+        "@pkcprotocol/pkc-logger": "0.3.0",
         "@pkcprotocol/proper-lock-file": "4.2.1",
         "@types/better-sqlite3": "7.6.13",
         "assert": "2.1.0",
