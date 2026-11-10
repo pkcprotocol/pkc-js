@@ -439,6 +439,15 @@ export async function storeCommentModeration(
                 commentToBeEdited,
                 Logger("pkc-js:local-community:storeCommentModeration:_addCommentRowToIPFS")
             );
+            // Other exchanges run during the add, and one of them can purge the pending comment: its author deleting
+            // it, a moderator purging or disapproving it, or a newer pending comment evicting it. The add then pinned
+            // content that has no row, which those purges do not reliably unpin (they treat a pending comment as not
+            // in IPFS), so run it through the purge funnel (which also arms the pending-purge flush of issue #336) and
+            // answer as if the comment was gone before the approval.
+            if (!community._dbHandler.queryComment(modTableRow.commentCid)) {
+                addAllCidsUnderPurgedCommentToBeRemoved(community, { commentTableRow: commentToBeEdited });
+                throw new PKCError("ERR_COMMENT_MODERATION_NO_COMMENT_TO_EDIT", { commentCid: modTableRow.commentCid });
+            }
             community._dbHandler.approvePendingComment({ cid: modTableRow.commentCid });
         } else {
             const shouldPurgeDisapprovedComment = Object.keys(modTableRow.commentModeration).length === 1; // no other props were included, if so purge the comment
