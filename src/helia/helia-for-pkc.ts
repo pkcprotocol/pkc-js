@@ -1125,7 +1125,16 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     // locally subscribed to).
                     const warmupPromise = warmupForTopic(topic, options);
                     helia.libp2p.services.pubsub.subscribe(topic);
-                    await warmupPromise;
+                    try {
+                        await warmupPromise;
+                    } catch (e) {
+                        // Undo the registration, or a retry of the same handler is rejected as "Already
+                        // subscribed" above, which the client manager reads as success, and warmup never reruns
+                        //@ts-expect-error
+                        pubsubEventHandler.removeListener(topic, handler);
+                        if (pubsubEventHandler.listenerCount(topic) === 0) helia.libp2p.services.pubsub.unsubscribe(topic);
+                        throw e;
+                    }
                 },
                 unsubscribe: async (topic, handler, options) => {
                     throwIfHeliaIsStoppingOrStopped();
