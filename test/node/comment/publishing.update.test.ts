@@ -1,4 +1,5 @@
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import signers from "../../fixtures/signers.js";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { calculateNewCommentUpdate } from "../../../dist/node/runtime/node/community/local-community/comment-updates.js";
@@ -14,6 +15,9 @@ import type {
 } from "../../../dist/node/publications/comment/types.js";
 import type { JsonSignature } from "../../../dist/node/signer/types.js";
 import { describe, it } from "vitest";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:publishing" });
 
 // Test-specific interfaces
 interface PublishingTestContext {
@@ -115,6 +119,7 @@ async function createPublishingTestContext({
 
     const commentUpdateVerificationCache = new Map<string, boolean>();
     const fakeSub = {
+        _log: testLog,
         address: SUBPLEBBIT_ADDRESS,
         signer,
         _pageGenerator: pageGenerator,
@@ -153,7 +158,7 @@ async function createPublishingTestContext({
 async function createTestDbHandler(): Promise<DbHandler> {
     const communityAddress = `${SUBPLEBBIT_ADDRESS}-${Date.now()}-${Math.random()}`;
     const fakePKC = { noData: true };
-    const fakeCommunity = { address: communityAddress, _pkc: fakePKC };
+    const fakeCommunity = { address: communityAddress, _pkc: fakePKC, _log: testLog };
     const handler = new DbHandler(fakeCommunity as never);
     await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
     await handler.createOrMigrateTablesIfNeeded();

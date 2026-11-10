@@ -1,4 +1,5 @@
 import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     getAvailablePKCConfigsToTestAgainst,
     isRunningInBrowser,
@@ -9,6 +10,9 @@ import { ipnsNameToIpnsOverPubsubTopic, timestamp } from "../../../dist/node/uti
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:update-loop-event-driven" });
 
 // Repro suite for issue #308: with a libp2p-js client the update loop re-runs updateOnce every
 // second per community even though the transport is push-based (gossipsub delivers new records
@@ -532,7 +536,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
 
             const newerRecord = JSON.parse(JSON.stringify(staticRecord.communityRecord)) as typeof staticRecord.communityRecord;
             newerRecord.updatedAt = Math.max(newerRecord.updatedAt + 1, timestamp());
-            newerRecord.signature = await signCommunity({ community: newerRecord, signer: staticRecord.ipnsObj.signer });
+            newerRecord.signature = await signCommunity({ community: newerRecord, signer: staticRecord.ipnsObj.signer, log: testLog });
 
             const onUpdate = () => {
                 if (community.updatedAt === newerRecord.updatedAt) deliveredResolve();
@@ -646,7 +650,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
 
                     const newerRecord = JSON.parse(JSON.stringify(staticRecord.communityRecord)) as typeof staticRecord.communityRecord;
                     newerRecord.updatedAt = Math.max(newerRecord.updatedAt + 1, timestamp());
-                    newerRecord.signature = await signCommunity({ community: newerRecord, signer: staticRecord.ipnsObj.signer });
+                    newerRecord.signature = await signCommunity({
+                        community: newerRecord,
+                        signer: staticRecord.ipnsObj.signer,
+                        log: testLog
+                    });
 
                     const onUpdate = () => {
                         if (community.updatedAt === newerRecord.updatedAt) deliveredResolve();

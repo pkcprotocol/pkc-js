@@ -1,10 +1,14 @@
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { getAvailablePKCConfigsToTestAgainst, publishCommunityRecordWithExtraProp } from "../../../dist/node/test/test-util.js";
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
 import { timestamp } from "../../../dist/node/util.js";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:update-freshness" });
 
 // Transport-agnostic freshness pins for the community update loop.
 //
@@ -91,7 +95,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
         }) => {
             const nextRecord = JSON.parse(JSON.stringify(staticRecord.communityRecord)) as typeof staticRecord.communityRecord;
             nextRecord.updatedAt = Math.max(previousUpdatedAt + 1, timestamp());
-            nextRecord.signature = await signCommunity({ community: nextRecord, signer: staticRecord.ipnsObj.signer });
+            nextRecord.signature = await signCommunity({ community: nextRecord, signer: staticRecord.ipnsObj.signer, log: testLog });
             await staticRecord.ipnsObj.publishToIpns(JSON.stringify(nextRecord));
             return nextRecord;
         };

@@ -6,7 +6,7 @@ import { directFetchIpnsRecordFromProviders, summarizeProviderReachability } fro
 import type { DirectFetchMiss, DirectFetchResult } from "../../../dist/node/helia/util.js";
 import { MockHttpRouter } from "../../../dist/node/runtime/node/test/mock-http-router.js";
 import { ipnsNameToIpnsOverPubsubTopic, pubsubTopicToDhtKeyCid } from "../../../dist/node/util.js";
-import Logger from "../../../dist/node/logger.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { generateKeyPair } from "@libp2p/crypto/keys";
 import { peerIdFromPrivateKey } from "@libp2p/peer-id";
@@ -16,6 +16,9 @@ import { CID } from "multiformats/cid";
 import { equals as uint8ArrayEquals } from "uint8arrays/equals";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
 import type { Multiaddr } from "@multiformats/multiaddr";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:ipns-direct-fetch" });
 
 // Coverage for directFetchIpnsRecordFromProviders (src/helia/util.ts) — the IPNS resolution fast
 // path (issue #185). It fetches the record over libp2p/fetch, in parallel, directly from BOTH the
@@ -34,7 +37,7 @@ describeSkipIfRpc("directFetchIpnsRecordFromProviders (issue #185)", () => {
     // path. Generous for CI jitter on a dial + fetch between two local nodes.
     const FAST_FETCH_MAX_MS = 7_000;
 
-    const log = Logger("pkc-js:test:direct-fetch");
+    const log = Logger({ namespace: "pkc-js:test:direct-fetch" });
     // Narrow a direct-fetch result to a hit (issue #377 made the miss a value, not undefined).
     const asHit = (result: DirectFetchResult | DirectFetchMiss): DirectFetchResult => {
         expect(result.recordBytes, "expected a direct-fetch hit").to.not.equal(undefined);
@@ -88,6 +91,7 @@ describeSkipIfRpc("directFetchIpnsRecordFromProviders (issue #185)", () => {
         } = {}
     ): Promise<Libp2pJsClient> => {
         const client = (await createLibp2pJsClientOrUseExistingOne({
+            log: testLog,
             key: `direct-fetch-${keyCounter++}`,
             httpRoutersOptions: opts.routers ?? ["http://localhost:1"],
             libp2pOptions: {

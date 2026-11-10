@@ -74,7 +74,7 @@ describeSkipIfRpc("community.postUpdates", async () => {
 
     depthsToTest.map((depth) => {
         it(`Can publish a reply with depth = ${depth} to a post and fetch updates from its post's pages`, async () => {
-            const log = Logger("pkc-js:test:community:postUpdates:publishReplyWithDepth");
+            const log = Logger({ namespace: "pkc-js:test:community:postUpdates:publishReplyWithDepth" });
 
             // is it possibly only failing when reply is fetched using pages?
             const parentCommentInstance = await publishCommentWithDepth({ depth: depth - 1, community });

@@ -10,6 +10,7 @@
 //   - addOldPageCidsToCidsToUnpin (early-return branch)
 
 import { describe, it, expect, vi } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     addOldPageCidsToCidsToUnpin,
     calculateLatestUpdateTrigger,
@@ -21,6 +22,9 @@ import {
     updateCommunityIpnsIfNeeded
 } from "../../../../dist/node/runtime/node/community/local-community/ipns-publishing.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:ipns-publishing" });
 
 describe("ipns-publishing: export shape", () => {
     it("exports all ipns-publishing helpers", () => {
@@ -37,7 +41,7 @@ describe("ipns-publishing: export shape", () => {
 
 describe("ipns-publishing: shouldResolveDomainForVerification", () => {
     it("returns false for a non-domain address regardless of random", () => {
-        const community = { address: "12D3KoooSomeKey" } as unknown as LocalCommunity;
+        const community = { _log: testLog, address: "12D3KoooSomeKey" } as unknown as LocalCommunity;
         // Force the random gate to its smallest value; address contains no dot so result must be false.
         const original = Math.random;
         Math.random = () => 0;
@@ -49,7 +53,7 @@ describe("ipns-publishing: shouldResolveDomainForVerification", () => {
     });
 
     it("returns false for a domain address when the random gate doesn't fire", () => {
-        const community = { address: "alice.bso" } as unknown as LocalCommunity;
+        const community = { _log: testLog, address: "alice.bso" } as unknown as LocalCommunity;
         const original = Math.random;
         Math.random = () => 0.999;
         try {
@@ -60,7 +64,7 @@ describe("ipns-publishing: shouldResolveDomainForVerification", () => {
     });
 
     it("returns true for a domain address when the random gate fires (Math.random < 0.005)", () => {
-        const community = { address: "alice.bso" } as unknown as LocalCommunity;
+        const community = { _log: testLog, address: "alice.bso" } as unknown as LocalCommunity;
         const original = Math.random;
         Math.random = () => 0.001;
         try {
@@ -74,6 +78,7 @@ describe("ipns-publishing: shouldResolveDomainForVerification", () => {
 describe("ipns-publishing: calculateLatestUpdateTrigger", () => {
     it("forces _communityUpdateTrigger=true when updatedAt is stale (> 15 min old)", () => {
         const community = {
+            _log: testLog,
             // Old updatedAt — stale by definition.
             updatedAt: 0,
             _communityUpdateTrigger: false,
@@ -93,6 +98,7 @@ describe("ipns-publishing: calculateLatestUpdateTrigger", () => {
 
     it("forces _communityUpdateTrigger=true when there is at least one pending edit", () => {
         const community = {
+            _log: testLog,
             // Fresh updatedAt so the lastPublishTooOld check doesn't bias the result.
             updatedAt: Math.floor(Date.now() / 1000),
             _communityUpdateTrigger: false,
@@ -112,6 +118,7 @@ describe("ipns-publishing: calculateLatestUpdateTrigger", () => {
 
     it("forces _communityUpdateTrigger=true when the latest post cid changed", () => {
         const community = {
+            _log: testLog,
             updatedAt: Math.floor(Date.now() / 1000),
             _communityUpdateTrigger: false,
             lastPostCid: "QmOldPost",
@@ -130,6 +137,7 @@ describe("ipns-publishing: calculateLatestUpdateTrigger", () => {
 
     it("does NOT flip _communityUpdateTrigger when everything is fresh and unchanged", () => {
         const community = {
+            _log: testLog,
             updatedAt: Math.floor(Date.now() / 1000),
             _communityUpdateTrigger: false,
             lastPostCid: "QmPost",
@@ -150,6 +158,7 @@ describe("ipns-publishing: calculateLatestUpdateTrigger", () => {
 describe("ipns-publishing: requireCommunityUpdateIfModQueueChanged", () => {
     it("sets _communityUpdateTrigger=true when the DB's combined-hash differs from cached", () => {
         const community = {
+            _log: testLog,
             _combinedHashOfPendingCommentsCids: "old-hash",
             _communityUpdateTrigger: false,
             _dbHandler: { queryCombinedHashOfPendingComments: () => "new-hash" }
@@ -161,6 +170,7 @@ describe("ipns-publishing: requireCommunityUpdateIfModQueueChanged", () => {
 
     it("leaves _communityUpdateTrigger untouched when the hashes match", () => {
         const community = {
+            _log: testLog,
             _combinedHashOfPendingCommentsCids: "same-hash",
             _communityUpdateTrigger: false,
             _dbHandler: { queryCombinedHashOfPendingComments: () => "same-hash" }
@@ -175,6 +185,7 @@ describe("ipns-publishing: addOldPageCidsToCidsToUnpin", () => {
     it("is a no-op when both curPages and newPages are undefined", async () => {
         const cidsToUnPin = new Set<string>();
         const community = {
+            _log: testLog,
             _cidsToUnPin: cidsToUnPin,
             _blocksToRm: [] as string[],
             _clientsManager: {}
@@ -189,6 +200,7 @@ describe("ipns-publishing: updateCommunityIpnsIfNeeded", () => {
     it("returns early without touching the DB or IPFS when _communityUpdateTrigger is false and everything is fresh", async () => {
         const queryCommunityStats = vi.fn();
         const community = {
+            _log: testLog,
             address: "community.bso",
             updatedAt: Math.floor(Date.now() / 1000),
             _communityUpdateTrigger: false,

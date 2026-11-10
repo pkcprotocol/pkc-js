@@ -1,4 +1,5 @@
 import { beforeAll, afterAll, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { mockRemotePKC, createMockNameResolver } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { verifyPage } from "../../../dist/node/signer/signatures.js";
@@ -14,6 +15,9 @@ import legacyPageIpfsFixture from "../../fixtures/valid_page_legacy_communityAdd
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { PageIpfs } from "../../../dist/node/pages/types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:pages" });
 
 const communityAddress = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
 
@@ -43,7 +47,8 @@ const verifyPageJsonAlongWithObject = async (
         community: community,
         parentComment,
         validatePages: true,
-        validateUpdateSignature: true
+        validateUpdateSignature: true,
+        log: testLog
     });
     const pageJsonRes = await verifyPage({
         pageCid: uuidV4(),
@@ -54,7 +59,8 @@ const verifyPageJsonAlongWithObject = async (
         community: community,
         parentComment,
         validatePages: true,
-        validateUpdateSignature: true
+        validateUpdateSignature: true,
+        log: testLog
     });
     expect(pageObjRes).to.deep.equal(pageJsonRes);
     return pageObjRes;
@@ -229,7 +235,8 @@ describeSkipIfRpc(`verify pages`, async () => {
                 community: domainCommunity,
                 parentComment,
                 validatePages: true,
-                validateUpdateSignature: true
+                validateUpdateSignature: true,
+                log: testLog
             });
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
         });
@@ -289,7 +296,8 @@ describeSkipIfRpc(`verify pages`, async () => {
             community: { publicKey: "12D3KooWJJcSwMHrFvsFL7YCNDLD93kBczEfkHpPNdxcjZwR2X2Y", signature: community.signature },
             parentComment: { cid: undefined, depth: -1, postCid: undefined },
             validatePages: true,
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            log: testLog
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
     });
@@ -307,7 +315,8 @@ describeSkipIfRpc(`verify pages`, async () => {
             community: { publicKey: communityAddress, name: "different.eth", signature: community.signature },
             parentComment: { cid: undefined, depth: -1, postCid: undefined },
             validatePages: true,
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            log: testLog
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
     });
@@ -328,7 +337,8 @@ describeSkipIfRpc(`verify pages`, async () => {
             community: domainCommunity,
             parentComment: { cid: undefined, depth: -1, postCid: undefined },
             validatePages: true,
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            log: testLog
         });
         expect(verification).to.deep.equal({ valid: true });
     });
@@ -351,7 +361,8 @@ describeSkipIfRpc(`verify pages`, async () => {
             community: rotatedKeyCommunity,
             parentComment: { cid: undefined, depth: -1, postCid: undefined },
             validatePages: true,
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            log: testLog
         });
         expect(verification).to.deep.equal({ valid: true });
     });
@@ -368,7 +379,8 @@ describeSkipIfRpc(`verify pages`, async () => {
             community: { publicKey: "12D3KooWJJcSwMHrFvsFL7YCNDLD93kBczEfkHpPNdxcjZwR2X2Y", signature: community.signature },
             parentComment: { cid: undefined, depth: -1, postCid: undefined },
             validatePages: true,
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            log: testLog
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_IN_PAGE_BELONG_TO_DIFFERENT_COMMUNITY });
     });
@@ -392,7 +404,8 @@ describeSkipIfRpc(`verify pages`, async () => {
             community: domainCommunity,
             parentComment: { cid: undefined, depth: -1, postCid: undefined },
             validatePages: true,
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            log: testLog
         });
         // communityPublicKey is a signed field, so tampering invalidates the signature
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });

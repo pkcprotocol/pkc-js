@@ -1,4 +1,5 @@
 import { beforeEach, afterEach } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { pkcJsChallenges, getPendingChallengesOrChallengeVerification } from "../../dist/node/runtime/node/community/challenges/index.js";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
@@ -8,6 +9,9 @@ import { omit } from "remeda";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
+
+// Challenge helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:voucher" });
 
 // Flattened type for challenge verification result - allows direct property access in tests
 type PendingChallenge = Challenge & { index: number };
@@ -83,6 +87,7 @@ describe.skip("voucher challenge", () => {
         };
 
         return {
+            _log: testLog,
             address: "test-community-address",
             _pkc: {
                 getComment: () => {},

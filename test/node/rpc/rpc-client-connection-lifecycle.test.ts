@@ -11,12 +11,16 @@
 //            ERR_RPC_CONNECTION_LOST, where it used to hang until the call timeout. A re-subscribe lost
 //            that way is not an error: the next open issues it again.
 import { describe, it, afterEach, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { createServer, type Server as HTTPServer } from "node:http";
 import { once } from "node:events";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket as WsSocket, type RawData } from "ws";
 import PKCRpcClient from "../../../dist/node/clients/rpc-client/pkc-rpc-client.js";
 import { pollUntil } from "../../helpers/rpc-server-harness.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:rpc-client-connection-lifecycle" });
 
 const WS_CLOSE_NORMAL = 1000;
 const WS_CLOSE_ABNORMAL = 1006;
@@ -118,7 +122,7 @@ describe("PKCRpcClient while its connection is down (#479)", () => {
     }
 
     function createClient(url: string, opts?: { fastBackoff?: boolean; openTimeoutSeconds?: number }) {
-        const client = new PKCRpcClient(url);
+        const client = new PKCRpcClient(url, testLog);
         clients.push(client);
         const internals = client as unknown as RpcClientInternals;
         if (opts?.fastBackoff) {

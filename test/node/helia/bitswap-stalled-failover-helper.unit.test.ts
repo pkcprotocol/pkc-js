@@ -3,7 +3,7 @@ import { CID } from "multiformats/cid";
 import * as rawCodec from "multiformats/codecs/raw";
 import { sha256 } from "multiformats/hashes/sha2";
 import { fetchBlockWithStalledSessionFailover } from "../../../dist/node/helia/util.js";
-import Logger from "../../../dist/node/logger.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { FetchBlockFn } from "../../../dist/node/helia/util.js";
 
@@ -19,7 +19,7 @@ describeSkipIfRpc("fetchBlockWithStalledSessionFailover (issue #218)", () => {
     // it so CI timer jitter cannot reorder the intended sequence of events.
     const STALL_MS = 300;
 
-    const log = Logger("pkc-js-test:helia:stalled-failover");
+    const log = Logger({ namespace: "pkc-js-test:helia:stalled-failover" });
 
     let testCid: CID;
     const getTestCid = async (): Promise<CID> => {

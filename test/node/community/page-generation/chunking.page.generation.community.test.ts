@@ -1,4 +1,5 @@
 import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import { beforeEach, it } from "vitest";
 import { PageGenerator } from "../../../../dist/node/runtime/node/community/page-generator.js";
 import { Buffer } from "buffer";
@@ -6,6 +7,9 @@ import { readFileSync } from "node:fs";
 
 import type { PageIpfs } from "../../../../dist/node/pages/types.js";
 import type { CommentIpfsType, CommentUpdateType } from "../../../../dist/node/publications/comment/types.js";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:chunking" });
 
 interface CommentEntry {
     comment: CommentIpfsType;
@@ -63,6 +67,7 @@ describeSkipIfRpc("page-generator _chunkComments", () => {
     beforeEach(() => {
         pageGenerator = new PageGenerator({
             address: "chunking-test",
+            _log: testLog,
             _clientsManager: {
                 getDefaultKuboRpcClient: () => ({ _client: {} })
             }

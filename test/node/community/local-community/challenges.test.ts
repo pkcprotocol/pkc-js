@@ -9,6 +9,7 @@
 // and a smoke check that the orchestrator exports exist.
 
 import { describe, it, expect, vi } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { LRUCache } from "lru-cache";
 import {
     buildRuntimeChallengeRequest,
@@ -31,6 +32,9 @@ import type {
     DecryptedChallengeRequestMessageType,
     PublicationFromDecryptedChallengeRequest
 } from "../../../../dist/node/pubsub-messages/types.js";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:challenges" });
 
 describe("challenges: export shape", () => {
     it("exports all challenge helpers", () => {
@@ -61,6 +65,7 @@ describe("challenges: cleanUpChallengeAnswerPromise", () => {
         const exchangesFromLocalPublishers: Record<string, boolean> = { [id]: true };
 
         const community = {
+            _log: testLog,
             _challengeAnswerPromises: promiseCache,
             _challengeAnswerResolveReject: resolveRejectCache,
             _challengeExchangesFromLocalPublishers: exchangesFromLocalPublishers
@@ -79,6 +84,7 @@ describe("challenges: cleanUpChallengeAnswerPromise", () => {
         const exchangesFromLocalPublishers: Record<string, boolean> = {};
 
         const community = {
+            _log: testLog,
             _challengeAnswerPromises: promiseCache,
             _challengeAnswerResolveReject: resolveRejectCache,
             _challengeExchangesFromLocalPublishers: exchangesFromLocalPublishers

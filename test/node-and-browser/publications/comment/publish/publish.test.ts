@@ -1,4 +1,5 @@
 import signers from "../../../../fixtures/signers.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import { it, describe, expect, beforeAll, afterAll } from "vitest";
 import {
     generateMockPost,
@@ -22,6 +23,9 @@ import type {
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../../../dist/node/community/remote-community.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:publish" });
 
 // Helper type for replies that requires both cid and parentCid
 type ReplyWithRequiredFields = Required<Pick<CommentIpfsWithCidDefined, "cid" | "parentCid"> & { communityAddress: string }>;
@@ -331,7 +335,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 content: "Mock content - 1690130836.1711266" + Math.random(),
                 title: "Mock Post - 1690130836.1711266" + Math.random()
             };
-            const signature = await signComment({ comment: { ...propsToSign, signer }, pkc: pkc });
+            const signature = await signComment({ comment: { ...propsToSign, signer }, pkc: pkc, log: testLog });
             const post = await pkc.createComment({
                 communityPublicKey,
                 timestamp: propsToSign.timestamp,

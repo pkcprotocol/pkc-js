@@ -8,6 +8,7 @@
 // from a persistent backend that already holds blocks.
 
 import { describe, it, expect, afterEach } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -17,6 +18,9 @@ import { CID } from "multiformats/cid";
 import * as raw from "multiformats/codecs/raw";
 import { sha256 } from "multiformats/hashes/sha2";
 import { LruBlockstore, type ChildBlockstore } from "../../../dist/node/helia/lru-blockstore.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:lru-blockstore" });
 
 async function blockOf(content: string, sizeBytes?: number) {
     const base = new TextEncoder().encode(content);
@@ -50,7 +54,7 @@ afterEach(async () => {
 
 describe("LruBlockstore accounting", () => {
     it("tracks total bytes and block count across put and delete", async () => {
-        const store = new LruBlockstore(new MemoryBlockstore(), { maxBytes: 10_000 });
+        const store = new LruBlockstore(new MemoryBlockstore(), { log: testLog, maxBytes: 10_000 });
         const a = await blockOf("a", 100);
         const b = await blockOf("b", 250);
 
@@ -65,7 +69,7 @@ describe("LruBlockstore accounting", () => {
     });
 
     it("does not double count a block that is put twice", async () => {
-        const store = new LruBlockstore(new MemoryBlockstore(), { maxBytes: 10_000 });
+        const store = new LruBlockstore(new MemoryBlockstore(), { log: testLog, maxBytes: 10_000 });
         const a = await blockOf("a", 100);
         await store.put(a.cid, a.bytes);
         await store.put(a.cid, a.bytes);
@@ -78,7 +82,7 @@ describe("LruBlockstore accounting", () => {
         // Uint8Array. Measuring it consumes it, so the wrapper has to materialize and forward the
         // materialized chunks - if it forwarded the original iterator the child would store nothing.
         const child = new MemoryBlockstore();
-        const store = new LruBlockstore(child, { maxBytes: 10_000 });
+        const store = new LruBlockstore(child, { log: testLog, maxBytes: 10_000 });
         const a = await blockOf("a", 300);
         async function* chunks() {
             yield a.bytes.subarray(0, 100);
@@ -96,7 +100,7 @@ describe("LruBlockstore eviction", () => {
     it("evicts down to the low water mark once maxBytes is exceeded", async () => {
         const child = new MemoryBlockstore();
         // 1000 byte cap, evict down to 500
-        const store = new LruBlockstore(child, { maxBytes: 1000, lowWaterRatio: 0.5 });
+        const store = new LruBlockstore(child, { log: testLog, maxBytes: 1000, lowWaterRatio: 0.5 });
         const blocks = await Promise.all([1, 2, 3, 4, 5].map((n) => blockOf(String(n), 300)));
 
         // 3 x 300 = 900 is under the cap, so nothing has been evicted yet
@@ -121,7 +125,7 @@ describe("LruBlockstore eviction", () => {
         const child = new MemoryBlockstore();
         // low water of 630 leaves room for two of these three 300 byte blocks, so exactly one
         // eviction happens and the test isolates *which* block that is
-        const store = new LruBlockstore(child, { maxBytes: 700, lowWaterRatio: 0.9 });
+        const store = new LruBlockstore(child, { log: testLog, maxBytes: 700, lowWaterRatio: 0.9 });
         const first = await blockOf("first", 300);
         const second = await blockOf("second", 300);
 
@@ -141,7 +145,7 @@ describe("LruBlockstore eviction", () => {
         // A full scan touching every key would flatten LRU order into scan order, so the next
         // eviction would drop whatever the scan happened to visit first rather than the coldest block.
         const child = new MemoryBlockstore();
-        const store = new LruBlockstore(child, { maxBytes: 700, lowWaterRatio: 0.9 });
+        const store = new LruBlockstore(child, { log: testLog, maxBytes: 700, lowWaterRatio: 0.9 });
         const cold = await blockOf("cold", 300);
         const hot = await blockOf("hot", 300);
         await store.put(cold.cid, cold.bytes);
@@ -171,7 +175,7 @@ describe("LruBlockstore eviction", () => {
             },
             getAll: (options) => memory.getAll(options)
         };
-        const store = new LruBlockstore(child, { maxBytes: 500, lowWaterRatio: 0.5 });
+        const store = new LruBlockstore(child, { log: testLog, maxBytes: 500, lowWaterRatio: 0.5 });
         const blocks = await Promise.all([1, 2, 3].map((n) => blockOf(String(n), 300)));
         for (const block of blocks) await store.put(block.cid, block.bytes);
 
@@ -181,7 +185,7 @@ describe("LruBlockstore eviction", () => {
 
     it("serializes concurrent evictions instead of each draining to the low water mark", async () => {
         const child = new MemoryBlockstore();
-        const store = new LruBlockstore(child, { maxBytes: 1000, lowWaterRatio: 0.5 });
+        const store = new LruBlockstore(child, { log: testLog, maxBytes: 1000, lowWaterRatio: 0.5 });
         const blocks = await Promise.all([1, 2, 3, 4, 5, 6].map((n) => blockOf(String(n), 300)));
 
         await Promise.all(blocks.map((block) => store.put(block.cid, block.bytes)));
@@ -209,7 +213,7 @@ describe("LruBlockstore index rebuild against a persistent backend", () => {
     it("counts blocks written by a previous session", async () => {
         const { dir, store: firstRun } = await tmpFsBlockstore();
         const blocks = await Promise.all([1, 2, 3].map((n) => blockOf(String(n), 200)));
-        const firstLru = new LruBlockstore(firstRun, { maxBytes: 10_000 });
+        const firstLru = new LruBlockstore(firstRun, { log: testLog, maxBytes: 10_000 });
         for (const block of blocks) await firstLru.put(block.cid, block.bytes);
         expect(firstLru.totalBytes).to.equal(600);
         await firstRun.close();
@@ -217,7 +221,7 @@ describe("LruBlockstore index rebuild against a persistent backend", () => {
         // second "process": a fresh wrapper over the same directory starts with an empty index
         const secondRun = new FsBlockstore(dir);
         await secondRun.open();
-        const secondLru = new LruBlockstore(secondRun, { maxBytes: 10_000 });
+        const secondLru = new LruBlockstore(secondRun, { log: testLog, maxBytes: 10_000 });
         expect(secondLru.totalBytes).to.equal(0);
 
         const result = await secondLru.rebuildIndex();
@@ -229,14 +233,14 @@ describe("LruBlockstore index rebuild against a persistent backend", () => {
     it("evicts down to the cap when the existing store is already over it", async () => {
         const { dir, store: firstRun } = await tmpFsBlockstore();
         const blocks = await Promise.all([1, 2, 3, 4].map((n) => blockOf(String(n), 300)));
-        const firstLru = new LruBlockstore(firstRun, { maxBytes: 10_000 });
+        const firstLru = new LruBlockstore(firstRun, { log: testLog, maxBytes: 10_000 });
         for (const block of blocks) await firstLru.put(block.cid, block.bytes);
         await firstRun.close();
 
         const secondRun = new FsBlockstore(dir);
         await secondRun.open();
         // 1200 bytes on disk, cap of 800
-        const secondLru = new LruBlockstore(secondRun, { maxBytes: 800, lowWaterRatio: 0.5 });
+        const secondLru = new LruBlockstore(secondRun, { log: testLog, maxBytes: 800, lowWaterRatio: 0.5 });
         await secondLru.rebuildIndex();
         expect(secondLru.totalBytes).to.be.at.most(400);
         await secondRun.close();
@@ -252,7 +256,7 @@ describe("LruBlockstore index rebuild against a persistent backend", () => {
 
         const secondRun = new FsBlockstore(dir);
         await secondRun.open();
-        const lru = new LruBlockstore(secondRun, { maxBytes: 10_000 });
+        const lru = new LruBlockstore(secondRun, { log: testLog, maxBytes: 10_000 });
         expect(lru.totalBytes).to.equal(0);
 
         const readSize = await sizeOfGet(lru, block.cid);
@@ -271,7 +275,7 @@ describe("LruBlockstore index rebuild against a persistent backend", () => {
 
         const secondRun = new FsBlockstore(dir);
         await secondRun.open();
-        const lru = new LruBlockstore(secondRun, { maxBytes: 10_000_000 });
+        const lru = new LruBlockstore(secondRun, { log: testLog, maxBytes: 10_000_000 });
 
         for await (const _chunk of lru.get(block.cid)) break; // abandon after the first chunk
 

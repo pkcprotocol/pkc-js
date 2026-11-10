@@ -66,7 +66,7 @@ describeSkipIfRpc.sequential("a community with a name requires communityName on 
 
     // Re-sign the publication without communityName, as a client that never set it would
     async function removeCommunityName(publication: PublicationWithSigner) {
-        const log = Logger("pkc-js:test:removeCommunityName");
+        const log = Logger({ namespace: "pkc-js:test:removeCommunityName" });
         if (!publication.signer) throw Error("Expected publication to have a signer");
         await ensurePublicationIsSigned(publication, community);
         const orig = publication.raw.pubsubMessageToPublish!;

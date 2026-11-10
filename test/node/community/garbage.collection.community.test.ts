@@ -1,4 +1,5 @@
 import { describe, it, afterEach, beforeAll, vi, type Mock, type MockInstance } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import * as util from "../../../dist/node/util.js";
 import * as pagesUtil from "../../../dist/node/pages/util.js";
 import * as signatures from "../../../dist/node/signer/signatures.js";
@@ -15,6 +16,9 @@ import {
     rmUnneededMfsPaths,
     unpinStaleCids
 } from "../../../dist/node/runtime/node/community/local-community/cleanup.js";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:garbage" });
 
 vi.mock("../../../dist/node/runtime/node/util.js", () => ({
     nativeFunctions: { fetch: vi.fn() },
@@ -146,6 +150,7 @@ function createTestCommunity(overrides: { address?: string } = {}): { community:
         settings: { challenges: [] } as CommunitySettings,
         lastPostCid: undefined,
         lastCommentCid: undefined,
+        _log: testLog,
         _clientsManager: {
             getDefaultKuboRpcClient: vi.fn(() => kuboClient),
             updateKuboRpcState: vi.fn(),
@@ -394,6 +399,7 @@ describe("local community garbage collection", () => {
                 _updatingCommunities: new TrackedInstanceRegistry(),
                 _updatingComments: new TrackedInstanceRegistry()
             },
+            _log: testLog,
             _clientsManager: { getDefaultKuboRpcClient: vi.fn(() => kuboClient) },
             _cidsToUnPin: new Set<string>(),
             _mfsPathsToRemove: new Set<string>(),

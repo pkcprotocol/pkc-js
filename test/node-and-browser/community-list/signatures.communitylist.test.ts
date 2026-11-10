@@ -12,7 +12,7 @@ import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { CommunityListIpfsType } from "../../../dist/node/community-list/types.js";
 import { buildSignedCommunityListRecord, mockCommunityListEntries } from "./communitylist-test-util.js";
 
-const log = Logger("pkc-js:test:community-list:signatures");
+const log = Logger({ namespace: "pkc-js:test:community-list:signatures" });
 
 // These tests call verifyCommunityList directly against a locally-constructed PKC instance, with no
 // RPC round-trip to exercise, so running them under the RPC config would only repeat the same calls

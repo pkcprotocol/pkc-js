@@ -8,12 +8,16 @@
 // Skipped outside a browser: blockstore-idb needs a real IndexedDB, and node has none.
 
 import { describe, it, expect, afterEach } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { IDBBlockstore } from "blockstore-idb";
 import { CID } from "multiformats/cid";
 import * as raw from "multiformats/codecs/raw";
 import { sha256 } from "multiformats/hashes/sha2";
 import { LruBlockstore } from "../../../dist/node/helia/lru-blockstore.js";
 import { isRunningInBrowser } from "../../../dist/node/test/test-util.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:lru-blockstore-idb" });
 
 const describeSkipIfNotBrowser = isRunningInBrowser() ? describe : describe.skip;
 
@@ -57,7 +61,7 @@ describeSkipIfNotBrowser("LruBlockstore over blockstore-idb", () => {
 
     it("accounts bytes for blocks IndexedDB returns as a single chunk", async () => {
         const child = await openIdb(`pkc-lru-idb-accounting-${dbCounter++}`);
-        const store = new LruBlockstore(child, { maxBytes: 10_000 });
+        const store = new LruBlockstore(child, { log: testLog, maxBytes: 10_000 });
         const a = await blockOf("a", 400);
         const b = await blockOf("b", 600);
 
@@ -72,7 +76,7 @@ describeSkipIfNotBrowser("LruBlockstore over blockstore-idb", () => {
     it("evicts the least recently used block and removes it from IndexedDB", async () => {
         const child = await openIdb(`pkc-lru-idb-evict-${dbCounter++}`);
         // low water of 630 leaves room for two of these 300 byte blocks, so exactly one eviction runs
-        const store = new LruBlockstore(child, { maxBytes: 700, lowWaterRatio: 0.9 });
+        const store = new LruBlockstore(child, { log: testLog, maxBytes: 700, lowWaterRatio: 0.9 });
         const first = await blockOf("first", 300);
         const second = await blockOf("second", 300);
         await store.put(first.cid, first.bytes);
@@ -95,14 +99,14 @@ describeSkipIfNotBrowser("LruBlockstore over blockstore-idb", () => {
         const dbName = `pkc-lru-idb-persist-${dbCounter++}`;
         const firstSession = await openIdb(dbName);
         const blocks = await Promise.all([1, 2, 3].map((n) => blockOf(`block-${n}`, 200)));
-        const firstLru = new LruBlockstore(firstSession, { maxBytes: 10_000 });
+        const firstLru = new LruBlockstore(firstSession, { log: testLog, maxBytes: 10_000 });
         for (const block of blocks) await firstLru.put(block.cid, block.bytes);
         expect(firstLru.totalBytes).to.equal(600);
         await firstSession.close();
         opened.pop(); // reopened below; the afterEach cleanup uses the second handle
 
         const secondSession = await openIdb(dbName);
-        const secondLru = new LruBlockstore(secondSession, { maxBytes: 10_000 });
+        const secondLru = new LruBlockstore(secondSession, { log: testLog, maxBytes: 10_000 });
         expect(secondLru.totalBytes, "a fresh wrapper starts with no index").to.equal(0);
 
         const rebuilt = await secondLru.rebuildIndex();
@@ -120,7 +124,7 @@ describeSkipIfNotBrowser("LruBlockstore over blockstore-idb", () => {
         opened.pop();
 
         const secondSession = await openIdb(dbName);
-        const lru = new LruBlockstore(secondSession, { maxBytes: 10_000 });
+        const lru = new LruBlockstore(secondSession, { log: testLog, maxBytes: 10_000 });
         expect(lru.totalBytes).to.equal(0);
 
         expect(await readSize(lru, block.cid)).to.equal(500);
@@ -132,7 +136,7 @@ describeSkipIfNotBrowser("LruBlockstore over blockstore-idb", () => {
         // Another tab sharing the origin can evict a block this instance still believes it holds.
         // The read fails, and the index must stop counting the block rather than inflate the total.
         const child = await openIdb(`pkc-lru-idb-missing-${dbCounter++}`);
-        const store = new LruBlockstore(child, { maxBytes: 10_000 });
+        const store = new LruBlockstore(child, { log: testLog, maxBytes: 10_000 });
         const block = await blockOf("vanishing", 300);
         await store.put(block.cid, block.bytes);
         expect(store.totalBytes).to.equal(300);

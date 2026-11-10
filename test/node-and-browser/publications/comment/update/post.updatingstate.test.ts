@@ -1,4 +1,5 @@
 import signers from "../../../../fixtures/signers.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     publishRandomPost,
     mockPostToReturnSpecificCommentUpdate,
@@ -18,6 +19,9 @@ import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 import type { Comment } from "../../../../../dist/node/publications/comment/comment.js";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:post" });
 
 const communityAddress = signers[0].address;
 
@@ -237,7 +241,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 // judged, so the post must try to load it again
                 const newerRecord = JSON.parse(JSON.stringify(staticCommunity.communityRecord)) as typeof staticCommunity.communityRecord;
                 newerRecord.updatedAt = Math.max(staticCommunity.communityRecord.updatedAt + 1, timestamp());
-                newerRecord.signature = await signCommunity({ community: newerRecord, signer: staticCommunity.ipnsObj.signer });
+                newerRecord.signature = await signCommunity({
+                    community: newerRecord,
+                    signer: staticCommunity.ipnsObj.signer,
+                    log: testLog
+                });
                 await staticCommunity.ipnsObj.publishToIpns(JSON.stringify(newerRecord));
 
                 await resolveWhenConditionIsTrue({

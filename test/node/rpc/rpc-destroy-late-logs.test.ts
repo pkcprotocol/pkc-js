@@ -15,6 +15,7 @@
 // dist/ logs through, which is what the setup file relies on), so any late line from the
 // endpoint's namespaces shows up in `lateLines`.
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { createRequire } from "node:module";
 import { once } from "node:events";
 import { WebSocketServer, type WebSocket as WsSocket, type RawData } from "ws";
@@ -24,6 +25,9 @@ import { mockRpcServerPKC } from "../../../dist/node/test/test-util.js";
 import { createInProcessRpcServer, uniqueTmpDataPath, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
 import { describeIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:rpc-destroy-late-logs" });
 
 interface DebugModule {
     log: (...args: unknown[]) => void;
@@ -110,7 +114,7 @@ describe("PKCRpcClient.destroy() closes its websocket before resolving (#325)", 
     });
 
     it("the socket is closed when destroy() resolves and no rpc-client debug output follows", async () => {
-        const client = new PKCRpcClient(`ws://127.0.0.1:${server.port}`);
+        const client = new PKCRpcClient(`ws://127.0.0.1:${server.port}`, testLog);
         await client.rpcCall("ping", []); // opens the connection
         expect(client.state).toBe("connected");
 
@@ -159,7 +163,7 @@ describeIfRpc("PKCWsServer.destroy() closes its clients before resolving (#325)"
     });
 
     it("a still-connected client is disconnected when destroy() resolves and no server debug output follows", async () => {
-        const client = new PKCRpcClient(rpcUrl);
+        const client = new PKCRpcClient(rpcUrl, testLog);
         const wss = (rpcServer as unknown as RpcServerInternals).rpcWebsockets.wss;
         const capture = captureDebugOutput(SERVER_NAMESPACES);
         try {

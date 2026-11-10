@@ -8,6 +8,7 @@
 //   - export shape for the orchestrators
 
 import { describe, it, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     cleanUpMirroredStartedOrUpdatingCommunity,
     deleteCommunity,
@@ -21,6 +22,9 @@ import {
     updateOnce
 } from "../../../../dist/node/runtime/node/community/local-community/lifecycle.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:lifecycle" });
 
 describe("lifecycle: export shape", () => {
     it("exports all lifecycle helpers", () => {
@@ -40,6 +44,7 @@ describe("lifecycle: export shape", () => {
 describe("lifecycle: cleanUpMirroredStartedOrUpdatingCommunity", () => {
     it("returns immediately when no community is currently being mirrored", async () => {
         const community = {
+            _log: testLog,
             _mirroredStartedOrUpdatingCommunity: undefined,
             clients: {}
         } as unknown as LocalCommunity;

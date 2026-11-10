@@ -1,9 +1,13 @@
 import { it, describe, beforeAll, afterAll, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import env from "../../../dist/node/version.js";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type Database from "better-sqlite3";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:v40-to-v41" });
 
 // v40 comments table — same as v41 minus the new `crosspost` column.
 const V40_CREATE_COMMENTS = `
@@ -175,6 +179,7 @@ interface FakeCommunity {
     _cidsToUnPin: Set<string>;
     _blocksToRm: string[];
     _mfsPathsToRemove: Set<string>;
+    _log: typeof testLog;
     _clientsManager: object;
     _calculateLocalMfsPathForCommentUpdate: () => string;
     _addOldPageCidsToCidsToUnpin: () => Promise<void>;
@@ -188,6 +193,7 @@ function createFakeCommunity(address: string): FakeCommunity {
         _cidsToUnPin: new Set<string>(),
         _blocksToRm: [],
         _mfsPathsToRemove: new Set<string>(),
+        _log: testLog,
         _clientsManager: {},
         _calculateLocalMfsPathForCommentUpdate: () => "",
         _addOldPageCidsToCidsToUnpin: async () => {},

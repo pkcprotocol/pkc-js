@@ -1,4 +1,5 @@
 import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import { it, expect, vi } from "vitest";
 import {
     mockPKC,
@@ -16,6 +17,9 @@ import type { LocalCommunity } from "../../../../dist/node/runtime/node/communit
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidDefined, CommentUpdateType } from "../../../../dist/node/publications/comment/types.js";
 import type { CommunitySettings } from "../../../../dist/node/community/types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:rebuilt-replies-cycle" });
 
 // Issue #477. With validatePages the community verifies each CommentUpdate it signs, nested pages included, so a rebuilt
 // reply that differs from its signed form throws ERR_COMMENT_UPDATE_SIGNATURE_IS_INVALID and nothing above that depth is
@@ -143,7 +147,8 @@ describeSkipIfRpc("issue #477: the update cycle converges with validatePages", (
                             postCid: postInstance.cid!
                         },
                         validatePages: true,
-                        validateUpdateSignature: true
+                        validateUpdateSignature: true,
+                        log: testLog
                     });
                 expect((await verify(update)).valid).to.equal(true);
                 const flatEntry = update.replies!.pages.newFlat!.comments![0].commentUpdate as CommentUpdateType;

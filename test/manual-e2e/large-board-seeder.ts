@@ -9,6 +9,7 @@
 // Rows are flushed in batches so the seeder itself holds nothing board-sized: the board is streamed into
 // SQLite the way the publish cycle streams it back out.
 import { stringify as deterministicStringify } from "safe-stable-stringify";
+import Logger from "@pkcprotocol/pkc-logger";
 import { signComment } from "../../dist/node/signer/signatures.js";
 import { createSigner } from "../../dist/node/signer/index.js";
 import { getPKCAddressFromPublicKey } from "../../dist/node/signer/util.js";
@@ -26,6 +27,9 @@ import type {
     CommentOptionsToSign
 } from "../../dist/node/publications/comment/types.js";
 import type { SignerType } from "../../dist/node/signer/types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:large-board-seeder" });
 
 export interface SeedLargeBoardOptions {
     community: LocalCommunity;
@@ -99,7 +103,7 @@ export async function buildSeededCommentRow({
         communityAddress: community.address,
         signer
     };
-    const signature = await signComment({ comment: toSign, pkc });
+    const signature = await signComment({ comment: toSign, pkc, log: testLog });
     const { signer: _signer, communityAddress: _communityAddress, ...publication } = toSign;
     const commentIpfs = <CommentIpfsType>{ ...publication, signature, depth };
     commentIpfs.author = cleanWireAuthor(commentIpfs.author)!;

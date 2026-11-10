@@ -21,7 +21,10 @@ import Publication from "../publications/publication.js";
 import { v4 as uuidv4 } from "uuid";
 import { createMockPubsubClient } from "./mock-ipfs-client.js";
 import { EventEmitter } from "events";
-import Logger from "../logger.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// Free signer/verify helpers take a required log (issue #493); test-util logs through the process-default root
+const testLog = Logger({ namespace: "pkc-js:test-util" });
 import { clone, flat, isEmpty, keys, mergeDeep, omit, pick } from "remeda";
 import { LocalCommunity } from "../runtime/node/community/local-community.js";
 import { RpcLocalCommunity } from "../community/rpc-local-community.js";
@@ -703,7 +706,7 @@ export async function mockPKCV2({ pkcOptions, forceMockPubsub, stubStorage, mock
 }
 
 export async function mockPKC(pkcOptions?: InputPKCOptions, forceMockPubsub = false, stubStorage = true, mockResolve = true) {
-    const log = Logger("pkc-js:test-util:mockPKC");
+    const log = Logger({ namespace: "pkc-js:test-util:mockPKC" });
     if (pkcOptions?.pkcRpcClientsOptions && pkcOptions?.kuboRpcClientsOptions)
         throw Error("Can't have both kubo and RPC config. Is this a mistake?");
     if (pkcOptions?.pkcRpcClientsOptions && pkcOptions?.libp2pJsClientsOptions)
@@ -1050,7 +1053,7 @@ export async function findReplyInParentCommentPagesInstancePreloadedAndPageCids(
     parentComment: Comment;
 }): Promise<CommentWithinRepliesPostsPageJson | undefined> {
     const { parentComment, reply } = opts;
-    const log = Logger("pkc-js:test-util:waitTillReplyInParentPagesInstance");
+    const log = Logger({ namespace: "pkc-js:test-util:waitTillReplyInParentPagesInstance" });
     if (reply?.parentCid !== parentComment?.cid) throw Error("You need to provide a reply that's direct child of parentComment");
     log("waiting for reply", reply.cid, "in parent comment", parentComment.cid, "replyCount of parent comment", parentComment.replyCount);
 
@@ -1249,7 +1252,8 @@ export async function overrideCommentInstancePropsAndSign(comment: Comment, prop
             signer: comment.signer,
             communityAddress: comment.communityAddress
         }),
-        pkc: comment._pkc
+        pkc: comment._pkc,
+        log: testLog
     });
 
     comment.raw.pubsubMessageToPublish = pubsubPublication;
@@ -1268,7 +1272,8 @@ export async function overrideCommentEditInstancePropsAndSign(commentEdit: Comme
             signer: commentEdit.signer,
             communityAddress: commentEdit.communityAddress
         }),
-        pkc: commentEdit._pkc
+        pkc: commentEdit._pkc,
+        log: testLog
     });
 
     disableValidationOfSignatureBeforePublishing(commentEdit);
@@ -1297,7 +1302,7 @@ export async function ensurePublicationIsSigned(
 }
 
 export async function setExtraPropOnCommentAndSign(comment: Comment, extraProps: Object, includeExtraPropInSignedPropertyNames: boolean) {
-    const log = Logger("pkc-js:test-util:setExtraPropOnVoteAndSign");
+    const log = Logger({ namespace: "pkc-js:test-util:setExtraPropOnVoteAndSign" });
 
     // With deferred signing, the publication may not be signed yet
     if (!comment.raw.pubsubMessageToPublish) {
@@ -1327,7 +1332,7 @@ export async function setExtraPropOnCommentAndSign(comment: Comment, extraProps:
 }
 
 export async function setExtraPropOnVoteAndSign(vote: Vote, extraProps: Object, includeExtraPropInSignedPropertyNames: boolean) {
-    const log = Logger("pkc-js:test-util:setExtraPropOnVoteAndSign");
+    const log = Logger({ namespace: "pkc-js:test-util:setExtraPropOnVoteAndSign" });
 
     // With deferred signing, the publication may not be signed yet
     if (!vote.raw.pubsubMessageToPublish) {
@@ -1360,7 +1365,7 @@ export async function setExtraPropOnCommentEditAndSign(
     extraProps: Object,
     includeExtraPropInSignedPropertyNames: boolean
 ) {
-    const log = Logger("pkc-js:test-util:setExtraPropOnCommentEditAndSign");
+    const log = Logger({ namespace: "pkc-js:test-util:setExtraPropOnCommentEditAndSign" });
 
     // With deferred signing, the publication may not be signed yet
     if (!commentEdit.raw.pubsubMessageToPublish) {
@@ -1393,7 +1398,7 @@ export async function setExtraPropOnCommentModerationAndSign(
     extraProps: any,
     includeExtraPropInSignedPropertyNames: boolean
 ) {
-    const log = Logger("pkc-js:test-util:setExtraPropOnCommentModerationAndSign");
+    const log = Logger({ namespace: "pkc-js:test-util:setExtraPropOnCommentModerationAndSign" });
 
     if (!commentModeration.raw.pubsubMessageToPublish) {
         await commentModeration._initCommunity();
@@ -1430,7 +1435,7 @@ export async function setExtraPropOnChallengeRequestAndSign({
     extraProps: Object;
     includeExtraPropsInRequestSignedPropertyNames: boolean;
 }) {
-    const log = Logger("pkc-js:test-util:setExtraPropOnChallengeRequestAndSign");
+    const log = Logger({ namespace: "pkc-js:test-util:setExtraPropOnChallengeRequestAndSign" });
 
     //@ts-expect-error
     publication._signAndValidateChallengeRequestBeforePublishing = async (requestWithoutSignature, signer) => {
@@ -1455,7 +1460,7 @@ export async function publishChallengeAnswerMessageWithExtraProps({
 }) {
     // we're crafting a challenge answer from scratch here
 
-    const log = Logger("pkc-js:test-util:setExtraPropsOnChallengeAnswerMessageAndSign");
+    const log = Logger({ namespace: "pkc-js:test-util:setExtraPropsOnChallengeAnswerMessageAndSign" });
     const signer = Object.values(publication._challengeExchanges)[0].signer;
     if (!signer) throw Error("Signer is undefined for this challenge exchange");
     const encryptedChallengeAnswers = await encryptEd25519AesGcm(
@@ -1493,7 +1498,7 @@ export async function publishChallengeMessageWithExtraProps({
     extraProps: Object;
     includeExtraPropsInChallengeSignedPropertyNames: boolean;
 }) {
-    const log = Logger("pkc-js:test-util:publishChallengeMessageWithExtraProps");
+    const log = Logger({ namespace: "pkc-js:test-util:publishChallengeMessageWithExtraProps" });
 
     const encryptedChallenges = await encryptEd25519AesGcmPublicKeyBuffer(
         deterministicStringify({ challenges: [] })!,
@@ -1536,7 +1541,7 @@ export async function publishChallengeVerificationMessageWithExtraProps({
     extraProps: Object;
     includeExtraPropsInChallengeSignedPropertyNames: boolean;
 }) {
-    const log = Logger("pkc-js:test-util:publishChallengeVerificationMessageWithExtraProps");
+    const log = Logger({ namespace: "pkc-js:test-util:publishChallengeVerificationMessageWithExtraProps" });
 
     const toSignChallengeVerification: Omit<ChallengeVerificationMessageType, "signature"> = cleanUpBeforePublishing({
         type: "CHALLENGEVERIFICATION",
@@ -1569,7 +1574,7 @@ export async function publishChallengeVerificationMessageWithEncryption(
     toEncrypt: Object,
     verificationProps?: Partial<ChallengeVerificationMessageType>
 ) {
-    const log = Logger("pkc-js:test-util:publishChallengeVerificationMessageWithExtraProps");
+    const log = Logger({ namespace: "pkc-js:test-util:publishChallengeVerificationMessageWithExtraProps" });
 
     const challengeRequest = Object.values(publication._challengeExchanges)[0].challengeRequest;
     const toSignChallengeVerification: Omit<ChallengeVerificationMessageType, "signature"> = cleanUpBeforePublishing({
@@ -1587,7 +1592,11 @@ export async function publishChallengeVerificationMessageWithEncryption(
 
     toSignChallengeVerification.encrypted = encrypted;
 
-    const signature = await signChallengeVerification({ challengeVerification: toSignChallengeVerification, signer: pubsubSigner });
+    const signature = await signChallengeVerification({
+        challengeVerification: toSignChallengeVerification,
+        signer: pubsubSigner,
+        log: testLog
+    });
 
     await publishOverPubsub(pubsubSigner.address, { ...toSignChallengeVerification, signature });
 }
@@ -1595,7 +1604,9 @@ export async function publishChallengeVerificationMessageWithEncryption(
 export async function addStringToIpfs(content: string): Promise<string> {
     const pkc = await mockPKCNoDataPathWithOnlyKuboClient();
     const ipfsClient = pkc._clientsManager.getDefaultKuboRpcClient();
-    const cid = (await retryKuboIpfsAdd({ content, ipfsClient: ipfsClient._client, log: Logger("pkc-js:test-util:addStringToIpfs") })).path;
+    const cid = (
+        await retryKuboIpfsAdd({ content, ipfsClient: ipfsClient._client, log: Logger({ namespace: "pkc-js:test-util:addStringToIpfs" }) })
+    ).path;
     await pkc.destroy();
     return cid;
 }
@@ -1774,10 +1785,15 @@ export async function createNewIpns() {
     const signer = await pkc.createSigner();
     signer.ipfsKey = new Uint8Array(await getIpfsKeyFromPrivateKey(signer.privateKey));
 
-    await importSignerIntoKuboNode(signer.address, signer.ipfsKey, {
-        url: pkc.kuboRpcClientsOptions![0].url!.toString(),
-        headers: pkc.kuboRpcClientsOptions![0].headers
-    });
+    await importSignerIntoKuboNode(
+        signer.address,
+        signer.ipfsKey,
+        {
+            url: pkc.kuboRpcClientsOptions![0].url!.toString(),
+            headers: pkc.kuboRpcClientsOptions![0].headers
+        },
+        pkc._log
+    );
 
     // Publishes an arbitrary IPNS value under this signer's key. `value` may be a bare CID,
     // an "/ipfs/<cid>" path, or an "/ipns/<name>" path (the latter creates a recursive/
@@ -1898,7 +1914,11 @@ export async function createDelegatedCommunityIpns(
 
         // content is signed by the MINTER key (Mn) by default — the terminal of the chain. A test
         // may override contentSigner to simulate a record whose signer is NOT the terminal key.
-        communityRecord.signature = await signCommunity({ community: communityRecord, signer: opts?.contentSigner ?? minter.signer });
+        communityRecord.signature = await signCommunity({
+            community: communityRecord,
+            signer: opts?.contentSigner ?? minter.signer,
+            log: testLog
+        });
         const communityRecordJson = JSON.stringify(communityRecord);
         const cid = await addStringToIpfs(communityRecordJson);
 
@@ -1949,7 +1969,7 @@ export async function publishCommunityRecordWithExtraProp(opts?: {
         signedPropertyNames,
         communityRecord,
         ipnsObj.signer,
-        Logger("pkc-js:test-util:publishCommunityRecordWithExtraProp")
+        Logger({ namespace: "pkc-js:test-util:publishCommunityRecordWithExtraProp" })
     );
 
     await ipnsObj.publishToIpns(JSON.stringify(communityRecord), opts?.ttl ? { ttl: opts.ttl } : undefined);
@@ -1979,7 +1999,7 @@ export async function createMockedCommunityIpns(communityOpts: CreateNewLocalCom
     // The key must be deleted, not left undefined: _signJson picks signed props by key presence.
     if (!communityRecord.pubsubTopic) delete communityRecord.pubsubTopic;
 
-    communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer });
+    communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer, log: testLog });
     await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
 
     await ipnsObj.pkc.destroy();
@@ -2008,7 +2028,7 @@ export async function createStaticCommunityRecordForComment(opts?: {
         };
         if (!communityRecord.posts) delete communityRecord.posts;
         // Always publish a valid record first so the IPNS key is established for gateway discovery
-        communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer });
+        communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer, log: testLog });
         await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
 
         const commentToPublish = await commentPKC.createComment({
@@ -2162,7 +2182,7 @@ export async function publishStaticCommunityWithPostInPages(opts?: {
             replyCid = reply.commentCid;
             const replyCommentUpdate = {
                 ...reply.commentUpdateWithoutSignature,
-                signature: await signCommentUpdate({ update: reply.commentUpdateWithoutSignature, signer: ipnsObj.signer })
+                signature: await signCommentUpdate({ update: reply.commentUpdateWithoutSignature, signer: ipnsObj.signer, log: testLog })
             };
             postCommentUpdateWithoutSignature = {
                 ...post.commentUpdateWithoutSignature,
@@ -2177,7 +2197,7 @@ export async function publishStaticCommunityWithPostInPages(opts?: {
         }
         const commentUpdate = {
             ...postCommentUpdateWithoutSignature,
-            signature: await signCommentUpdate({ update: postCommentUpdateWithoutSignature, signer: ipnsObj.signer })
+            signature: await signCommentUpdate({ update: postCommentUpdateWithoutSignature, signer: ipnsObj.signer, log: testLog })
         };
 
         // postUpdates folder on the test Kubo: <folderCid>/<postCid>/update.
@@ -2199,7 +2219,7 @@ export async function publishStaticCommunityWithPostInPages(opts?: {
         };
         if (communityName) communityRecord.name = communityName;
         else delete communityRecord.name;
-        communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer });
+        communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer, log: testLog });
         await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
 
         return { communityAddress, communityName, commentCid, replyCid, communityRecord, ipnsObj };
@@ -2939,7 +2959,7 @@ export async function fetchCidWithTransientRetry({
     attempts?: number;
     minTimeoutMs?: number;
 }): Promise<Awaited<ReturnType<PKC["fetchCid"]>>> {
-    const log = Logger("pkc-js:test-util:fetchCidWithTransientRetry");
+    const log = Logger({ namespace: "pkc-js:test-util:fetchCidWithTransientRetry" });
     for (let attempt = 1; ; attempt++) {
         try {
             return await pkc.fetchCid({ cid });
