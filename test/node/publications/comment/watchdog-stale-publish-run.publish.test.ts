@@ -31,8 +31,12 @@ type PublicationInternals = {
 
 const PUBLISH_TO_DIFFERENT_PROVIDER_SECONDS = 4;
 
-const waitFor = async (predicate: () => boolean): Promise<void> => {
-    while (!predicate()) await new Promise((resolve) => setTimeout(resolve, 20));
+const waitFor = async (predicate: () => boolean, timeoutMs = 30_000): Promise<void> => {
+    const deadline = Date.now() + timeoutMs;
+    while (!predicate()) {
+        if (Date.now() > deadline) throw new Error(`waitFor timed out after ${timeoutMs}ms`);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
 };
 
 // Skipped under RPC: registers an in-process challenge factory via pkc.settings.challenges and drives

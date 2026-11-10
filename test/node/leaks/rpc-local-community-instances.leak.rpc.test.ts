@@ -146,9 +146,8 @@ describe("leak: RPC client retains RpcLocalCommunity instances of a server-hoste
             try {
                 community.removeListener("exportschange", listener);
                 await pollUntil(() => rejectedUnsubscribes === 1, { timeoutMs: 5_000 });
-                await pollUntil(() => registrySizes(client).subscriptionEvents === baseline.subscriptionEvents, { timeoutMs: 2_000 }).catch(
-                    (): undefined => undefined
-                );
+                // pollUntil gives up silently on timeout; the assertion below reports the outcome
+                await pollUntil(() => registrySizes(client).subscriptionEvents === baseline.subscriptionEvents, { timeoutMs: 2_000 });
             } finally {
                 webSocketClient.call = originalCall;
             }
