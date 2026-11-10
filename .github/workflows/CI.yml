@@ -75,7 +75,7 @@ jobs:
               shell: bash
               run: |
                   mkdir -p kubo-debug
-                  for port in 15001 15002 15003 15004 15005 15006; do
+                  for port in 15001 15002 15003 15004 15005 15006 15007; do
                       if curl -sS --max-time 20 "http://127.0.0.1:$port/debug/pprof/goroutine?debug=2" -o "kubo-debug/goroutine-$port.txt"; then
                           echo "saved kubo-debug/goroutine-$port.txt ($(wc -l < kubo-debug/goroutine-$port.txt) lines)"
                       else

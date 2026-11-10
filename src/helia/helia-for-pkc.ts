@@ -10,6 +10,7 @@ import { ipnsValidator } from "ipns/validator";
 import { gossipsub } from "@libp2p/gossipsub";
 import { identify } from "@libp2p/identify";
 import extraLibp2pTransports from "../runtime/node/libp2p-extra-transports.js";
+import { installWebTransportCloseShim } from "../runtime/node/webtransport-close-shim.js";
 import { CID } from "multiformats/cid";
 import { sha512 } from "multiformats/hashes/sha2";
 import { peerIdFromString } from "@libp2p/peer-id";
@@ -183,6 +184,9 @@ export async function createLibp2pJsClientOrUseExistingOne(
     let closeBlockstore = async () => {};
 
     creatingLibp2pJsClients[pkcOptions.key] = (async () => {
+        // Must run before libp2p exists: Chromium crashes the tab when @libp2p/webtransport aborts a
+        // connection that has a write pending (pkc-js#495, libp2p/js-libp2p#3699). No-op outside browsers.
+        installWebTransportCloseShim();
         deleteLeftoverDelegatedRoutingCache();
         // A caller supplying their own heliaOptions.blockstore owns block storage entirely, so skip
         // ours rather than opening a directory or IndexedDB database nothing will read.
