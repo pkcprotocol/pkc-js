@@ -163,6 +163,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _stopHasBeenCalled: boolean; // we use this to track if community.stop() has been called after community.start() or community.update()
     _publishLoopPromise?: Promise<void> = undefined;
     _updateLoopPromise?: Promise<void> = undefined;
+    _startOrUpdateInFlight?: Promise<void> = undefined; // settles once start() or update() is done setting up, stop() waits for it
     _updateLoopAbortController?: AbortController;
     _firstUpdateAfterStart: boolean = true;
     _internalStateUpdateId: InternalCommunityRecordBeforeFirstUpdateType["_internalStateUpdateId"] = "";

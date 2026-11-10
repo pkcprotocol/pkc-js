@@ -150,10 +150,40 @@ async function emitChallengeSettingsValidationErrors(community: LocalCommunity, 
     }
 }
 
+// Marks the start() or update() that is still setting this instance up until it settles. stop() waits for it, so it tears
+// down what the call set up rather than racing it: a stop() that ran during start() used to leave a "stopped" community
+// subscribed to challenge requests, and one that ran during update()'s first load left it in the updating registry.
+async function runAsStartOrUpdateInFlight({
+    community,
+    setUp
+}: {
+    community: LocalCommunity;
+    setUp: (releaseMark: () => void) => Promise<void>;
+}) {
+    let settle!: () => void;
+    const inFlight = new Promise<void>((resolve) => (settle = resolve));
+    community._startOrUpdateInFlight = inFlight;
+    // Clears this call's own mark only. A start() that began once the mark was released (from a "stopped" listener during a
+    // failed start()'s own stop()) has set its own mark by then, and clearing that one let a stop() skip waiting for it.
+    const releaseMark = () => {
+        if (community._startOrUpdateInFlight === inFlight) community._startOrUpdateInFlight = undefined;
+    };
+    try {
+        await setUp(releaseMark);
+    } finally {
+        releaseMark();
+        settle();
+    }
+}
+
 export async function start(community: LocalCommunity) {
-    const log = Logger("pkc-js:local-community:start");
     if (community.state === "updating")
         throw new PKCError("ERR_NEED_TO_STOP_UPDATING_COMMUNITY_BEFORE_STARTING", { address: community.address });
+    await runAsStartOrUpdateInFlight({ community, setUp: (releaseMark) => startCommunity({ community, releaseMark }) });
+}
+
+async function startCommunity({ community, releaseMark }: { community: LocalCommunity; releaseMark: () => void }) {
+    const log = Logger("pkc-js:local-community:start");
     community._stopHasBeenCalled = false;
     community._firstUpdateAfterStart = true;
     // Re-baseline address-change re-provide for this run (start() provides everything fresh below).
@@ -239,6 +269,10 @@ export async function start(community: LocalCommunity) {
         community._pageSortFactories = undefined;
         await syncPageSortsWithRegistry(community);
     } catch (e) {
+        // Released first, so this failed start's own stop() does not wait for it, and a start() called during that stop()
+        // (from a "stopped" statechange listener) is not refused. A stop() that was already waiting for this start() resumes
+        // only when it settles, after this teardown, so the two never tear the community down at the same time.
+        releaseMark();
         await community.stop(); // Make sure to reset the community state
         //@ts-expect-error
         e.details = { ...e.details, communityAddress: community.address };
@@ -432,21 +466,35 @@ export async function updateLoop(community: LocalCommunity) {
 export async function update(community: LocalCommunity) {
     if (community.state === "started") throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: community.address });
     if (community.state === "updating") return;
-    community._stopHasBeenCalled = false;
-    community._setState("updating");
+    // a start() still in flight: it has not entered the started state yet
+    if (community._startOrUpdateInFlight) throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: community.address });
 
-    try {
-        await updateOnce(community);
-    } catch (e) {
-        community.emit("error", e as PKCError | Error);
-    }
-    community._updateLoopAbortController = new AbortController();
-    community._updateLoopPromise = updateLoop(community);
+    await runAsStartOrUpdateInFlight({
+        community,
+        setUp: async () => {
+            // Marked in flight before the "updating" statechange, so a stop() that a listener of it calls waits too
+            community._stopHasBeenCalled = false;
+            community._setState("updating");
+            try {
+                await updateOnce(community);
+            } catch (e) {
+                community.emit("error", e as PKCError | Error);
+            }
+            community._updateLoopAbortController = new AbortController();
+            community._updateLoopPromise = updateLoop(community);
+        }
+    });
 }
 
 export async function stop(community: LocalCommunity) {
     const log = Logger("pkc-js:local-community:stop");
     community._stopHasBeenCalled = true;
+    // Set above first, so the publish or update loop the start() or update() launches ends at its first check. Also waits
+    // for a start() begun while it waited (from a listener during a failed start()'s teardown), so it stops that one too.
+    while (community._startOrUpdateInFlight) {
+        await community._startOrUpdateInFlight;
+        community._stopHasBeenCalled = true; // a start() begun meanwhile cleared it
+    }
     if (community._updateLoopAbortController) {
         community._updateLoopAbortController.abort();
     }
