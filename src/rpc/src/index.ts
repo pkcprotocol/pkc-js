@@ -178,6 +178,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     private _settingsSenders = new Map<string, (args: { newPKC: PKC }) => Promise<void>>();
 
     private _startedCommunities: { [address: string]: "pending" | LocalCommunity } = {};
+    // stopCommunity and deleteCommunity calls still running, which setSettings waits for before it moves communities
+    private _stopsAndDeletesInProgress = new Set<Promise<RpcSuccessResult>>();
     // The server's own update listener on each started community, which keeps it filed under its current address
     private _addressChangeListeners = new WeakMap<LocalCommunity, () => void>();
     private _autoStartOnBoot: boolean = false;
@@ -887,25 +889,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             }
         };
 
-        this._onSettingsChange[connectionId][subscriptionId] = async ({ newPKC }: { newPKC: PKC }) => {
-            // the community may have been renamed since it was started, so look up where it is filed now (#430)
-            const filedAddress = this._findCommunityAddress({ name, publicKey }) ?? address;
-            const current = this._startedCommunities[filedAddress];
-            if (!current || current === "pending") return;
-            const community = await this.getStartedCommunity(filedAddress);
-            // mark as pending so other consumers wait while we restart with the new pkc instance
-            this._startedCommunities[filedAddress] = "pending";
-            try {
-                await community.stop();
-                community._pkc = newPKC;
-                await community.start();
-                this._startedCommunities[filedAddress] = community;
-            } catch (error) {
-                delete this._startedCommunities[filedAddress];
-                throw error;
-            }
-        };
-
+        // No settings-change handler here: setSettings moves every started community to the new pkc itself
+        // (_moveStartedCommunitiesToPKC), whether or not a subscription to it is still open
         await startCommunityImpl();
 
         return { subscriptionId };
@@ -941,14 +926,30 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const isCommunityStarted = address in this._startedCommunities;
         if (!isCommunityStarted)
             throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_STOP_COMMUNITY_THAT_IS_NOT_RUNNING", { communityAddress: address });
-        const startedCommunity = await this.getStartedCommunity(address);
-        await startedCommunity.stop();
-        // emit last updates so subscribed instances can set their state to stopped
-        await this._postStoppingOrDeleting(startedCommunity);
-        delete this._startedCommunities[address];
-        this._updateCommunityState(address, { wasExplicitlyStopped: true });
+        return this._runStopOrDelete({
+            run: async () => {
+                const startedCommunity = await this.getStartedCommunity(address);
+                await startedCommunity.stop();
+                // emit last updates so subscribed instances can set their state to stopped
+                await this._postStoppingOrDeleting(startedCommunity);
+                delete this._startedCommunities[address];
+                this._updateCommunityState(address, { wasExplicitlyStopped: true });
 
-        return { success: true };
+                return { success: true };
+            }
+        });
+    }
+
+    // Keeps a stopCommunity or deleteCommunity in _stopsAndDeletesInProgress until it settles. setSettings waits for
+    // them before it restarts communities on the new pkc, or a restart would start again a community the call stops
+    private async _runStopOrDelete({ run }: { run: () => Promise<RpcSuccessResult> }): Promise<RpcSuccessResult> {
+        const stopOrDelete = run();
+        this._stopsAndDeletesInProgress.add(stopOrDelete);
+        try {
+            return await stopOrDelete;
+        } finally {
+            this._stopsAndDeletesInProgress.delete(stopOrDelete);
+        }
     }
 
     private async _postStoppingOrDeleting(community: LocalCommunity) {
@@ -1037,18 +1038,22 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const address = this._findCommunityAddress({ name, publicKey });
         if (!address) throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_DELETE_REMOTE_COMMUNITY", { communityAddress: name || publicKey });
 
-        // A start still pending is awaited; if it fails, the stored community is deleted
-        const community = (await this._waitForStartedCommunity({ address })) ?? <LocalCommunity>await pkc.createCommunity({ address });
-        await community.delete();
-        await this._postStoppingOrDeleting(community);
-        delete this._startedCommunities[address];
-        this._removeCommunityState(address);
+        return this._runStopOrDelete({
+            run: async () => {
+                // A start still pending is awaited; if it fails, the stored community is deleted
+                const community =
+                    (await this._waitForStartedCommunity({ address })) ?? <LocalCommunity>await pkc.createCommunity({ address });
+                await community.delete();
+                await this._postStoppingOrDeleting(community);
+                delete this._startedCommunities[address];
+                this._removeCommunityState(address);
 
-        return { success: true };
+                return { success: true };
+            }
+        });
     }
 
     async communitiesSubscribe(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {
-        // TODO need to implement _onSettingsChange here
         const subscriptionId = generateSubscriptionId();
         const sendEvent = (event: string, result: any) => {
             this.jsonRpcSendNotification({
@@ -1063,11 +1068,21 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const pkcSubscribeEvent = ({ communities }: { communities: PKCCommunitiesEntry[] }) =>
             sendEvent("communitieschange", { communities: communities.map(toCommunitiesWireEntry) });
 
-        const pkc = await this._getPKCInstance();
+        let pkc = await this._getPKCInstance();
         pkc.on("communitieschange", pkcSubscribeEvent);
 
         this.subscriptionCleanups[connectionId][subscriptionId] = async () => {
             pkc.removeListener("communitieschange", pkcSubscribeEvent);
+            if (this._onSettingsChange[connectionId]) delete this._onSettingsChange[connectionId][subscriptionId];
+        };
+
+        // The list comes from the pkc's watcher on its data directory, which stops when setSettings retires the old
+        // pkc, so follow the new one and send its list, which differs when the settings moved the dataPath
+        this._onSettingsChange[connectionId][subscriptionId] = async ({ newPKC }: { newPKC: PKC }) => {
+            pkc.removeListener("communitieschange", pkcSubscribeEvent);
+            pkc = newPKC;
+            pkc.on("communitieschange", pkcSubscribeEvent);
+            sendEvent("communitieschange", { communities: pkc.communities.map(toCommunitiesWireEntry) });
         };
 
         sendEvent("communitieschange", { communities: pkc.communities.map(toCommunitiesWireEntry) });
@@ -1203,6 +1218,51 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         }
     }
 
+    // Restarts every started community on the new pkc, once each, whoever started it. A community auto-started on boot,
+    // or one whose starter unsubscribed or disconnected, has no subscription left to move it, and the old pkc's
+    // destroy() a minute later would stop it while it stays listed here as started. Restarts run with the auto-start
+    // concurrency, since every RPC call waits for setSettings to finish
+    private async _moveStartedCommunitiesToPKC({ newPKC }: { newPKC: PKC }) {
+        // A stopCommunity or deleteCommunity in progress finishes first, or restarting its community would undo it: the
+        // client would be told it succeeded while the community ran again. A start still in progress runs on the old pkc,
+        // so it is moved once it finishes; one that fails removes its entry. A stop can itself wait for a start, so this
+        // loops until neither is left. No new one can begin, since those calls wait for setSettings to finish
+        while (true) {
+            if (this._stopsAndDeletesInProgress.size > 0) {
+                await Promise.allSettled([...this._stopsAndDeletesInProgress]);
+                continue;
+            }
+            const pendingAddresses = keys(this._startedCommunities).filter((address) => this._startedCommunities[address] === "pending");
+            if (pendingAddresses.length === 0) break;
+            await Promise.all(pendingAddresses.map((address) => this._waitForStartedCommunity({ address })));
+        }
+        const communitiesToMove = Object.values(this._startedCommunities).filter(
+            (entry): entry is LocalCommunity => entry instanceof LocalCommunity && entry._pkc !== newPKC
+        );
+        const limit = pLimit(this._autoStartConcurrency);
+        await Promise.all(
+            communitiesToMove.map((community) =>
+                limit(async () => {
+                    // Looked up when its turn comes: while earlier restarts ran, a rename may have re-filed it under a new
+                    // address
+                    const filedAddress = keys(this._startedCommunities).find((address) => this._startedCommunities[address] === community);
+                    if (filedAddress === undefined) return;
+                    // mark as pending so other consumers wait while we restart with the new pkc instance
+                    this._startedCommunities[filedAddress] = "pending";
+                    try {
+                        await community.stop();
+                        community._pkc = newPKC;
+                        await community.start();
+                        this._startedCommunities[filedAddress] = community;
+                    } catch (error) {
+                        delete this._startedCommunities[filedAddress];
+                        log.error(`Failed to restart community ${filedAddress} on the new pkc after setSettings`, error);
+                    }
+                })
+            )
+        );
+    }
+
     async setSettings(params: any): Promise<RpcSuccessResult> {
         const runSetSettings = async () => {
             const settings = parseSetNewSettingsPKCWsServerSchemaWithPKCErrorIfItFails(params[0]);
@@ -1221,6 +1281,9 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                 nameResolvers: this.pkc.parsedPKCOptions.nameResolvers
             } as InputPKCOptions);
             this._initPKC(newPKC); // swap to new instance first so new RPC calls don't hit a destroyed pkc
+
+            // Before the subscription handlers, so one re-subscribing to a started community finds it on the new pkc
+            await this._moveStartedCommunitiesToPKC({ newPKC });
 
             // send a settingsNotification to all subscribers
             for (const connectionId of keys(this._onSettingsChange)) {

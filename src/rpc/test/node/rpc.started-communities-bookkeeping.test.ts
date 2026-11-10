@@ -1,5 +1,5 @@
 // PKCWsServer files every community it runs in _startedCommunities ("pending" while a start is in progress), and
-// stopCommunity and the auto-start queue both go through that map:
+// stopCommunity, setSettings and the auto-start queue all go through that map:
 //
 // - The auto-start queue picks its communities once, then starts them one by one. One a client started while it waited
 //   in the queue (or in a retry backoff) used to be overwritten with "pending", fail with
@@ -8,6 +8,11 @@
 //   getCommunityPage threw a TypeError. editCommunity fell back to the stored community, as it does for one that is not
 //   started, and deleteCommunity, getCommunityPage and auto-start now do the same. An auto-start that waited fetches
 //   the pkc only afterwards, since a setSettings during the wait swaps it.
+// - setSettings swaps the pkc and destroys the old one a minute later, which stops every community still on it. Only a
+//   live startCommunity subscription moved its community over, so one auto-started on boot, or whose starter
+//   unsubscribed or disconnected, was stopped while still listed as started. communitiesSubscribe stayed on the old
+//   pkc too, and went silent once it was destroyed. Moving a community must not undo a stopCommunity or deleteCommunity
+//   still in progress, so setSettings waits for those first.
 //
 // No kubo is needed: start() and stop() of LocalCommunity are replaced by stand-ins that keep the started registry.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -50,8 +55,8 @@ const internals = (rpcServer: PKCWsServerType) => rpcServer as unknown as Server
 // The CID of an empty UnixFS directory, as the page CID of a getCommunityPage whose fetch is stubbed
 const emptyDirectoryCid = "QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn";
 
-// A start() that waits until the test releases it, so the test can act while a start is in progress
-interface StartGate {
+// A start() or stop() that waits until the test releases it, so the test can act while it is in progress
+interface Gate {
     enteredBy?: string;
     release: (error?: Error) => void;
     promise: Promise<void>;
@@ -63,13 +68,21 @@ describe("PKCWsServer bookkeeping of started communities", () => {
     let serverErrors: Error[];
     // Communities the stand-in start() is running
     let running: Set<LocalCommunity>;
-    let nextStartGate: StartGate | undefined;
+    let nextStartGate: Gate | undefined;
+    let nextStopGate: Gate | undefined;
 
-    const gateNextStart = (): StartGate => {
-        let release!: StartGate["release"];
+    const newGate = (): Gate => {
+        let release!: Gate["release"];
         const promise = new Promise<void>((resolve, reject) => (release = (error) => (error ? reject(error) : resolve())));
-        nextStartGate = { release, promise };
-        return nextStartGate;
+        return { release, promise };
+    };
+    const gateNextStart = (): Gate => (nextStartGate = newGate());
+    const gateNextStop = (): Gate => (nextStopGate = newGate());
+
+    const waitAtGate = async (gate: Gate | undefined, address: string) => {
+        if (!gate) return;
+        gate.enteredBy = address;
+        await gate.promise;
     };
 
     // Like the connection handler, plus a socket that records what the server sends
@@ -118,14 +131,12 @@ describe("PKCWsServer bookkeeping of started communities", () => {
     beforeEach(async () => {
         running = new Set();
         nextStartGate = undefined;
+        nextStopGate = undefined;
         // Installed before any community instance exists, since the constructors bind start and stop
         vi.spyOn(LocalCommunity.prototype, "start").mockImplementation(async function (this: LocalCommunity) {
             const gate = nextStartGate;
             nextStartGate = undefined;
-            if (gate) {
-                gate.enteredBy = this.address;
-                await gate.promise;
-            }
+            await waitAtGate(gate, this.address);
             // as lifecycle.ts start() does
             if (findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }))
                 throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: this.address });
@@ -133,6 +144,9 @@ describe("PKCWsServer bookkeeping of started communities", () => {
             running.add(this);
         });
         vi.spyOn(LocalCommunity.prototype, "stop").mockImplementation(async function (this: LocalCommunity) {
+            const gate = nextStopGate;
+            nextStopGate = undefined;
+            await waitAtGate(gate, this.address);
             untrackStartedCommunity(this._pkc, this);
             running.delete(this);
         });
@@ -296,5 +310,103 @@ describe("PKCWsServer bookkeeping of started communities", () => {
             expect(running.has(community), "the community must still run after the old pkc is destroyed").to.be.true;
             expect(startedEntry(address)).to.equal(community);
         });
+    });
+
+    describe("setSettings", () => {
+        it("moves an auto-started community to the new pkc, so retiring the old pkc does not stop it", async () => {
+            const address = await createCommunity();
+            const community = await internals(rpcServer)._internalStartCommunity(address);
+            const oldPKC = rpcServer.pkc;
+
+            await setSettingsWithNewPublishInterval();
+            const newPKC = rpcServer.pkc;
+            expect(newPKC).to.not.equal(oldPKC);
+            await retirePKC(oldPKC);
+
+            expect(running.has(community), "the community must still run after the old pkc is destroyed").to.be.true;
+            expect(community._pkc).to.equal(newPKC);
+            expect(findStartedCommunity(newPKC, { publicKey: community.publicKey })).to.equal(community);
+            expect(startedEntry(address)).to.equal(community);
+        });
+
+        it("moves a community whose starter unsubscribed", async () => {
+            const address = await createCommunity();
+            openConnection("client");
+            const { subscriptionId } = await rpcServer.startCommunity([{ publicKey: address }], "client");
+            const community = startedEntry(address) as LocalCommunity;
+            // The community keeps running for the other clients and for auto-start
+            await rpcServer.unsubscribe([{ subscriptionId }], "client");
+            const oldPKC = rpcServer.pkc;
+
+            await setSettingsWithNewPublishInterval();
+            await retirePKC(oldPKC);
+
+            expect(running.has(community), "the community must still run after the old pkc is destroyed").to.be.true;
+            expect(community._pkc).to.equal(rpcServer.pkc);
+            expect(await rpcServer.stopCommunity([{ publicKey: address }])).to.deep.equal({ success: true });
+            expect(running.has(community)).to.be.false;
+        });
+
+        it("communitiesSubscribe keeps listing new communities after the old pkc is retired", async () => {
+            const notifications = openConnection("client");
+            const { subscriptionId } = await rpcServer.communitiesSubscribe([], "client");
+            const oldPKC = rpcServer.pkc;
+
+            await setSettingsWithNewPublishInterval();
+            await retirePKC(oldPKC);
+
+            const address = await createCommunity();
+            const listsNewCommunity = () =>
+                notifications.some(
+                    (notification) =>
+                        notification.subscription === subscriptionId &&
+                        notification.event === "communitieschange" &&
+                        Boolean(notification.result.communities?.some((entry) => entry.publicKey === address))
+                );
+            await pollUntil(listsNewCommunity, { timeoutMs: 10_000, intervalMs: 50 });
+            expect(listsNewCommunity(), "the subscription must receive the list naming the new community").to.be.true;
+        });
+
+        // A stop or delete a client started before the settings changed is still running when setSettings restarts
+        // communities. Restarting that community too used to undo it: the client was told it succeeded, and rpc-state.db
+        // said explicitly stopped (or no row at all), but the community ran again and was filed as started.
+        for (const call of ["stopCommunity", "deleteCommunity"] as const)
+            for (const startedBy of ["auto-start", "a client still subscribed to it"] as const)
+                it(`waits for a ${call} in progress and leaves that community alone (started by ${startedBy})`, async () => {
+                    // The stand-in delete() stops the community, as LocalCommunity.delete() does, once the test releases it
+                    const clientCall = newGate();
+                    vi.spyOn(LocalCommunity.prototype, "delete").mockImplementation(async function (this: LocalCommunity) {
+                        await waitAtGate(clientCall, this.address);
+                        untrackStartedCommunity(this._pkc, this);
+                        running.delete(this);
+                    });
+                    const address = await createCommunity();
+                    if (startedBy === "auto-start") await internals(rpcServer)._internalStartCommunity(address);
+                    else {
+                        openConnection("client");
+                        await rpcServer.startCommunity([{ publicKey: address }], "client");
+                    }
+                    const community = startedEntry(address) as LocalCommunity;
+                    expect(running.has(community)).to.be.true;
+                    const oldPKC = rpcServer.pkc;
+
+                    if (call === "stopCommunity") nextStopGate = clientCall;
+                    const clientCallDone = rpcServer[call]([{ publicKey: address }]);
+                    await pollUntil(() => clientCall.enteredBy !== undefined, { intervalMs: 10 });
+
+                    // A restart stops the community first; hold that stop too, so a restart would overlap the client's call
+                    const restartStop = gateNextStop();
+                    const settingsCall = setSettingsWithNewPublishInterval();
+                    await pollUntil(() => rpcServer.pkc !== oldPKC, { intervalMs: 10 });
+                    await letPendingCallsReachTheirWait();
+                    clientCall.release();
+                    expect(await clientCallDone).to.deep.equal({ success: true });
+                    restartStop.release();
+                    await settingsCall;
+                    await retirePKC(oldPKC);
+
+                    expect(running.has(community), `a community its client ran ${call} on must stay stopped`).to.be.false;
+                    expect(startedEntry(address), "it must not be filed as started").to.be.undefined;
+                });
     });
 });
