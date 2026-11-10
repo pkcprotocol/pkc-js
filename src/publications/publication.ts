@@ -759,7 +759,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             .map(([provider]) => provider);
         providers.forEach((provider) => this._updatePubsubState("waiting-challenge-verification", provider));
 
-        log(`publishChallengeAnswers: Responded to challenge  with answers`, challengeAnswers);
+        log(`publishChallengeAnswers: Responded to challenge with ${challengeAnswers.length} answer(s)`); // never the answers themselves (issue #493)
         this.emit("challengeanswer", decryptedChallengeAnswer);
     }
 
