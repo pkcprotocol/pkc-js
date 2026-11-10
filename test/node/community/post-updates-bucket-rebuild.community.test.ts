@@ -148,7 +148,11 @@ describeSkipIfRpc("postUpdates bucket rebuilt in node (issue #471)", () => {
     }, 120_000);
 
     it("discards a stale staged bucket left beside the live one", async () => {
-        await kubo().files.cp(`/ipfs/${threePostBucketCid}`, `${bucketPath()}.next`, { flush: true });
+        // Staged from the live bucket's own CID: an older bucket's root is unreferenced by now and a repo gc run by
+        // another suite's community on the shared daemon may have taken it, and a cp of a missing CID hangs on a
+        // network fetch (and holds every other MFS user off meanwhile)
+        const live = await kubo().files.stat(bucketPath());
+        await kubo().files.cp(`/ipfs/${live.cid.toString()}`, `${bucketPath()}.next`, { flush: true });
 
         await publishPosts(1);
         await waitForRecordBucketListing(postCids());
