@@ -126,7 +126,7 @@ export interface EncodedPubsubSignature extends Omit<PubsubSignature, "signature
 }
 
 export interface BaseEncodedPubsubMessage {
-    challengeRequestId: string; // base64 string
+    challengeRequestId: string; // base58btc string
     signature: EncodedPubsubSignature;
 }
 export interface EncodedDecryptedChallengeRequestMessageType

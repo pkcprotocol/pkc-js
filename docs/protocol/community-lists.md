@@ -54,11 +54,12 @@ CommunityListEntry { // metadata set by the list curator, NOT the community owne
   from `signedPropertyNames`, like `CommunityIpfs` and unlike `CommentIpfs`, because a list
   has no second producer allowed to attach fields. Otherwise anyone could add a field to a
   curator's list, re-add it under a new CID, and have it verify as the curator's.
-- The runtime-only conveniences (`cid`, `shortCid` on the record; `address`, `shortAddress`
-  on entries) go on reserved-field lists (`CommunityListReservedFields` and the entry
-  equivalent), so looseness never lets a wire record smuggle in runtime-only names; same
-  rule as every other record type. The author object reuses the publication author reserved
-  list (`address`, `publicKey`, `shortAddress`, `community`, `nameResolved`).
+- The runtime-only names (`cid`, `shortCid`, `state`, `updatingState`, `publishingState`,
+  `clients`, `signer` and `raw` on the record; `address`, `shortAddress` on entries) go on
+  reserved-field lists (`CommunityListReservedFields` and the entry equivalent), so
+  looseness never lets a wire record smuggle in runtime-only names; same rule as every other
+  record type. The author object reuses the publication author reserved list (`address`,
+  `publicKey`, `shortAddress`, `community`, `nameResolved`).
 
 ## Why immutable
 

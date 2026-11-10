@@ -23,6 +23,7 @@ Every publication and record in the protocol is Ed25519 signed. Each type declar
 | `CommentEdit` | Author | `JsonSignature` | `CommentEditSignedPropertyNames` |
 | `CommentModeration` | Moderator | `JsonSignature` | `CommentModerationSignedPropertyNames` |
 | `CommunityIpfsType` | Community owner | `JsonSignature` | `CommunitySignedPropertyNames` |
+| `CommunityList` | Curator (any key) | `JsonSignature` | `CommunityListSignedPropertyNames` |
 | Challenge messages | Sender | `PubsubSignature` | Per-message type (binary, not JSON) |
 
 ## Signature Object Shapes

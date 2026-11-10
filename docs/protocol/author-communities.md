@@ -71,13 +71,13 @@ first published. That discussion is unaffected, but it is not mirrored into the 
 
 **Converting an existing community.** The same configuration can be applied with `edit()` to a
 community that was created with `anchor`; an ordinary community cannot be re-keyed onto the author's
-identity afterwards. `settings` and `suggested` are replaced wholesale on edit, so spread what is
-already there, or the edit silently drops everything it does not repeat, `settings.pages` included.
-`roles` is a patch, so it needs no spread:
+identity afterwards. `roles`, `settings` and `suggested` are replaced wholesale on edit, so spread
+what is already there, or the edit silently drops everything it does not repeat, existing roles and
+`settings.pages` included:
 
 ```js
 await community.edit({
-    roles: { [An]: { role: "owner" } },
+    roles: { ...community.roles, [An]: { role: "owner" } },
     suggested: { ...community.suggested, uiType: "author" },
     settings: {
         ...community.settings,
@@ -228,9 +228,9 @@ rejected by their own `fail` challenge.
 ### The roles key
 
 `exclude.roles` does not look the publisher up by `author.address`. It walks the roles map and binds
-each key to the **signer** of the publication, the same way `isPublicationAuthorPartOfRoles` does for
-moderation authority (see the identity table in `challenge-flow.md`). Either form of the owner's
-identity is a valid key, and each one matches by its own rule:
+each key to the **signer** of the publication, the same way `matchPublicationAuthorAgainstRoles`
+does for moderation authority (see the identity table in `challenge-flow.md`). Either form of the
+owner's identity is a valid key, and each one matches by its own rule:
 
 - **The peer-ID key** (`author.publicKey`) matches when it equals the address derived from
   `signature.publicKey`. That holds whatever `author.name` the owner sends, and it costs nothing: keys
@@ -435,8 +435,9 @@ fully supported, see [delegated-ipns.md](delegated-ipns.md); it re-points `An` a
 address does not move.
 
 Migration between minters reuses `exportCommunity`, which is type-blind and already sqlite-based. The
-community address in the database is the anchor, and the minter key is node-local configuration that
-is never part of an export, so the database is portable by construction.
+community address in the database is the anchor, and the minter key is the community signer, which
+an export leaves out unless it is called with `includePrivateKey: true`, so the database is portable
+by construction.
 
 ## Finding a profile
 
