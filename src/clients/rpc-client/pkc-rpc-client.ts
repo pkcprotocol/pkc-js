@@ -43,6 +43,8 @@ import type {
     CancelExportRpcParam,
     RpcExportCommunityResult,
     ExportCommunityModLogsRpcParam,
+    GetLogsQuery,
+    RpcGetLogsResult,
     RpcExportCommunityModLogsResult,
     PublishAnchorRecordRpcParam,
     AnchorPublishPreparation,
@@ -70,6 +72,8 @@ import {
     parseRpcExportCommunityResult,
     parseRpcExportCommunityModLogsParam,
     parseRpcExportCommunityModLogsResult,
+    parseRpcGetLogsResult,
+    parseLogQueryWithPKCErrorIfItFails,
     parseRpcPublishAnchorRecordParam,
     parseRpcAnchorPublishPreparationResult,
     parseRpcPublishedAnchorRecordResult,
@@ -974,6 +978,13 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     async exportCommunityModLogs(args: ExportCommunityModLogsRpcParam): Promise<RpcExportCommunityModLogsResult> {
         const parsedArgs = parseRpcExportCommunityModLogsParam(args);
         return parseRpcExportCommunityModLogsResult(await this._webSocketClient.call("exportCommunityModLogs", [parsedArgs]));
+    }
+
+    // The server's own log buffer (issue #493). The query is parsed here before the wire, so a bad regex never leaves
+    // the client; the server parses it again with the same schema
+    async getLogs(query: GetLogsQuery): Promise<RpcGetLogsResult> {
+        const parsedQuery = parseLogQueryWithPKCErrorIfItFails(query);
+        return parseRpcGetLogsResult(await this._webSocketClient.call("getLogs", [parsedQuery]));
     }
 
     async exportsSubscribe(args: CommunityIdentifierRpcParam): Promise<RpcSubscriptionIdResult> {

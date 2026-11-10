@@ -39,7 +39,7 @@ import {
 import Vote from "../publications/vote/vote.js";
 import { createSigner, verifyCommentPubsubMessage } from "../signer/index.js";
 import { CommentEdit } from "../publications/comment-edit/comment-edit.js";
-import { createLogger, type Logger as PkcLogger } from "@pkcprotocol/pkc-logger";
+import { createLogger, InvalidLogQueryError, type Logger as PkcLogger, type LogQueryResult } from "@pkcprotocol/pkc-logger";
 import env from "../version.js";
 import { verifyCommentEdit, verifyCommentIpfs, verifyCommentUpdate, verifyCommunityEdit } from "../signer/signatures.js";
 import Stats from "../stats.js";
@@ -141,8 +141,8 @@ import type { PageTypeJson } from "../pages/types.js";
 // _initLibp2pJsClientsIfNeeded() rather than statically here. Libp2pJsClient is used only as a type,
 // so it stays a type-only import (erased at build time, no runtime cost).
 import type { Libp2pJsClient } from "../helia/libp2pjsClient.js";
-import type { AuthorNameRpcParam, CidRpcParam, PKCCommunitiesEntry, RpcFetchCidResult } from "../clients/rpc-client/types.js";
-import { parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
+import type { AuthorNameRpcParam, CidRpcParam, GetLogsQuery, PKCCommunitiesEntry, RpcFetchCidResult } from "../clients/rpc-client/types.js";
+import { parseLogQueryWithPKCErrorIfItFails, parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { cleanWireAuthor, getAuthorNameFromWire, normalizeCreatePublicationAuthor } from "../publications/publication-author.js";
 import { CommunityList } from "../community-list/community-list.js";
 import { CreateCommunityListWithCidOptionsSchema, CreateNewCommunityListOptionsSchema } from "../community-list/schema.js";
@@ -1309,6 +1309,28 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     // Used to pre-subscribe so publishing on pubsub would be faster
+    // The captured log entries of this instance's root (pkc.logger), filtered by the query, or, with `rpcUrl`, of that
+    // RPC server's root through its getLogs method (issue #493; README "Logs"). `rpcUrl` must be one of this
+    // instance's pkcRpcClientsOptions, compared as an exact string, so a URL is never normalized into a server the
+    // caller did not configure. The query is parsed with the same schema the server uses, so an invalid regex throws
+    // ERR_INVALID_LOG_QUERY here before anything is sent or scanned.
+    async getLogs(args: GetLogsQuery & { rpcUrl?: string } = {}): Promise<LogQueryResult> {
+        const { rpcUrl, ...query } = args;
+        if (rpcUrl !== undefined) {
+            const rpcClient = this.pkcRpcClientsOptions?.includes(rpcUrl) ? this.clients.pkcRpcClients[rpcUrl] : undefined;
+            if (!rpcClient)
+                throw new PKCError("ERR_PKC_NOT_CONNECTED_TO_RPC", { rpcUrl, pkcRpcClientsOptions: this.pkcRpcClientsOptions ?? [] });
+            return rpcClient.getLogs(query);
+        }
+        const parsedQuery = parseLogQueryWithPKCErrorIfItFails(query);
+        try {
+            return this.logger.getLogs(parsedQuery);
+        } catch (e) {
+            if (e instanceof InvalidLogQueryError) throw new PKCError("ERR_INVALID_LOG_QUERY", { query: parsedQuery, error: e });
+            throw e;
+        }
+    }
+
     async pubsubSubscribe(pubsubTopic: string) {
         const parsedTopic = PubsubTopicSchema.parse(pubsubTopic);
         if (this._pubsubSubscriptions[parsedTopic]) return;

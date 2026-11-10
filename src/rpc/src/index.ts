@@ -1,5 +1,5 @@
 import pLimit from "p-limit";
-import type { Logger } from "@pkcprotocol/pkc-logger";
+import { InvalidLogQueryError, type Logger } from "@pkcprotocol/pkc-logger";
 import pRetry from "p-retry";
 import { Server as RpcWebsocketsServer } from "rpc-websockets";
 import { createReadStream, existsSync, mkdirSync, promises as fsPromises, statSync } from "fs";
@@ -99,7 +99,8 @@ import {
     parseRpcExportCommunityModLogsParam,
     parseRpcPublishAnchorRecordParam,
     parseRpcPublishCommunityListParam,
-    parseRpcFetchCommunityListParam
+    parseRpcFetchCommunityListParam,
+    parseLogQueryWithPKCErrorIfItFails
 } from "../../clients/rpc-client/rpc-schema-util.js";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import type {
@@ -115,6 +116,7 @@ import type {
     RpcLocalCommunityUpdateResultType,
     RpcExportCommunityResult,
     RpcExportCommunityModLogsResult,
+    RpcGetLogsResult,
     RpcPublishCommunityListResult,
     RpcFetchCommunityListResult,
     PKCCommunitiesEntry
@@ -355,6 +357,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         this.rpcWebsocketsRegister("exportsSubscribe", this.exportsSubscribe.bind(this));
         this.rpcWebsocketsRegister("cancelExport", this.cancelExport.bind(this));
         this.rpcWebsocketsRegister("exportCommunityModLogs", this.exportCommunityModLogs.bind(this));
+        this.rpcWebsocketsRegister("getLogs", this.getLogs.bind(this));
 
         hideClassPrivateProps(this);
     }
@@ -2007,6 +2010,20 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             community = created;
         }
         return community.exportCommunityModLogs({ startTimestamp, endTimestamp, commentCid, limit, order });
+    }
+
+    // This server's own log buffer (issue #493): the root the server was constructed with, which every replacement pkc
+    // from setSettings shares. The query schema is strict, so an `rpcUrl` in the params is rejected and a call is
+    // never chained to a third daemon. Sits behind the same auth key as every other method: entries carry whatever
+    // the call sites logged, and `regex` is trusted input (a backtracking pattern runs synchronously).
+    async getLogs(params: any): Promise<RpcGetLogsResult> {
+        const query = parseLogQueryWithPKCErrorIfItFails(params[0]);
+        try {
+            return this.pkc.logger.getLogs(query);
+        } catch (e) {
+            if (e instanceof InvalidLogQueryError) throw new PKCError("ERR_INVALID_LOG_QUERY", { query, error: e });
+            throw e;
+        }
     }
 
     async exportsSubscribe(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {

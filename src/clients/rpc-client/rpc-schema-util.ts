@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { PKCError } from "../../pkc-error.js";
 import {
     RpcAuthorNameParamSchema,
     RpcCidParamSchema,
@@ -17,6 +19,9 @@ import {
     RpcExportCommunityResultSchema,
     RpcExportschangeResultSchema,
     RpcExportCommunityModLogsParamSchema,
+    RpcGetLogsParamSchema,
+    LogQuerySchema,
+    RpcGetLogsResultSchema,
     RpcExportCommunityModLogsResultSchema,
     RpcPublishAnchorRecordParamSchema,
     RpcAnchorPublishPreparationResultSchema,
@@ -60,6 +65,16 @@ export const parseRpcExportCommunityParam = (params: unknown) => RpcExportCommun
 export const parseRpcCancelExportParam = (params: unknown) => RpcCancelExportParamSchema.loose().parse(params);
 export const parseRpcExportCommunityResult = (result: unknown) => RpcExportCommunityResultSchema.loose().parse(result);
 export const parseRpcExportschangeResult = (result: unknown) => RpcExportschangeResultSchema.loose().parse(result);
+
+// pkc.getLogs() / getLogs RPC method — wire param/result parsers (issue #493). The param parser is NOT loose: an unknown
+// key (rpcUrl included) is an ERR_INVALID_LOG_QUERY, see LogQuerySchema
+export const parseRpcGetLogsParam = (params: unknown) => RpcGetLogsParamSchema.parse(params);
+export function parseLogQueryWithPKCErrorIfItFails(query: unknown): z.output<typeof LogQuerySchema> {
+    const parseRes = LogQuerySchema.safeParse(query);
+    if (!parseRes.success) throw new PKCError("ERR_INVALID_LOG_QUERY", { zodError: parseRes.error, query });
+    return parseRes.data;
+}
+export const parseRpcGetLogsResult = (result: unknown) => RpcGetLogsResultSchema.loose().parse(result);
 
 // community.exportCommunityModLogs() — wire param/result parsers
 export const parseRpcExportCommunityModLogsParam = (params: unknown) => RpcExportCommunityModLogsParamSchema.loose().parse(params);

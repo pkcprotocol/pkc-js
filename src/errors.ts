@@ -495,5 +495,7 @@ export enum messages {
     ERR_COMMUNITY_LIST_SIGNATURE_IS_INVALID = "CommunityList record has an invalid signature",
     ERR_ADDED_COMMUNITY_LIST_TO_IPFS_BUT_GOT_DIFFERENT_CID = "The RPC server returned a cid different from the cid of the signed CommunityList bytes",
     ERR_GET_COMMUNITY_LIST_ABORTED = "pkc.getCommunityList() was aborted by a signal",
-    ERR_COMMUNITY_LIST_CID_MUST_BE_V0 = "CommunityList cid must be a CIDv0 (Qm...), the cid that publish() returns"
+    ERR_COMMUNITY_LIST_CID_MUST_BE_V0 = "CommunityList cid must be a CIDv0 (Qm...), the cid that publish() returns",
+    ERR_PKC_NOT_CONNECTED_TO_RPC = "pkc.getLogs({ rpcUrl }) names an RPC server that is not one of this instance's pkcRpcClientsOptions",
+    ERR_INVALID_LOG_QUERY = "The log query is invalid (an unknown field, a bad regex, or a limit/cursor/time out of range)"
 }
