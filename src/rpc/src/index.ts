@@ -985,12 +985,9 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         else {
             community = <LocalCommunity>await pkc.createCommunity({ address });
             community.once("error", (error: PKCError | Error) => {
-                this._communityLog(community.publicKey).error(
-                    "RPC server Received an error on community",
-                    community.address,
-                    "edit",
-                    error
-                );
+                this._log
+                    .child({ namespace: "community", tags: { publicKey: community.publicKey } })
+                    .error("RPC server Received an error on community", community.address, "edit", error);
             });
         }
 
@@ -1148,7 +1145,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                 pageSorts[name] = omit(pageSortFactory({ pageSortSettings: { name } }), ["score", "validatePageSortSettings"]);
             } catch (e) {
                 this._log.error(
-                    `publishCommunityList: Page sort "${name}" could not be listed in the RPC settings because its factory threw`,
+                    `_serializeSettingsFromPKC: Page sort "${name}" could not be listed in the RPC settings because its factory threw`,
                     e
                 );
             }
@@ -1186,23 +1183,9 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         return { subscriptionId };
     }
 
-    // The child community-scoped RPC methods log through, tagged with the community's publicKey (issue #493). One per
-    // publicKey, cached: the communities one server hosts are bounded. Falls back to the server's logger when the
-    // publicKey is not known yet.
-    private _communityLogs = new Map<string, Logger>();
-    private _communityLog(publicKey: string | undefined): Logger {
-        if (!publicKey) return this._log;
-        let log = this._communityLogs.get(publicKey);
-        if (!log) {
-            log = this._log.child({ namespace: "community", tags: { publicKey } });
-            this._communityLogs.set(publicKey, log);
-        }
-        return log;
-    }
-
     private _initPKC(pkc: PKC) {
         this.pkc = pkc;
-        pkc.on("error", (error: any) => this._log.error("publishCommunityList: RPC server", "Received an error on pkc instance", error));
+        pkc.on("error", (error: any) => this._log.error("_initPKC: RPC server", "Received an error on pkc instance", error));
     }
 
     private async _createPKCInstanceFromSetSettings(newOptions: InputPKCOptions) {
@@ -1221,7 +1204,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                 await send({ newPKC: this.pkc });
             } catch (error) {
                 this._log.error(
-                    `publishCommunityList: Failed to send settingschange to settings subscription ${senderKey}, continuing with the rest`,
+                    `notifySettingsChange: Failed to send settingschange to settings subscription ${senderKey}, continuing with the rest`,
                     error
                 );
             }
@@ -1233,11 +1216,11 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             const settings = parseSetNewSettingsPKCWsServerSchemaWithPKCErrorIfItFails(params[0]);
             const currentSettings = this._serializeSettingsFromPKC(this.pkc);
             if (deterministicStringify(settings.pkcOptions) === deterministicStringify(currentSettings.pkcOptions)) {
-                this._log("publishCommunityList: RPC client called setSettings with the same settings as the current one, aborting");
+                this._log("setSettings: RPC client called setSettings with the same settings as the current one, aborting");
                 return;
             }
 
-            this._log(`publishCommunityList: RPC client called setSettings, the clients need to call all subscription methods again`);
+            this._log(`setSettings: RPC client called setSettings, the clients need to call all subscription methods again`);
             const oldPKC = this.pkc;
             // Strip nameResolvers from client settings — RPC server ignores them for now. `logger` is stripped too: the
             // replacement instance adopts this server's root (issue #493), so the log buffer and the listeners a host
@@ -1264,7 +1247,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                         // would never migrate to the new pkc and would die silently when the old
                         // pkc is destroyed (issue #129)
                         this._log.error(
-                            `publishCommunityList: Failed to apply settings change to subscription ${subscriptionId} of connection ${connectionId}, continuing with remaining subscriptions`,
+                            `setSettings: Failed to apply settings change to subscription ${subscriptionId} of connection ${connectionId}, continuing with remaining subscriptions`,
                             error
                         );
                     }
@@ -1431,7 +1414,13 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const startedCommunity = findStartedCommunity(pkc, parsedArgs);
         const isStartedCommunity = Boolean(startedCommunity);
         const community = startedCommunity || <LocalCommunity | RemoteCommunity>await pkc.createCommunity(parsedArgs);
-        const log = this._communityLog(community.publicKey);
+        // One child per subscription, tagged with the community's publicKey (issue #493). The tags are refreshed on
+        // every update: a community subscribed by name has no key before its first record, and a key migration
+        // changes it. Nothing is cached across subscriptions, so remote communities cannot grow a map for the
+        // server's lifetime.
+        const log = this._log.child({ namespace: "community" });
+        const refreshLogTags = () => log.setTags({ publicKey: community.publicKey });
+        refreshLogTags();
 
         const sendCommunityJson = () => {
             let jsonToSend:
@@ -1456,7 +1445,10 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             sendEvent("update", jsonToSend);
         };
 
-        const updateListener = () => sendCommunityJson();
+        const updateListener = () => {
+            refreshLogTags();
+            sendCommunityJson();
+        };
         community.on("update", updateListener);
 
         const updatingStateListener = () => sendEvent("updatingstatechange", { state: community.updatingState });

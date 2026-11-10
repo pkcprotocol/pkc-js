@@ -109,6 +109,7 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
         this.author = this._buildRuntimeAuthor(record.author, record.signature.publicKey);
         if (typeof previousNameResolved === "boolean") this.author.nameResolved = previousNameResolved;
         else this._setAuthorNameResolvedFromCache();
+        this._refreshLogTags();
     }
 
     // Reading a cached verdict is free, so a one-shot load shows one like getComment does

@@ -65,8 +65,9 @@ const describeMisconfiguredChallenge = (e: Error): string =>
         ? `challenge "${e.details.challengeName}" is not registered on this node`
         : e.message;
 
+// The exchange's logger (_challengeExchangeLogs) is NOT cleaned up here: an interactive challenge reaches this as soon
+// as the answers arrive, before the verification is published, and the LRU's ttl expires the entry anyway.
 export function cleanUpChallengeAnswerPromise(community: LocalCommunity, challengeRequestIdString: string) {
-    community._challengeExchangeLogs?.delete(challengeRequestIdString);
     community._challengeAnswerPromises.delete(challengeRequestIdString);
     community._challengeAnswerResolveReject.delete(challengeRequestIdString);
     delete community._challengeExchangesFromLocalPublishers[challengeRequestIdString];

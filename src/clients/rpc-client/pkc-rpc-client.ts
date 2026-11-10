@@ -374,7 +374,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                     await this.unsubscribe(Number(subscriptionId));
                 } else cleanupSubscriptionLocally(subscriptionId);
             } catch (e) {
-                this._log.error("_init: Failed to unsubscribe to subscription ID", subscriptionId, e);
+                this._log.error("destroy: Failed to unsubscribe to subscription ID", subscriptionId, e);
                 cleanupSubscriptionLocally(subscriptionId);
             }
 
@@ -397,10 +397,10 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                 const socketClosed = this._waitForSocketClose();
                 this._webSocketClient.close();
                 await socketClosed;
-                this._log("_init: Closed websocket connection to", this._websocketServerUrl);
+                this._log("destroy: Closed websocket connection to", this._websocketServerUrl);
             }
         } catch (e) {
-            this._log.error("_init: Failed to close websocket", e);
+            this._log.error("destroy: Failed to close websocket", e);
         }
 
         this._openConnectionPromise = undefined;
@@ -419,7 +419,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
             await pTimeout(closed, { milliseconds: DESTROY_SOCKET_CLOSE_TIMEOUT_MS });
         } catch {
             this._log.error(
-                "_init: Websocket did not close within",
+                "_waitForSocketClose: Websocket did not close within",
                 DESTROY_SOCKET_CLOSE_TIMEOUT_MS,
                 "ms of destroy()",
                 this._websocketServerUrl
@@ -557,14 +557,21 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                 if ((error as { code?: unknown })?.code === "ERR_RPC_COMMUNITY_NOT_RUNNING") {
                     // Someone stopped the community on purpose, possibly while we were away; tell the
                     // instance the way a stop reaches a connected client, and do not try again
-                    this._log("_init: Not re-establishing start(), the community was stopped on purpose", subscriptionId);
+                    this._log(
+                        "_resubscribeAllAfterReconnect: Not re-establishing start(), the community was stopped on purpose",
+                        subscriptionId
+                    );
                     this._resubscribeCalls.delete(subscriptionId);
                     this._dispatchNotification(subscriptionId, {
                         params: { event: "startedstatechange", subscription: subscriptionId, result: { state: "stopped" } }
                     });
                     return;
                 }
-                this._log.error("_init: Failed to re-subscribe after reconnecting to the RPC server", subscriptionId, error);
+                this._log.error(
+                    "_resubscribeAllAfterReconnect: Failed to re-subscribe after reconnecting to the RPC server",
+                    subscriptionId,
+                    error
+                );
                 this._dispatchNotification(subscriptionId, {
                     params: { event: "error", subscription: subscriptionId, result: error }
                 });
@@ -588,7 +595,11 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         for (const subscribe of subscriptions)
             this._runBackgroundSubscription(subscribe).catch((error) => {
                 if (this._destroyRequested) return;
-                this._log.error("_init: Failed to subscribe after connecting to the RPC server", this._websocketServerUrl, error);
+                this._log.error(
+                    "_retryBackgroundSubscriptions: Failed to subscribe after connecting to the RPC server",
+                    this._websocketServerUrl,
+                    error
+                );
             });
     }
 
@@ -609,7 +620,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
             // Unsubscribed while the call was in flight
             if (!this._destroyRequested)
                 await this._webSocketClient.call("unsubscribe", [{ subscriptionId: serverSubscriptionId }]).catch((error) => {
-                    this._log.error("_init: Failed to unsubscribe a subscription re-issued after it was unsubscribed", error);
+                    this._log.error("_resubscribe: Failed to unsubscribe a subscription re-issued after it was unsubscribed", error);
                 });
             return;
         }
@@ -617,7 +628,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         if (previousServerSubscriptionId !== undefined) this._localIdByServerId.delete(previousServerSubscriptionId);
         this._serverIdByLocalId.set(subscriptionId, serverSubscriptionId);
         this._localIdByServerId.set(serverSubscriptionId, subscriptionId);
-        this._log("_init: Re-subscribed after reconnecting", call.method, { subscriptionId, serverSubscriptionId });
+        this._log("_resubscribe: Re-subscribed after reconnecting", call.method, { subscriptionId, serverSubscriptionId });
         for (const message of earlyMessages) {
             message.params.subscription = subscriptionId;
             this._dispatchNotification(subscriptionId, message);
