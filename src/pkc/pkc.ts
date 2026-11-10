@@ -39,7 +39,6 @@ import {
 import Vote from "../publications/vote/vote.js";
 import { createSigner, verifyCommentPubsubMessage } from "../signer/index.js";
 import { CommentEdit } from "../publications/comment-edit/comment-edit.js";
-import Logger from "../logger.js";
 import { createLogger, type Logger as PkcLogger } from "@pkcprotocol/pkc-logger";
 import env from "../version.js";
 import { verifyCommentEdit, verifyCommentIpfs, verifyCommentUpdate, verifyCommunityEdit } from "../signer/signatures.js";
@@ -397,7 +396,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         this.clients.kuboRpcClients = {};
         if (!this.kuboRpcClientsOptions) return;
         for (const clientOptions of this.kuboRpcClientsOptions) {
-            const kuboRpcClient = await createKuboRpcClient(clientOptions);
+            const kuboRpcClient = await createKuboRpcClient(clientOptions, this._log);
             this.clients.kuboRpcClients[clientOptions.url!.toString()] = {
                 _client: kuboRpcClient,
                 _clientOptions: clientOptions,
@@ -413,7 +412,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         if (!this.pubsubKuboRpcClientsOptions) return;
 
         for (const clientOptions of this.pubsubKuboRpcClientsOptions) {
-            const kuboRpcClient = await createKuboRpcClient(clientOptions);
+            const kuboRpcClient = await createKuboRpcClient(clientOptions, this._log);
             this.clients.pubsubKuboRpcClients[clientOptions.url!.toString()] = {
                 _client: kuboRpcClient,
                 _clientOptions: clientOptions,
@@ -442,7 +441,8 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                 httpRoutersOptions: this.httpRoutersOptions,
                 // where the persistent blockstore lives on node; undefined (noData, or the browser)
                 // falls back to an in-memory blockstore
-                dataPath: this.dataPath
+                dataPath: this.dataPath,
+                log: this.logger.child({ namespace: "pkc-js:libp2p-js" })
             });
             this.clients.libp2pJsClients[clientOptions.key] = heliaNode;
         }
@@ -451,7 +451,8 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     private _initRpcClientsIfNeeded() {
         this.clients.pkcRpcClients = {};
         if (!this.pkcRpcClientsOptions) return;
-        for (const rpcUrl of this.pkcRpcClientsOptions) this.clients.pkcRpcClients[rpcUrl] = new PKCRpcClient(rpcUrl);
+        for (const rpcUrl of this.pkcRpcClientsOptions)
+            this.clients.pkcRpcClients[rpcUrl] = new PKCRpcClient(rpcUrl, this._log.child({ namespace: "rpc-client" }));
     }
 
     private _initIpfsGatewaysIfNeeded() {
@@ -462,7 +463,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     private async _setupHttpRoutersWithKuboNodeInBackground() {
-        const log = Logger("pkc-js:pkc:_initHttpRoutersWithIpfsInBackground");
+        const log = this._log;
 
         if (this.destroyed) return;
 
@@ -471,11 +472,14 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             const setupPromise = setupKuboHttpRouters(this)
                 .then(() => {
                     if (this.destroyed) return;
-                    log("Set http router options successfully on all connected ipfs", Object.keys(this.clients.kuboRpcClients));
+                    log(
+                        "_initHttpRoutersWithIpfsInBackground: Set http router options successfully on all connected ipfs",
+                        Object.keys(this.clients.kuboRpcClients)
+                    );
                 })
                 .catch((e: Error) => {
                     if (this.destroyed) return;
-                    log.error("Failed to set http router options on ipfs nodes due to error", e);
+                    log.error("_initHttpRoutersWithIpfsInBackground: Failed to set http router options on ipfs nodes due to error", e);
                     this.emit("error", e);
                 });
 
@@ -493,7 +497,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     async _init() {
-        const log = Logger("pkc-js:pkc:_init");
+        const log = this._log;
         // Construct kubo clients before anything that reads them (Stats, HTTP routers). No-op for RPC
         // clients (kuboRpcClientsOptions is undefined). Async because kubo-rpc-client is dynamic-imported.
         await this._initKuboRpcClientsIfNeeded();
@@ -517,7 +521,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
 
         await this._setupHttpRoutersWithKuboNodeInBackground();
         await this._initLibp2pJsClientsIfNeeded();
-        this._clientsManager = new PKCClientsManager(this);
+        this._clientsManager = new PKCClientsManager(this, this._log.child({ namespace: "clients-manager" }));
 
         hideClassPrivateProps(this);
     }
@@ -547,7 +551,6 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     // be split off before the rest reaches createComment(), which would otherwise carry the signal
     // onto the instance — the same reason `abortSignal` is a reserved comment field.
     async getComment(getCommentArgs: GetCommentArgs): Promise<Comment> {
-        const log = Logger("pkc-js:pkc:getComment");
         const { abortSignal, ...cidArgs } = getCommentArgs;
         const parsedGetCommentArgs = parseRpcCidParam(cidArgs);
         // Same code as an abort mid-fetch, so callers have one thing to check regardless of when the
@@ -700,8 +703,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             | CreateCommentEditOptions
             | CreateVoteOptions
             | CreateCommentModerationOptions
-            | CreateCommunityEditPublicationOptions,
-        log: Logger
+            | CreateCommunityEditPublicationOptions
     ): Promise<CommentOptionsToSign | VoteOptionsToSign | CommentEditOptionsToSign | CommunityEditPublicationOptionsToSign> {
         const finalOptions = clone(pubOptions);
         if (!finalOptions.signer) throw Error("User did not provide a signer to create a local publication");
@@ -767,9 +769,8 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         else if ("signer" in options && options.signer) {
             const unsignedOpts = (options.raw as { unsignedPublicationOptions?: CreatePublicationOptions }).unsignedPublicationOptions;
             if (unsignedOpts) {
-                const log = Logger("pkc-js:pkc:createComment");
                 const finalOptions = <CommentOptionsToSign>(
-                    await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: options.signer }, log)
+                    await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: options.signer })
                 );
                 commentInstance._initUnsignedLocalProps({
                     unsignedOptions: finalOptions,
@@ -807,8 +808,6 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             | CommentWithinRepliesPostsPageJson
             | CommentIpfsWithCidDefined
     ): Promise<Comment> {
-        const log = Logger("pkc-js:pkc:createComment");
-
         if ("clients" in options || "raw" in options || "original" in options || options instanceof Comment)
             return this._createCommentInstanceFromAnotherCommentInstance(
                 options as Comment | CommentWithinRepliesPostsPageJson | CommentJson
@@ -860,7 +859,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             // options is CreateCommentOptions
             const parsedOptions = parseCreateCommentOptionsSchemaWithPKCErrorIfItFails(options);
             // Defer signing to publish() — just fill missing fields and store unsigned options
-            const fieldsFilled = <CommentOptionsToSign>await this._initMissingFieldsOfPublicationBeforeSigning(parsedOptions, log);
+            const fieldsFilled = <CommentOptionsToSign>await this._initMissingFieldsOfPublicationBeforeSigning(parsedOptions);
             commentInstance._initUnsignedLocalProps({
                 unsignedOptions: fieldsFilled,
                 challengeRequest: parsedOptions.challengeRequest
@@ -954,21 +953,21 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     private async _createRemoteCommunityInstance(options: z.infer<typeof CreateRemoteCommunityFunctionArgumentSchema>) {
-        const log = Logger("pkc-js:pkc:createRemoteCommunity");
+        const log = this._log;
 
-        log.trace("Received community options to create a remote community instance:", options);
+        log.trace("createRemoteCommunity: Received community options to create a remote community instance:", options);
         const community = new RemoteCommunity(this);
         await this._setCommunityIpfsOnInstanceIfPossible(community, options);
 
-        log.trace(`Created remote community instance (${community.address})`);
+        log.trace(`createRemoteCommunity: Created remote community instance (${community.address})`);
         return community;
     }
 
     private async _createLocalCommunity(
         options: CreateNewLocalCommunityParsedOptions | CreateInstanceOfLocalOrRemoteCommunityOptions
     ): Promise<LocalCommunity> {
-        const log = Logger("pkc-js:pkc:createLocalCommunity");
-        log.trace("Received community options to create a local community instance:", options);
+        const log = this._log;
+        log.trace("createLocalCommunity: Received community options to create a local community instance:", options);
 
         const canCreateLocalCommunity = this._canCreateNewLocalCommunity();
         if (!canCreateLocalCommunity) throw new PKCError("ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY", { pkcOptions: this._userPKCOptions });
@@ -986,7 +985,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             // If the community is already created before, then load it with address only. We don't care about other props
             community.setAddress(options.address);
             await updateInstancePropsWithStartedCommunityOrDb(community);
-            log.trace(`Created instance of existing local community (${community.address}) with props:`);
+            log.trace(`createLocalCommunity: Created instance of existing local community (${community.address}) with props:`);
             community.emit("update", community);
             return community;
         } else if ("signer" in options) {
@@ -994,7 +993,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             const parsedOptions = <CreateNewLocalCommunityParsedOptions>options;
             await community.initNewLocalCommunityPropsNoMerge(parsedOptions); // We're initializing a new local community props here
             await createNewLocalCommunityDb(community);
-            log.trace(`Created a new local community (${community.address}) with props:`);
+            log.trace(`createLocalCommunity: Created a new local community (${community.address}) with props:`);
             community.emit("update", community);
             await this._awaitCommunitiesToIncludeCommunity(community.address);
             return community;
@@ -1017,11 +1016,11 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         options: z.infer<typeof CreateCommunityFunctionArgumentsSchema> | CommunityJson = {},
         opts?: { abortSignal?: AbortSignal }
     ): Promise<RemoteCommunity | RpcRemoteCommunity | RpcLocalCommunity | LocalCommunity> {
-        const log = Logger("pkc-js:pkc:createCommunity");
+        const log = this._log;
         throwIfAbortSignalAborted(opts?.abortSignal);
         if ("clients" in options) return this._createCommunityInstanceFromJsonifiedCommunity(<CommunityJson>options);
         const parsedOptions = <z.infer<typeof CreateCommunityFunctionArgumentsSchema>>options;
-        log.trace("Received options: ", parsedOptions);
+        log.trace("createCommunity: Received options: ", parsedOptions);
 
         const hasAddress = "address" in parsedOptions && typeof parsedOptions.address === "string";
         const hasName = "name" in parsedOptions && typeof parsedOptions.name === "string";
@@ -1085,7 +1084,9 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                 signer: minterSigner,
                 address: anchor.publicKey
             };
-            log(`Creating a delegated local community with anchor (${anchor.publicKey}) and minter (${minterSigner.address})`);
+            log(
+                `createCommunity: Creating a delegated local community with anchor (${anchor.publicKey}) and minter (${minterSigner.address})`
+            );
             return this._createLocalCommunity(localOptions);
         } else if (hasIdentifier && !hasSigner) {
             // community is already created, need to check if it's local or remote
@@ -1104,7 +1105,9 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             // no identifier, no signer, create signer and assign address to signer.address
             const signer = await this.createSigner();
             const localOptions = <CreateNewLocalCommunityParsedOptions>{ ...parsedOptions, signer, address: signer.address };
-            log(`Did not provide CreateCommunityOptions.signer, generated random signer with address (${localOptions.address})`);
+            log(
+                `createCommunity: Did not provide CreateCommunityOptions.signer, generated random signer with address (${localOptions.address})`
+            );
 
             return this._createLocalCommunity(localOptions);
         } else if (!hasIdentifier && hasSigner) {
@@ -1131,9 +1134,8 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                 challengeRequest: jsonfied.challengeRequest
             });
         else if (unsignedOpts && jsonfied.signer) {
-            const log = Logger("pkc-js:pkc:createVote");
             const finalOptions = <VoteOptionsToSign>(
-                await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer }, log)
+                await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer })
             );
             voteInstance._initUnsignedLocalProps({
                 unsignedOptions: finalOptions,
@@ -1145,7 +1147,6 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     async createVote(options: CreateVoteOptions | VotePubsubMessagePublication | VoteJson): Promise<Vote> {
-        const log = Logger("pkc-js:pkc:createVote");
         if ("clients" in options) return this._createVoteInstanceFromJsonfiedVote(options);
         const voteInstance = new Vote(this);
 
@@ -1154,7 +1155,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             voteInstance._initRemoteProps(parsedOptions);
         } else {
             const parsedOptions = parseCreateVoteOptionsSchemaWithPKCErrorIfItFails(options);
-            const finalOptions = <VoteOptionsToSign>await this._initMissingFieldsOfPublicationBeforeSigning(parsedOptions, log);
+            const finalOptions = <VoteOptionsToSign>await this._initMissingFieldsOfPublicationBeforeSigning(parsedOptions);
             voteInstance._initUnsignedLocalProps({
                 unsignedOptions: finalOptions,
                 challengeRequest: parsedOptions.challengeRequest
@@ -1174,9 +1175,8 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                 challengeRequest: jsonfied.challengeRequest
             });
         else if (unsignedOpts && jsonfied.signer) {
-            const log = Logger("pkc-js:pkc:createCommentEdit");
             const finalOptions = <CommentEditOptionsToSign>(
-                await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer }, log)
+                await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer })
             );
             editInstance._initUnsignedLocalProps({
                 unsignedOptions: finalOptions,
@@ -1190,7 +1190,6 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     async createCommentEdit(
         options: CreateCommentEditOptions | CommentEditPubsubMessagePublication | CommentEditTypeJson
     ): Promise<CommentEdit> {
-        const log = Logger("pkc-js:pkc:createCommentEdit");
         if ("clients" in options) return this._createCommentEditInstanceFromJsonfiedCommentEdit(options);
         const editInstance = new CommentEdit(this);
 
@@ -1199,7 +1198,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             editInstance._initPubsubPublicationProps(parsedOptions); // User just wants to instantiate a CommentEdit object, not publish
         } else {
             const parsedOptions = parseCreateCommentEditOptionsSchemaWithPKCErrorIfItFails(options);
-            const finalOptions = <CommentEditOptionsToSign>await this._initMissingFieldsOfPublicationBeforeSigning(options, log);
+            const finalOptions = <CommentEditOptionsToSign>await this._initMissingFieldsOfPublicationBeforeSigning(options);
             editInstance._initUnsignedLocalProps({
                 unsignedOptions: finalOptions,
                 challengeRequest: parsedOptions.challengeRequest
@@ -1219,9 +1218,8 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                 challengeRequest: jsonfied.challengeRequest
             });
         else if (unsignedOpts && jsonfied.signer) {
-            const log = Logger("pkc-js:pkc:createCommentModeration");
             const finalOptions = <CommentModerationOptionsToSign>(
-                await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer }, log)
+                await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer })
             );
             modInstance._initUnsignedLocalProps({
                 unsignedOptions: finalOptions,
@@ -1235,7 +1233,6 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     async createCommentModeration(
         options: CreateCommentModerationOptions | CommentModerationPubsubMessagePublication | CommentModerationTypeJson
     ): Promise<CommentModeration> {
-        const log = Logger("pkc-js:pkc:createCommentEdit");
         if ("clients" in options) return this._createCommentModerationInstanceFromJsonfiedCommentModeration(options);
         const modInstance = new CommentModeration(this);
 
@@ -1244,9 +1241,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             modInstance._initPubsubPublication(parsedOptions); // User just wants to instantiate a CommentEdit object, not publish
         } else {
             const parsedOptions = parseCreateCommentModerationOptionsSchemaWithPKCErrorIfItFails(options);
-            const finalOptions = <CommentModerationOptionsToSign>(
-                await this._initMissingFieldsOfPublicationBeforeSigning(parsedOptions, log)
-            );
+            const finalOptions = <CommentModerationOptionsToSign>await this._initMissingFieldsOfPublicationBeforeSigning(parsedOptions);
             modInstance._initUnsignedLocalProps({
                 unsignedOptions: finalOptions,
                 challengeRequest: parsedOptions.challengeRequest
@@ -1266,9 +1261,8 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                 challengeRequest: jsonfied.challengeRequest
             });
         else if (unsignedOpts && jsonfied.signer) {
-            const log = Logger("pkc-js:pkc:createCommunityEdit");
             const finalOptions = <CommunityEditPublicationOptionsToSign>(
-                await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer }, log)
+                await this._initMissingFieldsOfPublicationBeforeSigning({ ...unsignedOpts, signer: jsonfied.signer })
             );
             communityEditInstance._initUnsignedLocalProps({
                 unsignedOptions: finalOptions,
@@ -1282,7 +1276,6 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     async createCommunityEdit(
         options: CreateCommunityEditPublicationOptions | CommunityEditPubsubMessagePublication | CommunityEditJson
     ): Promise<CommunityEdit> {
-        const log = Logger("pkc-js:pkc:createCommunityEdit");
         if ("clients" in options) return this._createCommunityEditInstanceFromJsonfiedCommunityEdit(options);
         const communityEditInstance = new CommunityEdit(this);
 
@@ -1292,7 +1285,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         } else {
             const parsedOptions = parseCreateCommunityEditPublicationOptionsSchemaWithPKCErrorIfItFails(options);
             const finalOptions = <CommunityEditPublicationOptionsToSign>(
-                await this._initMissingFieldsOfPublicationBeforeSigning(parsedOptions, log)
+                await this._initMissingFieldsOfPublicationBeforeSigning(parsedOptions)
             );
             communityEditInstance._initUnsignedLocalProps({
                 unsignedOptions: finalOptions,
@@ -1376,7 +1369,8 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             community,
             validatePages: typeof opts?.validateReplies === "boolean" ? opts.validateReplies : this.validatePages,
             comment: { ...commentIpfs, cid: commentCid, postCid },
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            log: this._log
         };
         const commentUpdateValidity = await verifyCommentUpdate(commentUpdateVerificationOpts);
         if (!commentUpdateValidity.valid)
@@ -1415,7 +1409,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     async destroy() {
-        const log = Logger("pkc-js:pkc:destroy");
+        const log = this._log;
         if (this.destroyed) return;
         this.destroyed = true;
         // Fire destroy signal first so any in-flight fetches (e.g. getPage) reject immediately
@@ -1433,7 +1427,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             if (!activeExports) continue;
             for (const handle of activeExports.values()) {
                 handle.controller.abort();
-                exportDonePromises.push(handle.donePromise.catch((e) => log.error("Error during export teardown", e)));
+                exportDonePromises.push(handle.donePromise.catch((e) => log.error("destroy: Error during export teardown", e)));
             }
         }
         if (exportDonePromises.length) await Promise.all(exportDonePromises);
@@ -1443,7 +1437,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         // very instances we are about to stop (issue #270).
         await Promise.all(
             [...this._publishingPublications].map((publication) =>
-                publication.stop().catch((e) => log.error("Error stopping publication during destroy", e))
+                publication.stop().catch((e) => log.error("destroy: Error stopping publication during destroy", e))
             )
         );
         this._publishingPublications.clear();
@@ -1451,7 +1445,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         for (const comment of listUpdatingComments(this)) await comment.stop();
 
         for (const communityList of [...this._updatingCommunityLists])
-            await communityList.stop().catch((e) => log.error("Error stopping CommunityList during destroy", e));
+            await communityList.stop().catch((e) => log.error("destroy: Error stopping CommunityList during destroy", e));
         this._updatingCommunityLists.clear();
 
         for (const community of listUpdatingCommunities(this)) await community.stop();
@@ -1476,7 +1470,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                         await client._client.pubsub.unsubscribe(topic);
                     }
                 } catch (e) {
-                    log.error("Error unsubscribing from pubsub topics", e);
+                    log.error("destroy: Error unsubscribing from pubsub topics", e);
                 }
             }
         }
@@ -1501,6 +1495,6 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                     throw new PKCError("ERR_PKC_IS_DESTROYED");
                 };
             });
-        log("Destroyed pkc instance");
+        log("destroy: Destroyed pkc instance");
     }
 }

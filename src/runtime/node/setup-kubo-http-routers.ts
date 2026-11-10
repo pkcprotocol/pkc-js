@@ -1,6 +1,6 @@
 import { PKC } from "../../pkc/pkc.js";
 import retry from "retry";
-import Logger from "../../logger.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { PKCError } from "../../pkc-error.js";
 import { isDeepEqual } from "remeda";
 
@@ -52,9 +52,9 @@ function _mergeRouterConfigs(existingConfig: KuboRoutingConfig | undefined, newC
 async function _setProvideDhtSweepEnabledOnKuboNode(
     kuboClient: PKC["clients"]["kuboRpcClients"][string],
     sweepEnabled: boolean,
-    signal: AbortSignal
+    signal: AbortSignal,
+    log: Logger
 ) {
-    const log = Logger("pkc-js:pkc:_init:retrySettingHttpRoutersOnIpfsNodes:setProvideDhtSweepEnabledOnIpfsNode");
     const configKey = "Provide.DHT.SweepEnabled";
     const url = `${kuboClient._clientOptions.url}/config?arg=${configKey}&arg=${JSON.stringify(sweepEnabled)}&json=true`;
     try {
@@ -67,18 +67,25 @@ async function _setProvideDhtSweepEnabledOnKuboNode(
             configKey,
             configValueToBeSet: sweepEnabled
         });
-        log.error(e);
+        log.error("setProvideDhtSweepEnabledOnIpfsNode:", e);
         throw error;
     }
-    log.trace("Succeeded in setting config key", configKey, "on node", kuboClient._clientOptions.url, "to be", sweepEnabled);
+    log.trace(
+        "setProvideDhtSweepEnabledOnIpfsNode: Succeeded in setting config key",
+        configKey,
+        "on node",
+        kuboClient._clientOptions.url,
+        "to be",
+        sweepEnabled
+    );
 }
 
 async function _setHttpRouterOptionsOnKuboNode(
     kuboClient: PKC["clients"]["kuboRpcClients"][string],
     routingValue: KuboRoutingConfig,
-    signal: AbortSignal
+    signal: AbortSignal,
+    log: Logger
 ) {
-    const log = Logger("pkc-js:pkc:_init:retrySettingHttpRoutersOnIpfsNodes:setHttpRouterOptionsOnIpfsNode");
     const routingKey = "Routing";
 
     let routingConfigBeforeChanging: KuboRoutingConfig | undefined;
@@ -90,7 +97,7 @@ async function _setHttpRouterOptionsOnKuboNode(
             kuboEndpoint: kuboClient._clientOptions.url,
             configKey: routingKey
         });
-        log.error(e);
+        log.error("setHttpRouterOptionsOnIpfsNode:", e);
         throw error;
     }
 
@@ -107,12 +114,19 @@ async function _setHttpRouterOptionsOnKuboNode(
             configKey: routingKey,
             configValueToBeSet: mergedRoutingValue
         });
-        log.error(e);
+        log.error("setHttpRouterOptionsOnIpfsNode:", e);
         throw error;
     }
-    log.trace("Succeeded in setting config key", routingKey, "on node", kuboClient._clientOptions.url, "to be", mergedRoutingValue);
+    log.trace(
+        "setHttpRouterOptionsOnIpfsNode: Succeeded in setting config key",
+        routingKey,
+        "on node",
+        kuboClient._clientOptions.url,
+        "to be",
+        mergedRoutingValue
+    );
 
-    await _setProvideDhtSweepEnabledOnKuboNode(kuboClient, false, signal);
+    await _setProvideDhtSweepEnabledOnKuboNode(kuboClient, false, signal, log);
 
     const endpointsBefore: string[] = Object.values(routingConfigBeforeChanging?.Routers || {})
         .map((router) => router.Parameters?.Endpoint)
@@ -122,7 +136,7 @@ async function _setHttpRouterOptionsOnKuboNode(
         .filter((endpoint): endpoint is string => endpoint !== undefined);
     if (!isDeepEqual(endpointsBefore.sort(), endpointsAfter.sort())) {
         log(
-            "Config on kubo node has been changed. PKC-js will send shutdown command to node",
+            "setHttpRouterOptionsOnIpfsNode: Config on kubo node has been changed. PKC-js will send shutdown command to node",
             kuboClient._clientOptions.url,
             "Clients of pkc-js should restart ipfs node"
         );
@@ -135,7 +149,7 @@ async function _setHttpRouterOptionsOnKuboNode(
                 kuboEndpoint: kuboClient._clientOptions.url,
                 shutdownUrl
             });
-            log.error(e);
+            log.error("setHttpRouterOptionsOnIpfsNode:", e);
             throw error;
         }
     }
@@ -154,7 +168,7 @@ export async function setupKuboHttpRouters(pkc: PKC): Promise<void> {
         throw Error("need ipfs http client to be defined");
     if (!Array.isArray(pkc.httpRoutersOptions) || pkc.httpRoutersOptions.length <= 0) throw Error("Need http router options to defined");
 
-    const log = Logger("pkc-js:node:setupKuboHttpRouters");
+    const log = pkc._log;
 
     const httpRouterUrls = [...pkc.httpRoutersOptions].sort(); // make sure it's always the same order
 
@@ -229,7 +243,7 @@ export async function setupKuboHttpRouters(pkc: PKC): Promise<void> {
             }
             for (const kuboClient of Object.values(kuboClients)) {
                 try {
-                    await _setHttpRouterOptionsOnKuboNode(kuboClient, routingValue, destroySignal);
+                    await _setHttpRouterOptionsOnKuboNode(kuboClient, routingValue, destroySignal, log);
                 } catch (e) {
                     settingOptionRetryOption.retry(<Error>e);
                     return;
@@ -245,5 +259,5 @@ export async function setupKuboHttpRouters(pkc: PKC): Promise<void> {
     removeDestroyListener?.();
     settingOptionRetryOption.stop();
     if (pkc.destroyed) return;
-    log.trace("Set http router config on all kubo nodes", Object.keys(kuboClients), "to", httpRouterUrls);
+    log.trace("setupKuboHttpRouters: Set http router config on all kubo nodes", Object.keys(kuboClients), "to", httpRouterUrls);
 }
