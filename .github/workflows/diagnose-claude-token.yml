@@ -1,0 +1,30 @@
+# Throwaway diagnostic, never to be merged: prints why Claude rejects CLAUDE_CODE_OAUTH_TOKEN.
+name: Diagnose Claude token
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/diagnose-claude-token.yml"
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Install Claude Code
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: One-word request
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          claude --version
+          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then echo "TOKEN_EMPTY"; else echo "TOKEN_PRESENT length=${#CLAUDE_CODE_OAUTH_TOKEN}"; fi
+          set +e
+          claude -p "Reply with the single word ok" --model claude-sonnet-5-5 --output-format json > out.json 2> err.txt
+          echo "exit=$?"
+          echo "--- stdout"; cat out.json; echo
+          echo "--- stderr"; cat err.txt
