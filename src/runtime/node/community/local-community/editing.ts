@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import Logger from "../../../../logger.js";
-import { clone, keys, omit, omitBy, pick } from "remeda";
+import { clone, isEmpty, keys, omit, omitBy, pick } from "remeda";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { sha256 } from "js-sha256";
 import { doesDomainAddressHaveCapitalLetter, isStringDomain } from "../../../../util.js";
@@ -275,7 +275,14 @@ export async function editPropsOnStartedCommunity(
         // queued before start() so the restarted loop's first record already carries the edit
         community._pendingEditProps.push({ ...parsedEditOptions, editId: uniqueEditId });
         await community.start();
-    } else community._pendingEditProps.push({ ...parsedEditOptions, editId: uniqueEditId });
+    } else {
+        // Stored before edit() resolves, as a rename and an edit of a stopped community are. Otherwise only a successful
+        // publish or stop() stored it, and a crash before either (a cycle keeps failing while kubo is down) lost the edit.
+        // An empty edit (edit({}), or edit({ roles: undefined }) once parsed) has nothing to store, and updateDbInternalState()
+        // throws on empty props. The props are copied because it sets _internalStateUpdateId on what it gets.
+        if (!isEmpty(parsedEditOptions)) await updateDbInternalState(community, { ...parsedEditOptions });
+        community._pendingEditProps.push({ ...parsedEditOptions, editId: uniqueEditId });
+    }
 
     if (community.updateCid)
         await community.initInternalCommunityAfterFirstUpdateNoMerge({

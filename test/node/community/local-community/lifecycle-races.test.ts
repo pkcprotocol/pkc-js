@@ -1,4 +1,4 @@
-// Overlapping start(), stop() and update() calls on a LocalCommunity (lifecycle.ts).
+// Overlapping start(), stop(), update() and edit() calls on a LocalCommunity (lifecycle.ts, editing.ts).
 // Offline: a real LocalCommunity with its real DB and start lock under .tmp/, and fake kubo and pubsub clients, so start()
 // and stop() run their own code and each test can hold one of their awaits open. The three mocks below replace the only
 // calls that would otherwise reach kubo: importing the signer's key, providing the pubsub topics' routing blocks, and the
@@ -406,6 +406,32 @@ describeSkipIfRpc("start() calls that race for the start lock", () => {
         expect(community.state).to.equal("started");
         expect(await isStartLocked()).to.equal(true);
         expect(community._publishLoopPromise).to.not.equal(undefined);
+        await community.stop();
+    });
+});
+
+// Not over RPC: drives a LocalCommunity in this process with fake kubo and pubsub clients (see the header)
+describeSkipIfRpc("edit() on a started community", () => {
+    it("is in the DB once edit() resolves, while every publish cycle fails", async () => {
+        const { community } = await createOfflineCommunity();
+        await community.start(); // the publish cycles fail as if kubo were down, so none of them writes the record
+        const title = `edited ${uuidV4()}`;
+        await community.edit({ title });
+        expect(community.title).to.equal(title);
+
+        // What a restart after a crash here would load
+        const storedState = await community._getDbInternalState(false);
+        expect(storedState.title).to.equal(title);
+        await community.stop();
+    });
+
+    it("still resolves for an edit with no props, which has nothing to store", async () => {
+        const { community } = await createOfflineCommunity();
+        await community.start();
+        // RPC editCommunity with {} and an empty CommunityEdit publication come down to the same edit({})
+        await expect(community.edit({})).resolves.to.equal(community);
+        await expect(community.edit({ roles: undefined })).resolves.to.equal(community); // parsed to {}
+        expect(community.state).to.equal("started");
         await community.stop();
     });
 });
