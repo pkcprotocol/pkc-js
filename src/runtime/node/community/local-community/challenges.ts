@@ -778,13 +778,23 @@ export async function handleChallengeRequest(community: LocalCommunity, request:
         community._challengeExchangesFromLocalPublishers[request.challengeRequestId.toString()] = true;
     }
     community._ongoingChallengeExchanges.set(request.challengeRequestId.toString(), true);
-    const requestSignatureValidation = await verifyChallengeRequest({ request, validateTimestampRange: true });
-    if (!requestSignatureValidation.valid)
-        throw new PKCError(getErrorCodeFromMessage(requestSignatureValidation.reason), {
-            challengeRequest: omit(request, ["encrypted"])
-        });
+    let decrypted: ParsedChallengeRequestBeforeValidation | undefined;
+    try {
+        const requestSignatureValidation = await verifyChallengeRequest({ request, validateTimestampRange: true });
+        if (!requestSignatureValidation.valid)
+            throw new PKCError(getErrorCodeFromMessage(requestSignatureValidation.reason), {
+                challengeRequest: omit(request, ["encrypted"])
+            });
 
-    const decrypted = await parseChallengeRequest(community, request, log);
+        decrypted = await parseChallengeRequest(community, request, log);
+    } catch (e) {
+        // A request that throws before its exchange starts must not keep the entries above until their ttl: some of
+        // these throws publish no verification to release them, a bad signature costs the sender nothing, and
+        // _ongoingChallengeExchanges is bounded, so the leftovers would evict exchanges that are awaiting an answer.
+        community._ongoingChallengeExchanges.delete(request.challengeRequestId.toString());
+        delete community._challengeExchangesFromLocalPublishers[request.challengeRequestId.toString()];
+        throw e;
+    }
     if (!decrypted) return;
 
     // One challenge exchange at a time per signed publication (issue #228). A client that gets no

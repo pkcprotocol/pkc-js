@@ -6,8 +6,9 @@
 // Unit tests here cover the cheap stand-alone helpers:
 //   - cleanUpChallengeAnswerPromise (pure cache mutation)
 //   - buildRuntimeChallengeRequestPublication / buildRuntimeChallengeRequest (pure transformations)
-// and a smoke check that the orchestrator exports exist. The exchange state that handleChallengeAnswer keeps for
-// an answer that fails verification is covered at the bottom, with a mock community and really signed messages.
+// and a smoke check that the orchestrator exports exist. The exchange state that handleChallengeRequest and
+// handleChallengeAnswer keep for messages that fail early is covered at the bottom, with a mock community and
+// really signed messages.
 
 import { describe, it, expect, vi } from "vitest";
 import { LRUCache } from "lru-cache";
@@ -27,13 +28,14 @@ import {
     publishIdempotentDuplicateVerification,
     storePublicationAndEncryptForChallengeVerification
 } from "../../../../dist/node/runtime/node/community/local-community/challenges.js";
-import { cleanUpBeforePublishing, signChallengeAnswer } from "../../../../dist/node/signer/signatures.js";
+import { cleanUpBeforePublishing, signChallengeAnswer, signChallengeRequest } from "../../../../dist/node/signer/signatures.js";
 import { encryptEd25519AesGcm } from "../../../../dist/node/signer/encryption.js";
 import { getBufferedPKCAddressFromPublicKey } from "../../../../dist/node/signer/util.js";
 import signers from "../../../fixtures/signers.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type {
     ChallengeAnswerMessageType,
+    ChallengeRequestMessageType,
     DecryptedChallengeRequestMessageType,
     PublicationFromDecryptedChallengeRequest
 } from "../../../../dist/node/pubsub-messages/types.js";
@@ -154,7 +156,7 @@ describe("challenges: buildRuntimeChallengeRequest", () => {
     });
 });
 
-// The exchange state handleChallengeAnswer reads and writes, on a community that runs as
+// The exchange state handleChallengeRequest/handleChallengeAnswer read and write, on a community that runs as
 // signers[0]. A challengeRequestId is the address of the key that signed the request, so only the holder of
 // that key can sign a valid answer or request for it. Everything else a topic peer sends with that id fails
 // verification, and must not change the exchange it names.
@@ -208,6 +210,26 @@ const createChallengeAnswer = async ({
     return { ...toSign, signature: await signChallengeAnswer({ challengeAnswer: toSign, signer }) };
 };
 
+const createChallengeRequest = async ({
+    challengeRequestId,
+    signer,
+    decryptedRequest
+}: {
+    challengeRequestId: Uint8Array;
+    signer: SignerType;
+    decryptedRequest: Record<string, unknown>;
+}): Promise<ChallengeRequestMessageType> => {
+    const toSign: Omit<ChallengeRequestMessageType, "signature"> = cleanUpBeforePublishing({
+        type: "CHALLENGEREQUEST",
+        challengeRequestId,
+        encrypted: await encryptEd25519AesGcm(JSON.stringify(decryptedRequest), signer.privateKey, communitySigner.publicKey),
+        userAgent: "test-user-agent",
+        protocolVersion: "1.0.0",
+        timestamp: Math.round(Date.now() / 1000)
+    });
+    return { ...toSign, signature: await signChallengeRequest({ request: toSign, signer }) };
+};
+
 describe("challenges: handleChallengeAnswer with an answer that fails verification", () => {
     const forgeries = [
         {
@@ -249,4 +271,72 @@ describe("challenges: handleChallengeAnswer with an answer that fails verificati
             expect(community.emit.mock.calls.map(([eventName]) => eventName)).to.deep.equal(["challengeanswer"]);
         });
     }
+});
+
+describe("challenges: handleChallengeRequest with a request that fails before its exchange starts", () => {
+    it("a request whose signature fails verification leaves no exchange state behind", async () => {
+        const { community, localCommunity } = createExchangeCommunity();
+        // The id is not the address of the signing key
+        const forgedRequest = await createChallengeRequest({
+            challengeRequestId: getBufferedPKCAddressFromPublicKey(publisherPubsubSigner.publicKey),
+            signer: otherPeerSigner,
+            decryptedRequest: {}
+        });
+        const idString = forgedRequest.challengeRequestId.toString();
+
+        await expect(handleChallengeRequest(localCommunity, forgedRequest, true)).rejects.toMatchObject({
+            code: "ERR_CHALLENGE_REQUEST_ID_NOT_DERIVED_FROM_SIGNATURE"
+        });
+        expect(community._ongoingChallengeExchanges.has(idString)).to.equal(false);
+        expect(idString in community._challengeExchangesFromLocalPublishers).to.equal(false);
+    });
+
+    it("a stream of requests with bad signatures cannot evict an exchange awaiting its answer", async () => {
+        const { community, localCommunity } = createExchangeCommunity();
+        const liveId = getBufferedPKCAddressFromPublicKey(publisherPubsubSigner.publicKey);
+        const answerPromise = parkExchangeAwaitingAnswer(community, liveId.toString());
+
+        // Signed once, then sent under as many distinct ids as the ongoing-exchange cache holds. No key is needed for this.
+        const template = await createChallengeRequest({ challengeRequestId: liveId, signer: otherPeerSigner, decryptedRequest: {} });
+        for (let i = 0; i < 1000; i++) {
+            const challengeRequestId = new Uint8Array(liveId);
+            challengeRequestId[challengeRequestId.length - 1] ^= 0xff;
+            challengeRequestId[challengeRequestId.length - 2] = i % 256;
+            challengeRequestId[challengeRequestId.length - 3] = Math.floor(i / 256);
+            await expect(handleChallengeRequest(localCommunity, { ...template, challengeRequestId }, false)).rejects.toThrow();
+        }
+
+        expect(community._ongoingChallengeExchanges.has(liveId.toString())).to.equal(true);
+        const realAnswer = await createChallengeAnswer({
+            challengeRequestId: liveId,
+            signer: publisherPubsubSigner,
+            challengeAnswers: ["2"]
+        });
+        await handleChallengeAnswer(localCommunity, realAnswer);
+        expect(answerPromise.resolve).toHaveBeenCalledWith(["2"]);
+    });
+
+    it("a validly signed request whose publication carries an unparseable public key releases its slot", async () => {
+        const { community, localCommunity } = createExchangeCommunity();
+        // A fresh key per request costs one ed25519 keypair, so the outer signature alone does not make a request expensive
+        const request = await createChallengeRequest({
+            challengeRequestId: getBufferedPKCAddressFromPublicKey(publisherPubsubSigner.publicKey),
+            signer: publisherPubsubSigner,
+            decryptedRequest: {
+                vote: {
+                    commentCid: "QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f",
+                    vote: 1,
+                    timestamp: Math.round(Date.now() / 1000),
+                    protocolVersion: "1.0.0",
+                    communityPublicKey: communitySigner.address,
+                    signature: { type: "ed25519", signature: "AAAA", publicKey: "bm90LWEta2V5", signedPropertyNames: ["vote"] }
+                }
+            }
+        });
+        const idString = request.challengeRequestId.toString();
+
+        // Thrown while deriving the author's address, before any verification is published for this request
+        await expect(handleChallengeRequest(localCommunity, request, false)).rejects.toThrow(/public key length not 32 bytes/);
+        expect(community._ongoingChallengeExchanges.has(idString)).to.equal(false);
+    });
 });
