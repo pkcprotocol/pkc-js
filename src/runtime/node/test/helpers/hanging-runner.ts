@@ -4,6 +4,9 @@ import type { HangingScenarioDefinition } from "../../../../test/node/hanging-te
 const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
 const parsedWaitMs = Number(process.env.HANGING_RUNNER_WAIT);
 const WAIT_TIMEOUT_MS = Number.isFinite(parsedWaitMs) && parsedWaitMs > 0 ? parsedWaitMs : DEFAULT_WAIT_TIMEOUT_MS;
+// Epoch ms set by run-hanging-node.ts: the wait must end by then so the report is printed before the parent kills us
+const parsedWaitDeadline = Number(process.env.HANGING_RUNNER_WAIT_DEADLINE);
+const WAIT_DEADLINE = Number.isFinite(parsedWaitDeadline) && parsedWaitDeadline > 0 ? parsedWaitDeadline : Infinity;
 const parsedPollMs = Number(process.env.HANGING_RUNNER_POLL);
 const WAIT_POLL_MS = Number.isFinite(parsedPollMs) && parsedPollMs > 0 ? parsedPollMs : 25;
 const nodeProcess = process as NodeJS.Process & {
@@ -170,12 +173,13 @@ function collectActiveResources() {
 }
 
 async function waitForCleanup() {
-    const deadline = Date.now() + WAIT_TIMEOUT_MS;
+    const startedAt = Date.now();
+    const deadline = Math.min(startedAt + WAIT_TIMEOUT_MS, WAIT_DEADLINE);
     let report = collectActiveResources();
     while ((report.remainingHandles || report.remainingRequests) && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, WAIT_POLL_MS));
         report = collectActiveResources();
     }
-    const waitedMs = WAIT_TIMEOUT_MS - Math.max(0, deadline - Date.now());
-    return { ...report, waitedMs, waitTimeoutMs: WAIT_TIMEOUT_MS };
+    const waitedMs = Date.now() - startedAt;
+    return { ...report, waitedMs, waitTimeoutMs: Math.max(0, deadline - startedAt) };
 }
