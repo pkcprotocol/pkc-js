@@ -502,6 +502,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         // Subscribed before the export is enqueued, so its first progress notification reaches this instance
         this._pendingExportCalls++;
         let exportId: string;
+        let alreadyTerminal = false;
         try {
             await this._syncExportsSubscription();
             ({ exportId } = await this._pkc._pkcRpcClient!.exportCommunity({
@@ -511,13 +512,16 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
             }));
             // A terminal notification can arrive before the exportCommunity response
             const knownRecord = this._exportsCache.find((rec) => rec.exportId === exportId);
-            if (!knownRecord || !isTerminalExportRecord(knownRecord)) this._inFlightExportIds.add(exportId);
+            alreadyTerminal = knownRecord !== undefined && isTerminalExportRecord(knownRecord);
+            if (!alreadyTerminal) this._inFlightExportIds.add(exportId);
         } finally {
             this._pendingExportCalls--;
             this._scheduleExportsSubscriptionSync();
         }
 
-        if (options.signal) {
+        // A finished export has nothing to cancel, and the terminal notification that would detach the
+        // listener has already been absorbed, so attaching one would leave it on the caller's signal
+        if (options.signal && !alreadyTerminal) {
             const userSignal = options.signal;
             const onAbort = () => {
                 this._pkc._pkcRpcClient!.cancelExport({ exportId }).catch((e) => {

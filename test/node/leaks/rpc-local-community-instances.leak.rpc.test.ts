@@ -11,7 +11,8 @@
 // The suite runs against an in-process RPC server, so it only needs the test server's kubo.
 // itIfRpc: the scenario is an RPC client talking to an RPC server, which the in-process server
 // provides; there is nothing to exercise under the non-RPC configs.
-import { describe, beforeAll, afterAll, expect } from "vitest";
+import { describe, beforeAll, afterAll, expect, vi } from "vitest";
+import { getEventListeners } from "node:events";
 import PKC from "../../../dist/node/index.js";
 import { createInProcessRpcServer, pollUntil, uniqueTmpDataPath, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
 import { createCollectionTracker } from "../../helpers/leak-detection.js";
@@ -153,6 +154,46 @@ describe("leak: RPC client retains RpcLocalCommunity instances of a server-hoste
             }
             expect({ rejectedUnsubscribes, registries: registrySizes(client) }).toEqual({ rejectedUnsubscribes: 1, registries: baseline });
         } finally {
+            await client.destroy();
+        }
+    });
+
+    // PR #503 review: a terminal record that reaches the client before the exportCommunity response is no
+    // longer tracked as in flight, so the exports subscription of a stopped instance is dropped right
+    // after the call. export() still attached its abort listener to the caller's signal, and only a later
+    // terminal notification detaches it, which can no longer arrive.
+    itIfRpc("export({ signal }) leaves no abort listener when the export finishes before its response", async () => {
+        const client = await PKC({ pkcRpcClientsOptions: [rpcUrl], dataPath: undefined, httpRoutersOptions: [] });
+        client.on("error", () => {});
+        try {
+            const community = await client.getCommunity({ address: communityAddress });
+            const rpcClient = client._pkcRpcClient!;
+            const isTerminal = (exportId: string) =>
+                community.exports.some((rec) => rec.exportId === exportId && (rec.progress === 1 || rec.error !== undefined));
+
+            // Hold the response back until the instance has absorbed the export's terminal record
+            const realExportCommunity = rpcClient.exportCommunity.bind(rpcClient);
+            let terminalBeforeResponse = false;
+            vi.spyOn(rpcClient, "exportCommunity").mockImplementation(async (args) => {
+                const response = await realExportCommunity(args);
+                await pollUntil(() => isTerminal(response.exportId), { timeoutMs: 30_000 });
+                terminalBeforeResponse = isTerminal(response.exportId);
+                return response;
+            });
+            const cancelExportSpy = vi.spyOn(rpcClient, "cancelExport");
+
+            const longLivedAbort = new AbortController();
+            await community.export({ signal: longLivedAbort.signal });
+            const abortListenersAfterExport = getEventListeners(longLivedAbort.signal, "abort").length;
+            longLivedAbort.abort();
+
+            expect({ terminalBeforeResponse, abortListenersAfterExport, cancelExportCalls: cancelExportSpy.mock.calls.length }).toEqual({
+                terminalBeforeResponse: true,
+                abortListenersAfterExport: 0,
+                cancelExportCalls: 0
+            });
+        } finally {
+            vi.restoreAllMocks();
             await client.destroy();
         }
     });
