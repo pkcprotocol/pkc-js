@@ -179,6 +179,10 @@ async function runAsStartOrUpdateInFlight({
 export async function start(community: LocalCommunity) {
     if (community.state === "updating")
         throw new PKCError("ERR_NEED_TO_STOP_UPDATING_COMMUNITY_BEFORE_STARTING", { address: community.address });
+    // Refused before anything on the instance changes: this instance is running or still stopping (stop() keeps the state
+    // "started" until its teardown is done). Clearing _stopHasBeenCalled under a stop() in flight kept the publish loop it
+    // waits for running forever.
+    if (community.state === "started") throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: community.address });
     await runAsStartOrUpdateInFlight({ community, setUp: (releaseMark) => startCommunity({ community, releaseMark }) });
 }
 

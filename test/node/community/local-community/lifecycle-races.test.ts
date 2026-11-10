@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { v4 as uuidV4 } from "uuid";
 import { mockPKCV2 } from "../../../../dist/node/test/test-util.js";
+import { syncIpnsWithDb } from "../../../../dist/node/runtime/node/community/local-community/ipns-publishing.js";
 import { providePubsubTopicRoutingCidsIfNeeded } from "../../../../dist/node/runtime/node/community/local-community/pubsub.js";
 import { communityChallengePubsubTopic } from "../../../../dist/node/runtime/node/community/local-community/comment-updates.js";
 import { isCommunityStartLocked } from "../../../../dist/node/runtime/node/community/start-lock.js";
@@ -260,6 +261,39 @@ describeSkipIfRpc("stop() while start() is in flight", () => {
         expect(subscribedTopics()).to.not.include(challengeTopic);
         expect(await isStartLocked()).to.equal(false);
         expect(community._publishLoopPromise).to.equal(undefined);
+    });
+});
+
+// Not over RPC: drives a LocalCommunity in this process with fake kubo and pubsub clients (see the header)
+describeSkipIfRpc("start() while stop() is in flight", () => {
+    it("is refused without touching the stop: stop() still finishes once the publish cycle it waits for ends", async () => {
+        const { community } = await createOfflineCommunity();
+
+        // Hold the first publish cycle open, so stop() is waiting for the publish loop when start() is called
+        const cycleHeld = deferred();
+        const releaseCycle = deferred();
+        vi.mocked(syncIpnsWithDb).mockImplementationOnce(async () => {
+            cycleHeld.resolve();
+            await releaseCycle.promise;
+        });
+        await community.start();
+        await cycleHeld.promise;
+
+        const stopPromise = community.stop();
+        let stopFinished = false;
+        stopPromise.then(() => (stopFinished = true)).catch(() => {});
+        try {
+            await expect(community.start()).rejects.toMatchObject({ code: "ERR_COMMUNITY_ALREADY_STARTED" });
+            releaseCycle.resolve();
+            // The loop checks for a stop every 100ms; publishInterval here is 1s, so 3s is well past the next check
+            await Promise.race([stopPromise, sleep(3000)]);
+            expect(stopFinished).to.equal(true);
+            expect(community.state).to.equal("stopped");
+        } finally {
+            releaseCycle.resolve();
+            if (!stopFinished) await community.stop(); // sets the flag again, which releases the first stop() too
+            await stopPromise;
+        }
     });
 });
 
