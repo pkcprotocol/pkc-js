@@ -74,9 +74,11 @@ describe("isBrowserDialableAddr", () => {
         expect(isBrowserDialableAddr(WSS_ADDR_A)).toBe(true);
         expect(isBrowserDialableAddr(WEBRTC_ADDR)).toBe(true);
     });
-    it("keeps WebTransport addresses (pkc-js#475)", () => {
+    it("keeps WebTransport addresses that carry a certhash (pkc-js#475)", () => {
         expect(isBrowserDialableAddr(WEBTRANSPORT_ADDR_A)).toBe(true);
-        expect(isBrowserDialableAddr("/ip6/2001:db8::1/udp/4001/quic-v1/webtransport")).toBe(true);
+    });
+    it("rejects WebTransport addresses without a certhash, which a browser cannot dial (pkc-js#475)", () => {
+        expect(isBrowserDialableAddr("/ip6/2001:db8::1/udp/4001/quic-v1/webtransport")).toBe(false);
     });
     it("rejects plain TCP/QUIC addresses a browser cannot dial", () => {
         expect(isBrowserDialableAddr(TCP_ADDR)).toBe(false);

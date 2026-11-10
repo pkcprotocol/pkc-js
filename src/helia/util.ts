@@ -438,6 +438,9 @@ export async function connectToPubsubPeers({
                 peerDialToError,
                 ...getHeliaDebugContext(helia)
             };
+            // This path never releases the private-only peers. The normal path keeps the timer running so
+            // PRIVATE_ONLY_PROVIDER_DIAL_DELAY_MS still caps their wait while a public dial hangs.
+            clearTimeout(privateOnlyTimer);
             throw e;
         }
     } finally {
@@ -455,7 +458,6 @@ export async function connectToPubsubPeers({
         // captured — for the lifetime of the page. onProviderStreamEnded is idempotent (it
         // guards on listenerRemoved), so running it on every path is safe.
         retryScheduler.onProviderStreamEnded();
-        clearTimeout(privateOnlyTimer); // the throw path never releases them; the normal path does below
     }
 
     // Issue #475: the public providers have all been enqueued; dial the private-only ones (in the

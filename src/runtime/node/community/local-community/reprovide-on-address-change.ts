@@ -41,7 +41,8 @@ export type AddressChangeReprovidable = {
 // (WebRTC-direct and WebTransport certhash rotation, AutoTLS WSS), so they are the ones whose change must
 // trigger a fresh provide. Plain TCP/QUIC changes are irrelevant to browsers.
 export function isBrowserDialableAddr(addr: string): boolean {
-    return addr.includes("/webrtc") || addr.includes("/ws") || addr.includes("/webtransport");
+    // A browser dials WebTransport only with the server's certhash, so a bare /webtransport addr is undialable
+    return addr.includes("/webrtc") || addr.includes("/ws") || (addr.includes("/webtransport") && addr.includes("/certhash/"));
 }
 
 // Fetch the node's current browser-dialable self-addresses, normalized the way a provider record carries
