@@ -22,7 +22,7 @@ class FakeRpcServer {
     private socket?: WebSocket;
     private nextSubscriptionId = 1;
     private heldMethods = new Set<string>();
-    private heldResponses = new Map<string, () => number>();
+    private heldResponses = new Map<string, (outcome?: { error: string }) => number>();
 
     private constructor(
         private wss: WebSocketServer,
@@ -51,12 +51,19 @@ class FakeRpcServer {
         await vi.waitFor(() => expect(this.heldResponses.has(method)).to.be.true, { timeout: 10000, interval: 10 });
     }
 
-    // Sends the held response and returns the subscription id it carried
-    releaseHeldResponse(method: string): number {
+    // Sends the held response, or a JSON-RPC error if `outcome` has one, and returns the subscription id it carried (for
+    // an unsubscribe call, the id it unsubscribes)
+    releaseHeldResponse(method: string, outcome?: { error: string }): number {
         const release = this.heldResponses.get(method);
         if (!release) throw Error(`No held response for ${method}`);
         this.heldResponses.delete(method);
-        return release();
+        return release(outcome);
+    }
+
+    // Answers every held call and stops holding, so a test that failed while holding a call does not hang the teardown
+    releaseAllHeldResponses() {
+        this.heldMethods.clear();
+        for (const method of [...this.heldResponses.keys()]) this.releaseHeldResponse(method);
     }
 
     subscriptionIdOf(method: string): number {
@@ -80,20 +87,20 @@ class FakeRpcServer {
         const message = JSON.parse(raw.toString()) as JsonRpcRequest;
         if (typeof message.id !== "number") return;
         const respond = (result: unknown) => socket.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
-        if (message.method === "unsubscribe") {
-            this.calls.push({ method: message.method, params: message.params });
-            respond(true);
-            return;
-        }
-        const subscriptionId = this.nextSubscriptionId++;
-        this.calls.push({ method: message.method, params: message.params, subscriptionId });
+        const isUnsubscribe = message.method === "unsubscribe";
+        // An unsubscribe call answers true and carries the id it unsubscribes; every other call opens a new subscription
+        const subscriptionId = isUnsubscribe ? (message.params[0] as { subscriptionId: number }).subscriptionId : this.nextSubscriptionId++;
+        this.calls.push({ method: message.method, params: message.params, ...(isUnsubscribe ? {} : { subscriptionId }) });
+        const result = isUnsubscribe ? true : { subscriptionId };
         if (this.heldMethods.has(message.method)) {
             this.heldMethods.delete(message.method);
-            this.heldResponses.set(message.method, () => {
-                respond({ subscriptionId });
+            this.heldResponses.set(message.method, (outcome) => {
+                if (outcome)
+                    socket.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32000, message: outcome.error } }));
+                else respond(result);
                 return subscriptionId;
             });
-        } else respond({ subscriptionId });
+        } else respond(result);
     }
 
     async destroy() {
@@ -161,6 +168,7 @@ describe("publications over RPC (fake RPC server)", () => {
     });
 
     afterEach(async () => {
+        server.releaseAllHeldResponses();
         if (!pkc.destroyed) await pkc.destroy();
         await server.destroy();
     });
@@ -225,6 +233,278 @@ describe("publications over RPC (fake RPC server)", () => {
             // destroy() stops every registered publication, and Publication.stop() wrote "stopped" over the result
             expect(vote.publishingState).to.equal("succeeded");
             expect(events.filter((event) => event.startsWith("publishingstatechange"))).to.deep.equal(["publishingstatechange:succeeded"]);
+        });
+    });
+
+    describe("publish() again", () => {
+        const publishCommentCalls = () => server.calls.filter((call) => call.method === "publishComment").length;
+
+        it("calls the server again after the previous publish call was answered with an error", async () => {
+            const post = await createPost();
+            server.holdResponsesTo("publishComment");
+            const firstPublish = post.publish().then(
+                (): Error | undefined => undefined,
+                (error: Error) => error
+            );
+            await server.waitForHeldCall("publishComment");
+            server.releaseHeldResponse("publishComment", { error: "stubbed publishComment failure" });
+            expect(await firstPublish).to.be.instanceOf(Error);
+            // The rejected publish() leaves state "publishing", with nothing in flight
+            expect(post.state).to.equal("publishing");
+
+            await post.publish();
+            // The guard against publishing while in flight used to read state, so this publish() resolved without a call
+            expect(publishCommentCalls()).to.equal(2);
+            expect(pkc._publishingPublications.has(post)).to.be.true;
+        });
+
+        it("does not call the server again while a comment's success verification is being applied", async () => {
+            const post = await createPost();
+            const events = recordEvents(post);
+            await post.publish();
+            const subscriptionId = server.subscriptionIdOf("publishComment");
+            // Holds the step that checks the comment the server relayed, which runs after the verdict is recorded
+            let releaseCommentCheck!: () => void;
+            const commentCheckGate = new Promise<void>((resolve) => (releaseCommentCheck = resolve));
+            const commentCheck = vi
+                .spyOn(
+                    post as unknown as { _verifyDecryptedChallengeVerificationAndUpdateCommentProps: () => Promise<void> },
+                    "_verifyDecryptedChallengeVerificationAndUpdateCommentProps"
+                )
+                .mockImplementation(async () => {
+                    await commentCheckGate;
+                });
+            const { challengeVerification } = encodedChallengeVerification({
+                challengeRequestId: communitySigner.address,
+                challengeSuccess: true
+            });
+            server.sendNotification({
+                method: "publishCommentNotification",
+                subscription: subscriptionId,
+                event: "challengeverification",
+                result: { challengeVerification: { ...challengeVerification, comment: { content: "content" } } }
+            });
+            await vi.waitFor(() => expect(commentCheck).toHaveBeenCalled(), { timeout: 10000, interval: 10 });
+
+            await post.stop();
+            await post.publish();
+            // The recorded verdict still ends the publication. This publish() used to make the server publish the comment
+            // a second time, and the verdict then stopped the publication under that new publish
+            expect(publishCommentCalls()).to.equal(1);
+
+            releaseCommentCheck();
+            await vi.waitFor(() => expect(events).to.include("challengeverification:true"), { timeout: 10000, interval: 10 });
+            expect(post.state).to.equal("stopped");
+            expect(post.publishingState).to.equal("succeeded");
+            expect(server.unsubscribedIds()).to.deep.equal([subscriptionId]);
+            await vi.waitFor(() => expect(pkc._publishingPublications.has(post)).to.be.false, { timeout: 10000, interval: 10 });
+        });
+
+        // The publication's teardown (_postSucessOrFailurePublishing) awaits the unsubscribe call. These hold it and call
+        // publish() inside it
+        const publishVoteCalls = () => server.calls.filter((call) => call.method === "publishVote").length;
+
+        it("does not call the server again while a verification's teardown unsubscribes", async () => {
+            const vote = await createVote();
+            await vote.publish();
+            const unsubscribe = vi.spyOn(pkc._pkcRpcClient!, "unsubscribe");
+            server.holdResponsesTo("unsubscribe");
+            server.sendNotification({
+                method: "publishVoteNotification",
+                subscription: server.subscriptionIdOf("publishVote"),
+                event: "challengeverification",
+                result: encodedChallengeVerification({ challengeRequestId: communitySigner.address, challengeSuccess: false })
+            });
+            await server.waitForHeldCall("unsubscribe");
+            await vote.publish();
+            // This publish() used to make the server publish the vote a second time, while the first publish's teardown was
+            // still running, and that teardown then set the RPC client state to "stopped" under it
+            expect(publishVoteCalls()).to.equal(1);
+
+            server.releaseHeldResponse("unsubscribe");
+            await unsubscribe.mock.results[0].value;
+            await new Promise((resolve) => setTimeout(resolve, 0)); // lets the teardown's caller finish
+            expect(vote.state).to.equal("stopped");
+            expect(vote.publishingState).to.equal("failed");
+
+            // Once it has ended, publish() calls the server again
+            await vote.publish();
+            expect(publishVoteCalls()).to.equal(2);
+        });
+
+        it("does not call the server again while a publish the server failed is being ended", async () => {
+            const vote = await createVote();
+            const events = recordEvents(vote);
+            await vote.publish();
+            server.holdResponsesTo("unsubscribe");
+            // What the server sends when its own publish() threw
+            server.sendNotification({
+                method: "publishVoteNotification",
+                subscription: server.subscriptionIdOf("publishVote"),
+                event: "error",
+                result: {
+                    code: "ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS",
+                    message: "stubbed server publish failure",
+                    details: { publishThrowError: true, newPublishingState: "failed" }
+                }
+            });
+            await server.waitForHeldCall("unsubscribe");
+            await vote.publish();
+            // This publish() used to make the server publish the vote again, and the error of the publish that failed was
+            // then emitted on it
+            expect(publishVoteCalls()).to.equal(1);
+
+            server.releaseHeldResponse("unsubscribe");
+            await vi.waitFor(() => expect(events).to.include("error:ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS"), {
+                timeout: 10000,
+                interval: 10
+            });
+            expect(vote.state).to.equal("stopped");
+            expect(vote.publishingState).to.equal("failed");
+        });
+
+        // The server reports a failure that does not end its publication (for example, a challenge answer it could not
+        // publish): the client's publishingState becomes "failed" and the publish subscription stays live
+        const publishVoteTheServerReportsAsFailed = async () => {
+            const vote = await createVote();
+            const events = recordEvents(vote);
+            await vote.publish();
+            const firstSubscriptionId = server.subscriptionIdOf("publishVote");
+            server.sendNotification({
+                method: "publishVoteNotification",
+                subscription: firstSubscriptionId,
+                event: "publishingstatechange",
+                result: { state: "failed" }
+            });
+            await vi.waitFor(() => expect(vote.publishingState).to.equal("failed"), { timeout: 10000, interval: 10 });
+            return { vote, events, firstSubscriptionId };
+        };
+        const sendVerdict = (subscription: number) =>
+            server.sendNotification({
+                method: "publishVoteNotification",
+                subscription,
+                event: "challengeverification",
+                result: encodedChallengeVerification({ challengeRequestId: communitySigner.address, challengeSuccess: true })
+            });
+
+        it("drops the subscription of a publish the server reported as failed before calling the server again", async () => {
+            const { vote, events, firstSubscriptionId } = await publishVoteTheServerReportsAsFailed();
+
+            await vote.publish();
+            expect(publishVoteCalls()).to.equal(2);
+            const methods = server.calls.map((call) => call.method);
+            expect(methods.indexOf("unsubscribe")).to.be.lessThan(methods.lastIndexOf("publishVote"));
+            expect(server.unsubscribedIds()).to.deep.equal([firstSubscriptionId]);
+            const secondSubscriptionId = server.calls.filter((call) => call.method === "publishVote")[1].subscriptionId!;
+
+            // The first publish's verdict used to end this one as succeeded, and its teardown then unsubscribed this
+            // publish instead of the first one
+            sendVerdict(firstSubscriptionId);
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(vote.state).to.equal("publishing");
+            expect(events).to.not.include("challengeverification:true");
+
+            sendVerdict(secondSubscriptionId);
+            await vi.waitFor(() => expect(vote.publishingState).to.equal("succeeded"), { timeout: 10000, interval: 10 });
+            expect(vote.state).to.equal("stopped");
+            await vi.waitFor(() => expect(server.unsubscribedIds()).to.deep.equal([firstSubscriptionId, secondSubscriptionId]), {
+                timeout: 10000,
+                interval: 10
+            });
+        });
+
+        it("ignores the events of a publish the server reported as failed while it is being dropped", async () => {
+            const { vote, events, firstSubscriptionId } = await publishVoteTheServerReportsAsFailed();
+            server.holdResponsesTo("unsubscribe");
+
+            const secondPublish = vote.publish();
+            await server.waitForHeldCall("unsubscribe");
+            sendVerdict(firstSubscriptionId);
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(vote.state).to.equal("publishing");
+            expect(events).to.not.include("challengeverification:true");
+            expect(publishVoteCalls()).to.equal(1);
+
+            server.releaseHeldResponse("unsubscribe");
+            await secondPublish;
+            expect(publishVoteCalls()).to.equal(2);
+            expect(vote.state).to.equal("publishing");
+        });
+
+        it("does not call the server again when stop() runs while the failed publish is being dropped", async () => {
+            const { vote, firstSubscriptionId } = await publishVoteTheServerReportsAsFailed();
+            server.holdResponsesTo("unsubscribe");
+
+            const secondPublish = vote.publish();
+            await server.waitForHeldCall("unsubscribe");
+            await vote.stop();
+            server.releaseHeldResponse("unsubscribe");
+            await secondPublish;
+
+            expect(publishVoteCalls()).to.equal(1);
+            expect(server.unsubscribedIds()).to.deep.equal([firstSubscriptionId]);
+            expect(vote.state).to.equal("stopped");
+            expect(vote.publishingState).to.equal("stopped");
+            expect(pkc._publishingPublications.has(vote)).to.be.false;
+        });
+
+        it("does not call the server again while the retry of a publish the server reported as failed is starting", async () => {
+            const { vote, firstSubscriptionId } = await publishVoteTheServerReportsAsFailed();
+            server.holdResponsesTo("publishVote");
+            const retry = vote.publish();
+            await server.waitForHeldCall("publishVote");
+            const retrySubscriptionId = server.calls.filter((call) => call.method === "publishVote")[1].subscriptionId!;
+            // The server has put the retry's request on the wire and reports its state before it answers the publish call.
+            // The client holds that state until the answer, so the vote still shows the failed publish's "failed"
+            server.sendNotification({
+                method: "publishVoteNotification",
+                subscription: retrySubscriptionId,
+                event: "publishingstatechange",
+                result: { state: "waiting-challenge" }
+            });
+            await vote.publish(); // for example a second click on a retry button
+            // This publish() used to pass the guard on that "failed": it asked the server to publish the vote a third time,
+            // and the retry's subscription was then unsubscribed as stale
+            expect(publishVoteCalls()).to.equal(2);
+
+            server.releaseHeldResponse("publishVote");
+            await retry;
+            await vi.waitFor(() => expect(vote.publishingState).to.equal("waiting-challenge"), { timeout: 10000, interval: 10 });
+            expect(vote.state).to.equal("publishing");
+            expect(server.unsubscribedIds()).to.deep.equal([firstSubscriptionId]);
+
+            // A failure the server reports for the retry itself lets publish() run again
+            server.sendNotification({
+                method: "publishVoteNotification",
+                subscription: retrySubscriptionId,
+                event: "publishingstatechange",
+                result: { state: "failed" }
+            });
+            await vi.waitFor(() => expect(vote.publishingState).to.equal("failed"), { timeout: 10000, interval: 10 });
+            await vote.publish();
+            expect(publishVoteCalls()).to.equal(3);
+            expect(server.unsubscribedIds()).to.deep.equal([firstSubscriptionId, retrySubscriptionId]);
+        });
+
+        it("calls the server again when the retry's first reported state is a failure", async () => {
+            const { vote, events, firstSubscriptionId } = await publishVoteTheServerReportsAsFailed();
+            await vote.publish();
+            const retrySubscriptionId = server.calls.filter((call) => call.method === "publishVote")[1].subscriptionId!;
+            // The vote already shows the failed publish's "failed", so this one does not change publishingState
+            server.sendNotification({
+                method: "publishVoteNotification",
+                subscription: retrySubscriptionId,
+                event: "publishingstatechange",
+                result: { state: "failed" }
+            });
+            await vi.waitFor(() => expect(events.filter((event) => event === "publishingstatechange:failed")).to.have.length(2), {
+                timeout: 10000,
+                interval: 10
+            });
+
+            await vote.publish();
+            expect(publishVoteCalls()).to.equal(3);
+            expect(server.unsubscribedIds()).to.deep.equal([firstSubscriptionId, retrySubscriptionId]);
         });
     });
 
