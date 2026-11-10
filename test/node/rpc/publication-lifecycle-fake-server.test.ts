@@ -5,6 +5,7 @@ import PKC from "../../../dist/node/index.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { SignerType } from "../../../dist/node/signer/types.js";
 import type Publication from "../../../dist/node/publications/publication.js";
+import { trackUpdatingComment } from "../../../dist/node/pkc/tracked-instance-registry-util.js";
 
 // State-machine regressions of publications and comment updates over PKC RPC, against a fake RPC server so they run
 // without the test server: the server answers every subscribe call with a new subscription id, can hold the response
@@ -542,6 +543,86 @@ describe("publications over RPC (fake RPC server)", () => {
             expect(post.publishingState).to.equal("stopped");
             expect(events).to.not.include("challengeverification:false");
             expect(pkc._publishingPublications.has(post)).to.be.false;
+        });
+    });
+
+    describe("comment.stop() while update() is subscribing", () => {
+        it("unsubscribes the comment update subscription the server returns afterwards", async () => {
+            const comment = await pkc.createComment({ cid: "QmUFu8fzuT1th3jJYgR4oRgGpw3sgRALr4nbenA4pyoCav" });
+            const updatingStates: string[] = [];
+            comment.on("updatingstatechange", (state) => updatingStates.push(state));
+            server.holdResponsesTo("commentUpdateSubscribe");
+
+            const updatePromise = comment.update();
+            await server.waitForHeldCall("commentUpdateSubscribe");
+            const [sharedInstance] = pkc._updatingComments.values();
+            // The shared pkc._updatingComments instance has no subscription id yet, so this stop() untracks it and
+            // has nothing to unsubscribe
+            await comment.stop();
+
+            const subscriptionId = server.releaseHeldResponse("commentUpdateSubscribe");
+            await updatePromise;
+            await vi.waitFor(() => expect(server.unsubscribedIds()).to.include(subscriptionId), { timeout: 10000, interval: 10 });
+            expect(sharedInstance.state).to.equal("stopped");
+            expect(comment.state).to.equal("stopped");
+            expect(pkc._updatingComments.size()).to.equal(0);
+
+            server.sendNotification({
+                method: "commentUpdateNotification",
+                subscription: subscriptionId,
+                event: "updatingstatechange",
+                result: { state: "fetching-update-ipfs" }
+            });
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(sharedInstance.updatingState).to.equal("stopped");
+            expect(updatingStates).to.not.include("fetching-update-ipfs");
+        });
+
+        // Here the comment is the pkc._updatingComments entry itself, so update() subscribes on it directly instead of
+        // mirroring a shared instance. stop() and a new update() during that subscribe set the state back to "updating",
+        // which is all the first update() used to check when its subscribe returned
+        const startUpdateThenStopAndUpdateAgain = async () => {
+            const comment = await pkc.createComment({ cid: "QmUFu8fzuT1th3jJYgR4oRgGpw3sgRALr4nbenA4pyoCav" });
+            trackUpdatingComment(pkc, comment);
+            server.holdResponsesTo("commentUpdateSubscribe");
+            const firstUpdate = comment.update();
+            await server.waitForHeldCall("commentUpdateSubscribe");
+            await comment.stop();
+            // stop() untracked the comment, so this update() creates a shared instance and mirrors it
+            await comment.update();
+            const [sharedInstance] = pkc._updatingComments.values();
+            expect(sharedInstance).to.not.equal(comment);
+            return { comment, firstUpdate, sharedInstance };
+        };
+
+        it("unsubscribes the subscription of an update() that stop() and a new update() replaced", async () => {
+            const { comment, firstUpdate, sharedInstance } = await startUpdateThenStopAndUpdateAgain();
+
+            const staleSubscriptionId = server.releaseHeldResponse("commentUpdateSubscribe");
+            await firstUpdate;
+            await vi.waitFor(() => expect(server.unsubscribedIds()).to.include(staleSubscriptionId), { timeout: 3000, interval: 10 });
+            expect(server.unsubscribedIds()).to.deep.equal([staleSubscriptionId]);
+            // The comment keeps mirroring the second update()'s shared instance, without a subscription of its own
+            expect(comment.state).to.equal("updating");
+            expect(comment._updatingCommentInstance?.comment).to.equal(sharedInstance);
+            expect(sharedInstance._numOfListenersForUpdatingInstance).to.equal(1);
+
+            await comment.stop();
+            expect(sharedInstance.state).to.equal("stopped");
+            expect(pkc._updatingComments.size()).to.equal(0);
+        });
+
+        it("leaves the new update() running when the replaced update()'s subscribe fails", async () => {
+            const { comment, firstUpdate, sharedInstance } = await startUpdateThenStopAndUpdateAgain();
+
+            server.releaseHeldResponse("commentUpdateSubscribe", { error: "stubbed commentUpdateSubscribe failure" });
+            // The failure used to run the stop path on the comment: it detached the new mirror, which stopped the shared
+            // instance, set the comment "stopped" with updatingState "failed", and rejected the first update()
+            await firstUpdate;
+            expect(comment.state).to.equal("updating");
+            expect(comment._updatingCommentInstance?.comment).to.equal(sharedInstance);
+            expect(sharedInstance.state).to.equal("updating");
+            expect(sharedInstance._numOfListenersForUpdatingInstance).to.equal(1);
         });
     });
 });

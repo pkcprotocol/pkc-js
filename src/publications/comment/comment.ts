@@ -150,6 +150,10 @@ export class Comment
     private _postForUpdating?: CommentClientsManager["_postForUpdating"];
 
     _numOfListenersForUpdatingInstance = 0;
+    // Bumped by update() and stop(). The start-up of an update awaits pkc.createComment() for the shared instance, or the
+    // RPC commentUpdateSubscribe, and compares it afterwards: once a stop() ran, that start-up is stale and must not
+    // track, mirror, start or subscribe anything. `state` alone cannot tell, because a new update() sets it to "updating" again
+    private _updateAttempt = 0;
 
     _updatingCommentInstance?: { comment: Comment } & Pick<PublicationEvents, "error" | "updatingstatechange" | "update" | "statechange"> =
         undefined; // the comment instance we're mirroing
@@ -1011,26 +1015,43 @@ export class Comment
         const rpcUrl = this._pkc.pkcRpcClientsOptions![0];
         if (!rpcUrl) throw Error("Failed to get rpc url");
         if (!this.cid) throw Error("Can't start updating comment without defining this.cid");
+        const updateAttempt = this._updateAttempt;
+        let subscriptionId: number;
         try {
-            const { subscriptionId } = await this._pkc._pkcRpcClient!.commentUpdateSubscribe({
+            ({ subscriptionId } = await this._pkc._pkcRpcClient!.commentUpdateSubscribe({
                 cid: this.cid,
                 ...(this.raw.comment || this.raw.commentUpdate ? { raw: this.raw } : undefined),
                 communityName: this.communityName,
                 communityPublicKey: this.communityPublicKey,
                 parentCid: this.parentCid,
                 postCid: this.postCid
-            });
-            this._updateRpcSubscriptionId = subscriptionId;
+            }));
         } catch (e) {
+            if (updateAttempt !== this._updateAttempt) {
+                // stop() already settled the states, and a newer update() may be running: this failure is not theirs
+                log.error("A commentUpdate subscribe that stop() made stale failed", e);
+                return;
+            }
             log.error("Failed to receive commentUpdate from RPC due to error", e);
             await this._stopUpdateLoop();
             this._setStateWithEmission("stopped");
             this._setUpdatingStateWithEmissionIfNewState("failed");
             throw e;
         }
+        if (updateAttempt !== this._updateAttempt) {
+            // stop() ran while subscribing: it had no subscription id to unsubscribe and already untracked this
+            // instance, so keeping the subscription would leave an untracked, live update loop until pkc.destroy().
+            // A newer update() has its own subscription or mirror
+            try {
+                await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
+            } catch (e) {
+                log.error("Failed to unsubscribe from a commentUpdate subscription stopped while subscribing", e);
+            }
+            return;
+        }
+        this._updateRpcSubscriptionId = subscriptionId;
         this._setStateWithEmission("updating");
 
-        const subscriptionId = this._updateRpcSubscriptionId;
         // Deferred so a listener attached synchronously after `await update()` resolves still
         // receives events the server emitted at subscribe time (#314); see
         // attachSubscriptionHandlersDeferred for the mechanism
@@ -1201,7 +1222,12 @@ export class Comment
         // create a new pkc._updatingComments[this.cid]
         const log = Logger("pkc-js:comment:update:_setUpNewUpdatingCommentInstance");
 
+        const updateAttempt = this._updateAttempt;
         const updatingCommentInstance = await this._pkc.createComment(this);
+        // stop() during the await above found no mirror to detach, so tracking, mirroring and starting the shared
+        // instance now would leave a stopped comment with a live update loop that nothing ever stops. After a stop() and
+        // a new update(), it would orphan one of two shared instances, and the other update() would fail to mirror
+        if (updateAttempt !== this._updateAttempt) return;
 
         trackUpdatingComment(this._pkc, updatingCommentInstance);
 
@@ -1222,6 +1248,7 @@ export class Comment
         if (this.state === "updating") return; // Do nothing if it's already updating
 
         if (!this.cid) throw Error("Can't call comment.update() without defining cid");
+        this._updateAttempt++;
         this._setStateWithEmission("updating");
 
         const existingUpdatingComment = findUpdatingComment(this._pkc, { cid: this.cid });
@@ -1336,6 +1363,7 @@ export class Comment
     }
 
     override async stop() {
+        this._updateAttempt++; // an update() start-up still awaiting sees it is stale and leaves this comment alone
         this._abortStopOperations(
             `Aborting comment operations for ${this.cid || this.author?.address || "comment"} because comment.stop() was called`
         );
