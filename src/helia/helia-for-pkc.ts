@@ -1106,6 +1106,12 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 },
                 subscribe: async (topic, handler, options) => {
                     throwIfHeliaIsStoppingOrStopped();
+                    // Reject a second subscribe of the same handler like kubo-rpc-client does; the client
+                    // manager reads this as "already subscribed". Registering it again left a copy that the
+                    // single unsubscribe never removed, keeping the topic subscribed and the publication
+                    // that owns the handler reachable (a single libp2p-js client is listed twice as a provider)
+                    if ((pubsubEventHandler.listeners(topic) as unknown[]).includes(handler))
+                        throw new Error(`Already subscribed to ${topic} with this handler`);
                     //@ts-expect-error
                     pubsubEventHandler.on(topic, handler);
                     // Start warmup BEFORE native subscribe so the caller's abort signal lands

@@ -846,6 +846,19 @@ class Publication extends TypedEmitter<PublicationEvents> {
         return this._communityFetchAbortSignal;
     }
 
+    // Cancels and drains the stale-cache community refresh a finished publish left behind. For
+    // Comment.stop(), which reaches Publication.stop() only while publishing: a comment whose publish
+    // already succeeded can still be in pkc._publishingPublications with its refresh in flight, and
+    // pkc.destroy() only reaches it through stop(). Resets the signal afterwards, since a comment
+    // goes on to use it for update() after being stopped.
+    protected async _cancelBackgroundCommunityRefresh() {
+        this._communityFetchAbortController?.abort(
+            new PKCError("ERR_GET_COMMUNITY_ABORTED", { publicationType: this.getType(), communityAddress: this.communityAddress })
+        );
+        if (this._backgroundCommunityRefresh) await this._backgroundCommunityRefresh;
+        this._resetCommunityFetchAbortSignal();
+    }
+
     private _resetCommunityFetchAbortSignal() {
         this._communityFetchAbortController = undefined;
         this._communityFetchAbortSignal = undefined;
