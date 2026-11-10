@@ -1,4 +1,5 @@
 import assert from "assert";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { Signer, decryptEd25519AesGcm, encryptEd25519AesGcm } from "../signer/index.js";
 import type {
     ChallengeAnswerMessageType,
@@ -20,7 +21,6 @@ import type {
     PublicationFromDecryptedChallengeRequest
 } from "../pubsub-messages/types.js";
 import type { AuthorPubsubJsonType, CreatePublicationOptions, IpfsHttpClientPubsubMessage, PublicationTypeName } from "../types.js";
-import Logger from "../logger.js";
 import env from "../version.js";
 import { PKC } from "../pkc/pkc.js";
 import {
@@ -158,10 +158,14 @@ class Publication extends TypedEmitter<PublicationEvents> {
     private _rpcPublishSubscriptionId?: number = undefined;
     _clientsManager!: PublicationClientsManager;
     _pkc: PKC;
+    _log: Logger;
 
     constructor(pkc: PKC) {
         super();
         this._pkc = pkc;
+        // One logger per instance, derived from the pkc root before _initClients copies a child of it. The namespace
+        // comes from a prototype hook so a Comment, Vote... gets its own name from the first line (issue #493).
+        this._log = pkc.logger.child({ namespace: this._logNamespace() });
         this._updatePublishingStateWithEmission("stopped");
         this._setStateWithEmission("stopped");
         this._initClients();
@@ -183,6 +187,17 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this.clients = this._clientsManager.clients;
     }
 
+    protected _logNamespace(): string {
+        return "pkc-js:publication";
+    }
+
+    // Rebuilds this logger's own tags from the instance's fields: the signature once signed or received, and (for a
+    // comment) the cid once assigned, so both keys stay queryable for the whole lifetime. setTags dedupes an unchanged
+    // record. Never spread this._log.tags into it.
+    _refreshLogTags() {
+        this._log.setTags({ signature: this.signature?.signature });
+    }
+
     setCommunityAddress(communityAddress: string) {
         this.communityAddress = communityAddress;
         this.shortCommunityAddress = shortifyAddress(communityAddress);
@@ -197,6 +212,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this.setCommunityAddress(communityFields.communityAddress);
         this.timestamp = props.timestamp;
         this.signature = props.signature;
+        this._refreshLogTags();
         const runtimeAuthor = buildRuntimeAuthor({
             author: props.author,
             signaturePublicKey: props.signature.publicKey
@@ -322,7 +338,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         verification: DecryptedChallengeVerificationMessageType,
         runtimeFields?: Record<string, any>
     ) {
-        const log = Logger("pkc-js:publication:_handleRpcChallengeVerification");
+        const log = this._log;
         if (verification.comment)
             await this._verifyDecryptedChallengeVerificationAndUpdateCommentProps(<DecryptedChallengeVerification>verification);
         if (this instanceof Comment && runtimeFields) deepMergeRuntimeFields(this, runtimeFields);
@@ -344,13 +360,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
             try {
                 await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
             } catch (e) {
-                log.error("Failed to unsubscribe from publication publish", e);
+                log.error("_handleRpcChallengeVerification: Failed to unsubscribe from publication publish", e);
             }
         }
     }
 
     private async _handleIncomingChallengePubsubMessage(msg: ChallengeMessageType) {
-        const log = Logger("pkc-js:publication:_handleIncomingChallengePubsubMessage");
+        const log = this._log;
         if (Object.values(this._challengeExchanges).some((exchange) => exchange.challenge)) return; // We only process one challenge
         const challengeMsgValidity = await verifyChallengeMessage({
             challenge: msg,
@@ -362,7 +378,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 pubsubMsg: msg,
                 reason: challengeMsgValidity.reason
             });
-            log.error("received challenge message with invalid signature", error.toString());
+            log.error("_handleIncomingChallengePubsubMessage: received challenge message with invalid signature", error.toString());
             this._changePublicationStateEmitEventEmitStateChangeEvent({
                 newPublishingState: "failed",
                 event: { name: "error", args: [error] }
@@ -371,7 +387,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         }
 
         log(
-            `Received encrypted challenges.  Will decrypt and emit them on "challenge" event. User shoud publish solution by calling publishChallengeAnswers`
+            `_handleIncomingChallengePubsubMessage: Received encrypted challenges.  Will decrypt and emit them on "challenge" event. User shoud publish solution by calling publishChallengeAnswers`
         );
 
         const pubsubSigner = this._challengeExchanges[msg.challengeRequestId.toString()].signer;
@@ -382,7 +398,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             decryptedRawString = await decryptEd25519AesGcm(msg.encrypted, pubsubSigner.privateKey, this._community!.encryption.publicKey);
         } catch (e) {
             const pkcError = new PKCError("ERR_PUBLICATION_FAILED_TO_DECRYPT_CHALLENGE", { decryptErr: e });
-            log.error("could not decrypt challengemessage.encrypted", pkcError.toString());
+            log.error("_handleIncomingChallengePubsubMessage: could not decrypt challengemessage.encrypted", pkcError.toString());
             this._changePublicationStateEmitEventEmitStateChangeEvent({
                 newPublishingState: "failed",
                 event: { name: "error", args: [pkcError] }
@@ -395,7 +411,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         try {
             decryptedJson = await parseJsonWithPKCErrorIfFails(decryptedRawString);
         } catch (e) {
-            log.error("could not parse decrypted challengemessage.encrypted as a json", String(e));
+            log.error("_handleIncomingChallengePubsubMessage: could not parse decrypted challengemessage.encrypted as a json", String(e));
             this._changePublicationStateEmitEventEmitStateChangeEvent({
                 newPublishingState: "failed",
                 event: { name: "error", args: [<PKCError>e] }
@@ -408,7 +424,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         try {
             decryptedChallenge = parseDecryptedChallengeWithPKCErrorIfItFails(decryptedJson);
         } catch (e) {
-            log.error("could not parse z challengemessage.encrypted as a json", String(e));
+            log.error("_handleIncomingChallengePubsubMessage: could not parse z challengemessage.encrypted as a json", String(e));
             this._changePublicationStateEmitEventEmitStateChangeEvent({
                 newPublishingState: "failed",
                 event: { name: "error", args: [<PKCError>e] }
@@ -424,7 +440,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         // that recorded the challenge. Nothing can interleave between here and the write below, so
         // re-checking now is enough to drop the copy before it touches the state or emits (#349).
         if (Object.values(this._challengeExchanges).some((exchange) => exchange.challenge)) {
-            log.trace("Received a copy of a challenge that was already handled, ignoring it");
+            log.trace("_handleIncomingChallengePubsubMessage: Received a copy of a challenge that was already handled, ignoring it");
             return;
         }
         this._challengeExchanges[msg.challengeRequestId.toString()].challenge = decryptedChallengeMsg;
@@ -440,7 +456,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     private async _handleIncomingChallengeVerificationPubsubMessage(msg: ChallengeVerificationMessageType) {
-        const log = Logger("pkc-js:publication:_handleIncomingChallengeVerificationPubsubMessage");
+        const log = this._log;
         if (this._challengeExchanges[msg.challengeRequestId.toString()].challengeVerification) return;
         const signatureValidation = await verifyChallengeVerification({
             verification: msg,
@@ -452,7 +468,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 pubsubMsg: msg,
                 reason: signatureValidation.reason
             });
-            log.error("Publication received a challenge verification with invalid signature", error);
+            log.error(
+                "_handleIncomingChallengeVerificationPubsubMessage: Publication received a challenge verification with invalid signature",
+                error
+            );
             this._changePublicationStateEmitEventEmitStateChangeEvent({
                 newPublishingState: "failed",
                 event: { name: "error", args: [error] }
@@ -463,7 +482,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
         let newPublishingState: Publication["publishingState"];
         if (msg.challengeSuccess) {
             newPublishingState = "succeeded";
-            log(`Received a challengeverification with challengeSuccess=true`, "for publication", this.getType());
+            log(
+                `_handleIncomingChallengeVerificationPubsubMessage: Received a challengeverification with challengeSuccess=true`,
+                "for publication",
+                this.getType()
+            );
             if (msg.encrypted) {
                 let decryptedRawString: string;
 
@@ -480,7 +503,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         decryptErr: e,
                         challenegVerificationMsg: msg
                     });
-                    log.error("could not decrypt challengeverification.encrypted", pkcError);
+                    log.error(
+                        "_handleIncomingChallengeVerificationPubsubMessage: could not decrypt challengeverification.encrypted",
+                        pkcError
+                    );
                     this.emit("error", pkcError);
                     return;
                 }
@@ -490,7 +516,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 try {
                     decryptedJson = await parseJsonWithPKCErrorIfFails(decryptedRawString);
                 } catch (e) {
-                    log.error("could not parse decrypted challengeverification.encrypted as a json", e);
+                    log.error(
+                        "_handleIncomingChallengeVerificationPubsubMessage: could not parse decrypted challengeverification.encrypted as a json",
+                        e
+                    );
                     this.emit("error", <PKCError>e);
                     return;
                 }
@@ -498,7 +527,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 try {
                     decryptedChallengeVerification = parseDecryptedChallengeVerification(decryptedJson);
                 } catch (e) {
-                    log.error("could not parse challengeverification.encrypted due to invalid schema", e);
+                    log.error(
+                        "_handleIncomingChallengeVerificationPubsubMessage: could not parse challengeverification.encrypted due to invalid schema",
+                        e
+                    );
                     this.emit("error", <PKCError>e);
                     return;
                 }
@@ -506,7 +538,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         } else {
             newPublishingState = "failed";
             log.error(
-                `Challenge exchange with publication`,
+                `_handleIncomingChallengeVerificationPubsubMessage: Challenge exchange with publication`,
                 this.getType(),
                 `has failed to pass`,
                 "Challenge errors",
@@ -525,14 +557,18 @@ class Publication extends TypedEmitter<PublicationEvents> {
         // comment or emits "update" with nothing changed; "challengeverification" and the post-publish
         // cleanup run once per exchange as well (#349).
         if (this._challengeExchanges[msg.challengeRequestId.toString()].challengeVerification) {
-            log.trace("Received a copy of a challenge verification that was already handled, ignoring it");
+            log.trace(
+                "_handleIncomingChallengeVerificationPubsubMessage: Received a copy of a challenge verification that was already handled, ignoring it"
+            );
             return;
         }
         this._challengeExchanges[msg.challengeRequestId.toString()].challengeVerification = challengeVerificationMsg;
 
         if (decryptedChallengeVerification?.comment) {
             await this._verifyDecryptedChallengeVerificationAndUpdateCommentProps(decryptedChallengeVerification);
-            log("Updated the props of this instance with challengeverification.encrypted");
+            log(
+                "_handleIncomingChallengeVerificationPubsubMessage: Updated the props of this instance with challengeverification.encrypted"
+            );
         }
 
         Object.values(this._challengeExchanges).forEach((exchange) => this._updatePubsubState("stopped", exchange.providerUrl));
@@ -549,13 +585,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     private async _handleChallengeExchange(pubsubMsg: IpfsHttpClientPubsubMessage) {
-        const log = Logger("pkc-js:publication:handleChallengeExchange");
+        const log = this._log;
 
         let decodedJson: string;
         try {
             decodedJson = cborg.decode(pubsubMsg.data);
         } catch (e) {
-            log.error("Failed to decode pubsub message", e);
+            log.error("handleChallengeExchange: Failed to decode pubsub message", e);
             return;
         }
 
@@ -581,18 +617,18 @@ class Publication extends TypedEmitter<PublicationEvents> {
         }
 
         if (!pubsubMsgParsed) {
-            log.error(`Failed to parse the schema of decoded pubsub message`, decodedJson);
+            log.error(`handleChallengeExchange: Failed to parse the schema of decoded pubsub message`, decodedJson);
             return;
         }
 
         if (pubsubMsgParsed.type === "CHALLENGEREQUEST" || pubsubMsgParsed.type === "CHALLENGEANSWER") {
-            log.trace("Received unrelated pubsub message of type", pubsubMsgParsed.type);
+            log.trace("handleChallengeExchange: Received unrelated pubsub message of type", pubsubMsgParsed.type);
         } else if (
             !Object.values(this._challengeExchanges).some((exchange) =>
                 isDeepEqual(pubsubMsgParsed.challengeRequestId, exchange.challengeRequest.challengeRequestId)
             )
         ) {
-            log.trace(`Received pubsub message with different challenge request id, ignoring it`);
+            log.trace(`handleChallengeExchange: Received pubsub message with different challenge request id, ignoring it`);
         } else if (pubsubMsgParsed.type === "CHALLENGE") return this._handleIncomingChallengePubsubMessage(pubsubMsgParsed);
         else if (pubsubMsgParsed.type === "CHALLENGEVERIFICATION")
             return this._handleIncomingChallengeVerificationPubsubMessage(pubsubMsgParsed);
@@ -606,7 +642,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     async publishChallengeAnswers({ challengeAnswers }: { challengeAnswers: DecryptedChallengeAnswerMessageType["challengeAnswers"] }) {
-        const log = Logger("pkc-js:publication:publishChallengeAnswers");
+        const log = this._log;
 
         const toEncryptAnswers = parseDecryptedChallengeAnswerWithPKCErrorIfItFails(<DecryptedChallengeAnswer>{
             challengeAnswers: challengeAnswers
@@ -666,7 +702,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
             answerMsgToPublish = <ChallengeAnswerMessageType>{
                 ...toSignAnswer,
-                signature: await signChallengeAnswer({ challengeAnswer: toSignAnswer, signer: challengeExchange.signer })
+                signature: await signChallengeAnswer({ challengeAnswer: toSignAnswer, signer: challengeExchange.signer, log: this._log })
             };
         } catch (e) {
             challengeExchange.challengeAnswerPublishInFlight = false;
@@ -723,7 +759,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             .map(([provider]) => provider);
         providers.forEach((provider) => this._updatePubsubState("waiting-challenge-verification", provider));
 
-        log(`Responded to challenge  with answers`, challengeAnswers);
+        log(`publishChallengeAnswers: Responded to challenge  with answers`, challengeAnswers);
         this.emit("challengeanswer", decryptedChallengeAnswer);
     }
 
@@ -870,7 +906,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     async _fetchCommunityForPublishing(): Promise<NonNullable<Publication["_community"]>> {
-        const log = Logger("pkc-js:publish:_fetchCommunityForPublishing");
+        const log = this._log;
         const cachedCommunity = this._getCommunityCache();
 
         if (cachedCommunity) {
@@ -878,7 +914,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             // And in the background we will fetch a new one and update the cache
             // cache.has will return false if the item is stale
             if (!this._pkc._memCaches.communityForPublishing.has(this.communityAddress)) {
-                log("The cache of community is stale, we will use the cached and update in the background");
+                log("_fetchCommunityForPublishing: The cache of community is stale, we will use the cached and update in the background");
                 // Held on the publication so stop() can drain it. Without that the refresh outlives
                 // the PKC and goes on creating community instances after teardown (issue #270).
                 const refresh = this._pkc
@@ -890,12 +926,15 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     .catch((e) => {
                         // Cancelling the refresh is what stop() asked for, so it is not an error.
                         if (e?.code === "ERR_GET_COMMUNITY_ABORTED")
-                            log("Stopped the background refresh of the community cache", this.communityAddress);
+                            log(
+                                "_fetchCommunityForPublishing: Stopped the background refresh of the community cache",
+                                this.communityAddress
+                            );
                         else {
                             // The community no longer claims this name, so the cached entry must not serve it again
                             if (e?.code === "ERR_COMMUNITY_RECORD_NAME_DOES_NOT_MATCH_REQUESTED_NAME")
                                 this._pkc._memCaches.communityForPublishing.delete(this.communityAddress);
-                            log.error("Failed to update cache of community", this.communityAddress, e);
+                            log.error("_fetchCommunityForPublishing: Failed to update cache of community", this.communityAddress, e);
                         }
                     })
                     .finally(() => {
@@ -954,8 +993,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
     // abandon this provider (issue #270).
     private async _abandonProviderIfStoppedWhileSubscribing(providerUrl: string): Promise<boolean> {
         if (!this._pkc.destroyed && (this.state as Publication["state"]) !== "stopped") return false;
-        const log = Logger("pkc-js:publication:publish:_abandonProviderIfStoppedWhileSubscribing");
-        log("Publication was stopped while subscribing to pubsub, will not publish a challenge request", providerUrl);
+        const log = this._log;
+        log(
+            "_abandonProviderIfStoppedWhileSubscribing: Publication was stopped while subscribing to pubsub, will not publish a challenge request",
+            providerUrl
+        );
         try {
             await this._clientsManager.pubsubUnsubscribeOnProvider(
                 this._communityChallengePubsubExchangeTopic(),
@@ -963,7 +1005,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 this._handleChallengeExchange
             );
         } catch (e) {
-            log.error("Failed to undo the pubsub subscription that resolved after being stopped", providerUrl, e);
+            log.error(
+                "_abandonProviderIfStoppedWhileSubscribing: Failed to undo the pubsub subscription that resolved after being stopped",
+                providerUrl,
+                e
+            );
         }
         this._updatePubsubState("stopped", providerUrl);
         return true;
@@ -980,7 +1026,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     private async _postSucessOrFailurePublishing() {
-        const log = Logger("pkc-js:publication:_postSucessOrFailurePublishing");
+        const log = this._log;
         this._unregisterFromPkcOncePublishWorkSettles();
         this._setStateWithEmission("stopped");
         if (this._rpcPublishSubscriptionId) {
@@ -991,7 +1037,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             try {
                 await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
             } catch (e) {
-                log.error("Failed to unsubscribe from publication publish", e);
+                log.error("_postSucessOrFailurePublishing: Failed to unsubscribe from publication publish", e);
             }
             this._setRpcClientState("stopped");
         } else if (!this._pkc._pkcRpcClient && typeof this._community?.pubsubTopic === "string") {
@@ -1063,11 +1109,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     private async _handleIncomingErrorFromRpc(args: any) {
-        const log = Logger("pkc-js:publication:publish:_publishWithRpc:_handleIncomingErrorFromRpc");
+        const log = this._log;
         const error: PublicationRpcErrorToTransmit = args.params.result;
         if (error.details?.newPublishingState) this._updatePublishingStateNoEmission(error.details.newPublishingState);
         if (error.details?.publishThrowError) {
-            log.error("RPC server threw an error on publish(), will stop publication", error);
+            log.error("_handleIncomingErrorFromRpc: RPC server threw an error on publish(), will stop publication", error);
             await this._postSucessOrFailurePublishing();
         }
         this.emit("error", error);
@@ -1111,7 +1157,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             // surface as an "error" event, stop)
             replayErrorContainment: {
                 entityName: "publication",
-                log: Logger("pkc-js:publication:publish:_publishWithRpc"),
+                log: this._log,
                 emitError: (error) => this.emit("error", error),
                 stop: () => this.stop()
             }
@@ -1145,7 +1191,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         // No validation for now, we might add in the future
         return {
             ...toSignMsg,
-            signature: await signChallengeRequest({ request: toSignMsg, signer: pubsubSigner })
+            signature: await signChallengeRequest({ request: toSignMsg, signer: pubsubSigner, log: this._log })
         };
     }
 
@@ -1157,7 +1203,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         providerUrl: string,
         acceptedChallengeTypes: DecryptedChallengeRequestMessageType["acceptedChallengeTypes"]
     ) {
-        const log = Logger("pkc-js:publication:publish:_generateChallengeRequestToPublish");
+        const log = this._log;
         const pubsubMessageSigner = await this._pkc.createSigner();
 
         const pubsubMsgToEncrypt = this.toJSONPubsubRequestToEncrypt();
@@ -1181,7 +1227,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
         const challengeRequest = await this._signAndValidateChallengeRequestBeforePublishing(toSignMsg, pubsubMessageSigner);
         log(
-            "Attempting to publish",
+            "_generateChallengeRequestToPublish: Attempting to publish",
             this.getType(),
             "to pubsub topic",
             this._community?.pubsubTopic,
@@ -1272,11 +1318,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
         const currentPubsubProvider = providers[currentPubsubProviderIndex];
         this._pkc._stats.recordGatewayFailure(currentPubsubProvider, "pubsub-publish");
         this._pkc._stats.recordGatewayFailure(currentPubsubProvider, "pubsub-subscribe");
-        const log = Logger("pkc-js:publication:publish:_handleNotReceivingResponseToChallengeRequest");
+        const log = this._log;
 
         if (this._isAllAttemptsExhausted(providers.length)) {
             // pkc-js tried all providers and still no response is received
-            log.error(`Failed to receive any response for publication`, this.getType());
+            log.error(`_handleNotReceivingResponseToChallengeRequest: Failed to receive any response for publication`, this.getType());
             await this._postSucessOrFailurePublishing();
             const error = new PKCError("ERR_PUBSUB_DID_NOT_RECEIVE_RESPONSE_AFTER_PUBLISHING_CHALLENGE_REQUEST", {
                 challengeExchanges: this._challengeExchangesFormattedForErrors(),
@@ -1289,17 +1335,22 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 event: { name: "error", args: [error] }
             });
         } else if (this.state === "stopped") {
-            log.error(`Publication is stopped, will not re-publish`);
+            log.error(`_handleNotReceivingResponseToChallengeRequest: Publication is stopped, will not re-publish`);
             await this._postSucessOrFailurePublishing();
         } else {
             if (currentPubsubProviderIndex + 1 === providers.length) {
-                log.error(`Failed to receive any response for publication`, this.getType(), "after publishing to all providers", providers);
+                log.error(
+                    `_handleNotReceivingResponseToChallengeRequest: Failed to receive any response for publication`,
+                    this.getType(),
+                    "after publishing to all providers",
+                    providers
+                );
                 await this._postSucessOrFailurePublishing();
             } else {
                 // let's publish to the next provider
 
                 log(
-                    `Re-publishing publication after ${this._publishToDifferentProviderThresholdSeconds}s of not receiving challenge from provider (${currentPubsubProvider})`
+                    `_handleNotReceivingResponseToChallengeRequest: Re-publishing publication after ${this._publishToDifferentProviderThresholdSeconds}s of not receiving challenge from provider (${currentPubsubProvider})`
                 );
 
                 currentPubsubProviderIndex += 1;
@@ -1325,7 +1376,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequestPublishTimestamp =
                             timestamp();
                     } catch (e) {
-                        log.error("Failed to publish challenge request using provider ", providerUrl, e);
+                        log.error(
+                            "_handleNotReceivingResponseToChallengeRequest: Failed to publish challenge request using provider ",
+                            providerUrl,
+                            e
+                        );
                         this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequestPublishError = e as
                             | Error
                             | PKCError;
@@ -1342,7 +1397,12 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         this._updatePublishingStateWithEmission("waiting-challenge");
                     }
 
-                    log(`Published a challenge request of publication`, this.getType(), "with provider", providerUrl);
+                    log(
+                        `_handleNotReceivingResponseToChallengeRequest: Published a challenge request of publication`,
+                        this.getType(),
+                        "with provider",
+                        providerUrl
+                    );
                     this.emit("challengerequest", decryptedRequest);
                     if (currentPubsubProviderIndex !== providers.length)
                         await sleepUntilTimeoutOrAbort(
@@ -1364,7 +1424,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 // publication stays subscribed for its verification, exactly like a publication whose
                 // challenge arrived before any retry (issue #340).
                 if (this._didWeReceiveChallengeOrChallengeVerification()) {
-                    log(`Received a challenge or challenge verification while waiting for retried providers, will keep the exchange alive`);
+                    log(
+                        `_handleNotReceivingResponseToChallengeRequest: Received a challenge or challenge verification while waiting for retried providers, will keep the exchange alive`
+                    );
                     return;
                 }
                 if (this._isAllAttemptsExhausted(providers.length)) {
@@ -1374,7 +1436,12 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         pubsubTopic: this._community?.pubsubTopic,
                         providerHeliaContexts: this._libp2pJsClientHeliaContexts()
                     });
-                    log.error("All attempts to publish", this.getType(), "has failed", allAttemptsFailedError);
+                    log.error(
+                        "_handleNotReceivingResponseToChallengeRequest: All attempts to publish",
+                        this.getType(),
+                        "has failed",
+                        allAttemptsFailedError
+                    );
                     this._changePublicationStateEmitEventEmitStateChangeEvent({
                         newPublishingState: "failed",
                         event: { name: "error", args: [allAttemptsFailedError] }
@@ -1398,9 +1465,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
     private async _publishWithLocalCommunity(community: LocalCommunity, challengeRequest: ChallengeRequestMessageType) {
         this._publishingToLocalCommunity = community;
-        const log = Logger("pkc-js:publication:publish:_publishWithLocalCommunity");
+        const log = this._log;
         log(
-            "Community is local, will not publish over pubsub, and instead will publish directly to the community by accessing pkc._startedCommunities"
+            "_publishWithLocalCommunity: Community is local, will not publish over pubsub, and instead will publish directly to the community by accessing pkc._startedCommunities"
         );
 
         const communityChallengeListener = async (challenge: DecryptedChallengeMessageType) => {
@@ -1408,7 +1475,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 // need to remove encrypted fields from challenge otherwise _handleIncomingChallengePubsubMessage will throw
                 const encryptedFields = ["challenges"] as const;
 
-                log("Received a challenge from the local community", challenge);
+                log("_publishWithLocalCommunity: Received a challenge from the local community", challenge);
                 await this._handleIncomingChallengePubsubMessage(omit(challenge, encryptedFields));
             }
         };
@@ -1419,7 +1486,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
             decryptedChallengeVerification: DecryptedChallengeVerificationMessageType
         ) => {
             if (decryptedChallengeVerification.challengeRequestId.toString() === challengeRequest.challengeRequestId.toString()) {
-                log("Received a challenge verification from the local community", decryptedChallengeVerification);
+                log(
+                    "_publishWithLocalCommunity: Received a challenge verification from the local community",
+                    decryptedChallengeVerification
+                );
                 // need to remove publicatioon fields from challenge verification otherwise verifyChallengeVerification will throw
                 const publicationFieldsToRemove = ["comment", "commentUpdate"] as const;
                 await this._handleIncomingChallengeVerificationPubsubMessage(
@@ -1440,7 +1510,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 };
             })
             .catch((e) => {
-                log.error("Failed to handle challenge request with local community", e);
+                log.error("_publishWithLocalCommunity: Failed to handle challenge request with local community", e);
                 this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequestPublishError = e as
                     | Error
                     | PKCError;
@@ -1478,7 +1548,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     private async _publishAfterRegistering() {
-        const log = Logger("pkc-js:publication:publish");
+        const log = this._log;
         this._setStateWithEmission("publishing");
 
         // Fetch community for BOTH RPC and non-RPC paths (needed for signing)
@@ -1489,7 +1559,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             await this._signPublicationWithCommunityFields();
         } else if (this._isSignedWithoutTheLoadedCommunityName()) {
             log(
-                `Re-signing the ${this.getType()} with the name of community ${this._community!.name}; it was created with only the community's key`
+                `publish: Re-signing the ${this.getType()} with the name of community ${this._community!.name}; it was created with only the community's key`
             );
             this.raw.unsignedPublicationOptions = this._signedWithKnownCommunityFields!.unsignedOptions;
             this._signedWithKnownCommunityFields = undefined;
@@ -1525,7 +1595,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 communityPublicKey: this._community?.publicKey ?? this.communityPublicKey,
                 publicationType: this.getType()
             });
-            log.error("Community has its challenge exchange disabled, will not publish", this.getType(), error);
+            log.error("publish: Community has its challenge exchange disabled, will not publish", this.getType(), error);
             this._changePublicationStateEmitEventEmitStateChangeEvent({
                 newPublishingState: "failed",
                 event: { name: "error", args: [error] }
@@ -1562,7 +1632,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequestPublishTimestamp = timestamp();
             } catch (e) {
                 this._updatePubsubState("stopped", providerUrl);
-                log.error("Failed to publish challenge request using provider ", providerUrl, e);
+                log.error("publish: Failed to publish challenge request using provider ", providerUrl, e);
                 currentPubsubProviderIndex += 1;
                 this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequestPublishError = e as
                     | Error
@@ -1574,7 +1644,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         pubsubTopic: this._community?.pubsubTopic,
                         providerHeliaContexts: this._libp2pJsClientHeliaContexts()
                     });
-                    log.error("All attempts to publish", this.getType(), "has failed", allAttemptsFailedError);
+                    log.error("publish: All attempts to publish", this.getType(), "has failed", allAttemptsFailedError);
                     this._changePublicationStateEmitEventEmitStateChangeEvent({
                         newPublishingState: "failed",
                         event: { name: "error", args: [allAttemptsFailedError] }
@@ -1587,7 +1657,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
             this._updatePublishingStateWithEmission("waiting-challenge");
 
-            log(`Published a challenge request of publication`, this.getType(), "with provider", providerUrl);
+            log(`publish: Published a challenge request of publication`, this.getType(), "with provider", providerUrl);
             this.emit("challengerequest", decryptedRequest);
             break;
         }
@@ -1598,7 +1668,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             currentPubsubProviderIndex,
             acceptedChallengeTypes: options.acceptedChallengeTypes
         }).catch((err) => {
-            log.error("Failed to handle not receiving response to challenge request", err);
+            log.error("publish: Failed to handle not receiving response to challenge request", err);
         });
     }
 }

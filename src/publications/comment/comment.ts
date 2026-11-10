@@ -1,4 +1,5 @@
 import retry, { RetryOperation } from "retry";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import {
     createAbortError,
     deepMergeRuntimeFields,
@@ -16,7 +17,6 @@ import type { DecryptedChallengeVerification } from "../../pubsub-messages/types
 import type { AuthorWithOptionalCommentUpdateJson, PublicationTypeName } from "../../types.js";
 
 import type { RepliesPagesTypeIpfs } from "../../pages/types.js";
-import Logger from "../../logger.js";
 import { PKC } from "../../pkc/pkc.js";
 import { signComment, verifyCommentIpfs, verifyCommentPubsubMessage, verifyCommentUpdate } from "../../signer/signatures.js";
 import assert from "assert";
@@ -166,10 +166,19 @@ export class Comment
             pageCids: {},
             pkc: this._pkc,
             community: { publicKey: this.communityPublicKey, name: this.communityName },
-            parentComment: this
+            parentComment: this,
+            log: this._log.child({ namespace: "replies" })
         });
 
         hideClassPrivateProps(this);
+    }
+
+    protected override _logNamespace(): string {
+        return "pkc-js:comment";
+    }
+
+    override _refreshLogTags() {
+        this._log.setTags({ signature: this.signature?.signature, cid: this.cid });
     }
 
     override _initClients() {
@@ -238,7 +247,7 @@ export class Comment
     protected override async _signPublicationOptionsToPublish(
         cleanedPublication: unknown
     ): Promise<CommentPubsubMessagePublication["signature"]> {
-        return signComment({ comment: cleanedPublication as CommentOptionsToSign, pkc: this._pkc });
+        return signComment({ comment: cleanedPublication as CommentOptionsToSign, pkc: this._pkc, log: this._log });
     }
 
     _initPubsubMessageProps(props: CommentPubsubMessagePublication) {
@@ -247,7 +256,7 @@ export class Comment
     }
 
     _initIpfsProps(props: CommentIpfsType) {
-        const log = Logger("pkc-js:comment:_initIpfsProps");
+        const log = this._log;
         // we're loading remote CommentIpfs
         this.raw.comment = props;
         this._initProps(props);
@@ -256,7 +265,7 @@ export class Comment
         if (unknownProps.length > 0) {
             const unknownPropsWithValues = pick(props, unknownProps);
             log(
-                `Found unknown props on loaded CommentIpfs (cid: ${this.cid})`,
+                `_initIpfsProps: Found unknown props on loaded CommentIpfs (cid: ${this.cid})`,
                 unknownPropsWithValues,
                 "Full props:",
                 props,
@@ -381,7 +390,7 @@ export class Comment
     }
 
     _initCommentUpdate(props: CommentUpdateType | CommentWithinRepliesPostsPageJson, community?: Pick<CommunityIpfsType, "signature">) {
-        const log = Logger("pkc-js:comment:_initCommentUpdate");
+        const log = this._log;
         if ("depth" in props) {
             // CommentWithinPageJson — no extra setup needed
         } else {
@@ -390,7 +399,7 @@ export class Comment
 
             const unknownProps = difference(keys(props), keys(CommentUpdateSchema.shape));
             if (unknownProps.length > 0) {
-                log("Found unknown props on CommentUpdate record", unknownProps, "Will set them on Comment instance");
+                log("_initCommentUpdate: Found unknown props on CommentUpdate record", unknownProps, "Will set them on Comment instance");
                 Object.assign(this, pick(props, unknownProps));
             }
         }
@@ -443,7 +452,7 @@ export class Comment
         community?: Pick<CommunityIpfsType, "signature">
     ) {
         assert(this.cid, "Can't update comment.replies without comment.cid being defined");
-        const log = Logger("pkc-js:comment:_updateRepliesPostsInstanceIfNeeded");
+        const log = this._log;
         const communitySignature = community?.signature || this.replies._community.signature;
         const repliesCreationTimestamp = this.updatedAt;
         if (typeof repliesCreationTimestamp !== "number") throw Error("comment.updatedAt should be defined when updating replies");
@@ -471,7 +480,7 @@ export class Comment
             const shouldUpdateReplies = !isDeepEqual(this.replies.pageCids, newReplies.pageCids);
 
             if (shouldUpdateReplies) {
-                log.trace(`Updating the props of comment instance (${this.cid}) replies`);
+                log.trace(`_updateRepliesPostsInstanceIfNeeded: Updating the props of comment instance (${this.cid}) replies`);
                 const parsedPages = <Pick<RepliesPages, "pages"> & { pagesIpfs: RepliesPagesTypeIpfs | undefined }>(
                     parseRawPages(newReplies)
                 );
@@ -487,7 +496,7 @@ export class Comment
     private async _verifyChallengeVerificationCommentProps(
         decryptedVerification: DecryptedChallengeVerification
     ): Promise<PKCError | undefined> {
-        const log = Logger("pkc-js:comment:publish:_verifyChallengeVerificationCommentProps");
+        const log = this._log;
 
         if (!this.raw.pubsubMessageToPublish) throw Error("comment._pubsubMsgToPublish should be defined at this point");
         // verify that the community did not change any props that we published
@@ -500,7 +509,7 @@ export class Comment
                 pubsubMsgFromSub: pubsubMsgFromCommentIpfs,
                 originalPubsubMsg: this.raw.pubsubMessageToPublish
             });
-            log.error(error);
+            log.error("_verifyChallengeVerificationCommentProps:", error);
             this.emit("error", error);
             return error;
         }
@@ -526,7 +535,7 @@ export class Comment
                 reason: commentIpfsValidity.reason,
                 decryptedChallengeVerification: decryptedVerification
             });
-            log.error(error);
+            log.error("_verifyChallengeVerificationCommentProps:", error);
             this.emit("error", error);
             return error;
         }
@@ -537,14 +546,15 @@ export class Comment
             community: this._community!,
             resolveAuthorNames: this._pkc.resolveAuthorNames,
             validateUpdateSignature: true,
-            validatePages: true
+            validatePages: true,
+            log: this._log
         });
         if (!commentUpdateValidity.valid) {
             const error = new PKCError("ERR_COMMUNITY_SENT_CHALLENGE_VERIFICATION_WITH_INVALID_COMMENTUPDATE", {
                 reason: commentUpdateValidity.reason,
                 decryptedChallengeVerification: decryptedVerification
             });
-            log.error(error);
+            log.error("_verifyChallengeVerificationCommentProps:", error);
             this.emit("error", error);
             return error;
         }
@@ -555,7 +565,7 @@ export class Comment
                 calculatedCid,
                 decryptedChallengeVerification: decryptedVerification
             });
-            log.error(error);
+            log.error("_verifyChallengeVerificationCommentProps:", error);
             this.emit("error", error);
             return error;
         }
@@ -565,19 +575,26 @@ export class Comment
         // Will add and pin our own comment to IPFS
         // only if we're connected to kubo or helia/libp2p
 
-        const log = Logger("pkc-js:comment:publish:_addOwnCommentToIpfsIfConnectedToIpfsClient");
+        const log = this._log;
         if (!this.raw.comment) throw Error("comment.raw.commentIpfs should be defined after challenge verification");
         if (Object.keys(this._pkc.clients.kuboRpcClients).length === 0) {
-            log("No kubo rpc client found, will not add newly published comment", this.cid, "to ipfs");
+            log(
+                "_addOwnCommentToIpfsIfConnectedToIpfsClient: No kubo rpc client found, will not add newly published comment",
+                this.cid,
+                "to ipfs"
+            );
             return;
         }
         if (decryptedVerification.commentUpdate.pendingApproval) {
-            log("comment is pending approval, we're not gonna add it to IPFS node for now", this.cid);
+            log(
+                "_addOwnCommentToIpfsIfConnectedToIpfsClient: comment is pending approval, we're not gonna add it to IPFS node for now",
+                this.cid
+            );
             return;
         }
         if (decryptedVerification.comment.signature.publicKey !== this.raw.pubsubMessageToPublish?.signature?.publicKey) {
             log(
-                "We received a CommentIpfs whose publicKey is different than the one we published. We're gonna assume it's annoymized and skip adding to IPFS"
+                "_addOwnCommentToIpfsIfConnectedToIpfsClient: We received a CommentIpfs whose publicKey is different than the one we published. We're gonna assume it's annoymized and skip adding to IPFS"
             );
             return;
         }
@@ -585,7 +602,7 @@ export class Comment
         // use p-retry here, 3 times maybe?
         const addRes = await retryKuboIpfsAdd({
             ipfsClient: kuboRpcClient._client,
-            log: Logger("pkc-js:comment:publish:_addOwnCommentToIpfsIfConnectedToIpfsClient"),
+            log: this._log,
             content: JSON.stringify(this.raw.comment),
             options: { pin: true }
         });
@@ -596,7 +613,7 @@ export class Comment
                 expectedCidString: decryptedVerification.commentUpdate.cid,
                 expectedCid: CID.parse(decryptedVerification.commentUpdate.cid)
             });
-        else log("Added the file of comment ipfs", this.cid, "to IPFS network successfully");
+        else log("_addOwnCommentToIpfsIfConnectedToIpfsClient: Added the file of comment ipfs", this.cid, "to IPFS network successfully");
     }
 
     _initCommentUpdateFromChallengeVerificationProps(commentUpdate: CommentUpdateForChallengeVerification) {
@@ -610,16 +627,23 @@ export class Comment
     }
 
     private async _updateCommentPropsFromDecryptedChallengeVerification(decryptedVerification: DecryptedChallengeVerification) {
-        const log = Logger("pkc-js:comment:publish:_updateCommentPropsFromDecryptedChallengeVerification");
+        const log = this._log;
 
         this.setCid(decryptedVerification.commentUpdate.cid);
         this._initIpfsProps(decryptedVerification.comment);
         this._initCommentUpdateFromChallengeVerificationProps(decryptedVerification.commentUpdate);
+        // The first line that carries the comment's cid tag (setCid refreshed them), so a cid query also finds a
+        // comment that was only published through this instance (issue #493)
+        log("_updateCommentPropsFromDecryptedChallengeVerification: The community accepted the comment and assigned it the cid", this.cid);
 
         // handle extra props here
         const unknownProps = difference(keys(decryptedVerification.commentUpdate), keys(CommentUpdateForChallengeVerificationSchema.shape));
         if (unknownProps.length > 0) {
-            log("Found unknown props on decryptedVerification.commentUpdate record", unknownProps, "Will set them on Comment instance");
+            log(
+                "_updateCommentPropsFromDecryptedChallengeVerification: Found unknown props on decryptedVerification.commentUpdate record",
+                unknownProps,
+                "Will set them on Comment instance"
+            );
             Object.assign(this, pick(decryptedVerification.commentUpdate, unknownProps));
         }
         this.emit("update", this);
@@ -633,9 +657,9 @@ export class Comment
         decryptedVerification: DecryptedChallengeVerification
     ) {
         // We're gonna update Comment instance with DecryptedChallengeVerification.{comment, commentUpdate}
-        const log = Logger("pkc-js:comment:publish:_verifyDecryptedChallengeVerificationAndUpdateCommentProps");
+        const log = this._log;
         log(
-            "Received update props from community after succcessful challenge exchange. Will attempt to validate if not connected to RPC",
+            "_verifyDecryptedChallengeVerificationAndUpdateCommentProps: Received update props from community after succcessful challenge exchange. Will attempt to validate if not connected to RPC",
             decryptedVerification
         );
 
@@ -650,7 +674,12 @@ export class Comment
         // Add the comment to IPFS network in the background
         if (Object.keys(this._pkc.clients.kuboRpcClients).length > 0 || Object.keys(this._pkc.clients.libp2pJsClients).length > 0)
             this._addOwnCommentToIpfsIfConnectedToIpfsClient(decryptedVerification).catch((err) =>
-                log.error(`Failed to add the file of comment ipfs`, this.cid, "to ipfs network due to error", err)
+                log.error(
+                    `_verifyDecryptedChallengeVerificationAndUpdateCommentProps: Failed to add the file of comment ipfs`,
+                    this.cid,
+                    "to ipfs network due to error",
+                    err
+                )
             );
     }
 
@@ -661,6 +690,7 @@ export class Comment
     setCid(newCid: string) {
         this.cid = newCid;
         this.shortCid = shortifyCid(this.cid);
+        this._refreshLogTags();
         refreshTrackedCommentAliases(this._pkc, this);
     }
 
@@ -701,7 +731,9 @@ export class Comment
         return new Promise((resolve) => {
             this._commentIpfsloadingOperation!.attempt(async (curAttempt) => {
                 if (this.raw.comment) return resolve(this.raw.comment);
-                log.trace(`Retrying to load comment ipfs (${this.cid}) for the ${curAttempt}th time`);
+                log.trace(
+                    `_verifyDecryptedChallengeVerificationAndUpdateCommentProps: Retrying to load comment ipfs (${this.cid}) for the ${curAttempt}th time`
+                );
                 try {
                     const commentInPage = this._clientsManager._findCommentInPagesOfUpdatingCommentsOrCommunity();
                     if (commentInPage) {
@@ -717,7 +749,10 @@ export class Comment
                     if (error instanceof PKCError && error.details)
                         error.details = { ...error.details, commentCid: this.cid, retryCount: curAttempt };
                     if (this._isCommentIpfsErrorRetriable(<PKCError>error)) {
-                        log.error(`Error on loading comment ipfs (${this.cid}) for the ${curAttempt}th time`, error);
+                        log.error(
+                            `_verifyDecryptedChallengeVerificationAndUpdateCommentProps: Error on loading comment ipfs (${this.cid}) for the ${curAttempt}th time`,
+                            error
+                        );
 
                         this._changeCommentStateEmitEventEmitStateChangeEvent({
                             newUpdatingState: "waiting-retry",
@@ -725,7 +760,11 @@ export class Comment
                         });
 
                         if (curAttempt === 1 && this.communityAddress) {
-                            log("Failed the first time in loading comment", this.cid, "will try to load from community pages");
+                            log(
+                                "_verifyDecryptedChallengeVerificationAndUpdateCommentProps: Failed the first time in loading comment",
+                                this.cid,
+                                "will try to load from community pages"
+                            );
                             // if we fail for second time, start trying to find CommentIpfs using pages instead of comment.cid
                             await this._clientsManager._fetchCommentIpfsFromPages();
                         }
@@ -755,11 +794,20 @@ export class Comment
             await sleepUntilTimeoutOrAbort(5_000, stopSignal);
             if (this.raw.comment) return;
             if (this._isStopAbortRequested() || this._pkc.destroyed) return;
-            log("Starting parallel pkc.getCommunity for", this.cid, "so bitswap can fetch the comment block from community peers");
+            log(
+                "_verifyDecryptedChallengeVerificationAndUpdateCommentProps: Starting parallel pkc.getCommunity for",
+                this.cid,
+                "so bitswap can fetch the comment block from community peers"
+            );
             try {
                 await this._pkc.getCommunity({ name: this.communityName, publicKey: this.communityPublicKey });
             } catch (err) {
-                if (!isAbortError(err as Error)) log.error("Parallel pkc.getCommunity failed for", this.cid, err);
+                if (!isAbortError(err as Error))
+                    log.error(
+                        "_verifyDecryptedChallengeVerificationAndUpdateCommentProps: Parallel pkc.getCommunity failed for",
+                        this.cid,
+                        err
+                    );
             }
         })();
     }
@@ -773,7 +821,7 @@ export class Comment
                 if (isAbortError(newCommentIpfsOrNonRetriableError) && (this.state === "stopped" || this._isStopAbortRequested())) return;
                 // This is a non-retriable error, it should stop the comment from updating
                 log.error(
-                    `Encountered a non retriable error while loading CommentIpfs (${this.cid}), will stop the update loop`,
+                    `_verifyDecryptedChallengeVerificationAndUpdateCommentProps: Encountered a non retriable error while loading CommentIpfs (${this.cid}), will stop the update loop`,
                     newCommentIpfsOrNonRetriableError
                 );
                 // We can't proceed with an invalid CommentIpfs, so we're stopping the update loop and emitting an error event for the user
@@ -785,7 +833,9 @@ export class Comment
                 });
                 return;
             } else {
-                log(`Loaded the CommentIpfs props of cid (${this.cid}) correctly, updating the instance props`);
+                log(
+                    `_verifyDecryptedChallengeVerificationAndUpdateCommentProps: Loaded the CommentIpfs props of cid (${this.cid}) correctly, updating the instance props`
+                );
                 this._initIpfsProps(newCommentIpfsOrNonRetriableError);
                 this._changeCommentStateEmitEventEmitStateChangeEvent({
                     newUpdatingState: "succeeded",
@@ -797,7 +847,7 @@ export class Comment
     }
 
     async _attemptInfintelyToLoadCommentIpfs() {
-        const log = Logger("pkc-js:comment:update:attemptInfintelyToLoadCommentIpfs");
+        const log = this._log;
 
         this._commentIpfsloadingOperation = retry.operation({ forever: true, factor: 2 });
         await this._attemptToFetchCommentIpfsIfNeeded(log);
@@ -805,7 +855,6 @@ export class Comment
     }
 
     async startCommentUpdateCommunitySubscription() {
-        const log = Logger("pkc-js:comment:update:startCommentUpdateCommunitySubscription");
         if (this.state === "stopped") return; // we may have called stop() before reaching comment update subscription and after loading commentipfs
         if (this.depth === 0) {
             if (!this._communityForUpdating)
@@ -830,7 +879,7 @@ export class Comment
     }
 
     async loadCommentIpfsAndStartCommentUpdateSubscription() {
-        const log = Logger("pkc-js:update:loadCommentIpfsAndStartCommentUpdateSubscription");
+        const log = this._log;
         this._createStopAbortController();
         this._scheduleParallelCommunityConnect(log);
         await this._attemptInfintelyToLoadCommentIpfs();
@@ -842,7 +891,7 @@ export class Comment
             await this.startCommentUpdateCommunitySubscription(); // can only proceed if commentIpfs has been loaded successfully
         } catch (e) {
             if (isAbortError(e) && (this.state === "stopped" || this._isStopAbortRequested())) return;
-            log.error("Failed to start comment update subscription to community", e);
+            log.error("loadCommentIpfsAndStartCommentUpdateSubscription: Failed to start comment update subscription to community", e);
         }
     }
 
@@ -921,16 +970,16 @@ export class Comment
     }
 
     private _handleCommentEventFromRpc(args: any) {
-        const log = Logger("pkc-js:comment:_handleCommentEventFromRpc");
+        const log = this._log;
         let parsed: RpcCommentResultType;
         try {
             parsed = parseRpcCommentEventWithPKCErrorIfItFails(args.params.result);
         } catch (e) {
-            log.error("Failed to parse the rpc comment event of", this.cid, e);
+            log.error("_handleCommentEventFromRpc: Failed to parse the rpc comment event of", this.cid, e);
             this.emit("error", <PKCError>e);
             throw e;
         }
-        log(`Received new CommentIpfs (${this.cid}) from RPC`);
+        log(`_handleCommentEventFromRpc: Received new CommentIpfs (${this.cid}) from RPC`);
         this._initIpfsProps(parsed.comment);
         if (parsed.runtimeFields) deepMergeRuntimeFields(this, parsed.runtimeFields);
 
@@ -938,18 +987,18 @@ export class Comment
     }
 
     private _handleUpdateEventFromRpc(args: any) {
-        const log = Logger("pkc-js:comment:_handleUpdateEventFromRpc");
+        const log = this._log;
         let parsed: RpcCommentUpdateResultType;
         try {
             parsed = parseRpcCommentUpdateEventWithPKCErrorIfItFails(args.params.result) as RpcCommentUpdateResultType;
         } catch (e) {
-            log.error("Failed to parse the rpc update event of", this.cid, e);
+            log.error("_handleUpdateEventFromRpc: Failed to parse the rpc update event of", this.cid, e);
             this.emit("error", <PKCError>e);
             throw e;
         }
         const newUpdate = parsed.commentUpdate;
         if ((this.updatedAt || 0) <= newUpdate.updatedAt) {
-            log(`Received new CommentUpdate (${this.cid}) from RPC`);
+            log(`_handleUpdateEventFromRpc: Received new CommentUpdate (${this.cid}) from RPC`);
             this._initCommentUpdate(newUpdate);
             if (parsed.runtimeFields) {
                 this.raw.runtimeFieldsFromRpc = parsed.runtimeFields;
@@ -985,13 +1034,19 @@ export class Comment
     }
 
     private async _handleErrorEventFromRpc(args: any) {
-        const log = Logger("pkc-js:comment:update:_handleErrorEventFromRpc");
+        const log = this._log;
         const err = <CommentRpcErrorToTransmit>args.params.result;
-        log("Received 'error' event from RPC", err);
+        log("_handleErrorEventFromRpc: Received 'error' event from RPC", err);
         // Never set err.details.newUpdatingState silently: the server's updatingstatechange notification
         // for that state follows and is dropped as a duplicate, so the event would be lost (#364)
         if (!this._isRetriableLoadingError(err)) {
-            log.error("The RPC transmitted a non retriable error", "for comment", this.cid, "will clean up the subscription", err);
+            log.error(
+                "_handleErrorEventFromRpc: The RPC transmitted a non retriable error",
+                "for comment",
+                this.cid,
+                "will clean up the subscription",
+                err
+            );
             this._changeCommentStateEmitEventEmitStateChangeEvent({
                 newUpdatingState: "failed",
                 newState: "stopped",
@@ -1006,7 +1061,7 @@ export class Comment
     }
 
     private async _updateViaRpc() {
-        const log = Logger("pkc-js:comment:update:_updateViaRpc");
+        const log = this._log;
 
         const rpcUrl = this._pkc.pkcRpcClientsOptions![0];
         if (!rpcUrl) throw Error("Failed to get rpc url");
@@ -1022,7 +1077,7 @@ export class Comment
             });
             this._updateRpcSubscriptionId = subscriptionId;
         } catch (e) {
-            log.error("Failed to receive commentUpdate from RPC due to error", e);
+            log.error("_updateViaRpc: Failed to receive commentUpdate from RPC due to error", e);
             await this._stopUpdateLoop();
             this._setStateWithEmission("stopped");
             this._setUpdatingStateWithEmissionIfNewState("failed");
@@ -1199,7 +1254,7 @@ export class Comment
 
     async _setUpNewUpdatingCommentInstance() {
         // create a new pkc._updatingComments[this.cid]
-        const log = Logger("pkc-js:comment:update:_setUpNewUpdatingCommentInstance");
+        const log = this._log;
 
         const updatingCommentInstance = await this._pkc.createComment(this);
 
@@ -1213,12 +1268,12 @@ export class Comment
         } else {
             updatingCommentInstance
                 .loadCommentIpfsAndStartCommentUpdateSubscription()
-                .catch((e) => log.error("Failed to update comment", e));
+                .catch((e) => log.error("_setUpNewUpdatingCommentInstance: Failed to update comment", e));
         }
     }
 
     async update() {
-        const log = Logger("pkc-js:comment:update");
+        const log = this._log;
         if (this.state === "updating") return; // Do nothing if it's already updating
 
         if (!this.cid) throw Error("Can't call comment.update() without defining cid");
@@ -1231,13 +1286,13 @@ export class Comment
                 if (this._pkc._pkcRpcClient) {
                     await this._updateViaRpc();
                 } else {
-                    this.loadCommentIpfsAndStartCommentUpdateSubscription().catch((e) => log.error("Failed to update comment", e));
+                    this.loadCommentIpfsAndStartCommentUpdateSubscription().catch((e) => log.error("update: Failed to update comment", e));
                 }
             } else {
                 // Logged because a mirror emits nothing of its own, so a mirror of a stalled entry used
                 // to leave no trace at all (issue #253).
                 log(
-                    "Comment",
+                    "update: Comment",
                     this.cid,
                     "will mirror the existing pkc._updatingComments entry, its state is",
                     existingUpdatingComment.state,
@@ -1254,7 +1309,7 @@ export class Comment
     }
 
     private async _stopUpdateLoop() {
-        const log = Logger("pkc-js:comment:update:_stopUpdateLoop");
+        const log = this._log;
         if (!this.cid) return;
         this._commentIpfsloadingOperation?.stop();
         if (this._updateRpcSubscriptionId) {
@@ -1266,7 +1321,7 @@ export class Comment
             try {
                 await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
             } catch (e) {
-                log.error("Failed to unsubscribe from commentUpdate", e);
+                log.error("_stopUpdateLoop: Failed to unsubscribe from commentUpdate", e);
             }
             this._setRpcClientState("stopped");
             untrackUpdatingComment(this._pkc, this);
@@ -1320,7 +1375,7 @@ export class Comment
                 this._updatingCommentInstance.comment._numOfListenersForUpdatingInstance === 0 &&
                 this._updatingCommentInstance.comment.state !== "stopped"
             ) {
-                log("Cleaning up pkc._updatingComments", this.cid, "There are no comments using it for updates");
+                log("_stopUpdateLoop: Cleaning up pkc._updatingComments", this.cid, "There are no comments using it for updates");
                 await this._updatingCommentInstance.comment.stop();
             } else if (
                 this._updatingCommentInstance.comment._numOfListenersForUpdatingInstance === 0 &&
