@@ -278,7 +278,12 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                 // a web page connects from localhost too, so a page from a remote origin also needs the auth key
                 const origin = req.headers.origin;
                 if (!hasAuth && !isOriginTrustedWithoutAuthKey(origin)) {
-                    log(`Rejecting RPC connection request from web page origin`, origin, `because there is no auth key, url:`, req.url);
+                    this._log(
+                        `Rejecting RPC connection request from web page origin`,
+                        origin,
+                        `because there is no auth key, url:`,
+                        req.url
+                    );
                     callback(false, 403, "You need to set the auth key to connect from this web page origin");
                     return;
                 }
