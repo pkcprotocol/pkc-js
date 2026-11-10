@@ -32,7 +32,12 @@
 // the GC pause time. Labels nest (a page generation contains its DB reads and kubo adds), so they do not add up to
 // the cycle; whatever no label covers (signing and verifying each CommentUpdate, the JSON work around them) is the
 // cycle minus the outermost stages. BENCH_CPU_PROF=<dir> also writes one V8 CPU profile per measured cycle, for
-// test/benchmarks/cpuprofile-summary.mjs.
+// test/benchmarks/cpuprofile-summary.mjs. BENCH_STAGES_PRIVATE=1 also times the DbHandler's private _query* helpers.
+// Every measured cycle reports its peak memory (peakRssMB, peakHeapUsedMB and, with the real kubo, peakKuboRssMB).
+// BENCH_DIFF=1 reports which CommentUpdate columns (and author.community fields) each measured cycle really changed.
+// BENCH_VERIFY_POSTUPDATES=1 (real kubo) reads every post's postUpdates file by path from the bucket CID after each
+// measured cycle and checks it against the DB. BENCH_PRAGMAS="cache_size=-262144;synchronous=NORMAL" applies SQLite
+// pragmas to the community DB, to measure a configuration pkc-js does not ship.
 import { performance, PerformanceObserver } from "node:perf_hooks";
 import path from "node:path";
 import os from "node:os";
@@ -122,7 +127,10 @@ const publicMethods = (proto) =>
         (name) => name !== "constructor" && typeof Object.getOwnPropertyDescriptor(proto, name).value === "function"
     );
 if (STAGES) {
-    for (const name of publicMethods(DbHandler.prototype).filter((name) => !name.startsWith("_")))
+    // BENCH_STAGES_PRIVATE=1 also times the private _query* helpers of the batched field calc
+    for (const name of publicMethods(DbHandler.prototype).filter(
+        (name) => !name.startsWith("_") || (process.env.BENCH_STAGES_PRIVATE === "1" && name.startsWith("_query"))
+    ))
         timeStage(DbHandler.prototype, name, `db.${name}`);
     for (const name of publicMethods(PageGenerator.prototype)) timeStage(PageGenerator.prototype, name, `pages.${name}`);
 }
@@ -275,6 +283,105 @@ const kuboCpuMs = () => {
     return Math.round(((Number(fields[11]) + Number(fields[12])) * 1000) / CLK_TCK); // utime, stime: fields 14 and 15 of stat
 };
 
+// BENCH_DIFF=1: which columns of each CommentUpdate row a cycle really changed. author is split into its
+// author.community fields; replies is the DB's CID-ref form, so a change there means a new page CID or a new inline page.
+const snapshotCommentUpdates = (community) => {
+    const map = new Map();
+    for (const row of community._dbHandler["_db"]
+        .prepare("SELECT cu.*, c.depth FROM commentUpdates cu JOIN comments c USING (cid)")
+        .iterate())
+        map.set(row.cid, row);
+    return map;
+};
+const diffCommentUpdates = (before, after) => {
+    const ignore = new Set(["cid", "updatedAt", "signature", "insertedAt", "publishedToPostUpdatesMFS", "depth"]);
+    const changedColumns = {};
+    const authorFields = {};
+    let rewritten = 0;
+    let onlyUpdatedAtAndSignature = 0;
+    let onlyRepliesBesidesThat = 0;
+    for (const [cid, now] of after) {
+        const old = before.get(cid);
+        if (!old || old.updatedAt === now.updatedAt) continue;
+        rewritten++;
+        const changed = Object.keys(now).filter((col) => !ignore.has(col) && now[col] !== old[col]);
+        for (const col of changed) changedColumns[col] = (changedColumns[col] || 0) + 1;
+        if (changed.includes("author")) {
+            const a = JSON.parse(old.author || "{}").community || {};
+            const b = JSON.parse(now.author || "{}").community || {};
+            for (const key of new Set([...Object.keys(a), ...Object.keys(b)]))
+                if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) authorFields[key] = (authorFields[key] || 0) + 1;
+        }
+        if (changed.length === 0) onlyUpdatedAtAndSignature++;
+        else if (changed.length === 1 && changed[0] === "replies") onlyRepliesBesidesThat++;
+    }
+    return { rewritten, onlyUpdatedAtAndSignature, onlyRepliesBesidesThat, changedColumns, authorFields };
+};
+
+// BENCH_VERIFY_POSTUPDATES=1: every post's postUpdates file, read by path from the bucket CID the record would publish, must be
+// the CommentUpdate the DB holds (same updatedAt and signature), and the bucket must list exactly the board's posts.
+const verifyPostUpdates = async (community) => {
+    const kubo = community._clientsManager.getDefaultKuboRpcClient()._client;
+    const posts = community._dbHandler["_db"]
+        .prepare(
+            "SELECT cu.cid, cu.updatedAt, cu.signature, cu.postUpdatesBucket FROM commentUpdates cu JOIN comments c USING (cid) WHERE c.depth = 0"
+        )
+        .all();
+    let checked = 0;
+    let mismatched = 0;
+    let firstMismatch;
+    const listed = {};
+    const buckets = [...new Set(posts.map((post) => post.postUpdatesBucket))];
+    const bucketCids = {};
+    for (const bucket of buckets) {
+        bucketCids[bucket] = (await kubo.files.stat(`/${community.address}/postUpdates/${bucket}`)).cid.toString();
+        listed[bucket] = 0;
+        for await (const _ of kubo.ls(`/ipfs/${bucketCids[bucket]}`)) listed[bucket]++;
+    }
+    for (const post of posts) {
+        const chunks = [];
+        for await (const chunk of kubo.cat(`/ipfs/${bucketCids[post.postUpdatesBucket]}/${post.cid}/update`)) chunks.push(chunk);
+        const update = JSON.parse(Buffer.concat(chunks).toString());
+        checked++;
+        if (update.updatedAt !== post.updatedAt || update.signature.signature !== JSON.parse(post.signature).signature) {
+            if (mismatched === 0)
+                firstMismatch = {
+                    cid: post.cid,
+                    fileUpdatedAt: update.updatedAt,
+                    dbUpdatedAt: post.updatedAt,
+                    sameSig: update.signature.signature === JSON.parse(post.signature).signature
+                };
+            mismatched++;
+        }
+    }
+    return { posts: posts.length, checked, mismatched, firstMismatch, listed };
+};
+
+// Peak memory during a measured cycle, sampled every 250 ms: this process's RSS and V8 heap, and the
+// kubo daemon's RSS (VmRSS from /proc, Linux only). Peaks, not averages, since the question is how much the cycle needs.
+const kuboRssMB = () => {
+    if (!KUBO_PID) return undefined;
+    const match = readFileSync(`/proc/${KUBO_PID}/status`, "utf8").match(/VmRSS:\s+(\d+) kB/);
+    return match ? Math.round(Number(match[1]) / 1024) : undefined;
+};
+const startMemSampler = () => {
+    const peak = { rssMB: 0, heapUsedMB: 0, kuboRssMB: 0 };
+    const sample = () => {
+        const mem = process.memoryUsage();
+        peak.rssMB = Math.max(peak.rssMB, Math.round(mem.rss / 1024 / 1024));
+        peak.heapUsedMB = Math.max(peak.heapUsedMB, Math.round(mem.heapUsed / 1024 / 1024));
+        const kubo = kuboRssMB();
+        if (kubo !== undefined) peak.kuboRssMB = Math.max(peak.kuboRssMB, kubo);
+    };
+    sample();
+    const timer = setInterval(sample, 250);
+    return () => {
+        clearInterval(timer);
+        sample();
+        return { peakRssMB: peak.rssMB, peakHeapUsedMB: peak.heapUsedMB, ...(KUBO_PID ? { peakKuboRssMB: peak.kuboRssMB } : {}) };
+    };
+};
+
 const nextSecond = () => new Promise((resolve) => setTimeout(resolve, 1100));
 
 async function scenario(community, label, mutate) {
@@ -293,8 +400,14 @@ async function scenario(community, label, mutate) {
     const cycleCpuBefore = process.cpuUsage();
     await startProfile();
     startStages();
+    const diffBefore = process.env.BENCH_DIFF === "1" ? snapshotCommentUpdates(community) : undefined;
+    const stopMem = startMemSampler();
     const { updated, cycleMs, ...phases } = await runCycle(community);
+    const memory = stopMem();
     const stageBreakdown = stopStages();
+    if (diffBefore) log({ event: `${label}:diff`, ...diffCommentUpdates(diffBefore, snapshotCommentUpdates(community)) });
+    if (REAL_KUBO && process.env.BENCH_VERIFY_POSTUPDATES === "1")
+        log({ event: `${label}:verify-postUpdates`, ...(await verifyPostUpdates(community)) });
     const cycleCpu = process.cpuUsage(cycleCpuBefore);
     const profile = await stopProfile(label);
     const cpu = process.cpuUsage(cpuBefore);
@@ -309,6 +422,7 @@ async function scenario(community, label, mutate) {
         cpuMs: Math.round((cpu.user + cpu.system) / 1000),
         cycleCpuMs: Math.round((cycleCpu.user + cycleCpu.system) / 1000),
         ...(kuboBefore !== undefined ? { kuboCpuMs: kuboAfter - kuboBefore } : {}),
+        ...memory,
         ...(stageBreakdown ? { stages: stageBreakdown } : {}),
         ...(profile ? { profile } : {})
     });
@@ -320,6 +434,12 @@ async function main() {
     const community = await pkc.createCommunity();
     await community._dbHandler.initDbIfNeeded();
     await community._dbHandler.createOrMigrateTablesIfNeeded();
+    // BENCH_PRAGMAS="cache_size=-262144;synchronous=NORMAL" applies SQLite pragmas to the community DB, to measure a
+    // configuration pkc-js does not ship (issue #471 lists it as an option)
+    const applyPragmas = () => {
+        for (const pragma of (process.env.BENCH_PRAGMAS || "").split(";").filter(Boolean)) community._dbHandler["_db"].pragma(pragma);
+    };
+    applyPragmas();
     const noop = async () => {};
     if (REAL_KUBO) {
         // Start for real (IPNS key, MFS root, pubsub), let the publish loop exit after its first (empty) cycle, and
@@ -342,6 +462,19 @@ async function main() {
                 routing: { async *provide() {} }
             }
         });
+    applyPragmas(); // start() may have reopened the connection
+    if (process.env.BENCH_PRAGMAS)
+        console.log(
+            JSON.stringify({
+                event: "pragmas",
+                ...Object.fromEntries(
+                    ["cache_size", "synchronous", "mmap_size", "temp_store", "journal_mode"].map((p) => [
+                        p,
+                        community._dbHandler["_db"].pragma(p, { simple: true })
+                    ])
+                )
+            })
+        );
     if (STAGES) timeStage(community, "_calculateNewPostUpdates", "record.calculateNewPostUpdates");
     const dbFile = path.join(DATA_PATH, "communities", community.address);
     try {
@@ -362,13 +495,16 @@ async function main() {
         // measured without the flag query.
         const firstCpu = process.cpuUsage();
         const firstKubo = kuboCpuMs();
+        const stopFirstMem = startMemSampler();
         const first = await runCycle(community);
+        const firstMemory = stopFirstMem();
         const firstCpuAfter = process.cpuUsage(firstCpu);
         log({
             event: "first-cycle",
             ...first,
             cpuMs: Math.round((firstCpuAfter.user + firstCpuAfter.system) / 1000),
             ...(firstKubo !== undefined ? { kuboCpuMs: kuboCpuMs() - firstKubo } : {}),
+            ...firstMemory,
             ...counts()
         });
 
