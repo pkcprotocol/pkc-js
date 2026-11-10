@@ -169,6 +169,11 @@ export async function start(community: LocalCommunity) {
         findProcessStartedCommunity(community)
     )
         throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: community.address });
+    // This process can lose the start lock, mostly to another process that takes it over (see lockCommunityStart). While
+    // start() still runs it fails with that error before it subscribes to challenge requests or at its end, after that the
+    // running community stops
+    let startLockLostDuringStart: PKCError | undefined;
+    let startFinished = false;
     try {
         await initBeforeStarting(community);
         // A delegated community whose anchor record was never published is half-created: nothing points
@@ -192,7 +197,14 @@ export async function start(community: LocalCommunity) {
         // update started value twice because it could be started prior lockCommunityStart
         community._setState("started");
         await community._updateStartedValue();
-        await community._dbHandler.lockCommunityStart(); // Will throw if community is locked already
+        // Will throw if community is locked already
+        await community._dbHandler.lockCommunityStart({
+            onCompromised: (error) => {
+                const lostLockError = new PKCError("ERR_COMMUNITY_START_LOCK_COMPROMISED", { communityAddress: community.address, error });
+                if (startFinished) stopAfterLosingStartLock(community, lostLockError);
+                else startLockLostDuringStart = lostLockError;
+            }
+        });
         trackStartedCommunity(community._pkc, community);
         syncProcessStartedCommunity(community);
         await community._updateStartedValue();
@@ -225,6 +237,9 @@ export async function start(community: LocalCommunity) {
         community._setStartedStateWithEmission("publishing-ipns");
         await community._repinCommentsIPFSIfNeeded();
         await repinCommentUpdateIfNeeded(community);
+        // A start that lost its lock (most likely while the VACUUM above blocked the event loop) must not take challenge
+        // requests, which write the DB next to the process that holds the lock now
+        if (startLockLostDuringStart) throw startLockLostDuringStart;
         await community._listenToIncomingRequests();
 
         // Option validation only reports; it never throws. A config that was persisted before these checks existed, or
@@ -238,6 +253,8 @@ export async function start(community: LocalCommunity) {
         community._pageSorts = undefined;
         community._pageSortFactories = undefined;
         await syncPageSortsWithRegistry(community);
+        if (startLockLostDuringStart) throw startLockLostDuringStart;
+        startFinished = true;
     } catch (e) {
         await community.stop(); // Make sure to reset the community state
         //@ts-expect-error
@@ -249,6 +266,16 @@ export async function start(community: LocalCommunity) {
         log.error(err);
         community.emit("error", err);
     });
+}
+
+// This process lost the community's start lock, and another process may be running the community now. Two processes
+// running one community both publish and write its DB, so this one stops, and emits why. The stop starts first:
+// emit("error") throws when nobody listens for it (on the community or on its PKC), and the stop must not depend on that.
+export function stopAfterLosingStartLock(community: LocalCommunity, error: PKCError) {
+    const log = Logger("pkc-js:local-community:stopAfterLosingStartLock");
+    if (community.state !== "started" || community._stopHasBeenCalled) return; // already stopping
+    community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after losing its start lock`, e));
+    community.emit("error", error);
 }
 
 export async function initMirroringStartedOrUpdatingCommunity(community: LocalCommunity, startedCommunity: LocalCommunity) {

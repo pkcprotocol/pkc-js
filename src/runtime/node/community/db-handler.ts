@@ -130,6 +130,8 @@ export class DbHandler {
     // update cycle's author memo (CommunityAuthorMemo) is only reused while it stays the same.
     private _publicationWriteGeneration = 0;
     private _preparedStatements: Map<string, Statement>;
+    // Identifies the start lock this handler holds, from lockCommunityStart until unlockCommunityStart or its loss
+    private _heldStartLock: object | undefined = undefined;
 
     constructor(community: DbHandler["_community"]) {
         this._community = community;
@@ -3562,17 +3564,31 @@ export class DbHandler {
         log(`Changed db path from (${oldPathString}) to (${newPathString})`);
     }
 
-    async lockCommunityStart(communityAddress = this._community.address) {
+    // The lock library keeps the lock fresh from a timer. When this event loop is blocked past the lock's 10s stale
+    // threshold (a VACUUM or migration of a large DB, a suspended process), another process on the same dataPath sees it
+    // as stale and takes it over; the library then reports it compromised and onCompromised is called. The library also
+    // reports a lock directory that disappeared (ENOENT), even one whose taker released it again. Either way this process
+    // no longer holds the lock from that point on, so it must stop running the community.
+    async lockCommunityStart({ onCompromised }: { onCompromised: (error: Error) => void }) {
         const log = Logger("pkc-js:local-community:db-handler:lock:start");
+        const communityAddress = this._community.address;
 
         const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${communityAddress}.start.lock`);
         const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", communityAddress);
 
+        const startLock = {};
         try {
             await lockfile.lock(communityDbPath, {
                 lockfilePath,
-                onCompromised: () => {} // Temporary bandaid for the moment. Should be deleted later
+                onCompromised: (error) => {
+                    // The library can still report a lock after it was released, which is not a lock this process lost
+                    if (this._heldStartLock !== startLock) return;
+                    this._heldStartLock = undefined;
+                    log.error(`Lost the start lock of community (${communityAddress}), taken over or removed`, error);
+                    onCompromised(error);
+                }
             });
+            this._heldStartLock = startLock;
             log(`Locked the start of community (${communityAddress}) successfully`);
         } catch (e: unknown) {
             if (e instanceof Error && e.message === "Lock file is already being held")
@@ -3587,6 +3603,7 @@ export class DbHandler {
     async unlockCommunityStart(communityAddress = this._community.address) {
         const log = Logger("pkc-js:local-community:db-handler:unlock:start");
         log.trace(`Attempting to unlock the start of community (${communityAddress})`);
+        this._heldStartLock = undefined;
 
         const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${communityAddress}.start.lock`);
         const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", communityAddress);
