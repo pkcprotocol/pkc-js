@@ -2350,9 +2350,11 @@ export class DbHandler {
     queryPostsWithOutdatedBuckets(buckets: number[]): { cid: string; timestamp: number; currentBucket: number; newBucket: number }[] {
         const currentTimestampSeconds = timestamp(); // timestamp is in seconds
         const maxBucket = Math.max(...buckets);
+        // The time is bound, not written into the SQL: _prepareCached keys statements by SQL text, so a
+        // timestamp in the text compiled and kept a new statement on every sync cycle (#488)
         const caseClauses = buckets
             .sort((a, b) => a - b)
-            .map((bucket) => `WHEN (${currentTimestampSeconds} - c.timestamp) <= ${bucket} THEN ${bucket}`)
+            .map((bucket) => `WHEN (? - c.timestamp) <= ${bucket} THEN ${bucket}`)
             .join(" ");
         const { clause: addrClause, params: addrParams } = this._communityIdentityClause("c");
         const query = `
@@ -2366,7 +2368,8 @@ export class DbHandler {
             ) SELECT cid, timestamp, current_bucket AS currentBucket, new_bucket AS newBucket
             FROM post_data WHERE current_bucket != new_bucket
         `;
-        return this._prepareCached(query).all(...addrParams, maxBucket) as {
+        // CASE comes before WHERE in the SQL, so its parameters bind first
+        return this._prepareCached(query).all(...buckets.map(() => currentTimestampSeconds), ...addrParams, maxBucket) as {
             cid: string;
             timestamp: number;
             currentBucket: number;
