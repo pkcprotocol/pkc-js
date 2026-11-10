@@ -1,4 +1,5 @@
 import pLimit from "p-limit";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import pRetry from "p-retry";
 import { Server as RpcWebsocketsServer } from "rpc-websockets";
 import { createReadStream, existsSync, mkdirSync, promises as fsPromises, statSync } from "fs";
@@ -17,7 +18,6 @@ import {
     generateSubscriptionId,
     isOriginTrustedWithoutAuthKey
 } from "./utils.js";
-import Logger from "../../logger.js";
 import type {
     PKCWsServerClassOptions,
     JsonRpcSendNotificationOptions,
@@ -126,8 +126,6 @@ import { findLocalCommunityAddress, listCommunitiesSync } from "../../runtime/no
 // store started communities to be able to stop them
 // store as a singleton because not possible to start the same community twice at the same time
 
-const log = Logger("pkc-js-rpc:pkc-ws-server");
-
 const DESTROY_CLIENTS_CLOSE_TIMEOUT_MS = 5_000;
 
 // Max retries when an auto-start hits a transient Kubo network blip (e.g. a boot-time restart).
@@ -197,6 +195,9 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     private _httpServer: HTTPServer | HTTPSServer | undefined;
     private _ownsHttpServer: boolean = false;
     private _pendingDisconnectionCleanups: Set<Promise<void>> = new Set();
+    // A child of the root of the PKC this server was constructed with (issue #493). setSettings passes that root to
+    // every replacement instance, so the child, the buffer behind it and the host's listeners survive the swap.
+    _log: Logger;
 
     constructor({
         port,
@@ -209,7 +210,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         exportFileMaxAgeMs
     }: PKCWsServerClassOptions) {
         super();
-        const log = Logger("pkc-js:PKCWsServer");
+        this._log = pkc.logger.child({ namespace: "pkc-js-rpc:pkc-ws-server" });
         this.authKey = authKey;
         this._autoStartOnBoot = startStartedCommunitiesOnStartup ?? true;
         // Clamp to at least 1 since pLimit(0) throws. 0 or 1 means sequential (no parallelism)
@@ -236,7 +237,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             // rpc-websockets does not register request listeners — any HTTP request reaching
             // this http.Server is ours to handle. Currently the only route is GET /exports/<id>.
             this._handleExportsHttpRequest(req, res).catch((e) => {
-                log.error("Unhandled error in /exports HTTP handler", e);
+                this._log.error("pkc-ws-server: Unhandled error in /exports HTTP handler", e);
                 if (!res.headersSent) {
                     res.statusCode = 500;
                     res.end();
@@ -250,7 +251,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                 // block non-localhost requests without auth key for security
 
                 const requestOriginatorIp = this._getIpFromConnectionRequest(req);
-                log.trace("Received new connection request from", requestOriginatorIp, "with url", req.url);
+                this._log.trace("pkc-ws-server: Received new connection request from", requestOriginatorIp, "with url", req.url);
                 const xForwardedFor = Boolean(req.rawHeaders.find((item, i) => item.toLowerCase() === "x-forwarded-for" && i % 2 === 0));
 
                 // client is on localhost and server is not forwarded by a proxy
@@ -262,8 +263,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
                 // if isn't localhost and doesn't have auth, block access
                 if (!isLocalhost && !hasAuth) {
-                    log(
-                        `Rejecting RPC connection request from`,
+                    this._log(
+                        `pkc-ws-server: Rejecting RPC connection request from`,
                         requestOriginatorIp,
                         `rejected because there is no auth key, url:`,
                         req.url
@@ -288,7 +289,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
         // forward errors to PKCWsServer
         this.rpcWebsockets.on("error", (error) => {
-            log.error("RPC server", "Received an error on rpc-websockets", error);
+            this._log.error("pkc-ws-server: RPC server", "Received an error on rpc-websockets", error);
             this._emitError(error);
         });
 
@@ -301,7 +302,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             //@ts-expect-error
             this._onSettingsChange[ws._id] = {};
             //@ts-expect-error
-            log("Established connection with new RPC client", ws._id);
+            this._log("pkc-ws-server: Established connection with new RPC client", ws._id);
         });
 
         // cleanup on disconnect. rpc-websockets does not await this listener, so its promise is tracked in
@@ -313,7 +314,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             this._pendingDisconnectionCleanups.add(cleanup);
             const untrack = () => this._pendingDisconnectionCleanups.delete(cleanup);
             cleanup.then(untrack, (e) => {
-                log.error("Failed to clean up after RPC client disconnected", ws._id, e);
+                this._log.error("pkc-ws-server: Failed to clean up after RPC client disconnected", ws._id, e);
                 untrack();
             });
         });
@@ -389,7 +390,10 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
     private _emitError(error: PKCError | Error) {
         if (this.listeners("error").length === 0)
-            log.error("Unhandled error. This may crash your process, you need to listen for error event on PKCRpcWsServer", error);
+            this._log.error(
+                "pkc-ws-server: Unhandled error. This may crash your process, you need to listen for error event on PKCRpcWsServer",
+                error
+            );
         this.emit("error", error);
     }
 
@@ -478,8 +482,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     async _autoStartPreviousCommunities(): Promise<void> {
         if (!this._autoStartOnBoot) return;
 
-        const autoStartLog = Logger("pkc-js-rpc:pkc-ws-server:auto-start");
-        autoStartLog("Checking for previously started communities to auto-start");
+        const autoStartLog = this._log;
+        autoStartLog("auto-start: Checking for previously started communities to auto-start");
 
         const db = this._getRpcStateDb();
         if (!db) return;
@@ -502,13 +506,13 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const communitiesToStart: string[] = [];
         for (const row of rows) {
             if (!localCommunities.includes(row.address)) {
-                autoStartLog(`Skipping auto-start for ${row.address} - community no longer exists`);
+                autoStartLog(`auto-start: Skipping auto-start for ${row.address} - community no longer exists`);
                 this._removeCommunityState(row.address);
                 continue;
             }
 
             if (row.address in this._startedCommunities) {
-                autoStartLog(`Skipping auto-start for ${row.address} - already started`);
+                autoStartLog(`auto-start: Skipping auto-start for ${row.address} - already started`);
                 continue;
             }
 
@@ -516,18 +520,20 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         }
 
         if (communitiesToStart.length === 0) {
-            autoStartLog("No communities to auto-start");
+            autoStartLog("auto-start: No communities to auto-start");
             return;
         }
 
         // Startup phase: start communities in parallel with bounded concurrency
-        autoStartLog(`Auto-starting ${communitiesToStart.length} communities with concurrency limit of ${this._autoStartConcurrency}`);
+        autoStartLog(
+            `auto-start: Auto-starting ${communitiesToStart.length} communities with concurrency limit of ${this._autoStartConcurrency}`
+        );
 
         const limit = pLimit(this._autoStartConcurrency);
         await Promise.allSettled(
             communitiesToStart.map((address) =>
                 limit(async () => {
-                    autoStartLog(`Auto-starting community: ${address}`);
+                    autoStartLog(`auto-start: Auto-starting community: ${address}`);
                     try {
                         // Bug 2 (issue #158): a community whose start hits a transient Kubo blip
                         // (e.g. a boot-time restart window) must not be left permanently stopped.
@@ -542,14 +548,14 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                             onFailedAttempt: ({ error, attemptNumber, retriesLeft }) => {
                                 if (_isTransientKuboError(error))
                                     autoStartLog(
-                                        `Transient failure auto-starting ${address} (attempt ${attemptNumber}, ${retriesLeft} retries left), retrying`,
+                                        `auto-start: Transient failure auto-starting ${address} (attempt ${attemptNumber}, ${retriesLeft} retries left), retrying`,
                                         error.message
                                     );
                             }
                         });
-                        autoStartLog(`Successfully auto-started: ${address}`);
+                        autoStartLog(`auto-start: Successfully auto-started: ${address}`);
                     } catch (e) {
-                        autoStartLog.error(`Failed to auto-start community ${address}`, e);
+                        autoStartLog.error(`auto-start: Failed to auto-start community ${address}`, e);
                         this._emitError(e instanceof Error ? e : new Error(`Failed to auto-start ${address}: ${String(e)}`));
                     }
                 })
@@ -584,13 +590,13 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             try {
                 // Trace receipt and response dispatch so a client hanging on a lost response (issue #195)
                 // can be attributed to either side: dispatched-but-never-matched vs never-dispatched
-                log.trace(`Received RPC call (${invocationId}) from connection (${connectionId})`);
+                this._log.trace(`Received RPC call (${invocationId}) from connection (${connectionId})`);
                 const res = await callback(params, connectionId);
-                log.trace(`Dispatching RPC response for call (${invocationId}) to connection (${connectionId})`);
+                this._log.trace(`Dispatching RPC response for call (${invocationId}) to connection (${connectionId})`);
                 return res;
             } catch (e: any) {
                 const typedError = <PKCError | Error>e;
-                log.error(`${callback.name} error (${invocationId})`, { params, error: typedError });
+                this._log.error(`${callback.name} error (${invocationId})`, { params, error: typedError });
                 // We need to stringify the error here because rpc-websocket will remove props from PKCError
                 if (typedError instanceof PKCError) {
                     const seen = new WeakSet();
@@ -660,7 +666,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const record = this.publishing[subscriptionId];
         if (!record) return;
         const cleanup = await this.subscriptionCleanups?.[record.connectionId]?.[subscriptionId];
-        log(`Force-cleaning publication ${subscriptionId} after ${reason}`);
+        this._log(`Force-cleaning publication ${subscriptionId} after ${reason}`);
         if (cleanup) {
             await cleanup();
             if (this.subscriptionCleanups?.[record.connectionId]) delete this.subscriptionCleanups[record.connectionId][subscriptionId];
@@ -673,7 +679,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const activePublishes = Object.values(this.publishing).filter(({ pkc: p }) => p === pkc).length;
         if (activePublishes === 0 && !pkc.destroyed) {
             // nothing relies on this instance anymore
-            await pkc.destroy().catch((error) => log.error("Failed destroying old pkc immediately after setSettings", { error }));
+            await pkc.destroy().catch((error) => this._log.error("Failed destroying old pkc immediately after setSettings", { error }));
             return;
         }
     }
@@ -809,7 +815,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             const rpcError = error as CommunityRpcErrorToTransmit;
             if (community.state === "started") rpcError.details = { ...rpcError.details, newStartedState: community.startedState };
             else if (community.state === "updating") rpcError.details = { ...rpcError.details, newUpdatingState: community.updatingState };
-            log("community rpc error", rpcError);
+            this._log("community rpc error", rpcError);
             sendEvent("error", rpcError);
         };
         community.on("error", errorListener);
@@ -971,7 +977,12 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         else {
             community = <LocalCommunity>await pkc.createCommunity({ address });
             community.once("error", (error: PKCError | Error) => {
-                log.error("RPC server Received an error on community", community.address, "edit", error);
+                this._communityLog(community.publicKey).error(
+                    "RPC server Received an error on community",
+                    community.address,
+                    "edit",
+                    error
+                );
             });
         }
 
@@ -1071,7 +1082,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     // adds the exact signed bytes to IPFS and returns the cid. The record is validated before
     // pinning so the server cannot be used to pin arbitrary or unsigned JSON
     async publishCommunityList(params: unknown[]): Promise<RpcPublishCommunityListResult> {
-        const log = Logger("pkc-js-rpc:publishCommunityList");
+        const log = this._log;
         const parsedArgs = parseRpcPublishCommunityListParam(params[0]);
         const pkc = await this._getPKCInstance();
         const recordString = parsedArgs.communityListRawString;
@@ -1128,7 +1139,10 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             try {
                 pageSorts[name] = omit(pageSortFactory({ pageSortSettings: { name } }), ["score", "validatePageSortSettings"]);
             } catch (e) {
-                log.error(`Page sort "${name}" could not be listed in the RPC settings because its factory threw`, e);
+                this._log.error(
+                    `publishCommunityList: Page sort "${name}" could not be listed in the RPC settings because its factory threw`,
+                    e
+                );
             }
         }
 
@@ -1164,9 +1178,23 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         return { subscriptionId };
     }
 
+    // The child community-scoped RPC methods log through, tagged with the community's publicKey (issue #493). One per
+    // publicKey, cached: the communities one server hosts are bounded. Falls back to the server's logger when the
+    // publicKey is not known yet.
+    private _communityLogs = new Map<string, Logger>();
+    private _communityLog(publicKey: string | undefined): Logger {
+        if (!publicKey) return this._log;
+        let log = this._communityLogs.get(publicKey);
+        if (!log) {
+            log = this._log.child({ namespace: "community", tags: { publicKey } });
+            this._communityLogs.set(publicKey, log);
+        }
+        return log;
+    }
+
     private _initPKC(pkc: PKC) {
         this.pkc = pkc;
-        pkc.on("error", (error: any) => log.error("RPC server", "Received an error on pkc instance", error));
+        pkc.on("error", (error: any) => this._log.error("publishCommunityList: RPC server", "Received an error on pkc instance", error));
     }
 
     private async _createPKCInstanceFromSetSettings(newOptions: InputPKCOptions) {
@@ -1184,7 +1212,10 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             try {
                 await send({ newPKC: this.pkc });
             } catch (error) {
-                log.error(`Failed to send settingschange to settings subscription ${senderKey}, continuing with the rest`, error);
+                this._log.error(
+                    `publishCommunityList: Failed to send settingschange to settings subscription ${senderKey}, continuing with the rest`,
+                    error
+                );
             }
         }
     }
@@ -1194,11 +1225,11 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             const settings = parseSetNewSettingsPKCWsServerSchemaWithPKCErrorIfItFails(params[0]);
             const currentSettings = this._serializeSettingsFromPKC(this.pkc);
             if (deterministicStringify(settings.pkcOptions) === deterministicStringify(currentSettings.pkcOptions)) {
-                log("RPC client called setSettings with the same settings as the current one, aborting");
+                this._log("publishCommunityList: RPC client called setSettings with the same settings as the current one, aborting");
                 return;
             }
 
-            log(`RPC client called setSettings, the clients need to call all subscription methods again`);
+            this._log(`publishCommunityList: RPC client called setSettings, the clients need to call all subscription methods again`);
             const oldPKC = this.pkc;
             // Strip nameResolvers from client settings — RPC server ignores them for now. `logger` is stripped too: the
             // replacement instance adopts this server's root (issue #493), so the log buffer and the listeners a host
@@ -1224,8 +1255,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                         // One failing handler must not abort the loop: the remaining subscriptions
                         // would never migrate to the new pkc and would die silently when the old
                         // pkc is destroyed (issue #129)
-                        log.error(
-                            `Failed to apply settings change to subscription ${subscriptionId} of connection ${connectionId}, continuing with remaining subscriptions`,
+                        this._log.error(
+                            `publishCommunityList: Failed to apply settings change to subscription ${subscriptionId} of connection ${connectionId}, continuing with remaining subscriptions`,
                             error
                         );
                     }
@@ -1252,7 +1283,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     }
 
     async commentUpdateSubscribe(params: any, connectionId: string): Promise<RpcSubscriptionIdResult> {
-        const logUpdate = Logger("pkc-js-rpc:pkc-ws-server:commentUpdateSubscribe");
+        const logUpdate = this._log;
         const parsedCommentUpdateArgs = parseRpcCidParam(params[0]);
         const subscriptionId = generateSubscriptionId();
 
@@ -1335,7 +1366,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
         // cleanup function
         this.subscriptionCleanups[connectionId][subscriptionId] = async () => {
-            logUpdate("Cleaning up commentUpdate subscription", { subscriptionId, connectionId, cid: comment.cid });
+            logUpdate("commentUpdateSubscribe: Cleaning up commentUpdate subscription", { subscriptionId, connectionId, cid: comment.cid });
             comment.removeListener("update", updateListener);
             comment.removeListener("updatingstatechange", updatingStateListener);
             comment.removeListener("statechange", stateListener);
@@ -1355,7 +1386,12 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             sendUpdate();
             await comment.update();
         } catch (e) {
-            logUpdate.error("Cleaning up subscription to comment", comment.cid, "because comment.update threw an error", e);
+            logUpdate.error(
+                "commentUpdateSubscribe: Cleaning up subscription to comment",
+                comment.cid,
+                "because comment.update threw an error",
+                e
+            );
             const cleanup = this.subscriptionCleanups?.[connectionId]?.[subscriptionId];
             if (cleanup) await cleanup();
             throw e;
@@ -1387,6 +1423,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const startedCommunity = findStartedCommunity(pkc, parsedArgs);
         const isStartedCommunity = Boolean(startedCommunity);
         const community = startedCommunity || <LocalCommunity | RemoteCommunity>await pkc.createCommunity(parsedArgs);
+        const log = this._communityLog(community.publicKey);
 
         const sendCommunityJson = () => {
             let jsonToSend:
@@ -2060,7 +2097,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     }
 
     private async _handleExportsHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-        const httpLog = Logger("pkc-js:PKCWsServer:exports-http");
+        const httpLog = this._log;
         const requestUrl = new URL(req.url ?? "/", "http://localhost");
         const match = requestUrl.pathname.match(/^\/exports\/([0-9a-fA-F-]{36})$/);
         if (!match) {
@@ -2104,7 +2141,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         }
 
         if (!candidatePath) {
-            httpLog("GET /exports — unknown exportId", exportId);
+            httpLog("exports-http: GET /exports — unknown exportId", exportId);
             res.statusCode = 404;
             res.end();
             return;
@@ -2132,7 +2169,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         });
         stream.on("error", (err) => {
             streamErrored = true;
-            httpLog.error("Error streaming export file", filePath, err);
+            httpLog.error("exports-http: Error streaming export file", filePath, err);
             if (!res.headersSent) res.statusCode = 500;
             res.end();
         });
@@ -2142,12 +2179,16 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             if (streamErrored || !streamEnded || !res.writableEnded) return;
             if (community) {
                 // Loaded community: prune the record and delete the file together.
-                community._deleteExport(exportId).catch((e) => httpLog.error("Failed to cleanup downloaded export", exportId, e));
+                community
+                    ._deleteExport(exportId)
+                    .catch((e) => httpLog.error("exports-http: Failed to cleanup downloaded export", exportId, e));
             } else {
                 // Served from disk after a restart (no community loaded): just remove the file. The
                 // stale KeyV record is pruned lazily the next time that community loads, via
                 // loadAndPruneExportsFromKeyv (which drops records whose file is missing).
-                fsPromises.unlink(filePath).catch((e) => httpLog.error("Failed to cleanup downloaded export file", exportId, e));
+                fsPromises
+                    .unlink(filePath)
+                    .catch((e) => httpLog.error("exports-http: Failed to cleanup downloaded export file", exportId, e));
             }
         });
         stream.pipe(res);
@@ -2156,7 +2197,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     async unsubscribe(params: any, connectionId: string): Promise<RpcSuccessResult> {
         const { subscriptionId } = parseRpcUnsubscribeParam(params[0]);
 
-        log("Received unsubscribe", { connectionId, subscriptionId });
+        this._log("Received unsubscribe", { connectionId, subscriptionId });
         const connectionCleanups = this.subscriptionCleanups[connectionId];
         if (!connectionCleanups || !connectionCleanups[subscriptionId]) return { success: true };
 
@@ -2166,13 +2207,13 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     }
 
     private async _cleanUpDisconnectedClient(connectionId: string) {
-        log("RPC client disconnected", connectionId, "number of rpc clients connected", this.rpcWebsockets.wss.clients.size);
+        this._log("RPC client disconnected", connectionId, "number of rpc clients connected", this.rpcWebsockets.wss.clients.size);
         const subscriptionCleanups = this.subscriptionCleanups[connectionId];
         if (!subscriptionCleanups) {
             delete this.subscriptionCleanups[connectionId];
             delete this.connections[connectionId];
             delete this._onSettingsChange[connectionId];
-            log("Disconnected from RPC client (no subscriptions to clean)", connectionId);
+            this._log("Disconnected from RPC client (no subscriptions to clean)", connectionId);
             return;
         }
         for (const subscriptionId in subscriptionCleanups) {
@@ -2182,7 +2223,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         delete this.subscriptionCleanups[connectionId];
         delete this.connections[connectionId];
         delete this._onSettingsChange[connectionId];
-        log("Disconnected from RPC client", connectionId);
+        this._log("Disconnected from RPC client", connectionId);
     }
 
     async destroy() {
@@ -2200,7 +2241,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         try {
             await pTimeout(wssClosed, { milliseconds: DESTROY_CLIENTS_CLOSE_TIMEOUT_MS });
         } catch {
-            log.error(
+            this._log.error(
                 "Some RPC clients did not complete the close handshake within",
                 DESTROY_CLIENTS_CLOSE_TIMEOUT_MS,
                 "ms of destroy(), terminating them"
@@ -2240,12 +2281,12 @@ const createPKCWsServer = async (options: CreatePKCWsServerOptions) => {
 
     // Auto-start previously started communities (fire-and-forget, non-blocking)
     pkcWss._autoStartPreviousCommunities().catch((e) => {
-        log.error("Failed to auto-start previous communities", e);
+        pkcWss._log.error("Failed to auto-start previous communities", e);
     });
 
     // Delete export files older than exportFileMaxAgeMs (default 24h, fire-and-forget) — see EXPORT_COMMUNITY_SPEC.md
     pkcWss._sweepOldExportFiles().catch((e) => {
-        log.error("Failed to sweep old export files", e);
+        pkcWss._log.error("Failed to sweep old export files", e);
     });
 
     return pkcWss;
