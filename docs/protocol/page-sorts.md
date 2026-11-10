@@ -285,8 +285,9 @@ The contract:
 Typing a package against the contract: pkc-js exports the file types from its root, so a TypeScript package
 compiles against what the community runs rather than a copy of it. `PageSortFileFactory` is the default export's
 type, `PageSortFile` what it returns, `PageSortScoreArgs` what `score` receives, `CommunityPageSortSetting` the
-`settings.pages` entry the factory is called with (`PageSortFileFactoryArgs` is the `{ pageSortSettings }`
-wrapper), `PageSortReplyEntry` one element of `replies`, and `PageSortScope` is `"posts" | "replies"`.
+`settings.pages` entry the factory is called with (`PageSortFileFactoryArgs` is the `{ pageSortSettings, log? }`
+wrapper; `log` is an optional child of the community's logger under `pkc-js:local-community:page-sort:<name>`,
+issue #493, so a package's lines carry the community's `publicKey` tag and reach `pkc.getLogs()`), `PageSortReplyEntry` one element of `replies`, and `PageSortScope` is `"posts" | "replies"`.
 `PageSortFileInput` / `PageSortFileFactoryInput` are the input-side variants a consumer passes to the
 `pageSorts` PKC option. The reference package is `@pkcprotocol/active-page-sort`.
 
