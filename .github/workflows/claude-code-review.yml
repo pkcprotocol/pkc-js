@@ -28,10 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      # Pinned: the floating v1 tag moved to 4fa93a8 (Claude Code 2.1.322) on 2026-11-10 and every
-      # review since has failed in under a second with is_error and no model usage. This is the
-      # last commit that worked (Claude Code 2.1.319). Move back to a tag once upstream is fixed.
-      - uses: anthropics/claude-code-action@61a9c274fa7110a66dfafc1bbbced03833eb25fe
+      - uses: anthropics/claude-code-action@v1
         env:
           # The action ends the session at Claude's first result. The code-review command starts its
           # first agent in the background and ends that turn to wait, so the review never ran and the
