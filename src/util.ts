@@ -1,4 +1,5 @@
 import { messages } from "./errors.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { PKCError } from "./pkc-error.js";
 import type { CommunityIpfsType } from "./community/types.js";
 //@ts-expect-error
@@ -40,7 +41,6 @@ import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { sha256 } from "js-sha256";
 import { base32 } from "multiformats/bases/base32";
 import { PKC } from "./pkc/pkc.js";
-import Logger from "./logger.js";
 import retry from "retry";
 import { peerIdFromString } from "@libp2p/peer-id";
 // ipns / ipns/validator / blockstore-core / ipfs-unixfs-importer are dynamic-imported inside the async
@@ -1151,11 +1151,10 @@ export async function removeMfsFilesSafely({
 }: {
     kuboRpcClient: PKC["clients"]["kuboRpcClients"][string];
     paths: string[];
-    log?: Logger;
+    log: Logger;
     inputNumOfRetries?: number;
     rmOptions?: FilesRmOptions;
 }) {
-    const logger = log ?? Logger("pkc-js:util:removeMfsFilesSafely");
     const numOfRetries = inputNumOfRetries ?? 3;
 
     return new Promise<void>((resolve, reject) => {
@@ -1185,7 +1184,10 @@ export async function removeMfsFilesSafely({
 
                 resolve();
             } catch (error) {
-                logger.error(`Failed attempt ${currentAttempt}/${numOfRetries + 1} to remove MFS paths ${paths.join(", ")}:`, error);
+                log.error(
+                    `removeMfsFilesSafely: Failed attempt ${currentAttempt}/${numOfRetries + 1} to remove MFS paths ${paths.join(", ")}:`,
+                    error
+                );
 
                 if (operation.retry(error as Error)) return;
 
@@ -1210,10 +1212,9 @@ export async function statMfsPathSafely({
     kuboRpcClient: PKC["clients"]["kuboRpcClients"][string];
     path: string;
     statOptions?: FilesStatOptions;
-    log?: Logger;
+    log: Logger;
     inputNumOfRetries?: number;
 }): Promise<FilesStatResult> {
-    const logger = log ?? Logger("pkc-js:util:statMfsPathSafely");
     const numOfRetries = inputNumOfRetries ?? 3;
 
     return new Promise<FilesStatResult>((resolve, reject) => {
@@ -1232,7 +1233,7 @@ export async function statMfsPathSafely({
                     reject(error);
                     return;
                 }
-                logger.error(`Failed attempt ${currentAttempt}/${numOfRetries + 1} to stat MFS path ${path}:`, error);
+                log.error(`statMfsPathSafely: Failed attempt ${currentAttempt}/${numOfRetries + 1} to stat MFS path ${path}:`, error);
                 if (operation.retry(error as Error)) return;
                 reject(operation.mainError() || error);
             }
