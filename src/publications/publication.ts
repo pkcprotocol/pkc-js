@@ -159,6 +159,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
             providerUrl: string; // either kubo rpc url or libp2pjsclient key, or RPC url
         }
     > = {};
+    // Bumped by every publish() and stop(). The work one publish() starts (the community fetch, the RPC publish call,
+    // the publish loop) compares it after its awaits and stops changing this instance once a stop() or a later
+    // publish() has taken over. stop() is not cancellation: without this, an await that resolves after stop() went on
+    // to overwrite the stopped states and, over RPC, attached a live publish subscription to the stopped instance
+    private _publishAttempt = 0;
     private _publishToDifferentProviderThresholdSeconds: number;
     private _setProviderFailureThresholdSeconds: number;
     private _rpcPublishSubscriptionId?: number = undefined;
@@ -983,6 +988,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     async stop() {
+        this._publishAttempt++; // the in-flight publish() work sees it is stale and leaves the states below alone
         // Abort first, so the drain below unwinds an in-flight fetch instead of waiting it out. Only
         // stop() does this, never the success funnel: a refresh fired to warm a stale cache should
         // still finish after a publish succeeds.
@@ -1000,6 +1006,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
             if (this._backgroundCommunityRefresh) await this._backgroundCommunityRefresh;
             this._updatePublishingStateWithEmission("stopped");
         }
+    }
+
+    private _isStalePublishAttempt(publishAttempt: number): boolean {
+        return publishAttempt !== this._publishAttempt;
     }
 
     _isAllAttemptsExhausted(maxNumOfChallengeExchanges: number): boolean {
@@ -1151,6 +1161,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
     async _publishWithRpc() {
         if (!this._pkc._pkcRpcClient) throw Error("Can't publish to RPC without publication.pkc.pkcRpcClient being defined");
+        const publishAttempt = this._publishAttempt;
         this._setStateWithEmission("publishing");
 
         const rpcClient = this._pkc._pkcRpcClient;
@@ -1166,6 +1177,20 @@ class Publication extends TypedEmitter<PublicationEvents> {
         // Each publish method expects its specific type, but toJSONPubsubRequestToEncrypt() returns the correct shape at runtime
         const publishFn = pubNameToPublishFunction[this.getType()] as (args: DecryptedChallengeRequest) => Promise<RpcSubscriptionIdResult>;
         const { subscriptionId } = await publishFn.bind(rpcClient)(this.toJSONPubsubRequestToEncrypt());
+        if (this._isStalePublishAttempt(publishAttempt)) {
+            // stop() ran while the server was starting this publish and found no subscription id to unsubscribe. The
+            // server answers only after its publish() started, so drop the subscription here or its events reach a
+            // stopped instance that nothing tracks any more
+            try {
+                await rpcClient.unsubscribe(subscriptionId);
+            } catch (e) {
+                Logger("pkc-js:publication:publish:_publishWithRpc").error(
+                    "Failed to unsubscribe from a publish stopped while starting",
+                    e
+                );
+            }
+            return;
+        }
         this._rpcPublishSubscriptionId = subscriptionId;
 
         // Deferred so a listener attached synchronously after `await publish()` resolves still
@@ -1280,12 +1305,16 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
     async _initCommunity() {
         if (this._community) return;
+        const publishAttempt = this._publishAttempt;
         try {
             this._community = await this._fetchCommunityForPublishing();
             this._validateCommunityFields();
         } catch (e) {
-            this._setStateWithEmission("stopped");
-            this._updatePublishingStateWithEmission("failed");
+            // A fetch aborted by stop() rejects after stop() settled the states, which must stay "stopped"
+            if (!this._isStalePublishAttempt(publishAttempt)) {
+                this._setStateWithEmission("stopped");
+                this._updatePublishingStateWithEmission("failed");
+            }
             throw e;
         }
     }
@@ -1538,12 +1567,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
         // fetch before it started.
         if (this._getCommunityFetchAbortSignal().aborted) this._resetCommunityFetchAbortSignal();
         this._beginPublishRun();
+        const publishAttempt = ++this._publishAttempt;
         // Track before the first await so pkc.destroy() can stop us no matter how far the exchange
         // has progressed. Untracked in _postSucessOrFailurePublishing once the exchange ends, or in
         // the catch below if publish never got that far.
         this._pkc._publishingPublications.add(this);
         try {
-            return await this._publishAfterRegistering();
+            return await this._publishAfterRegistering(publishAttempt);
         } catch (e) {
             // Not every throw reaches the funnel: pre-flight failures (_initCommunity, signing, the
             // signature hook, the RPC publish call) reject before a challenge exchange exists, and
@@ -1552,15 +1582,18 @@ class Publication extends TypedEmitter<PublicationEvents> {
             // destroy() later stops a publication that never started. Unregistering directly rather
             // than through the funnel keeps the error path free of a redundant state emission and of
             // a pubsub unsubscribe for a topic that was never subscribed. Deleting twice is a no-op,
-            // so the throw sites that do funnel are unaffected.
-            this._unregisterFromPkcOncePublishWorkSettles();
-            // pkc.destroy() can no longer reach an unregistered publication, so end the run's waits here
-            this._publishRunAbortController?.abort();
+            // so the throw sites that do funnel are unaffected. A stale attempt leaves both alone: stop() already
+            // unregistered and ended its run, and a later publish() registered again and began a run of its own.
+            if (!this._isStalePublishAttempt(publishAttempt)) {
+                this._unregisterFromPkcOncePublishWorkSettles();
+                // pkc.destroy() can no longer reach an unregistered publication, so end the run's waits here
+                this._publishRunAbortController?.abort();
+            }
             throw e;
         }
     }
 
-    private async _publishAfterRegistering() {
+    private async _publishAfterRegistering(publishAttempt: number) {
         const log = Logger("pkc-js:publication:publish");
         this._setStateWithEmission("publishing");
 
@@ -1580,6 +1613,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
         }
 
         await this._validateSignatureHook();
+        // Stopped during the steps above: stop() settled the states, so do not start an exchange behind it
+        if (this._isStalePublishAttempt(publishAttempt)) return;
 
         if (this._pkc._pkcRpcClient) return this._publishWithRpc();
 
@@ -1589,13 +1624,12 @@ class Publication extends TypedEmitter<PublicationEvents> {
             | LocalCommunity
             | undefined;
         if (startedCommunity) {
-            return this._publishWithLocalCommunity(
-                startedCommunity,
-                await this._generateChallengeRequestToPublish(
-                    "publishing directly to local community instance",
-                    options.acceptedChallengeTypes
-                )
+            const challengeRequest = await this._generateChallengeRequestToPublish(
+                "publishing directly to local community instance",
+                options.acceptedChallengeTypes
             );
+            if (this._isStalePublishAttempt(publishAttempt)) return;
+            return this._publishWithLocalCommunity(startedCommunity, challengeRequest);
         }
 
         // Only the network path needs a challenge topic. Fail fast before touching pubsub so a client
@@ -1624,6 +1658,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         while (!this._didWeReceiveChallengeOrChallengeVerification() && currentPubsubProviderIndex < providers.length) {
             const providerUrl = providers[currentPubsubProviderIndex];
             const challengeRequest = await this._generateChallengeRequestToPublish(providerUrl, options.acceptedChallengeTypes);
+            if (this._isStalePublishAttempt(publishAttempt)) return;
 
             this._updatePublishingStateWithEmission("publishing-challenge-request");
             this._updatePubsubState("subscribing-pubsub", providerUrl);
@@ -1644,6 +1679,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 );
                 this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequestPublishTimestamp = timestamp();
             } catch (e) {
+                if (this._isStalePublishAttempt(publishAttempt)) return; // stopped meanwhile: a clean exit, not a failure
                 this._updatePubsubState("stopped", providerUrl);
                 log.error("Failed to publish challenge request using provider ", providerUrl, e);
                 currentPubsubProviderIndex += 1;
@@ -1665,6 +1701,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     throw allAttemptsFailedError;
                 } else continue;
             }
+            // stop() landed while the request was being published and already settled the states and unsubscribed;
+            // waiting for a challenge, or starting the no-response watchdog, would undo that
+            if (this._isStalePublishAttempt(publishAttempt)) return;
             const decryptedRequest = this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequest;
             this._updatePubsubState("waiting-challenge", providerUrl);
 

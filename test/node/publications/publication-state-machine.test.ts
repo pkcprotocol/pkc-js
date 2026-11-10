@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
+import { createServer, type Server } from "node:http";
+import type { Socket } from "node:net";
 import * as cborg from "cborg";
 import PKC from "../../../dist/node/index.js";
 import { cleanUpBeforePublishing, signChallengeMessage, signChallengeVerification } from "../../../dist/node/signer/signatures.js";
@@ -143,6 +145,7 @@ describe("publication publishing over a stubbed pubsub provider", () => {
         const errorCodes: string[] = [];
         post.on("statechange", (state) => events.push(`statechange:${state}`));
         post.on("publishingstatechange", (state) => events.push(`publishingstatechange:${state}`));
+        post.on("challengerequest", () => events.push("challengerequest"));
         post.on("challenge", () => events.push("challenge"));
         post.on("challengeverification", (verification) => events.push(`challengeverification:${verification.challengeSuccess}`));
         post.on("error", (error) => errorCodes.push(String((error as { code?: string }).code)));
@@ -176,6 +179,33 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             await vi.waitFor(() => expect(post.publishingState).to.equal("failed"), { timeout: 2000, interval: 50 });
             expect(errorCodes).to.deep.equal(["ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS"]);
             expect(pubsub.requests.length).to.equal(1);
+        });
+    });
+
+    describe("stop() during publish()", () => {
+        it("leaves the publication stopped when it lands while the challenge request is being published", async () => {
+            const { post, events } = await createPostWithStubbedPubsub();
+            let releasePublish!: () => void;
+            const publishGate = new Promise<void>((resolve) => (releasePublish = resolve));
+            vi.mocked(post._clientsManager.pubsubPublishOnProvider).mockImplementationOnce(async () => {
+                await publishGate;
+            });
+
+            const publishOutcome = post.publish();
+            await vi.waitFor(() => expect(post._clientsManager.pubsubPublishOnProvider).toHaveBeenCalled(), {
+                timeout: 5000,
+                interval: 10
+            });
+            await post.stop();
+            releasePublish();
+            await publishOutcome;
+            // Past the no-response watchdog's first wake-up, had one been started
+            await new Promise((resolve) => setTimeout(resolve, PUBLISH_TO_DIFFERENT_PROVIDER_SECONDS * 1000 + 500));
+
+            expect(post.state).to.equal("stopped");
+            expect(post.publishingState).to.equal("stopped");
+            expect(events).to.not.include("challengerequest");
+            expect(post._clientsManager.pubsubPublishOnProvider).toHaveBeenCalledTimes(1);
         });
     });
 
@@ -248,5 +278,64 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             expect(errorCodes).to.deep.equal(["ERR_INVALID_JSON"]);
             expect(events.filter((event) => event === "statechange:stopped")).to.deep.equal(["statechange:stopped"]);
         });
+    });
+});
+
+describe("publication.stop() while the community is being fetched", () => {
+    let gateway: Server;
+    const gatewaySockets = new Set<Socket>();
+    let pkc: PKCType;
+
+    beforeAll(async () => {
+        // A gateway that accepts requests and never answers, so the community fetch is in flight until stop() aborts it
+        gateway = createServer(() => {});
+        gateway.on("connection", (socket) => gatewaySockets.add(socket));
+        await new Promise<void>((resolve) => gateway.listen(0, "127.0.0.1", () => resolve()));
+        const address = gateway.address();
+        if (address === null || typeof address === "string") throw Error("Expected the gateway to listen on a TCP port");
+        pkc = await PKC({
+            ipfsGatewayUrls: [`http://127.0.0.1:${address.port}`],
+            kuboRpcClientsOptions: undefined,
+            pubsubKuboRpcClientsOptions: ["http://localhost:23425/api/v0"],
+            dataPath: undefined,
+            httpRoutersOptions: []
+        });
+        pkc.on("error", () => {});
+    });
+
+    afterAll(async () => {
+        if (pkc && !pkc.destroyed) await pkc.destroy();
+        for (const socket of gatewaySockets) socket.destroy();
+        await new Promise<void>((resolve) => gateway.close(() => resolve()));
+    });
+
+    it("ends with publishingState stopped, not the aborted fetch's failed", async () => {
+        const post = await pkc.createComment({
+            signer: await pkc.createSigner(),
+            communityAddress: (await pkc.createSigner()).address,
+            title: "fetch stopped",
+            content: "c"
+        });
+        const states: string[] = [];
+        post.on("publishingstatechange", (state) => states.push(state));
+        post.on("error", () => {});
+
+        const publishOutcome = post.publish().then(
+            (): { code?: string } | undefined => undefined,
+            (error: { code?: string }) => error
+        );
+        await vi.waitFor(() => expect(post.publishingState).to.be.oneOf(["resolving-community-name", "fetching-community-ipns"]), {
+            timeout: 10000,
+            interval: 10
+        });
+        await post.stop();
+        expect(post.publishingState).to.equal("stopped");
+
+        // stop() aborts the fetch, and its rejection reaches publish() after stop() has already settled the states
+        expect((await publishOutcome)?.code).to.equal("ERR_GET_COMMUNITY_ABORTED");
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(post.state).to.equal("stopped");
+        expect(post.publishingState).to.equal("stopped");
+        expect(states).to.not.include("failed");
     });
 });

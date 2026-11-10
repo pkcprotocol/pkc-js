@@ -227,4 +227,41 @@ describe("publications over RPC (fake RPC server)", () => {
             expect(events.filter((event) => event.startsWith("publishingstatechange"))).to.deep.equal(["publishingstatechange:succeeded"]);
         });
     });
+
+    describe("stop() while the server is starting the publish", () => {
+        it("drops the subscription the server returns afterwards and ignores its events", async () => {
+            const post = await createPost();
+            const events = recordEvents(post);
+            server.holdResponsesTo("publishComment");
+
+            const publishOutcome = post.publish().then(
+                () => "resolved",
+                (error: { code?: string }) => `rejected:${error.code}`
+            );
+            await server.waitForHeldCall("publishComment");
+            // The server answers a publish call only after its own publish() started, so the comment is already on its
+            // way when stop() runs here, and stop() has no subscription id to unsubscribe yet
+            await post.stop();
+            expect(post.state).to.equal("stopped");
+            expect(post.publishingState).to.equal("stopped");
+
+            const subscriptionId = server.releaseHeldResponse("publishComment");
+            await publishOutcome;
+            await vi.waitFor(() => expect(server.unsubscribedIds()).to.include(subscriptionId), { timeout: 10000, interval: 10 });
+
+            // Anything the server still sends for it must not reach the stopped publication
+            server.sendNotification({
+                method: "publishCommentNotification",
+                subscription: subscriptionId,
+                event: "challengeverification",
+                result: encodedChallengeVerification({ challengeRequestId: communitySigner.address, challengeSuccess: false })
+            });
+            await new Promise((resolve) => setTimeout(resolve, 200));
+
+            expect(post.state).to.equal("stopped");
+            expect(post.publishingState).to.equal("stopped");
+            expect(events).to.not.include("challengeverification:false");
+            expect(pkc._publishingPublications.has(post)).to.be.false;
+        });
+    });
 });
