@@ -1,8 +1,8 @@
 import { BaseClientsManager, OptionsToLoadFromGateway } from "../clients/base-client-manager.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { isReservedObjectKey } from "../object-key-util.js";
 import type { ModQueuePageIpfs, ModQueueSortName, PageIpfs } from "./types.js";
 import { isEmpty, keys, unique } from "remeda";
-import Logger from "../logger.js";
 import { BasePages, ModQueuePages, PostsPages, RepliesPages } from "./pages.js";
 import { POSTS_SORT_TYPES, POST_REPLIES_SORT_TYPES, type PageRuntimeFields } from "./util.js";
 import { nextPageMaxSizeBytes } from "./page-size.js";
@@ -27,8 +27,8 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
     protected _pages: RepliesPages | PostsPages | ModQueuePages; // can be undefined if it's a mod queue
 
-    constructor(opts: { pages: BasePagesClientsManager["_pages"]; pkc: PKC }) {
-        super(opts.pkc);
+    constructor(opts: { pages: BasePagesClientsManager["_pages"]; pkc: PKC; log: Logger }) {
+        super(opts.pkc, opts.log);
         this._pages = opts.pages;
         //@ts-expect-error
         this.clients = {};
@@ -304,7 +304,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
         abortSignal?: AbortSignal;
     }): Promise<{ page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields }> {
         const { pageCid } = opts;
-        const log = Logger("pkc-js:pages:getPage");
+        const log = this._log;
         const sortTypesFromPageCids = keys(this._pages.pageCids).filter((sortType) => this._pages.pageCids[sortType] === pageCid);
         if (sortTypesFromPageCids.length > 0) {
             this.updatePageCidsToSortTypes(this._pages.pageCids);

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_QUERY_LIMIT } from "@pkcprotocol/pkc-logger";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comment/schema.js";
 import { AuthorAddressSchema, ChallengeAnswersSchema, CidStringSchema } from "../../schema/schema.js";
 import { CommunityEditOptionsSchema, CommunityExportRecordsSchema, ExportCommunityModLogsOptionsSchema } from "../../community/schema.js";
@@ -117,6 +118,47 @@ export const RpcExportCommunityModLogsParamSchema = ExportCommunityModLogsOption
 
 export const RpcExportCommunityModLogsResultSchema = z.object({
     moderations: z.array(CommentModerationsTableRowSchema.loose()) // .loose() element preserves extraProps / future fields
+});
+
+// pkc.getLogs() and the getLogs RPC method (issue #493). One query schema on both sides: the client parses it before
+// the wire and the server before the scan, and both compile `regex` here so a bad pattern throws ERR_INVALID_LOG_QUERY
+// without touching the buffer. Strict: a typo in a filter must not silently widen the query to the whole buffer.
+// `rpcUrl` is a pkc.getLogs() concern only; the server's param schema inherits this strictness and so rejects it, which
+// is what keeps a call from ever being chained to a third daemon.
+export const LogQuerySchema = z
+    .object({
+        tags: z.record(z.string().min(1), z.string().min(1)).optional(),
+        regex: z.object({ source: z.string(), flags: z.string().optional() }).strict().optional(),
+        since: z.number().optional(),
+        until: z.number().optional(),
+        limit: z.number().int().positive().max(MAX_QUERY_LIMIT).optional(),
+        cursor: z.number().int().optional(),
+        order: z.enum(["asc", "desc"]).optional()
+    })
+    .strict()
+    .superRefine((query, ctx) => {
+        if (!query.regex) return;
+        try {
+            new RegExp(query.regex.source, query.regex.flags);
+        } catch (e) {
+            ctx.addIssue({ code: "custom", path: ["regex"], message: `invalid regex: ${e instanceof Error ? e.message : String(e)}` });
+        }
+    });
+
+export const RpcGetLogsParamSchema = LogQuerySchema;
+
+export const LogEntrySchema = z.object({
+    seq: z.number().int(),
+    time: z.number(),
+    level: z.enum(["log", "error", "trace"]),
+    namespace: z.string(),
+    msg: z.string(),
+    tags: z.record(z.string(), z.string())
+});
+
+export const RpcGetLogsResultSchema = z.object({
+    entries: LogEntrySchema.array(),
+    nextCursor: z.number().int().optional()
 });
 
 // CommunityList (docs/protocol/community-lists.md). The client signs locally; the server only adds

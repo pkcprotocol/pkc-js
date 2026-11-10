@@ -1,6 +1,10 @@
 import { EventEmitter } from "events";
+import Logger from "@pkcprotocol/pkc-logger";
 import { pkcJsChallenges } from "../../../dist/node/runtime/node/community/challenges/index.js";
 import signers from "../../fixtures/signers.js";
+
+// Fixture communities log through the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:challenges-fixtures" });
 
 // Issue #267: author identity on the community side is bound to the signature. Each mock author domain resolves
 // to a fixture signer; requests carry that signer's public key and the mock clients manager resolves the domain.
@@ -39,6 +43,7 @@ interface MockCommunityChallengeSettings {
 }
 
 interface MockCommunity {
+    _log: typeof testLog; // community helpers log through community._log (issue #493)
     title: string;
     roles?: Record<string, { role: string }>;
     settings: {
@@ -149,6 +154,7 @@ const PKC = (): MockPKC => createPKC();
 
 // define mock Community instances
 const textMathChallengeCommunity: MockCommunity = {
+    _log: testLog,
     title: "text-math challenge community",
     settings: {
         challenges: [
@@ -184,6 +190,7 @@ const textMathChallengeCommunity: MockCommunity = {
 //   }
 // }
 const excludeHighKarmaChallengeCommunity: MockCommunity = {
+    _log: testLog,
     title: "exclude high karma challenge community",
     settings: {
         challenges: [
@@ -201,6 +208,7 @@ const excludeHighKarmaChallengeCommunity: MockCommunity = {
     }
 };
 const excludeAccountAgeChallengeCommunity: MockCommunity = {
+    _log: testLog,
     title: "exclude account age challenge community",
     settings: {
         challenges: [
@@ -216,6 +224,7 @@ const excludeAccountAgeChallengeCommunity: MockCommunity = {
     }
 };
 const excludeNameChallengeCommunity: MockCommunity = {
+    _log: testLog,
     title: "exclude name challenge community",
     settings: {
         challenges: [
@@ -232,6 +241,7 @@ const excludeNameChallengeCommunity: MockCommunity = {
     }
 };
 const whitelistChallengeCommunity: MockCommunity = {
+    _log: testLog,
     title: "whitelist challenge community",
     settings: {
         challenges: [
@@ -245,6 +255,7 @@ const whitelistChallengeCommunity: MockCommunity = {
     }
 };
 const blacklistChallengeCommunity: MockCommunity = {
+    _log: testLog,
     title: "blacklist challenge community",
     settings: {
         challenges: [
@@ -279,6 +290,7 @@ const blacklistChallengeCommunity: MockCommunity = {
 //   }
 // }
 const passwordChallengeCommunity: MockCommunity = {
+    _log: testLog,
     title: "password challenge community",
     settings: {
         challenges: [
@@ -293,6 +305,7 @@ const passwordChallengeCommunity: MockCommunity = {
     }
 };
 const excludeFriendlySubKarmaChallengeCommunity: MockCommunity = {
+    _log: testLog,
     title: "exclude friendly sub karma challenge community",
     settings: {
         challenges: [
@@ -314,6 +327,7 @@ const excludeFriendlySubKarmaChallengeCommunity: MockCommunity = {
     }
 };
 const twoOutOf4SuccessChallengeCommunity: MockCommunity = {
+    _log: testLog,
     title: "2 out of 4 success challenge community",
     settings: {
         // challenge 0, 1 fail, but excluded if 2, 3 succeed, which makes challengeVerification.challengeSuccess = true
@@ -338,6 +352,7 @@ const twoOutOf4SuccessChallengeCommunity: MockCommunity = {
     }
 };
 const twoOutOf4SuccessInverseChallengeCommunity: MockCommunity = {
+    _log: testLog,
     title: "2 out of 4 success inverse challenge community",
     settings: {
         // challenge 0, 1 fail, but excluded if 2, 3 succeed, which makes challengeVerification.challengeSuccess = true
@@ -362,6 +377,7 @@ const twoOutOf4SuccessInverseChallengeCommunity: MockCommunity = {
     }
 };
 const rateLimitChallengeCommunity: MockCommunity = {
+    _log: testLog,
     title: "rate limit challenge community",
     settings: {
         challenges: [
@@ -381,6 +397,7 @@ const rateLimitChallengeCommunity: MockCommunity = {
     }
 };
 const rateLimitChallengeSuccessChallengeCommunity: MockCommunity = {
+    _log: testLog,
     title: "rate limit challenge success challenge community",
     settings: {
         challenges: [
@@ -400,6 +417,7 @@ const rateLimitChallengeSuccessChallengeCommunity: MockCommunity = {
     }
 };
 const excludeModsChallengeCommunity: MockCommunity = {
+    _log: testLog,
     title: "exclude mods challenge community",
     roles: {
         "high-karma.bso": {
@@ -420,6 +438,7 @@ const excludeModsChallengeCommunity: MockCommunity = {
 };
 // test a challenge answer excluding a non challenge answer
 const questionOrWhitelistChallengeCommunity: MockCommunity = {
+    _log: testLog,
     title: "question or whitelist challenge community",
     settings: {
         challenges: [

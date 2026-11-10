@@ -6,6 +6,7 @@ import {
     resolveWhenConditionIsTrue,
     selfResolvingMockNameForAddress
 } from "../../../dist/node/test/test-util.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
 import { timestamp } from "../../../dist/node/util.js";
 import { describe, it, expect, vi } from "vitest";
@@ -13,6 +14,9 @@ import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:name-mismatch" });
 
 // A community's name is a claim its record makes, and the record can stop making it: the owner drops
 // the name or renames the community. What a loader does with such a record depends on what it asked for:
@@ -40,7 +44,7 @@ async function publishNewerRecord(opts: {
     const record: CommunityIpfsType = { ...opts.previous, updatedAt: Math.max(timestamp(), opts.previous.updatedAt + 1) };
     if (opts.name === undefined) delete record.name;
     else record.name = opts.name;
-    record.signature = await signCommunity({ community: record, signer: opts.staticCommunity.ipnsObj.signer });
+    record.signature = await signCommunity({ community: record, signer: opts.staticCommunity.ipnsObj.signer, log: testLog });
     await opts.staticCommunity.ipnsObj.publishToIpns(JSON.stringify(record));
     return record;
 }
@@ -542,7 +546,7 @@ getAvailablePKCConfigsToTestAgainst({
                 };
                 delete nameless.name;
                 delete nameless.posts;
-                nameless.signature = await signCommunity({ community: nameless, signer: staticCommunity.ipnsObj.signer });
+                nameless.signature = await signCommunity({ community: nameless, signer: staticCommunity.ipnsObj.signer, log: testLog });
                 await staticCommunity.ipnsObj.publishToIpns(JSON.stringify(nameless));
 
                 const comment = await pkc.createComment({ cid: staticCommunity.commentCid });
@@ -592,7 +596,7 @@ getAvailablePKCConfigsToTestAgainst({
                     };
                     delete nameless.name;
                     delete nameless.posts;
-                    nameless.signature = await signCommunity({ community: nameless, signer: staticCommunity.ipnsObj.signer });
+                    nameless.signature = await signCommunity({ community: nameless, signer: staticCommunity.ipnsObj.signer, log: testLog });
                     await staticCommunity.ipnsObj.publishToIpns(JSON.stringify(nameless));
 
                     const comment = await pkc.createComment({ cid: staticCommunity.commentCid });

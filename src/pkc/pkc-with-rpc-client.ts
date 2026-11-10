@@ -1,4 +1,3 @@
-import Logger from "../logger.js";
 import { PKC } from "./pkc.js";
 import type { InputPKCOptions, GetCommunityArgs, GetCommentArgs } from "../types.js";
 import { parseCreateRpcCommunityFunctionArgumentSchemaWithPKCErrorIfItFails } from "../schema/schema-util.js";
@@ -34,7 +33,7 @@ export class PKCWithRpcClient extends PKC {
 
     override async _init(): Promise<void> {
         await super._init();
-        const log = Logger("pkc-js:pkc-with-rpc-client:_init");
+        const log = this._log;
 
         this.communities = [];
 
@@ -55,10 +54,10 @@ export class PKCWithRpcClient extends PKC {
             const rpcClient = this.clients.pkcRpcClients[rpcUrl];
             rpcClient.on("error", (err) => this.emit("error", err));
             rpcClient.initalizeCommunitieschangeEvent().catch((err) => {
-                log.error("Failed to initialize RPC", rpcUrl, "communitieschange event", err);
+                log.error("_init: Failed to initialize RPC", rpcUrl, "communitieschange event", err);
             });
             rpcClient.initalizeSettingschangeEvent().catch((err) => {
-                log.error("Failed to initialize RPC", rpcUrl, "settingschange event", err);
+                log.error("_init: Failed to initialize RPC", rpcUrl, "settingschange event", err);
             });
         }
         // TODO merge different pkcRpcClient.communities
@@ -182,14 +181,14 @@ export class PKCWithRpcClient extends PKC {
         options: z.infer<typeof CreateRpcCommunityFunctionArgumentSchema> | RpcRemoteCommunityJson | RpcLocalCommunityJson = {},
         opts?: { abortSignal?: AbortSignal }
     ): Promise<RpcLocalCommunity | RpcRemoteCommunity> {
-        const log = Logger("pkc-js:pkc-with-rpc-client:createCommunity");
+        const log = this._log;
         throwIfAbortSignalAborted(opts?.abortSignal);
 
         // No need to parse if it's a jsonified instance
         const parsedRpcOptions =
             "clients" in options ? options : parseCreateRpcCommunityFunctionArgumentSchemaWithPKCErrorIfItFails(options);
 
-        log.trace("Received community options to create a community instance over RPC:", options);
+        log.trace("createCommunity: Received community options to create a community instance over RPC:", options);
 
         const hasIdentifier =
             ("address" in parsedRpcOptions && typeof parsedRpcOptions.address === "string") ||
@@ -249,7 +248,9 @@ export class PKCWithRpcClient extends PKC {
                 } catch (e) {
                     // stop() is a no-op on an instance that is already stopped, which is exactly the
                     // case when we lost to a stop rather than to an abort.
-                    await community.stop().catch((stopErr) => log.error("Failed to stop a cancelled community instance", stopErr));
+                    await community
+                        .stop()
+                        .catch((stopErr) => log.error("createCommunity: Failed to stop a cancelled community instance", stopErr));
                     throw e;
                 } finally {
                     cancellation.cleanup();
@@ -259,7 +260,7 @@ export class PKCWithRpcClient extends PKC {
                 await community._attachExportsSubscription();
                 return community;
             } else {
-                log.trace("Creating a remote RPC community instance with address", effectiveAddress);
+                log.trace("createCommunity: Creating a remote RPC community instance with address", effectiveAddress);
                 const remoteCommunity = new RpcRemoteCommunity(this);
                 await this._setCommunityIpfsOnInstanceIfPossible(remoteCommunity, parsedRpcOptions);
 
@@ -275,7 +276,7 @@ export class PKCWithRpcClient extends PKC {
             // We're creating a new local community
             const communityPropsAfterCreation = await this._pkcRpcClient!.createCommunity(parsedRpcOptions);
             log(
-                `Created new local-RPC community (${communityPropsAfterCreation.localCommunity.address}) with props:`,
+                `createCommunity: Created new local-RPC community (${communityPropsAfterCreation.localCommunity.address}) with props:`,
                 JSON.parse(JSON.stringify(communityPropsAfterCreation))
             );
             const community = new RpcLocalCommunity(this);

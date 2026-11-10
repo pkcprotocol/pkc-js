@@ -1,4 +1,5 @@
 import { it, describe, beforeAll, afterAll, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import env from "../../../dist/node/version.js";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
@@ -6,6 +7,9 @@ import type { LocalCommunity } from "../../../dist/node/runtime/node/community/l
 import type Database from "better-sqlite3";
 import { readFileSync } from "node:fs";
 import { getPKCAddressFromPublicKeySync } from "../../../dist/node/signer/util.js";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:v42-to-v43" });
 
 // v42 tables: the comments table with crosspost, the aliases table before `originalAuthorSignerAddress` (issue #351).
 // v41 -> v42 changed no table schema (it migrated the private challenge settings, issue #267), so these are the v41 tables too.
@@ -186,6 +190,7 @@ interface FakeCommunity {
     _cidsToUnPin: Set<string>;
     _blocksToRm: string[];
     _mfsPathsToRemove: Set<string>;
+    _log: typeof testLog;
     _clientsManager: object;
     _calculateLocalMfsPathForCommentUpdate: () => string;
     _addOldPageCidsToCidsToUnpin: () => Promise<void>;
@@ -199,6 +204,7 @@ function createFakeCommunity(address: string): FakeCommunity {
         _cidsToUnPin: new Set<string>(),
         _blocksToRm: [],
         _mfsPathsToRemove: new Set<string>(),
+        _log: testLog,
         _clientsManager: {},
         _calculateLocalMfsPathForCommentUpdate: () => "",
         _addOldPageCidsToCidsToUnpin: async () => {},

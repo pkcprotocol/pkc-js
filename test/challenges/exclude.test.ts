@@ -1,4 +1,5 @@
 import { beforeAll } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     shouldExcludeChallengeCommentCids,
     shouldExcludePublication,
@@ -17,6 +18,9 @@ import signers from "../fixtures/signers.js";
 import validCommentEditFixture from "../fixtures/signatures/commentEdit/valid_comment_edit.json" with { type: "json" };
 import validCommentFixture from "..//fixtures/signatures/comment/commentUpdate/valid_comment_ipfs.json" with { type: "json" };
 import validVoteFixture from "../fixtures/valid_vote.json" with { type: "json" };
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:exclude" });
 
 // Type helpers for function signatures
 type ShouldExcludeArgs = Parameters<typeof shouldExcludePublication>[0];
@@ -430,6 +434,7 @@ describe("shouldExcludePublication", () => {
 
         // Mock community with roles - the mod signer is a moderator
         const community = {
+            _log: testLog,
             roles: {
                 [modSigner.address]: { role: "moderator" }
             }
@@ -464,6 +469,7 @@ describe("shouldExcludePublication", () => {
 
         // Mock community with roles
         const community = {
+            _log: testLog,
             roles: {
                 [signers[0].address]: { role: "moderator" }
             }
@@ -504,7 +510,7 @@ describe("shouldExcludePublication", () => {
 
     it("names matches only when the wire name is the domain and it resolves to the signer", async () => {
         const communityChallenge = { exclude: [{ names: ["high-karma.bso"] }] };
-        const community = { _clientsManager: mockClientsManager, _pkc: PKC() };
+        const community = { _log: testLog, _clientsManager: mockClientsManager, _pkc: PKC() };
         const owner = { author: { address: "high-karma.bso" }, signature: { publicKey: authorSigners["high-karma.bso"].publicKey } };
         const impostor = { author: { address: "high-karma.bso" }, signature: { publicKey: signers[8].publicKey } };
         const ownerWithoutName = {
@@ -521,6 +527,7 @@ describe("shouldExcludePublication", () => {
     it("names does not match when the resolver throws", async () => {
         const communityChallenge = { exclude: [{ names: ["high-karma.bso"] }] };
         const community = {
+            _log: testLog,
             _clientsManager: {
                 resolveAuthorNameIfNeeded: async () => {
                     throw new Error("resolver down");
@@ -534,7 +541,12 @@ describe("shouldExcludePublication", () => {
 
     it("role with a domain role key is bound to the signer", async () => {
         const communityChallenge = { exclude: [{ roles: ["moderator"] }] };
-        const community = { roles: { "high-karma.bso": { role: "moderator" } }, _clientsManager: mockClientsManager, _pkc: PKC() };
+        const community = {
+            _log: testLog,
+            roles: { "high-karma.bso": { role: "moderator" } },
+            _clientsManager: mockClientsManager,
+            _pkc: PKC()
+        };
         const owner = { author: { address: "high-karma.bso" }, signature: { publicKey: authorSigners["high-karma.bso"].publicKey } };
         const impostor = { author: { address: "high-karma.bso" }, signature: { publicKey: signers[8].publicKey } };
         expect(await testShouldExcludePublication(communityChallenge, { comment: owner }, community)).to.equal(true);
@@ -547,6 +559,7 @@ describe("shouldExcludePublication", () => {
     describe("names and role keys match across .bso/.eth spellings and letter case (#424)", () => {
         const bot = authorSigners["high-karma.bso"];
         const community = {
+            _log: testLog,
             _clientsManager: {
                 resolveAuthorNameIfNeeded: async ({ authorName }: { authorName: string }) => ({
                     resolvedAuthorName: authorName.toLowerCase().replace(/\.bso$/, ".eth") === "bitsocialbot.eth" ? bot.address : null
@@ -1335,6 +1348,7 @@ describe("an exclude that a comment-cid rule moots records no name failure", () 
         title: "combined exclude community",
         settings: { challenges },
         _pkc: PKC(),
+        _log: testLog,
         _clientsManager: {
             resolveAuthorNameIfNeeded: async () => {
                 throw new Error("resolver down");

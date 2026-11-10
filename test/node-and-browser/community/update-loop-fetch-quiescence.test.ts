@@ -1,10 +1,14 @@
 import { describe, it, afterAll, expect, onTestFinished, vi } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { getAvailablePKCConfigsToTestAgainst, publishCommunityRecordWithExtraProp } from "../../../dist/node/test/test-util.js";
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
 import { timestamp } from "../../../dist/node/util.js";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:update-loop-fetch-quiescence" });
 
 // Issue #330 steady-state pin for the UPDATE LOOP (the resolver-level behavior is pinned in
 // test/node/helia/ipns-push-channel-watchdog.unit.test.ts): an updating community whose push
@@ -89,7 +93,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             // channel, not a dead one.
             const nextRecord = JSON.parse(JSON.stringify(staticRecord.communityRecord)) as typeof staticRecord.communityRecord;
             nextRecord.updatedAt = Math.max(community.updatedAt! + 1, timestamp());
-            nextRecord.signature = await signCommunity({ community: nextRecord, signer: staticRecord.ipnsObj.signer });
+            nextRecord.signature = await signCommunity({ community: nextRecord, signer: staticRecord.ipnsObj.signer, log: testLog });
             let onUpdate!: () => void;
             let timer: ReturnType<typeof setTimeout> | undefined;
             const delivered = new Promise<boolean>((resolve) => {

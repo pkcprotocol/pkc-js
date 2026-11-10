@@ -2,6 +2,7 @@
 // (communityPublicKey / communityName) differ from the community the page belongs to. The server-side page
 // filter must never publish a row that this verification rejects, so these cases pin the client rule down.
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { mockPKCNoDataPathWithOnlyKuboClient } from "../../../dist/node/test/test-util.js";
@@ -11,6 +12,9 @@ import { timestamp } from "../../../dist/node/util.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { PageIpfs } from "../../../dist/node/pages/types.js";
 import type { SignerType } from "../../../dist/node/signer/types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:community-identity-page-verification" });
 
 const communityName = "memes.bso";
 
@@ -51,7 +55,7 @@ describe("page verification of a comment's community fields (#401)", () => {
         };
         const commentUpdate = {
             ...updateWithoutSignature,
-            signature: await signCommentUpdate({ update: updateWithoutSignature, signer: communitySigner })
+            signature: await signCommentUpdate({ update: updateWithoutSignature, signer: communitySigner, log: testLog })
         };
         return { comment: commentIpfs, commentUpdate } as unknown as PageIpfs["comments"][0];
     };
@@ -64,7 +68,8 @@ describe("page verification of a comment's community fields (#401)", () => {
             resolveAuthorNames: false,
             clientsManager: pkc._clientsManager,
             validatePages: true,
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            log: testLog
         });
 
     describe("community without a name", () => {

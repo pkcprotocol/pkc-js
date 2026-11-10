@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import PKCRpcClient from "../../../../dist/node/clients/rpc-client/pkc-rpc-client.js";
 import { PKCError } from "../../../../dist/node/pkc-error.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { sanitizeRpcNotificationResult } from "../../../../dist/node/rpc/src/json-rpc-util.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:rpc" });
 
 type RpcClientWithDeserialize = {
     _deserializeRpcError: (error: unknown) => Error & { code?: string; details?: unknown; metadata?: unknown };
@@ -11,7 +15,7 @@ type RpcClientWithDeserialize = {
 describe("RPC error (de)serialization helpers", () => {
     describe("_deserializeRpcError", () => {
         it("returns a populated PKCError when the payload contains a known error code", () => {
-            const client = new PKCRpcClient("ws://localhost:0");
+            const client = new PKCRpcClient("ws://localhost:0", testLog);
             const details = { rpcArgs: ["startCommunity"], newStartedState: "failed" };
             const serializedError = {
                 name: "PKCError",
@@ -32,7 +36,7 @@ describe("RPC error (de)serialization helpers", () => {
         });
 
         it("returns a PKCError when the payload is tagged as PKCError but has an unknown code", () => {
-            const client = new PKCRpcClient("ws://localhost:0");
+            const client = new PKCRpcClient("ws://localhost:0", testLog);
             const serializedError = {
                 name: "PKCError",
                 code: "ERR_SERVER_ONLY_CODE",
@@ -51,7 +55,7 @@ describe("RPC error (de)serialization helpers", () => {
         });
 
         it("returns a plain Error when the payload is not tagged as PKCError and has an unknown code", () => {
-            const client = new PKCRpcClient("ws://localhost:0");
+            const client = new PKCRpcClient("ws://localhost:0", testLog);
             const serializedError = {
                 name: "Error",
                 code: "ERR_UNKNOWN_RPC",
@@ -82,7 +86,7 @@ describe("RPC error (de)serialization helpers", () => {
             if ("details" in originalError) errorJson.details = (originalError as any).details;
             if ("code" in originalError) errorJson.code = (originalError as any).code;
 
-            const client = new PKCRpcClient("ws://localhost:0");
+            const client = new PKCRpcClient("ws://localhost:0", testLog);
             const deserialized = (client as unknown as RpcClientWithDeserialize)._deserializeRpcError(errorJson);
 
             expect(deserialized).to.be.instanceOf(Error);
@@ -101,7 +105,7 @@ describe("RPC error (de)serialization helpers", () => {
             expect(roundTripped.message).to.be.undefined;
             expect(roundTripped.name).to.be.undefined;
 
-            const client = new PKCRpcClient("ws://localhost:0");
+            const client = new PKCRpcClient("ws://localhost:0", testLog);
             const deserialized = (client as unknown as RpcClientWithDeserialize)._deserializeRpcError(roundTripped);
 
             // The client falls back to the generic message
@@ -109,7 +113,7 @@ describe("RPC error (de)serialization helpers", () => {
         });
 
         it("returns a generic Error when payload is malformed", () => {
-            const client = new PKCRpcClient("ws://localhost:0");
+            const client = new PKCRpcClient("ws://localhost:0", testLog);
 
             const deserialized = (client as unknown as RpcClientWithDeserialize)._deserializeRpcError("not-an-object");
 

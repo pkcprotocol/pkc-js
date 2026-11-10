@@ -36,7 +36,7 @@ import { verifyCommentIpfs, verifyCommentPubsubMessage } from "../../../../dist/
 import { deriveCommentIpfsFromCommentTableRow } from "../../../../dist/node/runtime/node/util.js";
 import { calculateIpfsCidV0 } from "../../../../dist/node/util.js";
 import { messages } from "../../../../dist/node/errors.js";
-import Logger from "../../../../dist/node/logger.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { LONE_SURROGATE, resignVerbatim } from "../../../helpers/resign-verbatim.js";
 import type { WirePublication } from "../../../helpers/resign-verbatim.js";
@@ -49,7 +49,7 @@ import type { LocalCommunity } from "../../../../dist/node/runtime/node/communit
 import type { CommentPubsubMessagePublication } from "../../../../dist/node/publications/comment/types.js";
 import type { DecryptedChallengeVerificationMessageType } from "../../../../dist/node/pubsub-messages/types.js";
 
-const log = Logger("pkc-js:test:crafted-publications");
+const log = Logger({ namespace: "pkc-js:test:crafted-publications" });
 
 type RemoteCommunityInstance = Awaited<ReturnType<PKC["createCommunity"]>>;
 

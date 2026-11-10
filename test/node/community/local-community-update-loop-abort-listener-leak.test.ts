@@ -1,7 +1,11 @@
 import { getEventListeners } from "events";
+import Logger from "@pkcprotocol/pkc-logger";
 import { expect, it } from "vitest";
 import { updateLoop } from "../../../dist/node/runtime/node/community/local-community/lifecycle.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:local-community-update-loop-abort-listener-leak" });
 
 // Reproduction for https://github.com/pkcprotocol/pkc-js/issues/146
 //
@@ -28,6 +32,7 @@ it("issue #146: LocalCommunity update loop does not accumulate `abort` listeners
     // updateInterval getter doubles as a per-iteration counter (it is read once
     // per sleep, and updateOnce throws before reaching any _pkc access).
     const community = {
+        _log: testLog,
         state: "updating" as string,
         _stopHasBeenCalled: false,
         _updateLoopAbortController: updateLoopAbortController,

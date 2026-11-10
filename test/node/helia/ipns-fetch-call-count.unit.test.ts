@@ -3,7 +3,7 @@ import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/h
 import { directFetchIpnsRecordFromProviders } from "../../../dist/node/helia/util.js";
 import { MockHttpRouter } from "../../../dist/node/runtime/node/test/mock-http-router.js";
 import { ipnsNameToIpnsOverPubsubTopic, pubsubTopicToDhtKeyCid } from "../../../dist/node/util.js";
-import Logger from "../../../dist/node/logger.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { generateKeyPair } from "@libp2p/crypto/keys";
 import { peerIdFromPrivateKey } from "@libp2p/peer-id";
@@ -12,6 +12,9 @@ import { ipnsValidator } from "ipns/validator";
 import { CID } from "multiformats/cid";
 import { equals as uint8ArrayEquals } from "uint8arrays/equals";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:ipns-fetch-call-count" });
 
 // Fetch-protocol call-count pins for the IPNS resolution path (issues #329 and #330). The #329
 // evidence measured 389 libp2p/fetch calls to ONE peer in ~3.5 minutes at 64 updating
@@ -34,7 +37,7 @@ import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js"
 // and config-independent (never touches Kubo or the PKC RPC server), so it runs once under
 // non-RPC via describeSkipIfRpc.
 describeSkipIfRpc("IPNS fetch-protocol call counts (issues #329/#330)", () => {
-    const log = Logger("pkc-js:test:fetch-call-count");
+    const log = Logger({ namespace: "pkc-js:test:fetch-call-count" });
     const clientsToStop: Libp2pJsClient[] = [];
     const startedRouters: MockHttpRouter[] = [];
     let keyCounter = 0;
@@ -54,6 +57,7 @@ describeSkipIfRpc("IPNS fetch-protocol call counts (issues #329/#330)", () => {
 
     const createNode = async (opts: { listen?: boolean; routers?: string[] } = {}): Promise<Libp2pJsClient> => {
         const client = (await createLibp2pJsClientOrUseExistingOne({
+            log: testLog,
             key: `fetch-call-count-${keyCounter++}`,
             httpRoutersOptions: opts.routers ?? ["http://localhost:1"],
             libp2pOptions: {

@@ -1,4 +1,5 @@
 import type { PKC } from "../pkc/pkc.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import assert from "assert";
 import {
     calculateIpfsCidV0,
@@ -26,7 +27,6 @@ import {
     FailedToFetchCommunityFromGatewaysError,
     PKCError
 } from "../pkc-error.js";
-import Logger from "../logger.js";
 import type { PubsubMessage } from "../pubsub-messages/types.js";
 import type { PubsubSubscriptionHandler, ResultOfFetchingCommunity } from "../types.js";
 import * as cborg from "cborg";
@@ -127,14 +127,29 @@ export class BaseClientsManager {
     // Class that has all function but without clients field for maximum interopability
 
     _pkc: PKC;
+    // The owner's child logger, copied once here (issue #493): tags resolve live, so a later setTags on the owner
+    // (a community learning its publicKey, a publication its cid) reaches every line this manager logs.
+    _log: Logger;
     pubsubProviderSubscriptions: Record<string, string[]> = {}; // To keep track of subscriptions of each kubo pubsub provider/helia
+    // One child per resolver key (not per resolve call), handed to the resolver's resolve() (issue #493)
+    private _nameResolverLogs = new Map<string, Logger>();
 
-    constructor(pkc: PKC) {
+    constructor(pkc: PKC, log: Logger) {
         this._pkc = pkc;
+        this._log = log;
         for (const provider of keys(pkc.clients.pubsubKuboRpcClients)) this.pubsubProviderSubscriptions[provider] = [];
         for (const provider of keys(pkc.clients.libp2pJsClients)) this.pubsubProviderSubscriptions[provider] = [];
 
         hideClassPrivateProps(this);
+    }
+
+    _nameResolverLog(resolverKey: string): Logger {
+        let log = this._nameResolverLogs.get(resolverKey);
+        if (!log) {
+            log = this._log.child({ namespace: `name-resolver:${resolverKey}` });
+            this._nameResolverLogs.set(resolverKey, log);
+        }
+        return log;
     }
 
     toJSON() {
@@ -202,7 +217,7 @@ export class BaseClientsManager {
     // Pubsub methods
 
     async pubsubSubscribeOnProvider(pubsubTopic: string, handler: PubsubSubscriptionHandler, kuboPubsubRpcUrlOrLibp2pJsKey: string) {
-        const log = Logger("pkc-js:pkc:client-manager:pubsubSubscribeOnProvider");
+        const log = this._log;
 
         const pubsubClient =
             this._pkc.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
@@ -214,7 +229,7 @@ export class BaseClientsManager {
         const handlePubsubError = async (err: Error) => {
             error = err;
             log.error(
-                "pubsub callback error, topic",
+                "pubsubSubscribeOnProvider: pubsub callback error, topic",
                 pubsubTopic,
                 "provider url",
                 kuboPubsubRpcUrlOrLibp2pJsKey,
@@ -227,7 +242,13 @@ export class BaseClientsManager {
             try {
                 await this.pubsubUnsubscribeOnProvider(pubsubTopic, kuboPubsubRpcUrlOrLibp2pJsKey, handler);
             } catch (e) {
-                log.error("Failed to unsubscribe after onError, topic", pubsubTopic, "provider url", kuboPubsubRpcUrlOrLibp2pJsKey, e);
+                log.error(
+                    "pubsubSubscribeOnProvider: Failed to unsubscribe after onError, topic",
+                    pubsubTopic,
+                    "provider url",
+                    kuboPubsubRpcUrlOrLibp2pJsKey,
+                    e
+                );
             }
             await this.pubsubSubscribeOnProvider(pubsubTopic, handler, kuboPubsubRpcUrlOrLibp2pJsKey);
         };
@@ -256,7 +277,7 @@ export class BaseClientsManager {
                     onFailedAttempt: ({ error: attemptError, attemptNumber, retriesLeft }) => {
                         if (retriesLeft > 0)
                             log.trace(
-                                `Transient failure subscribing to pubsub topic (${pubsubTopic}) on (${kuboPubsubRpcUrlOrLibp2pJsKey}), attempt ${attemptNumber}/${attemptNumber + retriesLeft}`,
+                                `pubsubSubscribeOnProvider: Transient failure subscribing to pubsub topic (${pubsubTopic}) on (${kuboPubsubRpcUrlOrLibp2pJsKey}), attempt ${attemptNumber}/${attemptNumber + retriesLeft}`,
                                 attemptError?.message
                             );
                     }
@@ -273,7 +294,10 @@ export class BaseClientsManager {
                 return;
             }
             await this._pkc._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe");
-            log.error(`Failed to subscribe to pubsub topic (${pubsubTopic}) to (${kuboPubsubRpcUrlOrLibp2pJsKey}) due to error`, e);
+            log.error(
+                `pubsubSubscribeOnProvider: Failed to subscribe to pubsub topic (${pubsubTopic}) to (${kuboPubsubRpcUrlOrLibp2pJsKey}) due to error`,
+                e
+            );
             throw e;
         }
     }
@@ -329,7 +353,6 @@ export class BaseClientsManager {
     }
 
     async pubsubPublishOnProvider(pubsubTopic: string, data: PubsubMessage, kuboPubsubRpcUrlOrLibp2pJsKey: string) {
-        const log = Logger("pkc-js:pkc:pubsubPublish");
         const pubsubClient =
             this._pkc.clients.libp2pJsClients[kuboPubsubRpcUrlOrLibp2pJsKey]?.heliaWithKuboRpcClientFunctions ||
             this._pkc.clients.pubsubKuboRpcClients[kuboPubsubRpcUrlOrLibp2pJsKey]._client;
@@ -349,7 +372,7 @@ export class BaseClientsManager {
     }
 
     async pubsubPublish(pubsubTopic: string, data: PubsubMessage): Promise<void> {
-        const log = Logger("pkc-js:pkc:client-manager:pubsubPublish");
+        const log = this._log;
         const providersSorted = await this._pkc._stats.sortGatewaysAccordingToScore("pubsub-publish");
         if (providersSorted.length === 0)
             throw new PKCError("ERR_NO_PUBSUB_PROVIDERS_AVAILABLE_TO_PUBLISH_OVER_PUBSUB", { pubsubTopic, data });
@@ -360,7 +383,7 @@ export class BaseClientsManager {
             try {
                 return await this.pubsubPublishOnProvider(pubsubTopic, data, pubsubProviderUrl);
             } catch (e) {
-                log.error(`Failed to publish to pubsub topic (${pubsubTopic}) to (${pubsubProviderUrl})`);
+                log.error(`pubsubPublish: Failed to publish to pubsub topic (${pubsubTopic}) to (${pubsubProviderUrl})`);
                 providerToError[pubsubProviderUrl] = <PKCError>e;
             }
         }
@@ -514,7 +537,7 @@ export class BaseClientsManager {
         if (!res?.redirected) return; // if it doesn't redirect to subdomain gateway then the gateway doesn't support subdomain resolution
         const resUrl = new URL(res.url);
         if (resUrl.hostname.includes(`.${loadOpts.recordIpfsType}.`)) {
-            log(`Gateway`, gateway, "supports subdomain resolution. Switching url formulation to subdomain resolution");
+            log(`pubsubPublish: Gateway`, gateway, "supports subdomain resolution. Switching url formulation to subdomain resolution");
             GATEWAYS_THAT_SUPPORT_SUBDOMAIN_RESOLUTION[gateway] = true;
         }
     }
@@ -523,7 +546,7 @@ export class BaseClientsManager {
         gateway: string,
         loadOpts: OptionsToLoadFromGateway
     ): Promise<{ res: Response; resText: string | undefined } | { error: PKCError }> {
-        const log = Logger("pkc-js:pkc:fetchWithGateway");
+        const log = this._log;
 
         const url = GATEWAYS_THAT_SUPPORT_SUBDOMAIN_RESOLUTION[gateway]
             ? createUrlFromSubdomainResolution(gateway, loadOpts)
@@ -544,7 +567,7 @@ export class BaseClientsManager {
 
             this._pkc._stats
                 .recordGatewaySuccess(gateway, loadOpts.recordIpfsType, Date.now() - timeBefore)
-                .catch((err) => log.error("Failed to report gateway success", err));
+                .catch((err) => log.error("fetchWithGateway: Failed to report gateway success", err));
             this._handleIfGatewayRedirectsToSubdomainResolution(gateway, loadOpts, resObj.res, log);
             return resObj;
         } catch (e) {
@@ -560,11 +583,11 @@ export class BaseClientsManager {
             if (gatewayConfirmedCurrentRecord)
                 this._pkc._stats
                     .recordGatewaySuccess(gateway, loadOpts.recordIpfsType, Date.now() - timeBefore)
-                    .catch((err) => log.error("Failed to report gateway success", err));
+                    .catch((err) => log.error("fetchWithGateway: Failed to report gateway success", err));
             else
                 this._pkc._stats
                     .recordGatewayFailure(gateway, loadOpts.recordIpfsType)
-                    .catch((err) => log.error("failed to report gateway error", err));
+                    .catch((err) => log.error("fetchWithGateway: failed to report gateway error", err));
             return { error: <PKCError>e };
         }
     }
@@ -678,7 +701,7 @@ export class BaseClientsManager {
         // caller's value wins.
         loadOpts: { timeoutMs: number; abortSignal?: AbortSignal; nocache?: boolean }
     ): Promise<{ cid: string; ipnsHops: string[] }> {
-        const log = Logger("pkc-js:clients-manager:resolveIpnsToCidP2P");
+        const log = this._log;
         throwIfAbortSignalAborted(loadOpts.abortSignal);
         // recursive: false so the resolver returns the IMMEDIATE value of each record (so we can
         // walk /ipns/ -> /ipns/ hops ourselves); see performIpnsResolve below.
@@ -794,7 +817,7 @@ export class BaseClientsManager {
             // kubo API saturation in #265). Walk the whole chain instead.
             const networkErrorDetails = isOpaqueResolverError ? extractNetworkErrorDetails(error) : undefined;
             if (error instanceof Error && networkErrorDetails && hasTransientNetworkErrorCode(networkErrorDetails)) {
-                log.error(`Failed to resolve IPNS ${ipnsName}: ${error.message} (${error.name})`, networkErrorDetails);
+                log.error(`resolveIpnsToCidP2P: Failed to resolve IPNS ${ipnsName}: ${error.message} (${error.name})`, networkErrorDetails);
                 throw new PKCError("ERR_FAILED_TO_RESOLVE_IPNS_VIA_IPFS_P2P", {
                     ipnsName,
                     ipnsResolveOpts,
@@ -857,7 +880,7 @@ export class BaseClientsManager {
             if (e instanceof PKCError && e.code === "ERR_FETCH_CID_P2P_TIMEOUT") throw e; // helia's own timeout
             if (e instanceof Error && e.name === "TimeoutError" && !abortSignal?.aborted)
                 throw new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { ipfsPath: `/ipfs/${root}/${path}`, timeoutMs, error: e });
-            log.trace("Could not resolve", `${root}/${path}`, "to a cid, the caller will fetch it", e);
+            log.trace("resolveIpnsToCidP2P: Could not resolve", `${root}/${path}`, "to a cid, the caller will fetch it", e);
             return undefined;
         }
     }
@@ -874,7 +897,7 @@ export class BaseClientsManager {
             bitswapSessionSeedScopeIpnsPubsubTopic?: string;
         }
     ): Promise<string> {
-        const log = Logger("pkc-js:clients-manager:_fetchCidP2P");
+        const log = this._log;
         throwIfAbortSignalAborted(loadOpts.abortSignal);
         const kuboRpcOrHelia = this.getDefaultKuboRpcClientOrHelia();
 
@@ -901,7 +924,7 @@ export class BaseClientsManager {
             const fileContent = uint8ArrayToString(data);
 
             if (typeof fileContent !== "string") {
-                log.error(`Failed to fetch CID ${cidV0}: fileContent is not a string`);
+                log.error(`_fetchCidP2P: Failed to fetch CID ${cidV0}: fileContent is not a string`);
                 throw new PKCError("ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P", { cid: cidV0, loadOpts });
             }
             if (data.byteLength === loadOpts.maxFileSizeBytes) {
@@ -931,7 +954,10 @@ export class BaseClientsManager {
                 throw new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { cid: cidV0, error: e, loadOpts });
             else {
                 const networkErrorDetails = extractNetworkErrorDetails(e);
-                log.error(`Failed to fetch CID ${cidV0}: ${(e as Error)?.message} (${(e as Error)?.name})`, networkErrorDetails);
+                log.error(
+                    `_fetchCidP2P: Failed to fetch CID ${cidV0}: ${(e as Error)?.message} (${(e as Error)?.name})`,
+                    networkErrorDetails
+                );
                 throw new PKCError("ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P", {
                     cid: cidV0,
                     error: e,
@@ -1020,7 +1046,7 @@ export class BaseClientsManager {
         abortSignal?: AbortSignal;
         cache?: NameResolveCacheOptions;
     }): Promise<string | null> {
-        const log = Logger("pkc-js:client-manager:_resolveViaNameResolvers");
+        const log = this._log;
         const nameResolvers = this._pkc.nameResolvers;
         if (!nameResolvers || nameResolvers.length === 0) {
             throw new PKCError("ERR_NO_RESOLVER_FOR_NAME", { address: name });
@@ -1060,7 +1086,10 @@ export class BaseClientsManager {
                 // Race resolve() against the abort signal so resolvers that ignore the signal still get
                 // interrupted. raceAgainstAbort detaches its abort listener once the race settles regardless
                 // of who wins, so it never leaks on the long-lived stop signal (see issue #144).
-                const result = await raceAgainstAbort(nameResolver.resolve({ name, abortSignal }), abortSignal);
+                const result = await raceAgainstAbort(
+                    nameResolver.resolve({ name, abortSignal, log: this._nameResolverLog(nameResolver.key) }),
+                    abortSignal
+                );
                 throwIfAbortSignalAborted(abortSignal);
                 value = result?.publicKey;
             } catch (e) {
@@ -1068,7 +1097,7 @@ export class BaseClientsManager {
                 this.postResolveNameResolverFailure({ address: name, resolveType, resolverKey: nameResolver.key, error });
                 if (abortSignal?.aborted) throwIfAbortSignalAborted(abortSignal);
                 if (isAbortError(error)) throw error;
-                log.trace(`Resolver ${nameResolver.key} failed for ${name}`, error);
+                log.trace(`_resolveViaNameResolvers: Resolver ${nameResolver.key} failed for ${name}`, error);
                 resolverErrors[nameResolver.key] = { provider: nameResolver.provider, error };
                 continue;
             }
@@ -1088,7 +1117,7 @@ export class BaseClientsManager {
                         }
                     });
                 } catch (e) {
-                    log.error("Failed to write name resolution to persistent cache", name, e);
+                    log.error("_resolveViaNameResolvers: Failed to write name resolution to persistent cache", name, e);
                 }
                 break;
             }
@@ -1160,7 +1189,7 @@ export class BaseClientsManager {
         onResolved: () => void;
         abortSignal?: AbortSignal;
     }): void {
-        const log = Logger("pkc-js:base-client-manager:resolveAuthorNamesInBackground");
+        const log = this._log;
         const verificationCache = this._pkc._memCaches.nameResolvedCache;
         // The two bounds the community side already has, for the same reasons. Both live on the PKC rather
         // than here, because the callers that overlap do not share a clients manager: a community's page
@@ -1231,7 +1260,7 @@ export class BaseClientsManager {
                     setVerdict(entry.cacheKey, false);
                     return true; // newly set
                 }
-                log.error("Failed to resolve author name in background", entry.authorName, e);
+                log.error("resolveAuthorNamesInBackground: Failed to resolve author name in background", entry.authorName, e);
                 // We never got an answer (every resolver errored, or the resolve timed out). "We could not find
                 // out" is undefined, never false — a brief outage must not brand an author as an impostor.
                 // Recorded so the next caller does not ask again immediately: nothing was learned, so there is
@@ -1249,7 +1278,7 @@ export class BaseClientsManager {
                 const anyNewlySet = results.some((r) => r.status === "fulfilled" && r.value === true);
                 if (anyNewlySet) onResolved();
             })
-            .catch((e) => log.error("Unexpected error in resolveAuthorNamesInBackground", e));
+            .catch((e) => log.error("resolveAuthorNamesInBackground: Unexpected error in resolveAuthorNamesInBackground", e));
     }
 
     // Misc functions

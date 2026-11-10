@@ -1,4 +1,5 @@
 import { PKC } from "./pkc.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { hideClassPrivateProps, isIpfsCid, isIpfsPath } from "../util.js";
 import { PKCError } from "../pkc-error.js";
 import assert from "assert";
@@ -13,7 +14,6 @@ import {
     PostResolveNameResolverFailureOptions
 } from "../clients/base-client-manager.js";
 
-import Logger from "../logger.js";
 import { PKCIpfsGatewayClient, PKCKuboRpcClient, PKCLibp2pJsClient } from "./pkc-clients.js";
 import { GenericStateClient } from "../generic-state-client.js";
 
@@ -26,8 +26,8 @@ export class PKCClientsManager extends BaseClientsManager {
         nameResolvers: { [resolverKey: string]: NameResolverClient };
     };
 
-    constructor(pkc: PKC) {
-        super(pkc);
+    constructor(pkc: PKC, log: Logger) {
+        super(pkc, log);
         this._pkc = pkc;
         //@ts-expect-error
         this.clients = {};
@@ -167,7 +167,7 @@ export class PKCClientsManager extends BaseClientsManager {
         if (Object.keys(this.clients.kuboRpcClients).length > 0 || Object.keys(this.clients.libp2pJsClients).length > 0)
             return this._fetchCidP2P(cid, { maxFileSizeBytes, timeoutMs, abortSignal: opts?.abortSignal });
         else {
-            const log = Logger("pkc-js:clients-manager:fetchCid");
+            const log = this._log;
             const resObj = await this.fetchFromMultipleGateways({
                 root: cid,
                 recordIpfsType: "ipfs",

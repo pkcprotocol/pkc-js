@@ -1,4 +1,5 @@
 import { afterEach, expect, it } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/helia-for-pkc.js";
 import { cacheIpnsRecordInPubsubLocalStore } from "../../../dist/node/helia/util.js";
 import { ipnsNameToIpnsOverPubsubTopic } from "../../../dist/node/util.js";
@@ -10,6 +11,9 @@ import { CID } from "multiformats/cid";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
 import type { IpnsPubsubLocalStore } from "../../../dist/node/helia/util.js";
 import type { IpnsRecordArrival } from "../../../dist/node/helia/types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:ipns-local-store-write-race" });
 
 // Issue #321: writes into the pubsub router's localStore are a non-atomic
 // compare-then-write (has, get, compare, put with awaits between), and the localStore.put wrapper
@@ -40,6 +44,7 @@ describeSkipIfRpc("IPNS localStore compare-then-write race (issue #321)", () => 
 
     const setup = async () => {
         const client = (await createLibp2pJsClientOrUseExistingOne({
+            log: testLog,
             key: `ipns-local-store-race-${keyCounter++}`,
             httpRoutersOptions: ["http://localhost:1"],
             libp2pOptions: {},

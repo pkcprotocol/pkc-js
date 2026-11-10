@@ -9,6 +9,7 @@
 // genuinely cannot be expressed over RPC, and each has its own describeSkipIfRpc suite below with
 // the reason stated.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     mockPKC,
     mockRemotePKC,
@@ -26,6 +27,9 @@ import type {
     DecryptedChallengeMessageType,
     DecryptedChallengeVerificationMessageType
 } from "../../../../dist/node/pubsub-messages/types.js";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:disable-pubsub-challenge-exchange" });
 
 const mathChallenge = [{ name: "question", options: { question: "1+1=?", answer: "2" } }];
 
@@ -523,12 +527,18 @@ describe("challenge exchange topic derivation", async () => {
     );
 
     it("returns the explicit pubsubTopic when the exchange is enabled", () => {
-        const community = { pubsubTopic: "custom-topic", signer: { address: "signer-address" }, settings: {} } as unknown as LocalCommunity;
+        const community = {
+            _log: testLog,
+            pubsubTopic: "custom-topic",
+            signer: { address: "signer-address" },
+            settings: {}
+        } as unknown as LocalCommunity;
         expect(challengeExchangePubsubTopic(community)).to.equal("custom-topic");
     });
 
     it("falls back to the signer address, never to the community address", () => {
         const community = {
+            _log: testLog,
             address: "community.bso",
             pubsubTopic: undefined,
             signer: { address: "signer-address" },
@@ -539,6 +549,7 @@ describe("challenge exchange topic derivation", async () => {
 
     it("returns undefined when the exchange is disabled, while the raw topic is still resolvable", () => {
         const community = {
+            _log: testLog,
             pubsubTopic: "custom-topic",
             signer: { address: "signer-address" },
             settings: { disablePubsubChallengeExchange: true }

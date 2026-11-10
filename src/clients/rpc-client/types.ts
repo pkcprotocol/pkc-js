@@ -18,6 +18,8 @@ import {
     RpcExportCommunityResultSchema,
     RpcExportschangeResultSchema,
     RpcExportCommunityModLogsParamSchema,
+    LogQuerySchema,
+    RpcGetLogsResultSchema,
     RpcExportCommunityModLogsResultSchema,
     RpcPublishAnchorRecordParamSchema,
     RpcPublishCommunityListParamSchema,
@@ -40,6 +42,8 @@ export type PublishChallengeAnswersRpcParam = z.infer<typeof RpcPublishChallenge
 export type ExportCommunityRpcParam = z.infer<typeof RpcExportCommunityParamSchema>;
 export type CancelExportRpcParam = z.infer<typeof RpcCancelExportParamSchema>;
 export type ExportCommunityModLogsRpcParam = z.infer<typeof RpcExportCommunityModLogsParamSchema>;
+// pkc.getLogs() query (issue #493); the RPC method takes the same shape
+export type GetLogsQuery = z.input<typeof LogQuerySchema>;
 export type PublishAnchorRecordRpcParam = z.infer<typeof RpcPublishAnchorRecordParamSchema>;
 export type PublishCommunityListRpcParam = z.infer<typeof RpcPublishCommunityListParamSchema>;
 export type FetchCommunityListRpcParam = z.infer<typeof RpcFetchCommunityListParamSchema>;
@@ -55,6 +59,7 @@ export type RpcSubscriptionIdResult = z.infer<typeof RpcSubscriptionIdResultSche
 export type RpcExportCommunityResult = z.infer<typeof RpcExportCommunityResultSchema>;
 export type RpcExportschangeResult = z.infer<typeof RpcExportschangeResultSchema>;
 export type RpcExportCommunityModLogsResult = z.infer<typeof RpcExportCommunityModLogsResultSchema>;
+export type RpcGetLogsResult = z.infer<typeof RpcGetLogsResultSchema>;
 export type RpcPublishCommunityListResult = z.infer<typeof RpcPublishCommunityListResultSchema>;
 export type RpcFetchCommunityListResult = z.infer<typeof RpcFetchCommunityListResultSchema>;
 

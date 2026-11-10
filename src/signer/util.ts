@@ -13,7 +13,6 @@ import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { CID } from "multiformats/cid";
 import { bases } from "multiformats/basics";
-import Logger from "../logger.js";
 
 export const generatePrivateKey = async (): Promise<string> => {
     const privateKeyBuffer = ed25519.utils.randomSecretKey();
@@ -125,21 +124,9 @@ export const getPeerIdFromPublicKeyBuffer = (publicKeyBuffer: Uint8Array) => {
 };
 
 export const convertBase58IpnsNameToBase36Cid = (ipnsName: string): string => {
-    const log = Logger("pkc-js:signer:util:convertBase58IpnsNameToBase32");
-    let peerId: PeerId;
-    try {
-        peerId = peerIdFromString(ipnsName);
-    } catch (error) {
-        log.error("Error creating peer id from ipns name:", error);
-        throw error;
-    }
-
-    try {
-        return peerId.toCID().toString(bases.base36);
-    } catch (e) {
-        log.error(`Failed to convert peer id to CIDv1base36`, e);
-        throw e;
-    }
+    // Errors propagate to the caller, who logs them with its own tags (issue #493)
+    const peerId: PeerId = peerIdFromString(ipnsName);
+    return peerId.toCID().toString(bases.base36);
 };
 
 export function convertBase32ToBase58btc(base32String: string) {

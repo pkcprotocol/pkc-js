@@ -1,4 +1,5 @@
 import signers from "../../../../fixtures/signers.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     generateMockPost,
     generatePostToAnswerMathQuestion,
@@ -11,11 +12,15 @@ import { describe, it, expect } from "vitest";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";
 import type { PKC } from "../../../../../dist/node/pkc/pkc.js";
 
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:pubsub" });
+
 // Helper type for accessing private properties on Comment
 type CommentWithInternals = {
     _publishToDifferentProviderThresholdSeconds: number;
     _setProviderFailureThresholdSeconds: number;
     _communityChallengePubsubExchangeTopic: () => string;
+    _log: typeof testLog;
     _clientsManager: PKCClientManager;
     _challengeExchanges: unknown[];
 };
@@ -29,6 +34,7 @@ type PKCClientManager = {
 
 // Helper type for accessing private properties on PKC
 type PKCWithInternals = PKC & {
+    _log: typeof testLog;
     _clientsManager: PKCClientManager;
 };
 

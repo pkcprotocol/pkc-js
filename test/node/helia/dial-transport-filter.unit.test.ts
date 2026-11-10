@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { multiaddr } from "@multiformats/multiaddr";
 import {
     DENIED_DIAL_TRANSPORTS_BY_DEFAULT,
@@ -8,6 +9,9 @@ import {
 import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/helia-for-pkc.js";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
 import type { ConnectionGater } from "@libp2p/interface";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:dial-transport-filter" });
 
 // _mergedHeliaOptions.libp2p is typed as `Libp2pOptions | Libp2p`, so narrow it to the option shape we set.
 const getMergedConnectionGater = (client: Libp2pJsClient): ConnectionGater | undefined =>
@@ -60,6 +64,7 @@ describe("Default dial-transport gater wiring into the libp2p-js helia client", 
 
     const createClient = (libp2pOptions: Record<string, unknown>) =>
         createLibp2pJsClientOrUseExistingOne({
+            log: testLog,
             // unique key per call so each test gets its own helia instance instead of a refcounted shared one
             key: `dial-transport-filter-test-${keyCounter++}`,
             httpRoutersOptions: ["http://localhost:1"], // never reached; required only so setup doesn't throw

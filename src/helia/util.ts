@@ -1,4 +1,5 @@
 import type { HeliaWithLibp2pPubsub } from "./types.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import type { PeerId, PeerInfo, PeerUpdate } from "@libp2p/interface";
 import type { Multiaddr } from "@multiformats/multiaddr";
 import { CID } from "multiformats/cid";
@@ -7,7 +8,6 @@ import { ipnsValidator } from "ipns/validator";
 import { unmarshalIPNSRecord } from "ipns";
 import type { IPNSRecord } from "ipns";
 import { equals as uint8ArrayEquals } from "uint8arrays/equals";
-import Logger from "../logger.js";
 import { PKCError } from "../pkc-error.js";
 import { pubsubTopicToDhtKeyCid } from "../util.js";
 

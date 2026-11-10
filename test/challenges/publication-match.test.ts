@@ -3,12 +3,16 @@ import {
     getCommunityChallengeFromCommunityChallengeSettings,
     getPendingChallengesOrChallengeVerification
 } from "../../dist/node/runtime/node/community/challenges/index.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
 import { omit } from "remeda";
 
 import type { ChallengeVerificationMessageType } from "../../dist/node/pubsub-messages/types.js";
 import type { Challenge } from "../../dist/node/community/types.js";
+
+// Challenge helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:publication-match" });
 
 // Flattened type for test assertions - allows direct property access
 // This is appropriate for tests where we assert on the presence/value of these properties
@@ -70,7 +74,11 @@ describe("publication-match challenge", () => {
     // Create a standard community fixture with publication-match challenge
     const createCommunity = (
         options: CommunityChallengeOptions = {}
-    ): { _pkc: { getComment: () => void }; settings: { challenges: Array<{ name: string; options: CommunityChallengeOptions }> } } => {
+    ): {
+        _log: typeof testLog;
+        _pkc: { getComment: () => void };
+        settings: { challenges: Array<{ name: string; options: CommunityChallengeOptions }> };
+    } => {
         const defaultOptions: CommunityChallengeOptions = {
             matches: JSON.stringify([{ propertyName: "author.address", regexp: "\\.bso$" }]),
             error: "Publication author.address must end with .bso",
@@ -79,6 +87,7 @@ describe("publication-match challenge", () => {
 
         return {
             _pkc: { getComment: () => {} },
+            _log: testLog,
             settings: {
                 challenges: [
                     {

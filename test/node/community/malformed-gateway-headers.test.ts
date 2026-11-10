@@ -1,4 +1,5 @@
 import http, { IncomingMessage, ServerResponse, Server } from "http";
+import Logger from "@pkcprotocol/pkc-logger";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import { mockGatewayPKC, mockPKC } from "../../../dist/node/test/test-util.js";
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
@@ -8,6 +9,9 @@ import { convertBase58IpnsNameToBase36Cid } from "../../../dist/node/signer/util
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { SignerWithPublicKeyAddress } from "../../../dist/node/signer/index.js";
 import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:malformed-gateway-headers" });
 
 // Tests for gateway responses with missing or malformed etag headers
 // Since etag is now optional, gateways with missing/malformed etag should still succeed
@@ -71,7 +75,7 @@ describe("Test gateway response with malformed etag headers", async () => {
 
     // Sign a community record
     const signRecord = async (record: Omit<CommunityIpfsType, "signature">): Promise<CommunityIpfsType> => {
-        const signature = await signCommunity({ community: record, signer: testSigner });
+        const signature = await signCommunity({ community: record, signer: testSigner, log: testLog });
         return { ...record, signature };
     };
 

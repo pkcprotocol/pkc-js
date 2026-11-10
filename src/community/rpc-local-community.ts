@@ -1,5 +1,5 @@
-import Logger from "../logger.js";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import type {
     AnchorPublishPreparation,
     PublishedAnchorRecord,
@@ -87,6 +87,10 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
     private _exportsCache: CommunityExportRecord[] = [];
     // exportId → detach AbortSignal listener. Cleared when the export reaches a terminal state.
     private _exportSignalDetachers: Map<string, () => void> = new Map();
+
+    protected override _logNamespace(): string {
+        return "pkc-js:rpc-local-community";
+    }
 
     constructor(pkc: PKC) {
         super(pkc);
@@ -193,8 +197,11 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
 
     protected override _processUpdateEventFromRpcUpdate(args: any) {
         // This function is gonna be called with every update event from rpcLocalCommunity.update()
-        const log = Logger("pkc-js:rpc-local-community:_processUpdateEventFromRpcUpdate");
-        log("Received an update event from rpc within rpcLocalCommunity.update for community " + this.address);
+        const log = this._log;
+        log(
+            "_processUpdateEventFromRpcUpdate: Received an update event from rpc within rpcLocalCommunity.update for community " +
+                this.address
+        );
 
         const updateRecord: RpcLocalCommunityUpdateResultType = args.params.result; // we're being optimistic here and hoping the rpc server sent the correct update
         if ("community" in updateRecord) this.initRpcInternalCommunityAfterFirstUpdateNoMerge(updateRecord);
@@ -213,9 +220,11 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
     private _handleRpcUpdateEventFromStart(args: any) {
         // This function is gonna be called with every update event from rpcLocalCommunity.start()
 
-        const log = Logger("pkc-js:rpc-local-community:_handleRpcUpdateEventFromStart");
+        const log = this._log;
         const updateRecord: RpcLocalCommunityUpdateResultType = args.params.result;
-        log("Received an update event from rpc within rpcLocalCommunity.start for community " + this.address);
+        log(
+            "_handleRpcUpdateEventFromStart: Received an update event from rpc within rpcLocalCommunity.start for community " + this.address
+        );
 
         if ("community" in updateRecord) {
             this.initRpcInternalCommunityAfterFirstUpdateNoMerge(updateRecord);
@@ -234,10 +243,14 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
     }
 
     private _handleRpcStartedStateChangeEvent(args: any) {
-        const log = Logger("pkc-js:rpc-local-community:_handleRpcStartedStateChangeEvent");
+        const log = this._log;
 
         const newStartedState: RpcLocalCommunity["startedState"] = args.params.result.state; // we're being optimistic that the rpc server transmitted a valid string here
-        log("Received a startedstatechange for community " + this.address, "new started state is", newStartedState);
+        log(
+            "_handleRpcStartedStateChangeEvent: Received a startedstatechange for community " + this.address,
+            "new started state is",
+            newStartedState
+        );
 
         if (newStartedState !== this.startedState) this._setStartedStateWithEmission(newStartedState);
         else this.emit("startedstatechange", newStartedState);
@@ -278,7 +291,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
     }
 
     override async start() {
-        const log = Logger("pkc-js:rpc-local-community:start");
+        const log = this._log;
         if (this.state === "updating") throw new PKCError("ERR_NEED_TO_STOP_UPDATING_COMMUNITY_BEFORE_STARTING", { address: this.address });
         // we can't start the same instance multiple times
         if (typeof this._startRpcSubscriptionId === "number")
@@ -291,7 +304,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
             this._startRpcSubscriptionId = subscriptionId;
             this._setState("started");
         } catch (e) {
-            log.error(`Failed to start community (${this.address}) from RPC due to error`, e);
+            log.error(`start: Failed to start community (${this.address}) from RPC due to error`, e);
             this._setState("stopped");
             this._setStartedStateWithEmission("failed");
             throw e;
@@ -339,18 +352,18 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
             try {
                 await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
             } catch (e) {
-                log.error("Failed to unsubscribe from communityStart", e);
+                log.error("start: Failed to unsubscribe from communityStart", e);
             }
         }
         this._setStartedStateWithEmission("stopped");
         this._setRpcClientStateWithEmission("stopped");
         this.started = false;
-        log(`Stopped the running of local community (${this.address}) via RPC`);
+        log(`start: Stopped the running of local community (${this.address}) via RPC`);
         this._setState("stopped");
     }
 
     async stopWithoutRpcCall() {
-        const log = Logger("pkc-js:rpc-local-community:stop");
+        const log = this._log;
         await this._cleanUpRpcConnection(log);
         this.posts._stop();
         this._setState("stopped");
@@ -383,7 +396,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
             return super.stop();
         } else if (this.state === "started") {
             // Need to be careful not to stop an already running community
-            const log = Logger("pkc-js:rpc-local-community:stop");
+            const log = this._log;
             // Capture and clear the subscription id synchronously before the awaited stopCommunity
             // round trip, so the deferred attach-and-replay timer from start() (#314) sees the stop
             // immediately instead of replaying buffered start notifications into a stopping
@@ -393,7 +406,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
             try {
                 await this._pkc._pkcRpcClient!.stopCommunity({ name: this.name, publicKey: this.publicKey });
             } catch (e) {
-                log.error("RPC client received an error when asking rpc server to stop community", e);
+                log.error("stop: RPC client received an error when asking rpc server to stop community", e);
             }
             await this._cleanUpRpcConnection(log, subscriptionId);
             untrackStartedCommunity(this._pkc, this);
@@ -467,7 +480,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
             const userSignal = options.signal;
             const onAbort = () => {
                 this._pkc._pkcRpcClient!.cancelExport({ exportId }).catch((e) => {
-                    Logger("pkc-js:rpc-local-community:export").error("Failed to send cancelExport", exportId, e);
+                    this._log.error("export: Failed to send cancelExport", exportId, e);
                 });
             };
             // Aborted between sync validation and exportCommunity returning — route the cancel.

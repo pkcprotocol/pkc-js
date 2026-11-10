@@ -117,7 +117,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects incoming signed wire author
         const signedPropertyNames = publication.signature.signedPropertyNames.includes("author")
             ? publication.signature.signedPropertyNames
             : [...publication.signature.signedPropertyNames, "author"];
-        const log = Logger("pkc-js:test:injectSignedAuthorAddressIntoCommunityEdit");
+        const log = Logger({ namespace: "pkc-js:test:injectSignedAuthorAddressIntoCommunityEdit" });
 
         modifiedPublication.signature = await _signJson(
             signedPropertyNames,

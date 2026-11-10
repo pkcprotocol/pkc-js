@@ -1,5 +1,5 @@
-import Logger from "../../../logger.js";
 import { PKC } from "../../../pkc/pkc.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import type {
     CommunityEditOptions,
     CreateNewLocalCommunityParsedOptions,
@@ -119,6 +119,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         { resolve: (answers: DecryptedChallengeAnswer["challengeAnswers"]) => void; reject: (error: Error) => void }
     >;
     _ongoingChallengeExchanges!: LRUCache<string, boolean>;
+    _challengeExchangeLogs!: LRUCache<string, Logger>; // the exchange's tagged logger by challengeRequestId (issue #493)
     _duplicatePublicationAttempts!: LRUCache<string, number>;
     _challengeExchangesFromLocalPublishers: Record<string, boolean> = {}; // key is stringified challengeRequestId and value is true if the challenge exchange is ongoing
     // One entry per signed publication whose challenge exchange is running, keyed by publication
@@ -203,6 +204,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _activeExports: Map<string, InternalExportHandle> = new Map();
     _exportQueue: Promise<void> = Promise.resolve();
 
+    protected override _logNamespace(): string {
+        return "pkc-js:local-community";
+    }
+
     constructor(pkc: PKC) {
         super(pkc);
         this.handleChallengeExchange = this.handleChallengeExchange.bind(this);
@@ -220,6 +225,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         this._challengeAnswerResolveReject = undefined;
         //@ts-expect-error
         this._ongoingChallengeExchanges = undefined;
+        //@ts-expect-error
+        this._challengeExchangeLogs = undefined;
         //@ts-expect-error
         this._duplicatePublicationAttempts = undefined;
         //@ts-expect-error
@@ -308,7 +315,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         try {
             refreshCommunitiesList(this._pkc);
         } catch (e) {
-            Logger("pkc-js:local-community:_updateStartedValue").error("Failed to refresh pkc.communities", e);
+            this._log.error("_updateStartedValue: Failed to refresh pkc.communities", e);
         }
     }
 
@@ -329,7 +336,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     }
 
     async _validateCommunitySizeSchemaAndSignatureBeforePublishing(recordToPublishRaw: CommunityIpfsType) {
-        const log = Logger("pkc-js:local-community:_validateCommunitySchemaAndSignatureBeforePublishing");
+        const log = this._log;
 
         const stringifiedNewCommunityRecord = deterministicStringify(recordToPublishRaw);
         const calculatedSizeOfNewCommunityRecord = await calculateStringSizeSameAsIpfsAddCidV0(stringifiedNewCommunityRecord);
@@ -343,7 +350,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 address: this.address
             });
             log.error(
-                `Local community (${this.address}) produced a record that is too large (${calculatedSizeOfNewCommunityRecord.toFixed(2)} bytes). Maximum size is ${MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS} bytes.`,
+                `_validateCommunitySchemaAndSignatureBeforePublishing: Local community (${this.address}) produced a record that is too large (${calculatedSizeOfNewCommunityRecord.toFixed(2)} bytes). Maximum size is ${MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS} bytes.`,
                 error
             );
             throw error;
@@ -355,7 +362,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 invalidRecord: recordToPublishRaw,
                 err: parseRes.error
             });
-            log.error(`Local community (${this.address}) produced an invalid CommunityIpfs schema`, error);
+            log.error(
+                `_validateCommunitySchemaAndSignatureBeforePublishing: Local community (${this.address}) produced an invalid CommunityIpfs schema`,
+                error
+            );
             throw error;
         }
 
@@ -370,7 +380,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             resolveAuthorNames: false,
             clientsManager: this._clientsManager,
             validatePages: true,
-            cacheIfValid: false
+            cacheIfValid: false,
+            log: this._log
         };
         try {
             const validation = await verifyCommunity(verificationOpts);
@@ -381,7 +392,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
                 });
             }
         } catch (e) {
-            log.error(`Local community (${this.address}) produced an invalid signature`, e);
+            log.error(
+                `_validateCommunitySchemaAndSignatureBeforePublishing: Local community (${this.address}) produced an invalid signature`,
+                e
+            );
             throw e;
         }
 
@@ -396,7 +410,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             }
         } catch (e) {
             log.error(
-                `Local community (${this.address}) produced an invalid signature after stringifying and parsing again. This is a critical bug.`,
+                `_validateCommunitySchemaAndSignatureBeforePublishing: Local community (${this.address}) produced an invalid signature after stringifying and parsing again. This is a critical bug.`,
                 e
             );
             throw e;
@@ -404,10 +418,12 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
         if (this.shouldResolveDomainForVerification()) {
             try {
-                log(`Resolving domain ${this.address} to make sure it's the same as ${communityIdentityPublicKey(this)}`);
+                log(
+                    `_validateCommunitySchemaAndSignatureBeforePublishing: Resolving domain ${this.address} to make sure it's the same as ${communityIdentityPublicKey(this)}`
+                );
                 await this._assertDomainResolvesCorrectly(this.address);
             } catch (e) {
-                log.error(e);
+                log.error("_validateCommunitySchemaAndSignatureBeforePublishing:", e);
                 this.emit("error", e as PKCError);
             }
         }
@@ -444,7 +460,13 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
             provideInBackground: false
         });
         if (addRes.path !== unpinnedCommentRow.cid) throw Error("Unable to recreate the CommentIpfs. This is a critical error");
-        log.trace("Pinned comment", unpinnedCommentRow.cid, "of community", this.address, "to IPFS node");
+        log.trace(
+            "_validateCommunitySchemaAndSignatureBeforePublishing: Pinned comment",
+            unpinnedCommentRow.cid,
+            "of community",
+            this.address,
+            "to IPFS node"
+        );
     }
 
     async _assertDomainResolvesCorrectly(newAddressAsDomain: string) {

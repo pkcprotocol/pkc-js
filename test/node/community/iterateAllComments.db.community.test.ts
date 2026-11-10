@@ -1,7 +1,11 @@
 import { it, describe, beforeEach, afterEach, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { CommentsTableRow, CommentsTableRowInsert } from "../../../dist/node/publications/comment/types.js";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:iterateAllComments" });
 
 // The repin-on-start walk reads the comments table one batch at a time instead of materializing every row
 // (issue #359). These tests drive that reader straight off a DbHandler, which only exists community-side, so
@@ -44,7 +48,7 @@ describeSkipIfRpc("db-handler.iterateAllCommentsOrderedByIdAsc", function () {
 
     beforeEach(async () => {
         communityAddress = `test-sub-${Date.now()}-${Math.random()}`;
-        const fakeCommunity = { address: communityAddress, _pkc: { noData: true } };
+        const fakeCommunity = { _log: testLog, address: communityAddress, _pkc: { noData: true } };
         dbHandler = new DbHandler(fakeCommunity as DbHandler["_community"]);
         await dbHandler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await dbHandler.createOrMigrateTablesIfNeeded();

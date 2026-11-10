@@ -1,4 +1,5 @@
 import { beforeAll, afterAll, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { mockRemotePKC } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import signers from "../../fixtures/signers.js";
@@ -10,6 +11,9 @@ import validCommentEditFixture from "../../fixtures/signatures/commentEdit/valid
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { CommentEditOptionsToSign, CommentEditPubsubMessagePublication } from "../../../dist/node/publications/comment-edit/types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:edit" });
 
 describe("Sign commentedit", async () => {
     let pkc: PKCType;
@@ -53,7 +57,7 @@ describe("Sign commentedit", async () => {
         const cloneEdit = clone(editProps);
         cloneEdit.author = { name: "gibbreish" };
         try {
-            await signCommentEdit({ edit: { ...cloneEdit, signer: signers[7] }, pkc: pkc });
+            await signCommentEdit({ edit: { ...cloneEdit, signer: signers[7] }, pkc: pkc, log: testLog });
             expect.fail("Should have thrown");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58");
@@ -62,7 +66,8 @@ describe("Sign commentedit", async () => {
     it(`signCommentEdit allows author to be omitted`, async () => {
         const signature = await signCommentEdit({
             edit: { ...omit(editProps, ["author"]), signer: signers[7] } as CommentEditOptionsToSign,
-            pkc: pkc
+            pkc: pkc,
+            log: testLog
         });
         expect(signature.publicKey).to.equal(signers[7].publicKey);
     });

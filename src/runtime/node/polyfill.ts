@@ -3,7 +3,6 @@
 
 // nothing to polyfill in node
 import { setGlobalDispatcher, Agent, WebSocket } from "undici";
-import Logger from "../../logger.js";
 
 // Add Promise.withResolvers polyfill for Node.js < 22
 import "@enhances/with-resolvers";
@@ -11,8 +10,6 @@ import "@enhances/with-resolvers";
 if (Number(process.versions.node.split(".")[0]) >= 18) {
     // We're on node 18+, we need to change the timeout of the body globally
     // Should be removed at some point once kubo-rpc-client fixes their problem with node 18+
-    const log = Logger("pkc-js:polyfill");
-    log("Patching up the global body timeout");
     // undici 8 negotiates HTTP/2 by default, and setGlobalDispatcher mirrors this agent onto Node's
     // built-in fetch; keep HTTP/1.1 so gateway, router and kubo-rpc-client fetches behave as before
     setGlobalDispatcher(new Agent({ bodyTimeout: Number.MAX_SAFE_INTEGER, allowH2: false }));

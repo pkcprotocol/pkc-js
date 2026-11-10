@@ -1,6 +1,6 @@
 import { TypedEmitter } from "tiny-typed-emitter";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import retry, { RetryOperation } from "retry";
-import Logger from "../logger.js";
 import type { PKC } from "../pkc/pkc.js";
 import { PKCError } from "../pkc-error.js";
 import { cleanUpBeforePublishing, signCommunityList, verifyCommunityList } from "../signer/signatures.js";
@@ -48,11 +48,13 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
     private _unsignedProps?: UnsignedCommunityListProps;
     private _stopAbortController?: AbortController;
     private _loadingAbortController?: AbortController;
+    _log: Logger;
     private _loadingOperation?: RetryOperation;
 
     constructor(pkc: PKC) {
         super();
         this._pkc = pkc;
+        this._log = pkc.logger.child({ namespace: "pkc-js:community-list" });
         // The error listener initialized here must never be removed (see AGENTS.md on removeAllListeners)
         this.on("error", (...args) => this.listenerCount("error") === 1 && this._pkc.emit("error", ...args)); // only bubble up to pkc if no other listeners are attached
     }
@@ -60,6 +62,12 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
     _initWithCidOnly(cid: string) {
         this.cid = cid;
         this.shortCid = shortifyCid(cid);
+        this._refreshLogTags();
+    }
+
+    // Rebuilds this logger's own tags from the instance's fields (issue #493); setTags dedupes an unchanged record
+    _refreshLogTags() {
+        this._log.setTags({ cid: this.cid, signature: this.signature?.signature });
     }
 
     _initUnsignedProps({ signer, ...props }: UnsignedCommunityListProps & { signer: SignerWithPublicKeyAddress }) {
@@ -101,6 +109,7 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
         this.author = this._buildRuntimeAuthor(record.author, record.signature.publicKey);
         if (typeof previousNameResolved === "boolean") this.author.nameResolved = previousNameResolved;
         else this._setAuthorNameResolvedFromCache();
+        this._refreshLogTags();
     }
 
     // Reading a cached verdict is free, so a one-shot load shows one like getComment does
@@ -134,7 +143,7 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
 
     // Sign the JSON and add the file to IPFS (locally, or via the RPC server). Sets cid and returns it
     async publish(): Promise<string> {
-        const log = Logger("pkc-js:community-list:publish");
+        const log = this._log;
         if (!this.signer || !this._unsignedProps) throw new PKCError("ERR_COMMUNITY_LIST_HAS_NO_SIGNER", { cid: this.cid });
         if (this.state === "publishing") throw new PKCError("ERR_COMMUNITY_LIST_ALREADY_PUBLISHING", {});
         if (this.state === "updating") throw new PKCError("ERR_COMMUNITY_LIST_ALREADY_UPDATING", {});
@@ -143,7 +152,7 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
         const signal = this._stopAbortController.signal;
         try {
             const cleanedProps = cleanUpBeforePublishing(this._unsignedProps);
-            const signature = await signCommunityList({ communityList: cleanedProps, signer: this.signer, pkc: this._pkc });
+            const signature = await signCommunityList({ communityList: cleanedProps, signer: this.signer, pkc: this._pkc, log: this._log });
             const record = <CommunityListIpfsType>{ ...cleanedProps, signature };
             parseCommunityListSchemaWithPKCErrorIfItFails(record); // throws on schema violations incl. duplicate entry publicKey
             const recordString = JSON.stringify(record);
@@ -181,7 +190,7 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
             }
             this._throwIfPublishAborted(signal);
             this._initFromWireRecord(record, cid);
-            log(`Published CommunityList (${cid}) with ${record.communities.length} entries`);
+            log(`publish: Published CommunityList (${cid}) with ${record.communities.length} entries`);
             return cid;
         } finally {
             // The add takes no abort signal, so a stopped publish can settle after a newer publish() or
@@ -204,7 +213,7 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
     }
 
     private async _runUpdateLoop(signal: AbortSignal) {
-        const log = Logger("pkc-js:community-list:update");
+        const log = this._log;
         // Next macrotask, so a caller doing `await list.update()` can attach listeners before the
         // already-loaded path emits synchronously
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -219,7 +228,7 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
             if (!signal.aborted) await this.stop();
         } catch (e) {
             if (signal.aborted) return;
-            log.error(`Failed to update CommunityList (${this.cid})`, e);
+            log.error(`update: Failed to update CommunityList (${this.cid})`, e);
             this.emit("error", <Error>e);
             await this.stop();
         }
@@ -373,11 +382,11 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
     // Fire-and-forget cache warmup, used by the one-shot getCommunityList path which does not wait
     // for the verdict: evented instances pick it up from the pkc-wide cache
     _kickOffBackgroundAuthorNameResolution(): void {
-        const log = Logger("pkc-js:community-list:resolve-author-name");
+        const log = this._log;
         const authorDomain = this._authorDomainToSettle();
         if (!authorDomain || !this._pkc.resolveAuthorNames) return;
         this._resolveAuthorNameVerdictOnce(authorDomain).catch((e) =>
-            log.error("Failed background author name resolution", authorDomain, e)
+            log.error("resolve-author-name: Failed background author name resolution", authorDomain, e)
         );
     }
 

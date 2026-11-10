@@ -1,4 +1,5 @@
 import signers from "../../fixtures/signers.js";
+import Logger from "@pkcprotocol/pkc-logger";
 
 import {
     createNewIpns,
@@ -12,6 +13,9 @@ import { signCommunity } from "../../../dist/node/signer/signatures.js";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import { expect } from "vitest";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:rpc" });
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] }).map((config) => {
     describe(`community.clients.pkcRpcClients (remote community)`, async () => {
@@ -41,7 +45,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-pkc-rpc"] 
             record.encryption = encryptionForSigner(newIpns.signer);
             record.signature = await signCommunity({
                 community: record as Parameters<typeof signCommunity>[0]["community"],
-                signer: newIpns.signer
+                signer: newIpns.signer,
+                log: testLog
             });
 
             await newIpns.publishToIpns(JSON.stringify(record));

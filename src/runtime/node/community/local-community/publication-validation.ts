@@ -1,5 +1,5 @@
-import Logger from "../../../../logger.js";
 import { difference, intersection, isDeepEqual, keys } from "remeda";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import {
     contentContainsMarkdownAudio,
     contentContainsMarkdownImages,
@@ -721,7 +721,7 @@ export async function checkPublicationValidity({
     authorIdentityMatcher?: AuthorIdentityMatcher;
 }): Promise<messages | undefined> {
     const authorIdentityMatcher = sharedAuthorIdentityMatcher ?? authorIdentityMatcherForRequest({ community, request });
-    const log = Logger("pkc-js:local-community:handleChallengeRequest:checkPublicationValidity");
+    const log = community._log;
 
     const wireResult = await checkWireFormatAndCommunityAuthor(community, publication, log, authorCommunity);
     if (wireResult) return wireResult;

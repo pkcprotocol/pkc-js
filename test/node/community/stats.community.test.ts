@@ -1,4 +1,5 @@
 import assert from "assert";
+import Logger from "@pkcprotocol/pkc-logger";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { TIMEFRAMES_TO_SECONDS } from "../../../dist/node/pages/util.js";
 import { describe, it, beforeEach, afterEach } from "vitest";
@@ -10,6 +11,9 @@ import type {
 } from "../../../dist/node/publications/comment/types.js";
 import type { VotesTableRowInsert } from "../../../dist/node/publications/vote/types.js";
 import signers from "../../fixtures/signers.js";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:stats" });
 
 const PROTOCOL_VERSION = "1.0.0";
 const BUFFER_SECONDS = 60;
@@ -83,7 +87,7 @@ async function createTestDbHandler(): Promise<{ dbHandler: DbHandler; communityA
     // another community under the community identity rule (issue #401)
     const communityAddress = `test-sub-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const fakePKC = { noData: true };
-    const fakeCommunity = { address: communityAddress, _pkc: fakePKC };
+    const fakeCommunity = { _log: testLog, address: communityAddress, _pkc: fakePKC };
     const handler = new DbHandler(fakeCommunity as DbHandler extends { _community: infer T } ? T : never);
     await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
     await handler.createOrMigrateTablesIfNeeded();

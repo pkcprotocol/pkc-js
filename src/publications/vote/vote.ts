@@ -17,6 +17,10 @@ class Vote extends Publication implements VotePubsubMessagePublication {
     override raw: { pubsubMessageToPublish?: VotePubsubMessagePublication } = {};
     override challengeRequest?: CreateVoteOptions["challengeRequest"];
 
+    protected override _logNamespace(): string {
+        return "pkc-js:vote";
+    }
+
     constructor(pkc: PKC) {
         super(pkc);
 
@@ -54,7 +58,7 @@ class Vote extends Publication implements VotePubsubMessagePublication {
     protected override async _signPublicationOptionsToPublish(
         cleanedPublication: unknown
     ): Promise<VotePubsubMessagePublication["signature"]> {
-        return signVote({ vote: cleanedPublication as VoteOptionsToSign, pkc: this._pkc });
+        return signVote({ vote: cleanedPublication as VoteOptionsToSign, pkc: this._pkc, log: this._log });
     }
 
     _initRemoteProps(props: VotePubsubMessagePublication): void {

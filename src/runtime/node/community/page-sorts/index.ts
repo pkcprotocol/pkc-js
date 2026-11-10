@@ -1,4 +1,5 @@
 import { pathToFileURL } from "node:url";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { sha256 } from "js-sha256";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { PKCError } from "../../../../pkc-error.js";
@@ -23,7 +24,6 @@ import type {
     PageSortScope
 } from "../../../../community/types.js";
 import type { FailedPageSorts } from "../page-generator.js";
-import Logger from "../../../../logger.js";
 import { cleanUpBeforePublishing } from "../../../../signer/signatures.js";
 import type { LocalCommunity } from "../local-community.js";
 
@@ -171,10 +171,12 @@ export type ResolvedPageSorts = {
 
 export async function loadPageSortFile({
     pageSortSettings,
-    pkc
+    pkc,
+    log
 }: {
     pageSortSettings: CommunityPageSortSetting;
     pkc?: PKCWithSettingsPageSorts;
+    log?: Logger; // the community's logger; the factory gets a child of it under `page-sort:<name>` (issue #493)
 }): Promise<PageSortFile> {
     let factory: PageSortFileFactory;
     try {
@@ -194,7 +196,7 @@ export async function loadPageSortFile({
     }
     let file: PageSortFile;
     try {
-        file = validatePageSortFile(factory({ pageSortSettings }));
+        file = validatePageSortFile(factory({ pageSortSettings, log: log?.child({ namespace: `page-sort:${pageSortSettings.name}` }) }));
     } catch (e) {
         throw new PKCError("ERR_PAGE_SORT_FILE_INVALID", { pageSortSettings, error: e });
     }
@@ -210,20 +212,20 @@ export interface PageSortSettingsValidationFailure {
 
 // Drop the reserved options pkc-js no longer reads (REMOVED_PAGE_SORT_OPTION_NAMES) from an option record, so a value
 // stored before the removal neither fails the declared-option check nor reaches the file or the published publicOptions.
-function withoutRemovedPageSortOptions(options: Record<string, string>, pageSortName: string): Record<string, string> {
+function withoutRemovedPageSortOptions(options: Record<string, string>, pageSortName: string, log: Logger): Record<string, string> {
     const removed = Object.keys(options).filter((optionName) => REMOVED_PAGE_SORT_OPTION_NAMES.includes(optionName));
     if (removed.length === 0) return options;
-    Logger("pkc-js:local-community:page-sorts:resolve")(
-        `Ignoring removed page sort options ${removed.join(", ")} of sort ${pageSortName}; the community identity rule now always applies (issue #401)`
+    log(
+        `resolve: Ignoring removed page sort options ${removed.join(", ")} of sort ${pageSortName}; the community identity rule now always applies (issue #401)`
     );
     return Object.fromEntries(Object.entries(options).filter(([optionName]) => !removed.includes(optionName)));
 }
 
 // The same, applied to a stored entry before its file is loaded: the factory, validatePageSortSettings and the resolved
 // settings all see the entry without the removed options, so a file that rejects undeclared options keeps working
-function withoutRemovedPageSortSettingOptions(pageSortSettings: CommunityPageSortSetting): CommunityPageSortSetting {
+function withoutRemovedPageSortSettingOptions(pageSortSettings: CommunityPageSortSetting, log: Logger): CommunityPageSortSetting {
     if (!pageSortSettings.options) return pageSortSettings;
-    const options = withoutRemovedPageSortOptions(pageSortSettings.options, describePageSort(pageSortSettings));
+    const options = withoutRemovedPageSortOptions(pageSortSettings.options, describePageSort(pageSortSettings), log);
     return options === pageSortSettings.options ? pageSortSettings : { ...pageSortSettings, options };
 }
 
@@ -234,12 +236,14 @@ function resolveOneEntry({
     pageSortSettings,
     file,
     scope,
-    pageSortIndex
+    pageSortIndex,
+    log
 }: {
     pageSortSettings: CommunityPageSortSetting;
     file: PageSortFile;
     scope: PageSortScope;
     pageSortIndex: number;
+    log: Logger;
 }): { resolved: ResolvedPageSort } | { error: PKCError } {
     const baseDetails = { scope, pageSortIndex, pageSortName: describePageSort(pageSortSettings), sortName: file.sortName };
     const entryOptions = pageSortSettings.options ?? {}; // removed options already dropped by the caller
@@ -279,7 +283,8 @@ function resolveOneEntry({
 
     const options: Record<string, string> = withoutRemovedPageSortOptions(
         { ...DEFAULT_RESERVED_OPTIONS[scope], ...file.defaultOptions, ...entryOptions },
-        baseDetails.pageSortName
+        baseDetails.pageSortName,
+        log
     );
     let reserved: ParsedReservedPageSortOptions;
     try {
@@ -322,22 +327,24 @@ function resolveOneEntry({
 export async function resolvePageSortsAndCollectFailures({
     pagesSettings,
     pkc,
-    tolerateLoadErrors = false
+    tolerateLoadErrors = false,
+    log
 }: {
     pagesSettings: CommunityPagesSettings | undefined;
     pkc?: PKCWithSettingsPageSorts;
     tolerateLoadErrors?: boolean; // start path: a file that no longer imports is a failure to report, not a reason to stop
+    log: Logger;
 }): Promise<{ resolved: ResolvedPageSorts; failures: PageSortSettingsValidationFailure[] }> {
     const failures: PageSortSettingsValidationFailure[] = [];
     const resolved: ResolvedPageSorts = { posts: [], replies: [] };
     for (const { scope, entries } of entriesOfEveryScope(pagesSettings)) {
         const seenSortNames = new Set<string>();
         for (const [pageSortIndex, storedPageSortSettings] of entries.entries()) {
-            const pageSortSettings = withoutRemovedPageSortSettingOptions(storedPageSortSettings);
+            const pageSortSettings = withoutRemovedPageSortSettingOptions(storedPageSortSettings, log);
             const pageSortName = describePageSort(pageSortSettings);
             let file: PageSortFile;
             try {
-                file = await loadPageSortFile({ pageSortSettings, pkc });
+                file = await loadPageSortFile({ pageSortSettings, pkc, log });
             } catch (e) {
                 if (!tolerateLoadErrors) throw e;
                 failures.push({ scope, pageSortIndex, pageSortName, error: e as PKCError });
@@ -358,7 +365,7 @@ export async function resolvePageSortsAndCollectFailures({
                 continue;
             }
             seenSortNames.add(file.sortName);
-            const result = resolveOneEntry({ pageSortSettings, file, scope, pageSortIndex });
+            const result = resolveOneEntry({ pageSortSettings, file, scope, pageSortIndex, log });
             if ("error" in result) failures.push({ scope, pageSortIndex, pageSortName, error: result.error });
             else resolved[scope].push(result.resolved);
         }
@@ -371,13 +378,15 @@ export async function resolvePageSortsAndCollectFailures({
 export async function resolvePageSortsOrThrow({
     pagesSettings,
     pkc,
-    communityAddress
+    communityAddress,
+    log
 }: {
     pagesSettings: CommunityPagesSettings | undefined;
     pkc?: PKCWithSettingsPageSorts;
     communityAddress?: string;
+    log: Logger;
 }): Promise<ResolvedPageSorts> {
-    const { resolved, failures } = await resolvePageSortsAndCollectFailures({ pagesSettings, pkc });
+    const { resolved, failures } = await resolvePageSortsAndCollectFailures({ pagesSettings, pkc, log });
     if (failures.length)
         throw new PKCError("ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED_FOR_PAGE_SORTS", {
             communityAddress,
@@ -423,7 +432,7 @@ export function derivePublicPageSorts({
 // going with the valid ones. Same treatment as emitChallengeSettingsValidationErrors. Also the lazy path for a
 // community whose pages are generated without start() (tests drive the generator directly).
 export async function loadPageSortsForStartedCommunity(community: LocalCommunity): Promise<ResolvedPageSorts> {
-    const log = Logger("pkc-js:local-community:page-sorts:load");
+    const log = community._log;
     await community._dbHandler.initDbIfNeeded();
     // Snapshot before resolving: a registry change that lands mid-resolve then shows up as a mismatch on the next
     // cycle (one extra re-resolve) instead of being recorded as already applied
@@ -431,11 +440,12 @@ export async function loadPageSortsForStartedCommunity(community: LocalCommunity
     const { resolved, failures } = await resolvePageSortsAndCollectFailures({
         pagesSettings: community.settings?.pages,
         pkc: community._pkc,
-        tolerateLoadErrors: true
+        tolerateLoadErrors: true,
+        log
     });
     for (const { error, scope, pageSortIndex, pageSortName } of failures) {
         error.details = { ...error.details, scope, pageSortIndex, pageSortName, communityAddress: community.address };
-        log.error("Invalid settings.pages entry, skipping it", community.address, error);
+        log.error("load: Invalid settings.pages entry, skipping it", community.address, error);
         community.emit("error", error);
     }
     community._pageSorts = resolved;
@@ -449,7 +459,7 @@ export async function loadPageSortsForStartedCommunity(community: LocalCommunity
 export function reportFailedPageSorts(community: LocalCommunity, failedSorts: FailedPageSorts | undefined, log: Logger): void {
     for (const error of Object.values(failedSorts ?? {})) {
         error.details = { ...error.details, communityAddress: community.address };
-        log.error("A configured page sort failed to generate and was skipped for this cycle", community.address, error);
+        log.error("load: A configured page sort failed to generate and was skipped for this cycle", community.address, error);
         community.emit("error", error);
     }
 }

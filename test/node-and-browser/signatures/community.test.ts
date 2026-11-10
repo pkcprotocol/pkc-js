@@ -13,7 +13,10 @@ import Logger from "@pkcprotocol/pkc-logger";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
-const log = Logger("pkc-js:test:signatures:community");
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:community" });
+const log = Logger({ namespace: "pkc-js:test:signatures:community" });
 
 // Clients of RPC will trust the response of RPC and won't validate
 describeSkipIfRpc.concurrent("Sign community", async () => {
@@ -32,7 +35,8 @@ describeSkipIfRpc.concurrent("Sign community", async () => {
         delete subFixtureClone["signature"];
         const signature = await signCommunity({
             community: subFixtureClone as Omit<CommunityIpfsType, "signature">,
-            signer: signers[0]
+            signer: signers[0],
+            log: testLog
         });
         // Old fixture was signed with address in signedPropertyNames; new signing omits address.
         // The signatures differ because different fields are signed, but both are valid.
@@ -52,7 +56,8 @@ describeSkipIfRpc.concurrent("Sign community", async () => {
         delete communityToSign["signature"];
         communityToSign.signature = await signCommunity({
             community: communityToSign as Omit<CommunityIpfsType, "signature">,
-            signer: signers[0]
+            signer: signers[0],
+            log: testLog
         });
         expect(communityToSign.signature).to.deep.equal(community.signature);
 
@@ -62,7 +67,8 @@ describeSkipIfRpc.concurrent("Sign community", async () => {
             resolveAuthorNames: pkc.resolveAuthorNames,
             clientsManager: pkc._clientsManager,
             validatePages: true,
-            cacheIfValid: false
+            cacheIfValid: false,
+            log: testLog
         });
         expect(verification).to.deep.equal({ valid: true });
     });
@@ -73,7 +79,8 @@ describeSkipIfRpc.concurrent("Sign community", async () => {
         delete subFixtureClone["signature"];
         const signature = await signCommunity({
             community: subFixtureClone as Omit<CommunityIpfsType, "signature">,
-            signer: signers[0]
+            signer: signers[0],
+            log: testLog
         });
         expect(signature.signature).to.equal(subFixture.signature.signature);
         expect(signature.signedPropertyNames).to.not.include("address");
@@ -85,7 +92,8 @@ describeSkipIfRpc.concurrent("Sign community", async () => {
         delete subFixtureClone["signature"];
         const signature = await signCommunity({
             community: subFixtureClone as Omit<CommunityIpfsType, "signature">,
-            signer: signers[0]
+            signer: signers[0],
+            log: testLog
         });
         expect(signature.signature).to.equal(subFixture.signature.signature);
         expect(signature.signedPropertyNames).to.include("name");
@@ -120,7 +128,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
                 validatePages: true,
-                cacheIfValid: false
+                cacheIfValid: false,
+                log: testLog
             })
         ).to.deep.equal({ valid: true });
     });
@@ -133,7 +142,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
                 validatePages: true,
-                cacheIfValid: false
+                cacheIfValid: false,
+                log: testLog
             })
         ).to.deep.equal({ valid: true });
     });
@@ -161,7 +171,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
                 validatePages: false,
-                cacheIfValid: false
+                cacheIfValid: false,
+                log: testLog
             })
         ).to.deep.equal({
             valid: false,
@@ -186,7 +197,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
                 validatePages: true,
-                cacheIfValid: false
+                cacheIfValid: false,
+                log: testLog
             })
         ).to.deep.equal({ valid: true });
     });
@@ -202,7 +214,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
                 validatePages: false,
-                cacheIfValid: false
+                cacheIfValid: false,
+                log: testLog
             })
         ).to.deep.equal({ valid: true });
     });
@@ -219,7 +232,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
                 validatePages: false,
-                cacheIfValid: false
+                cacheIfValid: false,
+                log: testLog
             })
         ).to.deep.equal({ valid: true });
     });
@@ -242,7 +256,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
             resolveAuthorNames: tempPKC.resolveAuthorNames,
             clientsManager: tempPKC._clientsManager,
             validatePages: true,
-            cacheIfValid: false
+            cacheIfValid: false,
+            log: testLog
         });
         // Community posts will be invalid because the resolved address of community will be used to validate posts
         expect(verification.valid).to.be.false;
@@ -265,7 +280,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
                 communityIpnsHops: [signers[0].address],
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
-                validatePages: false
+                validatePages: false,
+                log: testLog
             })
         ).to.deep.equal({
             valid: true
@@ -278,7 +294,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
                 communityIpnsHops: [signers[0].address],
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
-                validatePages: false
+                validatePages: false,
+                log: testLog
             })
         ).to.deep.equal({
             valid: false,
@@ -316,7 +333,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
                 communityIpnsHops: [signers[0].address],
                 resolveAuthorNames: tempPKC.resolveAuthorNames,
                 clientsManager: tempPKC._clientsManager,
-                validatePages: true
+                validatePages: true,
+                log: testLog
             })
         ).to.deep.equal({
             valid: true
@@ -336,7 +354,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
         subFixtureClone.extraProp = "1234";
         const signature = await signCommunity({
             community: subFixtureClone as Omit<CommunityIpfsType, "signature">,
-            signer: signers[0]
+            signer: signers[0],
+            log: testLog
         });
         expect(signature.signature).to.equal(subFixture.signature.signature);
         expect(signature.publicKey).to.equal(subFixture.signature.publicKey);
@@ -349,7 +368,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
             communityIpnsHops: [signers[0].address],
             resolveAuthorNames: tempPKC.resolveAuthorNames,
             clientsManager: tempPKC._clientsManager,
-            validatePages: false
+            validatePages: false,
+            log: testLog
         });
         expect(validation).to.deep.equal({
             valid: false,
@@ -374,7 +394,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
             communityIpnsHops: [signers[0].address],
             resolveAuthorNames: tempPKC.resolveAuthorNames,
             clientsManager: tempPKC._clientsManager,
-            validatePages: true
+            validatePages: true,
+            log: testLog
         });
         expect(validation).to.deep.equal({
             valid: true
@@ -397,7 +418,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
             communityIpnsHops: [signers[0].address],
             resolveAuthorNames: tempPKC.resolveAuthorNames,
             clientsManager: tempPKC._clientsManager,
-            validatePages: false
+            validatePages: false,
+            log: testLog
         });
         expect(validation).to.deep.equal({
             valid: false,
@@ -431,7 +453,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
                 communityIpnsHops: [signers[0].address],
                 resolveAuthorNames: tempPKC.resolveAuthorNames,
                 clientsManager: tempPKC._clientsManager,
-                validatePages: false
+                validatePages: false,
+                log: testLog
             });
             expect(validation).to.deep.equal({
                 valid: false,
@@ -456,7 +479,11 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
             delete record.signature;
             Object.assign(record, recordOverrides);
             if (omitClaim) delete record.anchor;
-            const signature = await signCommunity({ community: record as Omit<CommunityIpfsType, "signature">, signer: signers[0] });
+            const signature = await signCommunity({
+                community: record as Omit<CommunityIpfsType, "signature">,
+                signer: signers[0],
+                log: testLog
+            });
             return { ...record, signature } as CommunityIpfsType;
         }
 
@@ -467,7 +494,8 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
                 resolveAuthorNames: pkc.resolveAuthorNames,
                 clientsManager: pkc._clientsManager,
                 validatePages,
-                cacheIfValid: false
+                cacheIfValid: false,
+                log: testLog
             });
         }
 
@@ -521,7 +549,11 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
             delete record.signature;
             (record as CommunityIpfsType).anchor = { publicKey: anchorName() };
             (record as CommunityIpfsType).name = "claimed-domain.bso";
-            const signature = await signCommunity({ community: record as Omit<CommunityIpfsType, "signature">, signer: signers[0] });
+            const signature = await signCommunity({
+                community: record as Omit<CommunityIpfsType, "signature">,
+                signer: signers[0],
+                log: testLog
+            });
             const resigned = { ...record, signature } as CommunityIpfsType;
             const validation = await verify(resigned, [anchorName(), minterName()], true);
             expect(validation).to.deep.equal({ valid: false, reason: messages.ERR_COMMUNITY_POSTS_INVALID });

@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/helia-for-pkc.js";
 import { MockHttpRouter } from "../../../dist/node/runtime/node/test/mock-http-router.js";
 import { pubsubTopicToDhtKeyCid } from "../../../dist/node/util.js";
@@ -7,6 +8,9 @@ import { generateKeyPair } from "@libp2p/crypto/keys";
 import { peerIdFromPrivateKey } from "@libp2p/peer-id";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
 import type { CID } from "multiformats/cid";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:content-router-fault-tolerance" });
 
 // Regression coverage for issue #171: a single unreachable (connection-refused) HTTP router used to
 // abort the node's ENTIRE content-routing provider lookup. IPNS-over-pubsub resolution warms up a
@@ -107,6 +111,7 @@ describeSkipIfRpc("Content router fault tolerance (issue #171)", () => {
 
     const createHeliaWithRouters = async (httpRoutersOptions: string[]): Promise<Libp2pJsClient> => {
         const client = (await createLibp2pJsClientOrUseExistingOne({
+            log: testLog,
             key: `content-router-fault-tolerance-${keyCounter++}`,
             httpRoutersOptions,
             libp2pOptions: {},

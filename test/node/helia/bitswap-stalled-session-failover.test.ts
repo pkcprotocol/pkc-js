@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { CID } from "multiformats/cid";
 import * as rawCodec from "multiformats/codecs/raw";
 import { sha256 } from "multiformats/hashes/sha2";
@@ -7,6 +8,9 @@ import { MockHttpRouter } from "../../../dist/node/runtime/node/test/mock-http-r
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
 import type { HeliaWithLibp2pPubsub } from "../../../dist/node/helia/types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:bitswap-stalled-session-failover" });
 
 // Regression coverage for issue #218 part 2: @helia/bitswap's session broker sends a targeted
 // WANT-BLOCK to the session peer that didn't answer DONT_HAVE and then waits on that single peer
@@ -69,6 +73,7 @@ describeSkipIfRpc("Bitswap stalled-session block failover (issue #218)", () => {
         await router.start();
         startedRouters.push(router);
         const client = (await createLibp2pJsClientOrUseExistingOne({
+            log: testLog,
             key: `bitswap-stalled-session-failover-${keyCounter++}`,
             httpRoutersOptions: [router.url],
             libp2pOptions: {},

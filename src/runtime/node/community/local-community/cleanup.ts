@@ -1,6 +1,6 @@
 import pLimit from "p-limit";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import retry from "retry";
-import Logger from "../../../../logger.js";
 import { genToArray, removeMfsFilesSafely, statMfsPathSafely } from "../../../../util.js";
 import type { DbRepliesSortEntry } from "../../../../publications/comment/types.js";
 import type { PurgedCommentTableRows } from "../db-handler-types.js";
@@ -50,7 +50,7 @@ async function _pinLsWithRetries({
 const REPIN_COMMENTS_BATCH_SIZE = 1000;
 
 export async function repinCommentsIPFSIfNeeded(community: LocalCommunity) {
-    const log = Logger("pkc-js:local-community:start:_repinCommentsIPFSIfNeeded");
+    const log = community._log;
     const latestCommentCid = community._dbHandler.queryLatestCommentCid(); // latest comment ordered by id
     if (!latestCommentCid) return;
     const kuboRpcOrHelia = community._clientsManager.getDefaultKuboRpcClient();
@@ -63,14 +63,17 @@ export async function repinCommentsIPFSIfNeeded(community: LocalCommunity) {
         if (!(<Error>e).message.includes("is not pinned")) throw e;
     }
 
-    log("The latest comment is not pinned in the ipfs node, pkc-js will repin all existing comment ipfs for community", community.address);
+    log(
+        "_repinCommentsIPFSIfNeeded: The latest comment is not pinned in the ipfs node, pkc-js will repin all existing comment ipfs for community",
+        community.address
+    );
 
     // Ascending rowid, a batch at a time, each one pinned and dropped before the next is read (we assume all
     // comments are unpinned if the latest comment is not pinned). The order matters as much as the batching:
     // the latest comment is the last row of the last batch, and the pin.ls probe above takes it as standing
     // for the whole board, so a walk that fails partway must leave it unpinned or the next start would read
     // the board as pinned and never retry. A failure here rejects before the batch holding it is even read.
-    const addLog = Logger("pkc-js:local-community:start:_repinCommentsIPFSIfNeeded:_addCommentRowToIPFS");
+    const addLog = community._log;
     const limit = pLimit(50);
     let commentsWalked = 0;
     let commentsPinned = 0;
@@ -126,7 +129,7 @@ export async function unpinStaleCids(
     // which conservatively keeps the flag armed for the next publish cycle.
     options: { bypassGracePeriod?: boolean; cycleStartedAtMs?: number } = {}
 ) {
-    const log = Logger("pkc-js:local-community:sync:unpinStaleCids");
+    const log = community._log;
 
     if (community._cidsToUnPin.size > 0) {
         const sizeBefore = community._cidsToUnPin.size;
@@ -154,7 +157,7 @@ export async function unpinStaleCids(
         );
         if (cidsToUnpinNow.length === 0) {
             log.trace(
-                `All ${sizeBefore} stale cids of community (${community.address}) are within their unpin grace period, keeping them pinned for now`
+                `unpinStaleCids: All ${sizeBefore} stale cids of community (${community.address}) are within their unpin grace period, keeping them pinned for now`
             );
             return;
         }
@@ -177,7 +180,7 @@ export async function unpinStaleCids(
                             community._cidsToUnPin.delete(cid);
                             firstSeenAtMs.delete(cid);
                         } else {
-                            log.trace("Failed to unpin cid", cid, "on community", community.address, "due to error", error);
+                            log.trace("unpinStaleCids: Failed to unpin cid", cid, "on community", community.address, "due to error", error);
                         }
                     }
                 })
@@ -197,12 +200,14 @@ export async function unpinStaleCids(
             if (cycleObservedPurge) communitiesWithPendingPurgeFlush.delete(community);
         }
 
-        log.trace(`unpinned ${sizeBefore - community._cidsToUnPin.size} stale cids from ipfs node for community (${community.address})`);
+        log.trace(
+            `unpinStaleCids: unpinned ${sizeBefore - community._cidsToUnPin.size} stale cids from ipfs node for community (${community.address})`
+        );
     }
 }
 
 export async function rmUnneededMfsPaths(community: LocalCommunity, opts?: { numOfRetries?: number }): Promise<string[]> {
-    const log = Logger("pkc-js:local-community:sync:_rmUnneededMfsPaths");
+    const log = community._log;
 
     if (community._mfsPathsToRemove.size > 0) {
         const toDeleteMfsPaths = Array.from(community._mfsPathsToRemove.values());
@@ -224,7 +229,7 @@ export async function rmUnneededMfsPaths(community: LocalCommunity, opts?: { num
                 toDeleteMfsPaths.forEach((path) => community._mfsPathsToRemove.delete(path));
                 return toDeleteMfsPaths;
             } else {
-                log.error("Failed to remove paths from MFS", toDeleteMfsPaths, e);
+                log.error("_rmUnneededMfsPaths: Failed to remove paths from MFS", toDeleteMfsPaths, e);
                 throw error;
             }
         }
@@ -232,7 +237,7 @@ export async function rmUnneededMfsPaths(community: LocalCommunity, opts?: { num
 }
 
 export async function repinCommentUpdateIfNeeded(community: LocalCommunity) {
-    const log = Logger("pkc-js:start:_repinCommentUpdateIfNeeded");
+    const log = community._log;
 
     // iterating on all comment updates is not efficient, we should figure out a better way
     // Most of the time we run this function, the comment updates are already written to ipfs rpeo
@@ -248,7 +253,7 @@ export async function repinCommentUpdateIfNeeded(community: LocalCommunity) {
     // community has no comment updates, we can return
     if (!community.lastCommentCid) return;
 
-    log(`CommentUpdate directory`, community.address, "will republish all comment updates");
+    log(`_repinCommentUpdateIfNeeded: CommentUpdate directory`, community.address, "will republish all comment updates");
 
     community._dbHandler.forceUpdateOnAllComments(); // pkc-js will recalculate and publish all comment updates
 }
@@ -284,7 +289,7 @@ export function _resetRepoGcSchedulingState() {
 }
 
 export async function cleanUpIpfsRepoIfDue(community: LocalCommunity, force = false): Promise<void> {
-    const log = Logger("pkc-js:local-community:syncIpnsWithDb:_cleanUpIpfsRepoIfDue");
+    const log = community._log;
     const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
     const kuboUrl = String(kuboRpc.url);
 
@@ -314,7 +319,7 @@ async function _readRepoSizeSafely({
     try {
         return (await kuboRpc._client.repo.stat({ searchParams: new URLSearchParams({ "size-only": "true" }) })).repoSize;
     } catch (e) {
-        log.trace("Failed to read repo size from the kubo node", kuboUrl, e);
+        log.trace("_cleanUpIpfsRepoIfDue: Failed to read repo size from the kubo node", kuboUrl, e);
         return undefined;
     }
 }
@@ -366,10 +371,10 @@ async function _runRepoGcIfDue({
     try {
         for await (const res of kuboRpc._client.repo.gc({ quiet: true })) {
             if (res.cid) gcCids++;
-            else log.error("Failed to GC ipfs repo due to error", res.err);
+            else log.error("_cleanUpIpfsRepoIfDue: Failed to GC ipfs repo due to error", res.err);
         }
     } catch (e) {
-        log.error("Failed to GC ipfs repo due to error", e);
+        log.error("_cleanUpIpfsRepoIfDue: Failed to GC ipfs repo due to error", e);
         return;
     } finally {
         // Stamped on failure too: a daemon that can't GC is a daemon we should back off from, not
@@ -382,7 +387,7 @@ async function _runRepoGcIfDue({
     const repoSizeAfter = await _readRepoSizeSafely({ kuboRpc, kuboUrl, log });
 
     log(
-        "GC cleaned",
+        "_cleanUpIpfsRepoIfDue: GC cleaned",
         gcCids,
         "cids out of the IPFS node",
         kuboUrl,
@@ -427,12 +432,16 @@ export function addAllCidsUnderPurgedCommentToBeRemoved(
 export async function purgeDisapprovedCommentsOlderThan(community: LocalCommunity) {
     if (typeof community.settings?.purgeDisapprovedCommentsOlderThan !== "number") return;
 
-    const log = Logger("pkc-js:local-community:_purgeDisapprovedCommentsOlderThan");
+    const log = community._log;
     const purgedComments = community._dbHandler.purgeDisapprovedCommentsOlderThan(community.settings.purgeDisapprovedCommentsOlderThan);
 
     if (!purgedComments || purgedComments.length === 0) return;
 
-    log("Purged disapproved comments", purgedComments, "because retention time has passed and it's time to purge them from DB and pages");
+    log(
+        "_purgeDisapprovedCommentsOlderThan: Purged disapproved comments",
+        purgedComments,
+        "because retention time has passed and it's time to purge them from DB and pages"
+    );
 
     // need to clear out any commentUpdate.postUpdatesBucket
     // need to clear out any comment.cid

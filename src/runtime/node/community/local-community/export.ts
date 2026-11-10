@@ -1,4 +1,3 @@
-import Logger from "../../../../logger.js";
 import path from "node:path";
 import { promises as fsPromises, existsSync } from "node:fs";
 import { pathToFileURL, fileURLToPath } from "node:url";
@@ -38,7 +37,7 @@ async function persistExports(community: LocalCommunity): Promise<void> {
     try {
         await community._dbHandler.keyvSet(EXPORTS_KEY, community._exports);
     } catch (e) {
-        Logger("pkc-js:local-community:export").error("Failed to persist exports to keyv", e);
+        community._log.error("persistExports: Failed to persist exports to keyv", e);
     }
 }
 
@@ -70,7 +69,7 @@ async function runExportTask(
     exportId: string,
     opts: { destPath: string; includePrivateKey: boolean; signal: AbortSignal }
 ) {
-    const log = Logger("pkc-js:local-community:export:run");
+    const log = community._log;
     const sourcePath = sourceDbPathFor(community);
 
     try {
@@ -96,7 +95,7 @@ async function runExportTask(
             sha256,
             url: pathToFileURL(opts.destPath).href
         });
-        log.trace("Export complete for community", community.address, "exportId", exportId);
+        log.trace("run: Export complete for community", community.address, "exportId", exportId);
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         if (err instanceof BackupAbortError || opts.signal.aborted) {
@@ -104,7 +103,7 @@ async function runExportTask(
                 error: { code: "ERR_EXPORT_CANCELLED", message: message || "Export was cancelled" }
             });
         } else {
-            log.error("Backup failed for community", community.address, "exportId", exportId, err);
+            log.error("run: Backup failed for community", community.address, "exportId", exportId, err);
             await updateRecord(community, exportId, {
                 error: { code: "ERR_EXPORT_BACKUP_FAILED", message }
             });
@@ -228,7 +227,7 @@ export async function loadAndPruneExportsFromKeyv(community: LocalCommunity): Pr
     try {
         stored = community._dbHandler.keyvHas(EXPORTS_KEY) ? community._dbHandler.keyvGet<CommunityExportRecord[]>(EXPORTS_KEY) ?? [] : [];
     } catch (e) {
-        Logger("pkc-js:local-community:export").error("Failed to load exports from keyv", e);
+        community._log.error("loadExports: Failed to load exports from keyv", e);
         return;
     }
     const pruned: CommunityExportRecord[] = [];

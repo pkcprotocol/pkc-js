@@ -1,4 +1,5 @@
 import { beforeAll, afterAll, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { mockRemotePKC, resolveWhenConditionIsTrue, createMockNameResolver } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import {
@@ -30,6 +31,9 @@ import type {
 } from "../../../dist/node/publications/comment/types.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:comment" });
 
 // Protocol version constant
 const PROTOCOL_VERSION = "1.0.0";
@@ -85,7 +89,7 @@ describe("sign comment", async () => {
             communityAddress: signers[0].address,
             signer
         });
-        const signature = await signComment({ comment, pkc: pkc });
+        const signature = await signComment({ comment, pkc: pkc, log: testLog });
         expect(signature.publicKey).to.equal(signer.publicKey);
         const signedComment: CommentPubsubMessagePublication = { signature, ...omit(comment, ["signer", "communityAddress"]) };
         const verificaiton = await verifyCommentPubsubMessage({
@@ -103,7 +107,7 @@ describe("sign comment", async () => {
             communityAddress: signers[0].address,
             signer
         });
-        const signature = await signComment({ comment, pkc: pkc });
+        const signature = await signComment({ comment, pkc: pkc, log: testLog });
         const signedComment: CommentPubsubMessagePublication = { signature, ...omit(comment, ["signer", "communityAddress"]) };
         expect(signedComment.signature.publicKey).to.be.equal(signers[1].publicKey, "Generated public key should be same as provided");
         const verificaiton = await verifyCommentPubsubMessage({
@@ -118,14 +122,14 @@ describe("sign comment", async () => {
         // Note: fixtureComment doesn't have protocolVersion, and communityAddress is now
         // omitted from signedPropertyNames. We verify determinism (signing twice produces same result)
         const commentToSign = { ...fixtureComment, signer: signers[1] } as unknown as CommentOptionsToSign;
-        const authorSignature = await signComment({ comment: commentToSign, pkc: pkc });
+        const authorSignature = await signComment({ comment: commentToSign, pkc: pkc, log: testLog });
         expect(authorSignature).to.exist;
         expect(authorSignature.publicKey).to.equal(signers[1].publicKey);
         expect(authorSignature.type).to.equal("ed25519");
         // communityAddress should NOT be in signedPropertyNames
         expect(authorSignature.signedPropertyNames).to.not.include("communityAddress");
         // Verify determinism: signing same input again produces same signature
-        const authorSignature2 = await signComment({ comment: commentToSign, pkc: pkc });
+        const authorSignature2 = await signComment({ comment: commentToSign, pkc: pkc, log: testLog });
         expect(authorSignature2.signature).to.equal(authorSignature.signature);
         expect(authorSignature2.signedPropertyNames.sort()).to.deep.equal(authorSignature.signedPropertyNames.sort());
     });
@@ -141,7 +145,7 @@ describe("sign comment", async () => {
                 signer: signers[7],
                 communityAddress: signers[7].address
             };
-            await signComment({ comment: commentToSign, pkc: pkc });
+            await signComment({ comment: commentToSign, pkc: pkc, log: testLog });
             expect.fail("Should have thrown");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58");
@@ -155,7 +159,7 @@ describe("sign comment", async () => {
             title: "comment title",
             content: "comment content"
         });
-        const signature = await signComment({ comment, pkc: pkc });
+        const signature = await signComment({ comment, pkc: pkc, log: testLog });
         const signedComment: CommentPubsubMessagePublication = { signature, ...omit(comment, ["signer", "communityAddress"]) };
         const res = await verifyCommentPubsubMessage({
             comment: signedComment,
@@ -174,7 +178,7 @@ describe("sign comment", async () => {
             title: "comment title",
             content: "comment content"
         });
-        const signature = await signComment({ comment, pkc: pkc });
+        const signature = await signComment({ comment, pkc: pkc, log: testLog });
         const signedComment: CommentPubsubMessagePublication = { signature, ...omit(comment, ["signer", "communityAddress"]) };
         const res = await verifyCommentPubsubMessage({
             comment: signedComment,
@@ -194,7 +198,7 @@ describe("sign comment", async () => {
         });
         // Override timestamp for deterministic test
         (comment as { timestamp: number }).timestamp = 12345678;
-        const signature = await signComment({ comment, pkc: pkc });
+        const signature = await signComment({ comment, pkc: pkc, log: testLog });
         const signedComment: CommentPubsubMessagePublication = { signature, ...omit(comment, ["signer", "communityAddress"]) };
         const res = await verifyCommentPubsubMessage({
             comment: signedComment,
@@ -219,7 +223,7 @@ describeSkipIfRpc("verify Comment", async () => {
     it(`Valid signature fixture is validated correctly`, async () => {
         // Sign the fixture comment with the current signing logic and verify
         const commentToSign = { ...fixtureComment, signer: signers[1] } as unknown as CommentOptionsToSign;
-        const freshSignature = await signComment({ comment: commentToSign, pkc: pkc });
+        const freshSignature = await signComment({ comment: commentToSign, pkc: pkc, log: testLog });
         const fixtureWithSignature = {
             ...omit(commentToSign, ["signer", "communityAddress"]),
             signature: freshSignature
@@ -290,7 +294,7 @@ describeSkipIfRpc("verify Comment", async () => {
         });
         const comment: CommentPubsubMessagePublication = {
             ...omit(commentToSign, ["signer", "communityAddress"]),
-            signature: await signComment({ comment: commentToSign, pkc: pkc })
+            signature: await signComment({ comment: commentToSign, pkc: pkc, log: testLog })
         };
         const verification = await verifyCommentPubsubMessage({
             comment,
@@ -311,7 +315,7 @@ describeSkipIfRpc("verify Comment", async () => {
             flairs: [{ text: "Discussion" }, { text: "Verified", backgroundColor: "#00ff00" }],
             signer
         };
-        const signature = await signComment({ comment: commentToSign, pkc: pkc });
+        const signature = await signComment({ comment: commentToSign, pkc: pkc, log: testLog });
         const signedComment: CommentPubsubMessagePublication = { signature, ...omit(commentToSign, ["signer", "communityAddress"]) };
         const verification = await verifyCommentPubsubMessage({
             comment: signedComment,
@@ -333,7 +337,7 @@ describeSkipIfRpc("verify Comment", async () => {
             content: "Testing author flairs",
             signer
         };
-        const signature = await signComment({ comment: commentToSign, pkc: pkc });
+        const signature = await signComment({ comment: commentToSign, pkc: pkc, log: testLog });
         const signedComment: CommentPubsubMessagePublication = { signature, ...omit(commentToSign, ["signer", "communityAddress"]) };
 
         // Tamper with author.flairs
@@ -358,7 +362,7 @@ describeSkipIfRpc("verify Comment", async () => {
             flairs: [{ text: "Original" }],
             signer
         };
-        const signature = await signComment({ comment: commentToSign, pkc: pkc });
+        const signature = await signComment({ comment: commentToSign, pkc: pkc, log: testLog });
         const signedComment: CommentPubsubMessagePublication = { signature, ...omit(commentToSign, ["signer", "communityAddress"]) };
 
         // Tamper with flairs as if a mod changed them
@@ -408,7 +412,7 @@ describeSkipIfRpc("verify Comment", async () => {
         };
         return {
             ...omit(commentToSign, ["signer", "communityAddress"]),
-            signature: await signComment({ comment: commentToSign, pkc }),
+            signature: await signComment({ comment: commentToSign, pkc, log: testLog }),
             depth: 0
         } as CommentIpfsType;
     };
@@ -525,7 +529,7 @@ describeSkipIfRpc(`Comment with author.name as domain`, async () => {
         });
         const signedPublication = {
             ...omit(commentToSign, ["signer", "communityAddress"]),
-            signature: await signComment({ comment: commentToSign, pkc: tempPKC })
+            signature: await signComment({ comment: commentToSign, pkc: tempPKC, log: testLog })
         } satisfies CommentPubsubMessagePublication;
 
         const verification = await verifyCommentPubsubMessage({
@@ -599,7 +603,8 @@ describeSkipIfRpc(`commentupdate`, async () => {
                 community: community,
                 comment: commentForVerify,
                 validatePages: true,
-                validateUpdateSignature: true
+                validateUpdateSignature: true,
+                log: testLog
             })
         ).to.deep.equal({ valid: true });
     });
@@ -612,7 +617,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
             depth: validCommentFixture.depth,
             signature: validCommentFixture.signature
         };
-        update.signature = await signCommentUpdate({ update, signer: signers[0] }); // Same signer as the community that signed the CommentUpdate
+        update.signature = await signCommentUpdate({ update, signer: signers[0], log: testLog }); // Same signer as the community that signed the CommentUpdate
         const verification = await verifyCommentUpdate({
             update,
             resolveAuthorNames: pkc.resolveAuthorNames,
@@ -620,7 +625,8 @@ describeSkipIfRpc(`commentupdate`, async () => {
             community: community,
             comment: commentForVerify,
             validatePages: true,
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            log: testLog
         });
         expect(verification).to.deep.equal({ valid: true });
     });
@@ -640,7 +646,8 @@ describeSkipIfRpc(`commentupdate`, async () => {
             community: community,
             comment: commentForVerify,
             validatePages: true,
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            log: testLog
         });
         expect(verification).to.deep.equal({ valid: true });
     });
@@ -653,7 +660,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
             depth: validCommentFixture.depth,
             signature: validCommentFixture.signature
         };
-        update.signature = await signCommentUpdate({ update, signer: signers[6] }); // A different signer than community
+        update.signature = await signCommentUpdate({ update, signer: signers[6], log: testLog }); // A different signer than community
         const verification = await verifyCommentUpdate({
             update,
             resolveAuthorNames: pkc.resolveAuthorNames,
@@ -661,7 +668,8 @@ describeSkipIfRpc(`commentupdate`, async () => {
             community: community,
             comment: commentForVerify,
             validatePages: true,
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            log: testLog
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_UPDATE_IS_NOT_SIGNED_BY_COMMUNITY });
     });
@@ -684,7 +692,8 @@ describeSkipIfRpc(`commentupdate`, async () => {
                 community: community,
                 comment: commentForVerify,
                 validatePages: false,
-                validateUpdateSignature: true
+                validateUpdateSignature: true,
+                log: testLog
             })
         ).to.deep.equal({ valid: true });
         update.edit.author = { name: "attacker.eth" };
@@ -694,7 +703,8 @@ describeSkipIfRpc(`commentupdate`, async () => {
                 signer: signers[7],
                 communityAddress: (update.edit as Record<string, unknown>).subplebbitAddress as string
             } as Parameters<typeof signCommentEdit>[0]["edit"],
-            pkc: pkc
+            pkc: pkc,
+            log: testLog
         });
         const verification = await verifyCommentUpdate({
             update: update as CommentUpdateType,
@@ -703,7 +713,8 @@ describeSkipIfRpc(`commentupdate`, async () => {
             community: community,
             comment: commentForVerify,
             validatePages: true,
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            log: testLog
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
     });
@@ -724,11 +735,12 @@ describeSkipIfRpc(`commentupdate`, async () => {
                 community: community,
                 comment: commentForVerify,
                 validatePages: true,
-                validateUpdateSignature: true
+                validateUpdateSignature: true,
+                log: testLog
             })
         ).to.deep.equal({ valid: true });
         update.edit.content += "12345"; // Invalidate signature
-        update.signature = await signCommentUpdate({ update: update as CommentUpdateType, signer: signers[6] }); // A different signer than community and author
+        update.signature = await signCommentUpdate({ update: update as CommentUpdateType, signer: signers[6], log: testLog }); // A different signer than community and author
 
         const verification = await verifyCommentUpdate({
             update: update as CommentUpdateType,
@@ -737,7 +749,8 @@ describeSkipIfRpc(`commentupdate`, async () => {
             community: community,
             comment: commentForVerify,
             validatePages: true,
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            log: testLog
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_UPDATE_EDIT_SIGNATURE_IS_INVALID });
     });
@@ -749,7 +762,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
         const otherCommentCid = validCommentUpdateFixture.cid;
         expect(update.edit!.commentCid).to.not.equal(otherCommentCid);
         update.cid = otherCommentCid;
-        update.signature = await signCommentUpdate({ update, signer: signers[0] });
+        update.signature = await signCommentUpdate({ update, signer: signers[0], log: testLog });
         const otherCommentByAuthor: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "postCid" | "depth" | "cid"> = {
             cid: otherCommentCid,
             postCid: undefined as unknown as string,
@@ -763,7 +776,8 @@ describeSkipIfRpc(`commentupdate`, async () => {
             community: community,
             comment: otherCommentByAuthor,
             validatePages: true,
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            log: testLog
         });
         expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_COMMENT_UPDATE_EDIT_IS_FOR_A_DIFFERENT_COMMENT });
     });
@@ -791,7 +805,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
         // so the author's signature still verifies over the fields the author did sign
         const update = clone(validCommentUpdateWithAuthorEditFixture) as CommentUpdateType;
         addUnsignedDeletedToEdit(update);
-        update.signature = await signCommentUpdate({ update, signer: signers[0] });
+        update.signature = await signCommentUpdate({ update, signer: signers[0], log: testLog });
         const verification = await verifyCommentUpdate({
             update,
             resolveAuthorNames: pkc.resolveAuthorNames,
@@ -799,7 +813,8 @@ describeSkipIfRpc(`commentupdate`, async () => {
             community: community,
             comment: authorEditCommentForVerify,
             validatePages: true,
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            log: testLog
         });
         expect(verification).to.deep.equal({
             valid: false,
@@ -828,7 +843,8 @@ describeSkipIfRpc(`commentupdate`, async () => {
                 community: community,
                 comment,
                 validatePages: true,
-                validateUpdateSignature: false
+                validateUpdateSignature: false,
+                log: testLog
             });
 
         const expectForgedUpdateRejectedAfterHonestOne = async ({
@@ -842,7 +858,7 @@ describeSkipIfRpc(`commentupdate`, async () => {
             comment: Pick<CommentIpfsWithCidPostCidDefined, "signature" | "postCid" | "depth" | "cid">;
             reason: messages;
         }) => {
-            honest.signature = await signCommentUpdate({ update: honest, signer: signers[0] });
+            honest.signature = await signCommentUpdate({ update: honest, signer: signers[0], log: testLog });
             expect(await verifyWithoutUpdateSignature(honest, comment)).to.deep.equal({ valid: true });
             const forged = clone(honest);
             forge(forged);

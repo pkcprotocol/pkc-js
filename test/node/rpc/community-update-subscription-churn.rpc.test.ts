@@ -22,6 +22,7 @@
 // asserts the server-side invariants directly after every churn round: the domain's updating
 // entry must exist, still be updating, with its mirror listener count back at the baseline.
 import { describe, beforeAll, afterAll, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import path from "path";
 import PKC from "../../../dist/node/index.js";
 import { createInProcessRpcServer, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
@@ -42,6 +43,9 @@ import type { InputPKCOptions } from "../../../dist/node/types.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:community-update-subscription-churn" });
 
 const RPC_AUTH_KEY = "test-community-subscription-churn";
 
@@ -111,7 +115,7 @@ describe("RPC community update subscription survives concurrent sibling churn (#
                 encryption: encryptionForSigner(signer)
             };
             if (!record.posts) delete record.posts;
-            record.signature = await signCommunity({ community: record, signer });
+            record.signature = await signCommunity({ community: record, signer, log: testLog });
             return record;
         };
         // signed by the template's key, published under newIpns' name -> rejected by verification
@@ -578,7 +582,7 @@ describe("RPC community update subscription survives concurrent sibling churn (#
                 updatedAt
             };
             if (!record.posts) delete record.posts;
-            record.signature = await signCommunity({ community: record, signer: newIpns.signer });
+            record.signature = await signCommunity({ community: record, signer: newIpns.signer, log: testLog });
             await newIpns.publishToIpns(JSON.stringify(record));
         };
         const initialUpdatedAt = Math.floor(Date.now() / 1000) - 60;

@@ -1,4 +1,5 @@
 import { createHeliaLight } from "helia";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { libp2pDefaults, withLibp2p } from "@helia/libp2p";
 import { withBitswap } from "@helia/bitswap";
 import { ipns } from "@helia/ipns";
@@ -20,7 +21,6 @@ import { NotFoundError, type AbortOptions, type Connection } from "@libp2p/inter
 import { unixfs } from "@helia/unixfs";
 import { fetch as libp2pFetch } from "@libp2p/fetch";
 import { pubSubIPNSRouting as createIpnsPubusubRouter } from "@helia/ipns";
-import Logger from "../logger.js";
 import type { AddResult, NameResolveOptions as KuboNameResolveOptions } from "kubo-rpc-client";
 import type { IpfsHttpClientPubsubMessage, ParsedPKCOptions } from "../types.js";
 
@@ -43,8 +43,6 @@ import {
 import type { IpnsPubsubLocalStore, ProviderReachability } from "./util.js";
 import { createDefaultDialTransportGater } from "./dial-transport-filter.js";
 import { binaryKeyToPubsubTopic, ipnsNameToIpnsOverPubsubTopic } from "../util.js";
-
-const log = Logger("pkc-js:libp2p-js");
 
 const libp2pJsClients: Partial<Record<string, Libp2pJsClient>> = {}; // key => pkc.clients.libp2pJsClients[key]
 const creatingLibp2pJsClients: Partial<Record<string, Promise<Libp2pJsClient>>> = {};
@@ -69,7 +67,7 @@ const DELEGATED_ROUTING_CONCURRENT_REQUESTS = 32;
 // Upstream: https://github.com/ipfs/helia-delegated-routing-v1-http-api/issues/208
 const DELEGATED_ROUTING_CACHE_NAME = "delegated-routing-v1-cache";
 
-function deleteLeftoverDelegatedRoutingCache() {
+function deleteLeftoverDelegatedRoutingCache(log: Logger) {
     // Only browsers have the Cache API (and the node build has no DOM lib to type it).
     const { caches } = globalThis as typeof globalThis & { caches?: { delete(cacheName: string): Promise<boolean> } };
     // Not awaited: on a large leftover cache the delete can take seconds and must not delay startup.
@@ -79,7 +77,7 @@ function deleteLeftoverDelegatedRoutingCache() {
 }
 
 // TODO can you verify if we're already content who has a specific and we fetch the CID even though http router says it has no providers, it should be able to load the CID
-function getDelegatedRoutingFields(routers: string[]) {
+function getDelegatedRoutingFields(routers: string[], log: Logger) {
     // @helia/delegated-routing-v1-http-api-client 8.x: the raw client returned by
     // delegatedRoutingV1HttpApiClient() no longer exposes the libp2p contentRouting/peerRouting
     // symbols, so putting it in `services` would silently register zero content routers
@@ -155,12 +153,17 @@ export function isLocalStoreIpnsRouter(router: unknown): boolean {
 // per-ttl revalidation of issues #301/#307 (which also re-warms the mesh via the network path).
 export const IPNS_PUSH_CHANNEL_WATCHDOG_MS = 15 * 60_000;
 
+// `log` is a child of the CREATING pkc instance's root (issue #493): the client is cached in a module-level map and
+// shared across instances, so a later instance that reuses it does not get these lines in its own buffer.
 export async function createLibp2pJsClientOrUseExistingOne(
     pkcOptions: Required<Pick<ParsedPKCOptions, "httpRoutersOptions">> &
         Pick<ParsedPKCOptions, "dataPath"> &
-        NonNullable<ParsedPKCOptions["libp2pJsClientsOptions"]>[number]
+        NonNullable<ParsedPKCOptions["libp2pJsClientsOptions"]>[number] & { log: Logger }
 ): Promise<Libp2pJsClient> {
     if (!pkcOptions.httpRoutersOptions?.length) throw Error("You need to have pkc.httpRouterOptions to set up helia");
+    const log = pkcOptions.log;
+    const pubsubLog = log.child({ namespace: "pubsub" });
+    const ipnsLog = log.child({ namespace: "ipns" });
     const existingClient = libp2pJsClients[pkcOptions.key];
     if (existingClient) {
         existingClient.countOfUsesOfInstance++;
@@ -182,7 +185,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
     let closeBlockstore = async () => {};
 
     creatingLibp2pJsClients[pkcOptions.key] = (async () => {
-        deleteLeftoverDelegatedRoutingCache();
+        deleteLeftoverDelegatedRoutingCache(log);
         // A caller supplying their own heliaOptions.blockstore owns block storage entirely, so skip
         // ours rather than opening a directory or IndexedDB database nothing will read.
         let lruBlockstore: LruBlockstore | undefined;
@@ -200,6 +203,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
             // defaultMaxBytes comes from the backend we actually got: falling back to an in-memory
             // store means the cap is a heap budget, not a disk budget, and must be far smaller.
             lruBlockstore = new LruBlockstore(childBlockstore, {
+                log: log.child({ namespace: "blockstore" }),
                 maxBytes: pkcOptions.blockstoreOptions?.maxBytes ?? defaultMaxBytes,
                 lowWaterRatio: pkcOptions.blockstoreOptions?.lowWaterRatio
             });
@@ -245,7 +249,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     pubsub: gossipsub(),
                     // powers @helia/ipns pubsub fast-path: fetch latest record from new topic peers (PR ipfs/helia#906)
                     fetch: libp2pFetch(),
-                    ...getDelegatedRoutingFields(pkcOptions.httpRoutersOptions),
+                    ...getDelegatedRoutingFields(pkcOptions.httpRoutersOptions, log),
                     ...pkcOptions.libp2pOptions?.services
                 }
             },
@@ -638,7 +642,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 pubsubTopic: topic,
                 maxPeers: WARMUP_MAX_PEERS,
                 options,
-                log: Logger("pkc-js:helia:pubsub:warmup")
+                log: pubsubLog
             })
                 .then(() => undefined)
                 .finally(() => {
@@ -772,7 +776,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                     maxPeers: WARMUP_MAX_PEERS,
                                     validate: ipnsValidator,
                                     options,
-                                    log: Logger("pkc-js:helia:ipns:direct-fetch")
+                                    log: ipnsLog
                                 });
                                 if (direct.recordBytes) {
                                     directFetchOutcome = {

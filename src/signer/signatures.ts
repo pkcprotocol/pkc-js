@@ -5,6 +5,7 @@ import {
     getPKCAddressFromPublicKey,
     getPKCAddressFromPublicKeyBuffer
 } from "./util.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import * as cborg from "cborg";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
@@ -29,7 +30,6 @@ import type {
     PublicationFromDecryptedChallengeRequest,
     PubsubMessage
 } from "../pubsub-messages/types.js";
-import Logger from "../logger.js";
 import { messages } from "../errors.js";
 import assert from "assert";
 import { BaseClientsManager } from "../clients/base-client-manager.js";
@@ -288,12 +288,13 @@ export function cleanUpBeforePublishing<T>(msg: T): T {
 
 export async function signComment({
     comment,
-    pkc
+    pkc,
+    log
 }: {
     comment: CommentOptionsToSign;
     pkc: PKC;
+    log: Logger;
 }): Promise<CommentPubsubMessagPublicationSignature> {
-    const log = Logger("pkc-js:signatures:signComment");
     await _validateAuthorAddressBeforeSigning(comment.author, comment.signer, pkc);
     return <CommentPubsubMessagPublicationSignature>(
         await _signJson(<JsonSignature["signedPropertyNames"]>CommentSignedPropertyNames, comment, comment.signer, log)
@@ -302,12 +303,13 @@ export async function signComment({
 
 export async function signCommentUpdate({
     update,
-    signer
+    signer,
+    log
 }: {
     update: Omit<CommentUpdateType, "signature">;
     signer: SignerType;
+    log: Logger;
 }): Promise<CommentUpdateSignature> {
-    const log = Logger("pkc-js:signatures:signCommentUpdate");
     // Not sure, should we validate update.authorEdit here?
     return <CommentUpdateSignature>(
         await _signJson(<JsonSignature["signedPropertyNames"]>CommentUpdateSignedPropertyNames, update, signer, log)
@@ -316,12 +318,13 @@ export async function signCommentUpdate({
 
 export async function signCommentUpdateForChallengeVerification({
     update,
-    signer
+    signer,
+    log
 }: {
     update: Omit<DecryptedChallengeVerification["commentUpdate"], "signature"> & Record<string, unknown>;
     signer: SignerType;
+    log: Logger;
 }): Promise<CommentUpdateForChallengeVerificationSignature> {
-    const log = Logger("pkc-js:signatures:signCommentUpdateForChallengeVerification");
     // Dynamic signedPropertyNames so challenge-supplied keys (e.g. `reason`, `countryCode`) land in
     // the signature alongside the base picked fields. Verification on the author side reads keys
     // from signature.signedPropertyNames, so extras are signed-and-verified.
@@ -335,28 +338,35 @@ export async function signCommentUpdateForChallengeVerification({
     return <CommentUpdateForChallengeVerificationSignature>await _signJson(signedPropertyNames, update, signer, log);
 }
 
-export async function signVote({ vote, pkc }: { vote: VoteOptionsToSign; pkc: PKC }): Promise<VoteSignature> {
-    const log = Logger("pkc-js:signatures:signVote");
+export async function signVote({ vote, pkc, log }: { vote: VoteOptionsToSign; pkc: PKC; log: Logger }): Promise<VoteSignature> {
     await _validateAuthorAddressBeforeSigning(vote.author, vote.signer, pkc);
     return <VoteSignature>await _signJson(VoteSignedPropertyNames, vote, vote.signer, log);
 }
 
 export async function signCommunityEdit({
     communityEdit,
-    pkc
+    pkc,
+    log
 }: {
     communityEdit: CommunityEditPublicationOptionsToSign;
     pkc: PKC;
+    log: Logger;
 }): Promise<CommunityEditPublicationSignature> {
-    const log = Logger("pkc-js:signatures:signCommunityEdit");
     await _validateAuthorAddressBeforeSigning(communityEdit.author, communityEdit.signer, pkc);
     return <CommunityEditPublicationSignature>(
         await _signJson(CommunityEditPublicationSignedPropertyNames, communityEdit, communityEdit.signer, log)
     );
 }
 
-export async function signCommentEdit({ edit, pkc }: { edit: CommentEditOptionsToSign; pkc: PKC }): Promise<CommentEditSignature> {
-    const log = Logger("pkc-js:signatures:signCommentEdit");
+export async function signCommentEdit({
+    edit,
+    pkc,
+    log
+}: {
+    edit: CommentEditOptionsToSign;
+    pkc: PKC;
+    log: Logger;
+}): Promise<CommentEditSignature> {
     await _validateAuthorAddressBeforeSigning(edit.author, edit.signer, pkc);
     return <CommentEditSignature>(
         await _signJson(<JsonSignature["signedPropertyNames"]>CommentEditSignedPropertyNames, edit, edit.signer, log)
@@ -365,49 +375,53 @@ export async function signCommentEdit({ edit, pkc }: { edit: CommentEditOptionsT
 
 export async function signCommentModeration({
     commentMod,
-    pkc
+    pkc,
+    log
 }: {
     commentMod: CommentModerationOptionsToSign;
     pkc: PKC;
+    log: Logger;
 }): Promise<CommentModerationSignature> {
-    const log = Logger("pkc-js:signatures:signCommentModeration");
     await _validateAuthorAddressBeforeSigning(commentMod.author, commentMod.signer, pkc);
     return <CommentModerationSignature>await _signJson(CommentModerationSignedPropertyNames, commentMod, commentMod.signer, log);
 }
 
 export async function signCommunity({
     community,
-    signer
+    signer,
+    log
 }: {
     community: Omit<CommunityIpfsType, "signature">;
     signer: SignerType;
+    log: Logger;
 }): Promise<CommunitySignature> {
-    const log = Logger("pkc-js:signatures:signCommunity");
     return <CommunitySignature>await _signJson(<JsonSignature["signedPropertyNames"]>CommunitySignedPropertyNames, community, signer, log);
 }
 
 export async function signCommunityList({
     communityList,
     signer,
-    pkc
+    pkc,
+    log
 }: {
     communityList: Omit<CommunityListIpfsType, "signature">;
     signer: SignerType;
     pkc: PKC;
+    log: Logger;
 }): Promise<JsonSignature> {
-    const log = Logger("pkc-js:signatures:signCommunityList");
     await _validateAuthorAddressBeforeSigning(communityList.author, signer, pkc);
     return await _signJson(<JsonSignature["signedPropertyNames"]>CommunityListSignedPropertyNames, communityList, signer, log);
 }
 
 export async function signChallengeRequest({
     request,
-    signer
+    signer,
+    log
 }: {
     request: Omit<ChallengeRequestMessageType, "signature">;
     signer: SignerType;
+    log: Logger;
 }): Promise<ChallengeRequestMessageSignature> {
-    const log = Logger("pkc-js:signatures:signChallengeRequest");
     return <ChallengeRequestMessageSignature>await _signPubsubMsg({
         signedPropertyNames: <PubsubSignature["signedPropertyNames"]>ChallengeRequestMessageSignedPropertyNames,
         msg: request,
@@ -418,12 +432,13 @@ export async function signChallengeRequest({
 
 export async function signChallengeMessage({
     challengeMessage,
-    signer
+    signer,
+    log
 }: {
     challengeMessage: Omit<ChallengeMessageType, "signature">;
     signer: SignerType;
+    log: Logger;
 }): Promise<ChallengeMessageSignature> {
-    const log = Logger("pkc-js:signatures:signChallengeMessage");
     return <ChallengeMessageSignature>await _signPubsubMsg({
         signedPropertyNames: <PubsubSignature["signedPropertyNames"]>ChallengeMessageSignedPropertyNames,
         msg: challengeMessage,
@@ -434,12 +449,13 @@ export async function signChallengeMessage({
 
 export async function signChallengeAnswer({
     challengeAnswer,
-    signer
+    signer,
+    log
 }: {
     challengeAnswer: Omit<ChallengeAnswerMessageType, "signature">;
     signer: SignerType;
+    log: Logger;
 }): Promise<ChallengeAnswerMessageSignature> {
-    const log = Logger("pkc-js:signatures:signChallengeAnswer");
     return <ChallengeAnswerMessageSignature>await _signPubsubMsg({
         signedPropertyNames: <PubsubSignature["signedPropertyNames"]>ChallengeAnswerMessageSignedPropertyNames,
         msg: challengeAnswer,
@@ -450,12 +466,13 @@ export async function signChallengeAnswer({
 
 export async function signChallengeVerification({
     challengeVerification,
-    signer
+    signer,
+    log
 }: {
     challengeVerification: Omit<ChallengeVerificationMessageType, "signature">;
     signer: SignerType;
+    log: Logger;
 }): Promise<ChallengeVerificationMessageSignature> {
-    const log = Logger("pkc-js:signatures:signChallengeVerification");
     return <ChallengeVerificationMessageSignature>await _signPubsubMsg({
         signedPropertyNames: <PubsubSignature["signedPropertyNames"]>ChallengeVerificationMessageSignedPropertyNames,
         msg: challengeVerification,
@@ -802,7 +819,8 @@ export async function verifyCommunity({
     clientsManager,
     validatePages,
     cacheIfValid,
-    abortSignal
+    abortSignal,
+    log
 }: {
     community: CommunityIpfsType;
     // The resolved IPNS delegation chain [anchor, ..., terminal], the same shape as
@@ -817,8 +835,8 @@ export async function verifyCommunity({
     validatePages: boolean;
     cacheIfValid?: boolean;
     abortSignal?: AbortSignal;
+    log: Logger;
 }): Promise<ValidationResult> {
-    const log = Logger("pkc-js:signatures:verifyCommunity");
     // A caller bug rather than an invalid record, same as the unusable-page throw below.
     if (!Array.isArray(communityIpnsHops) || communityIpnsHops.length === 0)
         throw Error("verifyCommunity needs a non-empty communityIpnsHops to verify a community record against");
@@ -876,12 +894,13 @@ export async function verifyCommunity({
                 parentComment: { cid: undefined, depth: -1, postCid: undefined },
                 validatePages,
                 validateUpdateSignature: false, // no need because we already verified community signature
-                abortSignal
+                abortSignal,
+                log: log
             });
 
             if (!pageValidity.valid) {
                 log.error(
-                    `Community (${communityAddress}) page (${preloadedPageSortName} - ${community.posts.pageCids?.[preloadedPageSortName]}) has an invalid signature due to reason (${pageValidity.reason})`
+                    `verifyCommunity: Community (${communityAddress}) page (${preloadedPageSortName} - ${community.posts.pageCids?.[preloadedPageSortName]}) has an invalid signature due to reason (${pageValidity.reason})`
                 );
                 return { valid: false, reason: messages.ERR_COMMUNITY_POSTS_INVALID };
             }
@@ -934,7 +953,8 @@ export async function verifyCommentUpdate({
     comment,
     validatePages,
     validateUpdateSignature,
-    abortSignal
+    abortSignal,
+    log
 }: {
     update: CommentUpdateType | CommentUpdateForChallengeVerification | ModQueuePageIpfs["comments"][0]["commentUpdate"];
     resolveAuthorNames: boolean;
@@ -944,13 +964,12 @@ export async function verifyCommentUpdate({
     validatePages: boolean;
     validateUpdateSignature: boolean;
     abortSignal?: AbortSignal;
+    log: Logger;
 }): Promise<ValidationResult> {
     if (!_allFieldsOfRecordInSignedPropertyNames(update))
         return { valid: false, reason: messages.ERR_COMMENT_UPDATE_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
     if (_isThereReservedFieldInRecord(update, CommentUpdateReservedFields))
         return { valid: false, reason: messages.ERR_COMMENT_UPDATE_RECORD_INCLUDES_RESERVED_FIELD };
-
-    const log = Logger("pkc-js:signatures:verifyCommentUpdate");
 
     if (validateUpdateSignature) {
         const jsonValidation = await _validateSignatureOfPKCRecord(update);
@@ -1019,7 +1038,8 @@ export async function verifyCommentUpdate({
                 // (a page is one level), so its own signature cannot verify. The signature of `update`, which covers the
                 // page byte for byte, is what vouches for it, the way a fetched page's cid does (issue #477).
                 validateUpdateSignature: validateUpdateSignature && !isFlatRepliesPage,
-                abortSignal
+                abortSignal,
+                log: log
             });
             if (!validity.valid) return validity;
         }
@@ -1165,7 +1185,8 @@ export async function verifyPageComment({
     clientsManager,
     validatePages,
     validateUpdateSignature,
-    abortSignal
+    abortSignal,
+    log
 }: {
     pageComment: (PageIpfs | ModQueuePageIpfs)["comments"][0];
     community: CommunityForVerifyingPages;
@@ -1175,6 +1196,7 @@ export async function verifyPageComment({
     validatePages: boolean;
     validateUpdateSignature: boolean;
     abortSignal?: AbortSignal;
+    log: Logger;
 }): Promise<ValidationResult> {
     // we need to account for multiple cases:
     // when we're verifying a page from a community.posts, that means there's no parent comment cid or any of its props
@@ -1249,7 +1271,8 @@ export async function verifyPageComment({
         },
         validatePages,
         validateUpdateSignature,
-        abortSignal
+        abortSignal,
+        log: log
     });
     if (!commentUpdateSignatureValidity.valid) return commentUpdateSignatureValidity;
 
@@ -1267,7 +1290,8 @@ export async function verifyPage({
     validatePages,
 
     validateUpdateSignature,
-    abortSignal
+    abortSignal,
+    log
 }: {
     pageCid: string | undefined;
     pageSortName: string | undefined;
@@ -1279,6 +1303,7 @@ export async function verifyPage({
     validatePages: boolean;
     validateUpdateSignature: boolean;
     abortSignal?: AbortSignal;
+    log: Logger;
 }): Promise<ValidationResult> {
     const cacheKey =
         pageCid &&
@@ -1294,7 +1319,8 @@ export async function verifyPage({
             parentComment,
             validatePages,
             validateUpdateSignature,
-            abortSignal
+            abortSignal,
+            log: log
         });
         if (!verifyRes.valid) return verifyRes;
     }
@@ -1313,7 +1339,8 @@ export async function verifyModQueuePage({
     validatePages,
 
     validateUpdateSignature,
-    abortSignal
+    abortSignal,
+    log
 }: {
     pageCid: string | undefined;
     page: ModQueuePageIpfs;
@@ -1323,6 +1350,7 @@ export async function verifyModQueuePage({
     validatePages: boolean;
     validateUpdateSignature: boolean;
     abortSignal?: AbortSignal;
+    log: Logger;
 }): Promise<ValidationResult> {
     const cacheKey = pageCid && sha256(pageCid + community.publicKey + community.name + validatePages + validateUpdateSignature);
     if (cacheKey) if (clientsManager._pkc._memCaches.pageVerificationCache.get(cacheKey)) return { valid: true };
@@ -1336,7 +1364,8 @@ export async function verifyModQueuePage({
             parentComment: undefined,
             validatePages,
             validateUpdateSignature,
-            abortSignal
+            abortSignal,
+            log: log
         });
         if (!verifyRes.valid) return verifyRes;
     }

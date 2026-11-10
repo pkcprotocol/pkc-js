@@ -1,4 +1,5 @@
 import { parseModQueuePageIpfs, parsePageIpfs } from "./util.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import type { GetPageParam, ModQueuePageIpfs, ModQueuePageTypeJson, PageIpfs, PageTypeJson, PostSortName, ReplySortName } from "./types.js";
 import { verifyModQueuePage, verifyPage } from "../signer/signatures.js";
 import {
@@ -28,6 +29,9 @@ type BaseProps = {
         ipnsPubsubTopic?: RemoteCommunity["ipnsPubsubTopic"];
     };
     pkc: PKC;
+    // The owner's child logger for these pages (issue #493): a community's "posts"/"mod-queue" child or a comment's
+    // "replies" child, so page lines carry the owner's tags.
+    log: Logger;
 };
 
 type PostsProps = Pick<PostsPages, "pages" | "pageCids"> & BaseProps & { community: RemoteCommunity };
@@ -47,12 +51,12 @@ export class BasePages {
     _community!: BaseProps["community"];
 
     constructor(props: PostsProps | RepliesProps | ModQueueProps) {
-        this._initClientsManager(props.pkc);
+        this._initClientsManager(props.pkc, props.log);
         this.updateProps(props);
         hideClassPrivateProps(this);
     }
 
-    updateProps(props: Omit<PostsProps | RepliesProps | ModQueueProps, "pkc">) {
+    updateProps(props: Omit<PostsProps | RepliesProps | ModQueueProps, "pkc" | "log">) {
         this.pages = props.pages;
         this.pageCids = props.pageCids;
         this._community = props.community;
@@ -86,7 +90,7 @@ export class BasePages {
         }
     }
 
-    protected _initClientsManager(pkc: PKC) {
+    protected _initClientsManager(pkc: PKC, log: Logger) {
         throw Error(`This function should be overridden`);
     }
 
@@ -164,12 +168,12 @@ export class RepliesPages extends BasePages {
         hideClassPrivateProps(this);
     }
 
-    override updateProps(props: Omit<RepliesProps, "pkc" | "parentComment">) {
+    override updateProps(props: Omit<RepliesProps, "pkc" | "log" | "parentComment">) {
         super.updateProps(props);
     }
 
-    protected override _initClientsManager(pkc: PKC): void {
-        this._clientsManager = new RepliesPagesClientsManager({ pkc, pages: this });
+    protected override _initClientsManager(pkc: PKC, log: Logger): void {
+        this._clientsManager = new RepliesPagesClientsManager({ pkc, pages: this, log });
         this.clients = this._clientsManager.clients;
     }
 
@@ -247,7 +251,8 @@ export class RepliesPages extends BasePages {
 
             validatePages: this._clientsManager._pkc.validatePages,
             validateUpdateSignature: false, // no need because we verified that page cid matches its content
-            abortSignal: this._parentComment._getStopAbortSignal()
+            abortSignal: this._parentComment._getStopAbortSignal(),
+            log: this._clientsManager._log
         };
         const signatureValidity = await verifyPage(verificationOpts);
         if (!signatureValidity.valid)
@@ -273,12 +278,12 @@ export class PostsPages extends BasePages {
         super(props);
     }
 
-    override updateProps(props: Omit<PostsProps, "pkc">) {
+    override updateProps(props: Omit<PostsProps, "pkc" | "log">) {
         super.updateProps(props);
     }
 
-    protected override _initClientsManager(pkc: PKC): void {
-        this._clientsManager = new CommunityPostsPagesClientsManager({ pkc, pages: this });
+    protected override _initClientsManager(pkc: PKC, log: Logger): void {
+        this._clientsManager = new CommunityPostsPagesClientsManager({ pkc, pages: this, log });
         this.clients = this._clientsManager.clients;
     }
 
@@ -315,7 +320,8 @@ export class PostsPages extends BasePages {
 
             validatePages: this._clientsManager._pkc.validatePages,
             validateUpdateSignature: false, // no need because we verified that page cid matches its content
-            abortSignal: this._community._getStopAbortSignal?.()
+            abortSignal: this._community._getStopAbortSignal?.(),
+            log: this._clientsManager._log
         };
         const signatureValidity = await verifyPage(verificationOpts);
         if (!signatureValidity.valid)
@@ -342,8 +348,8 @@ export class ModQueuePages extends BasePages {
         this.pages = {};
     }
 
-    protected override _initClientsManager(pkc: PKC): void {
-        this._clientsManager = new CommunityModQueueClientsManager({ pkc, pages: this });
+    protected override _initClientsManager(pkc: PKC, log: Logger): void {
+        this._clientsManager = new CommunityModQueueClientsManager({ pkc, pages: this, log });
         this.clients = this._clientsManager.clients;
     }
 
@@ -378,7 +384,8 @@ export class ModQueuePages extends BasePages {
 
             validatePages: this._clientsManager._pkc.validatePages,
             validateUpdateSignature: false, // no need because we verified that page cid matches its content
-            abortSignal: this._community._getStopAbortSignal?.()
+            abortSignal: this._community._getStopAbortSignal?.(),
+            log: this._clientsManager._log
         };
         const signatureValidity = await verifyModQueuePage(verificationOpts);
         if (!signatureValidity.valid)

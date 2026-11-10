@@ -324,7 +324,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
                 const extraPropsInEncrypted = { extraProp: 1234 };
 
-                const log = Logger("pkc-js:test:backward-compat-pubsub");
+                const log = Logger({ namespace: "pkc-js:test:backward-compat-pubsub" });
                 commentUpdate.signature = await _signJson(keys(omit(commentUpdate, ["signature"])), commentUpdate, pubsubSigner, log);
 
                 await post.publish();

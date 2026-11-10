@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { WebSocketServer, type WebSocket, type RawData } from "ws";
 import { EventEmitter } from "events";
 import PKCRpcClient from "../../../dist/node/clients/rpc-client/pkc-rpc-client.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:rpc-client-lost-response" });
 
 // Reproduces the CI hang from issue #195 (rpc.auto-start "rapid concurrent state updates" timing out on
 // windows-latest): the RPC server completed all 5 startCommunity calls, but one JSON-RPC response never
@@ -80,7 +84,7 @@ describe("PKCRpcClient calls whose response is lost", () => {
 
     beforeAll(async () => {
         server = await LossyRpcServer.create(3); // drop the response of the 3rd call, like the CI incident
-        client = new PKCRpcClient(`ws://127.0.0.1:${server.port}`);
+        client = new PKCRpcClient(`ws://127.0.0.1:${server.port}`, testLog);
     });
 
     afterAll(async () => {
