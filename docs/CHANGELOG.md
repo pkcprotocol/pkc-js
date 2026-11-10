@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.140](https://github.com/pkcprotocol/pkc-js/compare/v0.0.139...v0.0.140) (2026-11-10)
+
+### Bug Fixes
+
+* **community:** measure a page's DAG size as one file when chunking, not per entry ([#504](https://github.com/pkcprotocol/pkc-js/issues/504)) ([#510](https://github.com/pkcprotocol/pkc-js/issues/510)) ([54ad72e](https://github.com/pkcprotocol/pkc-js/commit/54ad72e415490294ac0475db52aa82ae2b61bc77))
+
 ## [0.0.139](https://github.com/pkcprotocol/pkc-js/compare/v0.0.138...v0.0.139) (2026-11-10)
 
 ### Features
