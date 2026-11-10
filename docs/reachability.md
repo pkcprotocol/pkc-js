@@ -3,7 +3,7 @@
 A community is served by whatever nodes announce themselves as providers of its IPNS record: the node that runs it, and any node that seeds it. A client can only load the community if it can open a direct connection to at least one of those providers. Whether it can depends on two things the client checks locally, before any network round trip:
 
 1. **What addresses the providers announce.** A node behind NAT (a home router, carrier-grade NAT, a mobile hotspot, no port forwarding or UPnP) cannot be reached from the outside. Kubo detects this (AutoNAT reports `Private`) and announces only `/p2p-circuit` addresses, meaning "reach me through this relay".
-2. **What transports the client has.** A browser can only open WebSocket Secure (`/tls/ws`), WebTransport and WebRTC connections, and pkc-js browsers dial WebSocket Secure only by default (see [What a seeder must announce](#what-a-seeder-must-announce-to-be-browser-dialable)). A Node.js libp2p-js client can also open TCP. Kubo can open everything, including relayed connections that it then upgrades to direct ones by hole punching.
+2. **What transports the client has.** A browser can only open WebSocket Secure (`/tls/ws`), WebTransport and WebRTC connections, and pkc-js browsers dial WebSocket Secure and WebTransport by default and deny WebRTC (see [What a seeder must announce](#what-a-seeder-must-announce-to-be-browser-dialable)). A Node.js libp2p-js client can also open TCP. Kubo can open everything, including relayed connections that it then upgrades to direct ones by hole punching.
 
 When the client finds providers but every one of them fails those local checks, pkc-js reports `ERR_COMMUNITY_UNREACHABLE_FROM_THIS_CLIENT` instead of the generic "does this IPNS name exist?" error. The community exists and its providers were found. This client simply cannot connect to any of them.
 
@@ -57,7 +57,7 @@ Pick whichever side you control.
 
 This is the contract between pkc-js browsers and the nodes that serve communities (the community's own node and every [bitsocial-seeder](https://github.com/bitsocialnet/bitsocial-seeder)). `bitsocial reachability` in bitsocial-cli implements it; the probe below checks it. A provider record that satisfies it lets a browser connect in one dial; a provider that announces only `/tcp/4001` and `/udp/4001/quic-v1` is invisible to every browser, however healthy the node is.
 
-A browser can open exactly three kinds of libp2p connection: WebSocket Secure, WebTransport and WebRTC. pkc-js dials WebSocket Secure by default and denies WebRTC and WebTransport in its connection gater (`src/helia/dial-transport-filter.ts`, decided in #166; WebTransport is being re-enabled under #475). So the record must carry, in this order of importance:
+A browser can open exactly three kinds of libp2p connection: WebSocket Secure, WebTransport and WebRTC. pkc-js dials WebSocket Secure and WebTransport by default, WebSocket Secure first, and denies WebRTC in its connection gater (`src/helia/dial-transport-filter.ts`; WebRTC was denied in #166, WebTransport has been allowed since #475). So the record must carry, in this order of importance:
 
 1. **A WebSocket Secure address on TCP 443 behind a certificate browsers trust.** The multiaddr ends in `/tcp/443/tls/ws` (older records write `/wss`). Two valid forms:
 

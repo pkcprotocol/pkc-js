@@ -86,6 +86,8 @@
         "@libp2p/identify": "4.1.18",
         "@libp2p/interface": "3.4.0",
         "@libp2p/peer-id": "6.0.18",
+        "@libp2p/utils": "7.4.5",
+        "@libp2p/webtransport": "6.0.44",
         "@multiformats/multiaddr": "13.0.3",
         "@noble/curves": "2.2.0",
         "@pkcprotocol/pkc-logger": "0.1.0",

@@ -119,7 +119,28 @@ const httpRouterNodeArgs = {
     extraCommands: ["bootstrap rm --all", "config --json Discovery.MDNS.Enabled false"]
 };
 
-const ipfsNodesToRun = [offlineNodeArgs, pubsubNodeArgs, anotherOfflineNodeArgs, anotherPubsubNodeArgs, httpRouterNodeArgs];
+// A kubo node that also listens on WebTransport, so browser tests can open a real WebTransport
+// connection (test/node-and-browser/helia/webtransport-abort-crash.test.ts, pkc-js#495). It is kept
+// apart from the other nodes on purpose: no bootstrap peers, no communities, nothing provided, so no
+// other test ever learns its addresses or dials it.
+const webTransportNodeArgs = {
+    dir: path.join(process.cwd(), ".test-ipfs-webtransport"),
+    apiPort: 15007,
+    gatewayPort: 18086,
+    swarmPort: 24007,
+    webTransportPort: 24007, // UDP, so it can share the number with the TCP swarm port
+    daemonArgs: "--enable-pubsub-experiment",
+    extraCommands: ["bootstrap rm --all", "config --json Discovery.MDNS.Enabled false"]
+};
+
+const ipfsNodesToRun = [
+    offlineNodeArgs,
+    pubsubNodeArgs,
+    anotherOfflineNodeArgs,
+    anotherPubsubNodeArgs,
+    httpRouterNodeArgs,
+    webTransportNodeArgs
+];
 
 const startIpfsNode = async (nodeArgs) => {
     console.log("Initializing Node", nodeArgs.dir, "\n");
@@ -172,6 +193,8 @@ const startIpfsNode = async (nodeArgs) => {
     ipfsConfig["Gateway"]["HTTPHeaders"]["Access-Control-Allow-Methods"] = ["*"];
     ipfsConfig["Ipns"]["MaxCacheTTL"] = "10s";
     ipfsConfig["Addresses"]["Swarm"] = [`/ip4/0.0.0.0/tcp/${nodeArgs.swarmPort}/ws`];
+    if (nodeArgs.webTransportPort)
+        ipfsConfig["Addresses"]["Swarm"].push(`/ip4/127.0.0.1/udp/${nodeArgs.webTransportPort}/quic-v1/webtransport`);
     fs.writeFileSync(ipfsConfigPath, JSON.stringify(ipfsConfig), "utf8");
 
     const daemonArgs = nodeArgs.daemonArgs?.length ? nodeArgs.daemonArgs.trim().split(/\s+/) : [];
