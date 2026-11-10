@@ -18,6 +18,7 @@ import { isCommunityStartLocked } from "../../../../dist/node/runtime/node/commu
 import { findUpdatingCommunity } from "../../../../dist/node/pkc/tracked-instance-registry-util.js";
 import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
+import type { PKCError } from "../../../../dist/node/pkc-error.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 
 vi.mock("../../../../dist/node/runtime/node/util.js", async (importOriginal) => ({
@@ -347,5 +348,64 @@ describeSkipIfRpc("stop() while update() loads the community the first time", ()
         expect(findUpdatingCommunity(pkc, { publicKey: community.publicKey, name: community.name })).to.equal(undefined);
         expect(community._updateLoopPromise).to.equal(undefined);
         expect(community._dbHandler._db?.open ?? false).to.equal(false);
+    });
+});
+
+// Holds each start() at lockCommunityStart until both calls are there, or until one of them settled without reaching it
+function holdLockUntilBothArrive(instances: LocalCommunity[], starts: () => Promise<unknown>[]) {
+    let arrived = 0;
+    const bothArrived = deferred();
+    for (const instance of instances) {
+        const lockCommunityStart = instance._dbHandler.lockCommunityStart.bind(instance._dbHandler);
+        instance._dbHandler.lockCommunityStart = async (...args: Parameters<typeof lockCommunityStart>) => {
+            if (++arrived === 2) bothArrived.resolve();
+            await bothArrived.promise;
+            return lockCommunityStart(...args);
+        };
+    }
+    const promises = starts();
+    for (const promise of promises) promise.then(bothArrived.resolve, bothArrived.resolve);
+    return Promise.allSettled(promises);
+}
+
+// Not over RPC: drives a LocalCommunity in this process with fake kubo and pubsub clients (see the header)
+describeSkipIfRpc("start() calls that race for the start lock", () => {
+    it("two instances: the one that loses does not release the lock the winner holds", async () => {
+        const { pkc, community, isStartLocked } = await createOfflineCommunity();
+        const sameCommunity = (await pkc.createCommunity({ address: community.address })) as LocalCommunity;
+        sameCommunity.on("error", () => {});
+        expect(sameCommunity).to.not.equal(community);
+        await sameCommunity.initDbHandlerIfNeeded();
+
+        const results = await holdLockUntilBothArrive([community, sameCommunity], () => [community.start(), sameCommunity.start()]);
+
+        const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+        expect(rejected.length).to.equal(1);
+        expect((rejected[0].reason as PKCError).code).to.equal("ERR_COMMUNITY_ALREADY_STARTED");
+        const winner = results[0].status === "fulfilled" ? community : sameCommunity;
+        const loser = winner === community ? sameCommunity : community;
+        expect(winner.state).to.equal("started");
+        expect(loser.state).to.equal("stopped");
+        // initBeforeStarting() opened the loser's DB; a stopped community keeps no connection (an open one also blocks
+        // deleting the file on Windows)
+        expect(loser._dbHandler._db?.open ?? false).to.equal(false);
+        expect(await isStartLocked()).to.equal(true);
+        await winner._updateStartedValue();
+        expect(winner.started).to.equal(true);
+        await winner.stop();
+    });
+
+    it("one instance called twice: the second call does not tear down the first", async () => {
+        const { community, isStartLocked } = await createOfflineCommunity();
+
+        const results = await holdLockUntilBothArrive([community], () => [community.start(), community.start()]);
+
+        expect(results.map((result) => result.status).sort()).to.deep.equal(["fulfilled", "rejected"]);
+        const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected")!;
+        expect((rejected.reason as PKCError).code).to.equal("ERR_COMMUNITY_ALREADY_STARTED");
+        expect(community.state).to.equal("started");
+        expect(await isStartLocked()).to.equal(true);
+        expect(community._publishLoopPromise).to.not.equal(undefined);
+        await community.stop();
     });
 });

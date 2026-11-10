@@ -179,10 +179,11 @@ async function runAsStartOrUpdateInFlight({
 export async function start(community: LocalCommunity) {
     if (community.state === "updating")
         throw new PKCError("ERR_NEED_TO_STOP_UPDATING_COMMUNITY_BEFORE_STARTING", { address: community.address });
-    // Refused before anything on the instance changes: this instance is running or still stopping (stop() keeps the state
-    // "started" until its teardown is done). Clearing _stopHasBeenCalled under a stop() in flight kept the publish loop it
-    // waits for running forever.
-    if (community.state === "started") throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: community.address });
+    // Refused before anything on the instance changes: this instance is running, still stopping (stop() keeps the state
+    // "started" until its teardown is done) or already starting. Clearing _stopHasBeenCalled under a stop() in flight kept
+    // the publish loop it waits for running forever, and a second start() tore the first one down once it lost the lock.
+    if (community.state === "started" || community._startOrUpdateInFlight)
+        throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: community.address });
     await runAsStartOrUpdateInFlight({ community, setUp: (releaseMark) => startCommunity({ community, releaseMark }) });
 }
 
@@ -223,10 +224,12 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
             pkc: community._pkc,
             communityAddress: community.address
         });
-        // update started value twice because it could be started prior lockCommunityStart
+        // Locked before entering the started state, so a start() that loses the race for the lock throws while still
+        // "stopped" and the stop() below does nothing. From "started" it ran the running-community teardown, which unlocks
+        // by path and released the lock of the start() that won (held locks are keyed by path, per process).
+        await community._dbHandler.lockCommunityStart(); // Will throw if community is locked already
         community._setState("started");
         await community._updateStartedValue();
-        await community._dbHandler.lockCommunityStart(); // Will throw if community is locked already
         trackStartedCommunity(community._pkc, community);
         syncProcessStartedCommunity(community);
         await community._updateStartedValue();
@@ -278,6 +281,9 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
         // only when it settles, after this teardown, so the two never tear the community down at the same time.
         releaseMark();
         await community.stop(); // Make sure to reset the community state
+        // A start() that failed before entering the started state (it lost the race for the start lock, say) leaves stop()
+        // nothing to tear down, but initBeforeStarting() opened the DB. A start() or update() begun since owns the connection.
+        if (community.state === "stopped" && !community._startOrUpdateInFlight) community._dbHandler.destoryConnection();
         //@ts-expect-error
         e.details = { ...e.details, communityAddress: community.address };
         throw e;
