@@ -78,6 +78,8 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
 
     // Private stuff
     private _startRpcSubscriptionId?: z.infer<typeof SubscriptionIdSchema> = undefined;
+    // The id above only exists once startCommunity answers, so this guards start() while the call is in flight
+    private _startRpcInFlight = false;
     _usingDefaultChallenge!: RpcLocalCommunityLocalProps["_usingDefaultChallenge"];
 
     // community.export() over RPC. The subscription is attached eagerly during createCommunity
@@ -280,12 +282,14 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
     override async start() {
         const log = Logger("pkc-js:rpc-local-community:start");
         if (this.state === "updating") throw new PKCError("ERR_NEED_TO_STOP_UPDATING_COMMUNITY_BEFORE_STARTING", { address: this.address });
-        // we can't start the same instance multiple times
-        if (typeof this._startRpcSubscriptionId === "number")
+        // we can't start the same instance multiple times. A second start() while the first is in flight would
+        // overwrite its subscription id, leaving the first subscription live on the server with nothing to unsubscribe it
+        if (typeof this._startRpcSubscriptionId === "number" || this._startRpcInFlight)
             throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { communityAddress: this.address });
 
         if (findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }))
             throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED_IN_SAME_PKC_INSTANCE", { communityAddress: this.address });
+        this._startRpcInFlight = true;
         try {
             const { subscriptionId } = await this._pkc._pkcRpcClient!.startCommunity({ name: this.name, publicKey: this.publicKey });
             this._startRpcSubscriptionId = subscriptionId;
@@ -295,6 +299,8 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
             this._setState("stopped");
             this._setStartedStateWithEmission("failed");
             throw e;
+        } finally {
+            this._startRpcInFlight = false;
         }
         trackStartedCommunity(this._pkc, this);
         this.started = true;
