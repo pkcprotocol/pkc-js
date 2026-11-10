@@ -17,11 +17,17 @@ describe("multiaddrIsPrivateOrLoopback", () => {
         "/ip6/fec0::4ba:550:1228:cca/udp/4001/quic-v1/webtransport",
         "/ip6/fd00::1/udp/4001/quic-v1/webtransport",
         "/ip6/fe80::1/udp/4001/quic-v1/webtransport",
+        // the far ends of link-local fe80::/10 (fe80..febf) and site-local fec0::/10 (fec0..feff)
+        "/ip6/fe81::1/udp/4001/quic-v1/webtransport",
+        "/ip6/febf::1/udp/4001/quic-v1/webtransport",
+        "/ip6/feff::1/udp/4001/quic-v1/webtransport",
         "/dns4/localhost/tcp/4001/ws"
     ];
     const publicAddrs = [
         "/ip4/89.36.231.48/udp/443/quic-v1/webtransport",
         "/ip6/2a01:4f8::1/udp/4001/quic-v1/webtransport",
+        // just below link-local fe80::/10
+        "/ip6/fe7f::1/udp/4001/quic-v1/webtransport",
         "/dns4/seeder.example.com/tcp/443/tls/ws"
     ];
 
