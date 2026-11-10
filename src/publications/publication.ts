@@ -1351,10 +1351,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
             log.error(`Publication is stopped, will not re-publish`);
             await this._postSucessOrFailurePublishing();
         } else {
-            if (currentPubsubProviderIndex + 1 === providers.length) {
-                log.error(`Failed to receive any response for publication`, this.getType(), "after publishing to all providers", providers);
-                await this._postSucessOrFailurePublishing();
-            } else {
+            if (currentPubsubProviderIndex + 1 < providers.length) {
                 // let's publish to the next provider
 
                 log(
@@ -1411,35 +1408,40 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         );
                     if (this._isPublishRunOver(runSignal)) return;
                 }
-                await sleepUntilTimeoutOrAbort(this._setProviderFailureThresholdSeconds * 1000, runSignal);
-                if (this._isPublishRunOver(runSignal)) return;
-                // Kept although stop() now ends the wait above through the run signal: a stopped
-                // publication must not be treated as a failure and emit ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS.
-                // The enclosing `else` narrowed `this.state` to exclude "stopped", but stop() during the
-                // awaited wait above can have set it since, so widen back to the field's declared type.
-                if ((this.state as Publication["state"]) === "stopped") return;
-                // A challenge (or the verification itself) can arrive during the wait above. That
-                // exchange is live and the no-response watchdog has nothing left to decide: the
-                // publication stays subscribed for its verification, exactly like a publication whose
-                // challenge arrived before any retry (issue #340).
-                if (this._didWeReceiveChallengeOrChallengeVerification()) {
-                    log(`Received a challenge or challenge verification while waiting for retried providers, will keep the exchange alive`);
-                    return;
-                }
-                if (this._isAllAttemptsExhausted(providers.length)) {
-                    await this._postSucessOrFailurePublishing();
-                    const allAttemptsFailedError = new PKCError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {
-                        challengeExchanges: this._challengeExchangesFormattedForErrors(),
-                        pubsubTopic: this._community?.pubsubTopic,
-                        providerHeliaContexts: this._libp2pJsClientHeliaContexts()
-                    });
-                    log.error("All attempts to publish", this.getType(), "has failed", allAttemptsFailedError);
-                    this._changePublicationStateEmitEventEmitStateChangeEvent({
-                        newPublishingState: "failed",
-                        event: { name: "error", args: [allAttemptsFailedError] }
-                    });
-                    return;
-                }
+            } else {
+                // The request is held by the last provider (the ones before it threw), so there is nobody left to
+                // retry with. Give it the same failure wait as a retried request below. Stopping here instead left the
+                // publication stopped with publishingState "waiting-challenge" and no error
+                log(`No response from the last provider (${currentPubsubProvider}), will wait for it until the failure threshold`);
+            }
+            await sleepUntilTimeoutOrAbort(this._setProviderFailureThresholdSeconds * 1000, runSignal);
+            if (this._isPublishRunOver(runSignal)) return;
+            // Kept although stop() now ends the wait above through the run signal: a stopped
+            // publication must not be treated as a failure and emit ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS.
+            // The enclosing `else` narrowed `this.state` to exclude "stopped", but stop() during the
+            // awaited wait above can have set it since, so widen back to the field's declared type.
+            if ((this.state as Publication["state"]) === "stopped") return;
+            // A challenge (or the verification itself) can arrive during the wait above. That
+            // exchange is live and the no-response watchdog has nothing left to decide: the
+            // publication stays subscribed for its verification, exactly like a publication whose
+            // challenge arrived before any retry (issue #340).
+            if (this._didWeReceiveChallengeOrChallengeVerification()) {
+                log(`Received a challenge or challenge verification while waiting for retried providers, will keep the exchange alive`);
+                return;
+            }
+            if (this._isAllAttemptsExhausted(providers.length)) {
+                await this._postSucessOrFailurePublishing();
+                const allAttemptsFailedError = new PKCError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {
+                    challengeExchanges: this._challengeExchangesFormattedForErrors(),
+                    pubsubTopic: this._community?.pubsubTopic,
+                    providerHeliaContexts: this._libp2pJsClientHeliaContexts()
+                });
+                log.error("All attempts to publish", this.getType(), "has failed", allAttemptsFailedError);
+                this._changePublicationStateEmitEventEmitStateChangeEvent({
+                    newPublishingState: "failed",
+                    event: { name: "error", args: [allAttemptsFailedError] }
+                });
+                return;
             }
         }
     }
