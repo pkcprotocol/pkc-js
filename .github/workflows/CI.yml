@@ -24,6 +24,11 @@ on:
             - "package.json"
             - "package-lock.json"
 
+# A newer push to the same pull request cancels its older run. Pushes to master never cancel each other.
+concurrency:
+    group: ci-${{ github.event.pull_request.number || github.run_id }}
+    cancel-in-progress: true
+
 jobs:
     test-pkc-js-node-local:
         runs-on: ${{ matrix.os }}

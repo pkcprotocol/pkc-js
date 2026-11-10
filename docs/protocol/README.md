@@ -22,7 +22,7 @@ Concise protocol reference for AI agents and contributors. Each doc covers one d
 | [db-community-address-migration.md](db-community-address-migration.md) | DB v37 migration: subplebbitAddress → communityPublicKey/communityName, CID preservation |
 | [data-path-migration.md](data-path-migration.md) | Directory layout migration for downstream apps: `.plebbit/` → `.pkc/`, `subplebbits/` → `communities/` |
 | [import-performance.md](import-performance.md) | Import/startup cost (issue #120): how to benchmark it, where the time goes, optimization checklist + history |
-| [../reachability.md](../reachability.md) | `ERR_COMMUNITY_UNREACHABLE_FROM_THIS_CLIENT` (issue #377): per-provider reachability verdicts, why NAT-hosted unseeded communities fail from libp2p-js clients, the fixes |
+| [../reachability.md](../reachability.md) | `ERR_COMMUNITY_UNREACHABLE_FROM_THIS_CLIENT` (issue #377): per-provider reachability verdicts, why NAT-hosted unseeded communities fail from libp2p-js clients, the fixes; what a seeder must announce to be browser-dialable (`/tls/ws` on 443 behind a trusted certificate, WebTransport with certhashes on UDP 443 and 4001, issue #475) and the manual probe that verifies it |
 
 ## External specs
 
