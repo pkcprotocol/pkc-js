@@ -26,6 +26,17 @@ const clean: Awaited<ReturnType<typeof measureRepeatedOperation>> = {
     abortSignalAnyOnLongLivedSources: []
 };
 
+// mockPKC() shares its dataPath with every suite running in parallel, and pkc.communities lists that whole
+// directory, so it grows whenever another suite creates a community. What this file creates and deletes is
+// checked by address instead.
+const communitiesOfOtherSuites = { path: /^pkc\.communities$/, reason: "the shared test dataPath: other suites create communities in it" };
+
+// Takes the address, not the instance: expect.poll keeps its callback, and a callback closing over the
+// instance would keep it alive through the collection check. The list follows the directory through a
+// watcher, so the removal may land a moment after delete().
+const expectNotListed = (pkc: PKCType, address: string) =>
+    expect.poll(() => pkc.communities.some((listed) => listed.address === address), { timeout: 20_000 }).toBe(false);
+
 // Skipped under RPC: the community and its DbHandler live in the RPC server process, out of reach of
 // this process's heap and of the walk. The same LocalCommunity code runs here under local-kubo-rpc.
 describeSkipIfRpc("leak: LocalCommunity lifecycle", () => {
@@ -46,6 +57,7 @@ describeSkipIfRpc("leak: LocalCommunity lifecycle", () => {
         const result = await measureRepeatedOperation({
             roots: () => ({ pkc, community }),
             iterations: ITERATIONS,
+            allowedGrowth: [communitiesOfOtherSuites],
             iteration: async () => {
                 const updatedAtBefore = community.updatedAt;
                 await community.start();
@@ -64,6 +76,7 @@ describeSkipIfRpc("leak: LocalCommunity lifecycle", () => {
         const result = await measureRepeatedOperation({
             roots: () => ({ pkc, community }),
             iterations: ITERATIONS,
+            allowedGrowth: [communitiesOfOtherSuites],
             iteration: async (i) => {
                 await community.edit({ description: `description ${i}` });
                 return {};
@@ -76,6 +89,7 @@ describeSkipIfRpc("leak: LocalCommunity lifecycle", () => {
         const result = await measureRepeatedOperation({
             roots: () => ({ pkc, community }),
             iterations: ITERATIONS,
+            allowedGrowth: [communitiesOfOtherSuites],
             iteration: async () => {
                 const sameCommunity = (await pkc.createCommunity({ address: community.address })) as LocalCommunity;
                 return { sameCommunity };
@@ -92,6 +106,7 @@ describeSkipIfRpc("leak: LocalCommunity lifecycle", () => {
                 roots: () => ({ pkc, community }),
                 iterations: ITERATIONS,
                 allowedGrowth: [
+                    communitiesOfOtherSuites,
                     {
                         path: /\._cidsToUnPin$/,
                         reason: "superseded cids wait out UNPIN_GRACE_PERIOD_MS (30 min, #305) before unpinStaleCids releases them"
@@ -118,11 +133,13 @@ describeSkipIfRpc("leak: LocalCommunity lifecycle", () => {
         const result = await measureRepeatedOperation({
             roots: () => ({ pkc }),
             iterations: ITERATIONS,
+            allowedGrowth: [communitiesOfOtherSuites],
             iteration: async () => {
                 const temporary = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
                 await temporary.start();
                 await resolveWhenConditionIsTrue({ toUpdate: temporary, predicate: async () => typeof temporary.updatedAt === "number" });
                 await temporary.delete();
+                await expectNotListed(pkc, temporary.address);
                 return { temporary };
             }
         });
