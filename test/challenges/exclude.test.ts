@@ -27,6 +27,7 @@ type CommunityArg = ShouldExcludeArgs["community"];
 type AddToRateLimiterChallenges = Parameters<typeof addToRateLimiter>[0];
 type AddToRateLimiterRequest = Parameters<typeof addToRateLimiter>[1];
 type AddToRateLimiterSuccess = Parameters<typeof addToRateLimiter>[2];
+type AddToRateLimiterCommunityAddress = Parameters<typeof addToRateLimiter>[3];
 
 type ShouldExcludeChallengeSuccessChallenge = Parameters<typeof shouldExcludeChallengeSuccess>[0];
 type ShouldExcludeChallengeSuccessChallengeResults = Parameters<typeof shouldExcludeChallengeSuccess>[2];
@@ -86,6 +87,8 @@ const testShouldExcludeNameFailure = async (
     return result.nameFailure;
 };
 
+// The rateLimit cases here pass no community, or a mock without an address, to shouldExcludePublication,
+// so they count against the rate limiters of an undefined community address. Record into the same ones.
 const testAddToRateLimiter = (
     communityChallenges: Record<string, unknown>[],
     request: Record<string, unknown>,
@@ -94,7 +97,8 @@ const testAddToRateLimiter = (
     addToRateLimiter(
         communityChallenges as unknown as AddToRateLimiterChallenges,
         request as unknown as AddToRateLimiterRequest,
-        challengeSuccess as AddToRateLimiterSuccess
+        challengeSuccess as AddToRateLimiterSuccess,
+        undefined as unknown as AddToRateLimiterCommunityAddress
     );
 };
 
