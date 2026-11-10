@@ -2021,7 +2021,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     // from setSettings shares. The query schema is strict, so an `rpcUrl` in the params is rejected and a call is
     // never chained to a third daemon. Sits behind the same auth key as every other method: entries carry whatever
     // the call sites logged, and `regex` is trusted input (a backtracking pattern runs synchronously).
-    async getLogs(params: any): Promise<RpcGetLogsResult> {
+    async getLogs(params: unknown[]): Promise<RpcGetLogsResult> {
         const query = parseLogQueryWithPKCErrorIfItFails(params[0]);
         try {
             return this.pkc.logger.getLogs(query);
