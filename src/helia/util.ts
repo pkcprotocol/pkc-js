@@ -412,7 +412,13 @@ export async function connectToPubsubPeers({
             peersWithContent.push(peer as PeerInfo);
             // Issue #475: providers reachable only on private/loopback addrs are dialed after the
             // provider stream ends, so they never queue ahead of public ones.
-            if (!privateOnlyReleased && (await providerIsReachableOnlyPrivately(helia, (peer as PeerInfo).multiaddrs ?? []))) {
+            // The release flag is read again after the await: the timer can fire while a provider is being
+            // classified, and one queued after the release would never be dialed (a release happens once).
+            if (
+                !privateOnlyReleased &&
+                (await providerIsReachableOnlyPrivately(helia, (peer as PeerInfo).multiaddrs ?? [])) &&
+                !privateOnlyReleased
+            ) {
                 privateOnlyPeers.push(peer as PeerInfo);
                 privateOnlyTimer ??= setTimeout(releasePrivateOnlyPeers, PRIVATE_ONLY_PROVIDER_DIAL_DELAY_MS);
                 log.trace("Deferring dial to private-only provider", peer.id.toString(), "for topic", pubsubTopic);
@@ -948,7 +954,14 @@ export async function directFetchIpnsRecordFromProviders({
                     announcedAddrs: announcedAddrs.map(String)
                 });
                 // Issue #475: dialed only after the public providers have had their turn (below).
-                if (!privateOnlyReleased && hasDialableAddr && (await providerIsReachableOnlyPrivately(helia, announcedAddrs))) {
+                // The release flag is read again after the await: the timer can fire while a provider is being
+                // classified, and one queued after the release would never be dialed (a release happens once).
+                if (
+                    !privateOnlyReleased &&
+                    hasDialableAddr &&
+                    (await providerIsReachableOnlyPrivately(helia, announcedAddrs)) &&
+                    !privateOnlyReleased
+                ) {
                     privateOnlyProviders.push(peer as PeerInfo);
                     privateOnlyTimer ??= setTimeout(releasePrivateOnlyProviders, PRIVATE_ONLY_PROVIDER_DIAL_DELAY_MS);
                     log.trace("Deferring dial to private-only provider", peer.id.toString(), "for topic", pubsubTopic);

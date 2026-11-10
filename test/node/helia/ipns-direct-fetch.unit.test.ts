@@ -460,6 +460,58 @@ describeSkipIfRpc("directFetchIpnsRecordFromProviders (issue #185)", () => {
         );
     });
 
+    // Issue #475 (PR #492 review): a provider can still be mid-classification (the isDialable() await in
+    // providerIsReachableOnlyPrivately) when the 2s timer releases the private-only queue. It used to be
+    // queued after the queue was drained, and since a release happens only once it was never dialed. Here a
+    // loopback tarpit is queued first (starting the timer) and the publisher's classification is held until
+    // the tarpit has been dialed, i.e. until the release has happened.
+    it("dials a private-only provider whose classification finishes after the 2s release (issue #475)", async () => {
+        const { routingKey, marshalled, topic, cid } = await makeRecord();
+        const publisher = await startPublisherNode({ routingKey, recordToServe: marshalled }); // 127.0.0.1 only
+        const tarpitPeerId = peerIdFromPrivateKey(await generateKeyPair("Ed25519")).toString();
+        const router = new MockHttpRouter();
+        await router.start();
+        startedRouters.push(router);
+        // MockHttpRouter serves the newest record first, so the tarpit is added last to be yielded first
+        router.addProviderForTesting(cid, { ID: publisher.ID, Addrs: publisher.Addrs });
+        router.addProviderForTesting(cid, { ID: tarpitPeerId, Addrs: [await startTarpitWsAddr()] });
+        const node = await createNode({
+            routers: [router.url],
+            libp2pOptions: { connectionManager: { addressDialTimeout: 3_000 } }
+        });
+
+        const libp2p = node._helia.libp2p;
+        let markTarpitDialed!: () => void;
+        const tarpitDialed = new Promise<void>((resolve) => (markTarpitDialed = resolve));
+        const originalDial = libp2p.dial.bind(libp2p);
+        libp2p.dial = ((target: Parameters<typeof libp2p.dial>[0], options?: Parameters<typeof libp2p.dial>[1]) => {
+            if (target.toString() === tarpitPeerId) markTarpitDialed();
+            return originalDial(target, options);
+        }) as typeof libp2p.dial;
+        // The direct fetch asks isDialable() about a provider twice: once for the reachability verdict, then
+        // inside the private-only classification. Only the second one sits after the release check.
+        let publisherChecks = 0;
+        const originalIsDialable = libp2p.isDialable.bind(libp2p);
+        libp2p.isDialable = (async (addrs: Parameters<typeof libp2p.isDialable>[0], options?: Parameters<typeof libp2p.isDialable>[1]) => {
+            const asked = (Array.isArray(addrs) ? addrs : [addrs]).map((addr) => addr.toString());
+            if (asked.some((addr) => publisher.Addrs.includes(addr)) && ++publisherChecks === 2) await tarpitDialed;
+            return originalIsDialable(addrs, options);
+        }) as typeof libp2p.isDialable;
+
+        const result = await directFetchIpnsRecordFromProviders({
+            helia: node._helia,
+            pubsubTopic: topic,
+            routingKey,
+            maxPeers: 4,
+            validate: ipnsValidator,
+            log
+        });
+
+        expect(publisherChecks, "the classification must have been held past the release").to.be.greaterThanOrEqual(2);
+        expect(result.recordBytes, "the provider classified after the release was never dialed").to.not.equal(undefined);
+        expect(asHit(result).peerId).to.equal(publisher.ID);
+    });
+
     // Issue #215: a provider whose ONLY addrs are /p2p-circuit must not be dialed by the
     // direct-fetch path at all. /libp2p/fetch over a limited (relayed) connection always fails
     // with LimitedConnectionError, so the dial can never produce a record — it only burns 2-5s

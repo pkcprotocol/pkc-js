@@ -257,6 +257,56 @@ describeSkipIfRpc("connectToPubsubPeers warmup (issue #171 follow-up)", () => {
         expect(connections.map((c) => c.remotePeer.toString())).to.include(subscriber.ID);
     });
 
+    // Issue #475 (PR #492 review): a provider can still be mid-classification (the isDialable() await in
+    // providerIsReachableOnlyPrivately) when the 2s timer releases the private-only queue. It used to be
+    // queued after the queue was drained, and since a release happens only once it was never dialed.
+    // Here a loopback tarpit is queued first (starting the timer) and the real subscriber's classification
+    // is held until the tarpit has been dialed, i.e. until the release has happened.
+    it("dials a private-only provider whose classification finishes after the 2s release (issue #475)", async () => {
+        const topic = topicFor("private-late-classification");
+        const cid = pubsubTopicToDhtKeyCid(topic).toString();
+        const subscriber = await startSubscriberNode(topic); // announced on 127.0.0.1 only, so private-only
+        const tarpitPeerId = await newPeerIdStr();
+        const router = new MockHttpRouter();
+        await router.start();
+        startedRouters.push(router);
+        // MockHttpRouter serves the newest record first, so the tarpit is added last to be yielded first
+        router.addProviderForTesting(cid, { ID: subscriber.ID, Addrs: subscriber.Addrs });
+        router.addProviderForTesting(cid, { ID: tarpitPeerId, Addrs: [await startTarpitWsAddr()] });
+        const node = await createNode({
+            routers: [router.url],
+            libp2pOptions: { connectionManager: { addressDialTimeout: 3_000 } }
+        });
+
+        const libp2p = node._helia.libp2p;
+        const dials: { peer: string; atMs: number }[] = [];
+        let markTarpitDialed!: () => void;
+        const tarpitDialed = new Promise<void>((resolve) => (markTarpitDialed = resolve));
+        const originalDial = libp2p.dial.bind(libp2p);
+        const start = Date.now();
+        libp2p.dial = ((target: Parameters<typeof libp2p.dial>[0], options?: Parameters<typeof libp2p.dial>[1]) => {
+            dials.push({ peer: target.toString(), atMs: Date.now() - start });
+            if (target.toString() === tarpitPeerId) markTarpitDialed();
+            return originalDial(target, options);
+        }) as typeof libp2p.dial;
+        const originalIsDialable = libp2p.isDialable.bind(libp2p);
+        libp2p.isDialable = (async (addrs: Parameters<typeof libp2p.isDialable>[0], options?: Parameters<typeof libp2p.isDialable>[1]) => {
+            const asked = (Array.isArray(addrs) ? addrs : [addrs]).map((addr) => addr.toString());
+            if (asked.some((addr) => subscriber.Addrs.includes(addr))) await tarpitDialed;
+            return originalIsDialable(addrs, options);
+        }) as typeof libp2p.isDialable;
+
+        const connections = await connectToPubsubPeers({ helia: node._helia, pubsubTopic: topic, maxPeers: 4, log });
+
+        const describeDials = JSON.stringify(dials);
+        expect(dials[0]?.peer, `the tarpit is released by the timer first; dials: ${describeDials}`).to.equal(tarpitPeerId);
+        expect(
+            dials.find((d) => d.peer === subscriber.ID),
+            `the subscriber classified after the release was never dialed; dials: ${describeDials}`
+        ).to.not.equal(undefined);
+        expect(connections.map((c) => c.remotePeer.toString())).to.include(subscriber.ID);
+    });
+
     // Issue #213: libp2p's CompoundContentRouting.findProviders dedupes providers by peer id
     // across routers — the first router's record for a peer is the only one ever yielded. If a
     // fast router serves the subscriber's record with its WSS addr stripped (tcp-only), the one
