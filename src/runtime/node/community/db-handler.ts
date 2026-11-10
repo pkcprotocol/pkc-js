@@ -625,17 +625,27 @@ export class DbHandler {
         for (let i = 0; i < tables.length; i++) {
             const tableName = tables[i];
             const tableExists = this._tableExists(tableName);
-            if (!tableExists) {
+            const tempTableName = `${tableName}_${env.DB_VERSION}_new`;
+            if (!tableExists && needToMigrate && this._tableExists(tempTableName)) {
+                // An earlier run of this migration was killed between dropping the table and renaming its migrated copy,
+                // when the two were separate commits. The copy is complete (the drop only ran after it), so it becomes the
+                // table; creating an empty one here would lose every row
+                log(`Table ${tableName} is missing but its migrated copy ${tempTableName} exists. Will restore the table from it`);
+                this._db.exec(`ALTER TABLE ${tempTableName} RENAME TO ${tableName}`);
+            } else if (!tableExists) {
                 log(`Table ${tableName} does not exist. Will create schema`);
                 createTableFunctions[i](tableName);
             } else if (tableExists && needToMigrate) {
                 log(`Migrating table ${tableName} to new schema`);
-                const tempTableName = `${tableName}_${env.DB_VERSION}_new`;
                 this._db.exec(`DROP TABLE IF EXISTS ${tempTableName}`);
                 createTableFunctions[i](tempTableName);
                 await this._copyTable(tableName, tempTableName, currentDbVersion);
-                this._db.exec(`DROP TABLE ${tableName}`);
-                this._db.exec(`ALTER TABLE ${tempTableName} RENAME TO ${tableName}`);
+                // One commit, so a crash leaves either the old table or its migrated copy under the table's name, never
+                // neither (user_version is only bumped after every table, so the next start migrates again)
+                this._db.transaction(() => {
+                    this._db.exec(`DROP TABLE ${tableName}`);
+                    this._db.exec(`ALTER TABLE ${tempTableName} RENAME TO ${tableName}`);
+                })();
             }
         }
 
