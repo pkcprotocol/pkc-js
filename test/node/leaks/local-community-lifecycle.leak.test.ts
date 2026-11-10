@@ -57,7 +57,7 @@ describeSkipIfRpc("leak: LocalCommunity lifecycle", () => {
                 return {};
             }
         });
-        expect(result).toEqual(clean);
+        expect(result, JSON.stringify(result)).toEqual(clean);
     });
 
     it(`edit ${ITERATIONS} times while stopped`, async () => {
@@ -69,7 +69,7 @@ describeSkipIfRpc("leak: LocalCommunity lifecycle", () => {
                 return {};
             }
         });
-        expect(result).toEqual(clean);
+        expect(result, JSON.stringify(result)).toEqual(clean);
     });
 
     it(`createCommunity for an existing local community ${ITERATIONS} times`, async () => {
@@ -81,7 +81,7 @@ describeSkipIfRpc("leak: LocalCommunity lifecycle", () => {
                 return { sameCommunity };
             }
         });
-        expect(result).toEqual(clean);
+        expect(result, JSON.stringify(result)).toEqual(clean);
     });
 
     it(`edit ${ITERATIONS} times while started`, async () => {
@@ -108,7 +108,7 @@ describeSkipIfRpc("leak: LocalCommunity lifecycle", () => {
                     return {};
                 }
             });
-            expect(result).toEqual(clean);
+            expect(result, JSON.stringify(result)).toEqual(clean);
         } finally {
             await community.stop();
         }
@@ -126,7 +126,7 @@ describeSkipIfRpc("leak: LocalCommunity lifecycle", () => {
                 return { temporary };
             }
         });
-        expect(result).toEqual(clean);
+        expect(result, JSON.stringify(result)).toEqual(clean);
     });
 
     // An updating instance of a community that is started elsewhere in the process mirrors the started
