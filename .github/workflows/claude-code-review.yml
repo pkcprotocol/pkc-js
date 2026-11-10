@@ -1,5 +1,6 @@
 # Claude PR review, authenticated with a Claude subscription token (`claude setup-token`) stored as
-# the CLAUDE_CODE_OAUTH_TOKEN repository secret. Claude reviews every push to a non-draft pull
+# the CLAUDE_CODE_OAUTH_TOKEN organization secret. When that account is out of usage (HTTP 429, "You've
+# hit your weekly limit"), the review runs again on a second account, CLAUDE_CODE_OAUTH_TOKEN_FALLBACK. Claude reviews every push to a non-draft pull
 # request and posts an inline comment per issue it has not already reported there, or one summary
 # comment when its first review finds none.
 # See https://code.claude.com/docs/en/github-actions#run-a-skill.
@@ -28,14 +29,20 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - uses: anthropics/claude-code-action@v1
-        env:
+      - id: primary
+        # A failure here is judged by the next two steps: out of usage means retry on the second
+        # account, anything else fails the job.
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        env: &review_env
           # The action ends the session at Claude's first result. The code-review command starts its
           # first agent in the background and ends that turn to wait, so the review never ran and the
           # job still passed (anthropics/claude-code-action#1646). Keep every agent in the foreground.
           CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1'
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        with: &review_inputs
+          # Both review steps share these inputs through the YAML anchor, so the token is chosen here:
+          # the second account once the usage-limit step has set its output, the first one before that.
+          claude_code_oauth_token: ${{ steps.usage_limit.outputs.hit == 'true' && secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
@@ -52,3 +59,21 @@ jobs:
             --setting-sources user
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments:*)"
             --append-system-prompt "You are running unattended in CI and nobody can answer questions. Carry out every numbered step of the code-review command, with the changes listed here: launch each agent it names with the Task tool, using the model it names, and wait for the agents of each step to finish before starting the next step. Never review the diff yourself in place of the agents, and never skip or merge steps because a pull request looks small, mechanical or obviously correct. Change 1: step 1 may stop the review only when the pull request is closed or is a draft. Earlier reviews by Claude are not a reason to stop; every push gets a full review of the whole pull request. Change 2: a bug that depends on particular input or state is high signal when normal use reaches that input or state, for example a field edited to an empty string or false, an optional value that is missing, a request that fails, or a list with more than one entry. Flag it when you can name the concrete scenario and the wrong result. This replaces the command's rule against flagging issues that depend on specific inputs or state; still skip speculative, stylistic and nitpick issues. Pass this rule word for word to every step 4 and step 5 agent. Change 3: before step 7 posts anything, run gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments --paginate and gh pr view ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --comments, each as a standalone command without pipes or redirects, to see what Claude (claude or claude[bot]) already posted on this pull request. Drop every issue Claude already reported, matching by file and underlying problem even when line numbers moved, and post only the rest, in step 7 and in step 8. If nothing remains, post the No issues found summary only when Claude has never commented on this pull request; otherwise post nothing. Change 4: treat AGENTS.md files exactly like CLAUDE.md files; a CLAUDE.md often only imports AGENTS.md with an @AGENTS.md line."
+      - id: usage_limit
+        name: Did the first account run out of usage?
+        if: steps.primary.outcome == 'failure'
+        env:
+          EXECUTION_FILE: ${{ steps.primary.outputs.execution_file || format('{0}/claude-execution-output.json', runner.temp) }}
+        run: |
+          if [ -f "$EXECUTION_FILE" ] && grep -Eqi '"api_error_status": *429|hit your [a-z0-9 -]*limit|usage limit' "$EXECUTION_FILE"; then
+            echo "The first account is out of usage. Reviewing with the second account."
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::The review failed for a reason other than a usage limit, so it is not retried."
+            exit 1
+          fi
+      - name: Review with the second account
+        if: steps.usage_limit.outputs.hit == 'true'
+        uses: anthropics/claude-code-action@v1
+        env: *review_env
+        with: *review_inputs
