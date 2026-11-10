@@ -360,11 +360,20 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
     async getStartedCommunity(address: string): Promise<LocalCommunity> {
         if (!(address in this._startedCommunities)) throw Error("Can't call getStartedCommunity when the community hasn't been started");
-        // if pending, wait until no longer pendng
+        const community = await this._waitForStartedCommunity({ address });
+        // The start this call waited for failed and removed the entry
+        if (!community) throw Error(`Can't call getStartedCommunity, the start of community ${address} failed`);
+        return community;
+    }
+
+    // Waits out a start in progress. Undefined when the community is not started, including when the start it waited
+    // for failed, so a caller with a path for a community that is not started can take it
+    private async _waitForStartedCommunity({ address }: { address: string }): Promise<LocalCommunity | undefined> {
         while (this._startedCommunities[address] === "pending") {
             await new Promise((r) => setTimeout(r, 20));
         }
-        return <LocalCommunity>this._startedCommunities[address];
+        const entry = this._startedCommunities[address];
+        return entry instanceof LocalCommunity ? entry : undefined;
     }
 
     private _findCommunityAddress(identifier: { name?: string; publicKey?: string }): string | undefined {
@@ -558,8 +567,16 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     }
 
     private async _internalStartCommunity(address: string): Promise<LocalCommunity> {
-        const pkc = await this._getPKCInstance();
-
+        // A client may have started it while it waited in the auto-start queue or a retry backoff. Overwriting that
+        // entry would fail this start with ERR_COMMUNITY_ALREADY_STARTED and then drop the running community from
+        // the map, where stopCommunity could no longer find it. If that start fails, this one goes ahead. The pkc is
+        // fetched after the wait, which can outlast a setSettings, so the community is not started on a retired pkc
+        let pkc = await this._getPKCInstance();
+        while (address in this._startedCommunities) {
+            const startedCommunity = await this._waitForStartedCommunity({ address });
+            if (startedCommunity) return startedCommunity;
+            pkc = await this._getPKCInstance();
+        }
         this._startedCommunities[address] = "pending";
         try {
             const community = <LocalCommunity>await pkc.createCommunity({ address });
@@ -698,9 +715,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
         // Use started community to fetch the page if possible, to expedite the process
         const community =
-            communityAddress in this._startedCommunities
-                ? await this.getStartedCommunity(communityAddress)
-                : <RemoteCommunity | LocalCommunity>await pkc.createCommunity({ name: communityName, publicKey: communityPublicKey });
+            (await this._waitForStartedCommunity({ address: communityAddress })) ??
+            <RemoteCommunity | LocalCommunity>await pkc.createCommunity({ name: communityName, publicKey: communityPublicKey });
         const { page } =
             type === "posts"
                 ? await community.posts._fetchAndVerifyPage({ pageCid, pageMaxSize })
@@ -964,8 +980,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const address = this._findCommunityAddress({ name, publicKey });
         if (!address) throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_EDIT_REMOTE_COMMUNITY", { communityAddress: name || publicKey });
         // A start still pending is awaited, so the edit applies to the started community instead of moving the DB out
-        // from under it
-        const startedCommunity = address in this._startedCommunities ? await this.getStartedCommunity(address) : undefined;
+        // from under it. If that start fails, the edit goes to the stored community
+        const startedCommunity = await this._waitForStartedCommunity({ address });
         let community: LocalCommunity;
         if (startedCommunity instanceof LocalCommunity) community = startedCommunity;
         else {
@@ -1021,10 +1037,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const address = this._findCommunityAddress({ name, publicKey });
         if (!address) throw new PKCError("ERR_RPC_CLIENT_TRYING_TO_DELETE_REMOTE_COMMUNITY", { communityAddress: name || publicKey });
 
-        const isCommunityStarted = address in this._startedCommunities;
-        const community = isCommunityStarted
-            ? await this.getStartedCommunity(address)
-            : <LocalCommunity>await pkc.createCommunity({ address });
+        // A start still pending is awaited; if it fails, the stored community is deleted
+        const community = (await this._waitForStartedCommunity({ address })) ?? <LocalCommunity>await pkc.createCommunity({ address });
         await community.delete();
         await this._postStoppingOrDeleting(community);
         delete this._startedCommunities[address];
