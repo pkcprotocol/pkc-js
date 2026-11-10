@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.142](https://github.com/pkcprotocol/pkc-js/compare/v0.0.141...v0.0.142) (2026-11-10)
+
+### Bug Fixes
+
+* stop leaking publications, RPC communities and SQLite statements; add leak suite and soak ([#503](https://github.com/pkcprotocol/pkc-js/issues/503)) ([bb1a124](https://github.com/pkcprotocol/pkc-js/commit/bb1a124d3e7e0fa75c85c13c5bbc364733e02df2)), closes [#488](https://github.com/pkcprotocol/pkc-js/issues/488) [#490](https://github.com/pkcprotocol/pkc-js/issues/490) [#496](https://github.com/pkcprotocol/pkc-js/issues/496) [#488](https://github.com/pkcprotocol/pkc-js/issues/488) [#490](https://github.com/pkcprotocol/pkc-js/issues/490) [#488](https://github.com/pkcprotocol/pkc-js/issues/488) [#490](https://github.com/pkcprotocol/pkc-js/issues/490) [#488](https://github.com/pkcprotocol/pkc-js/issues/488) [#496](https://github.com/pkcprotocol/pkc-js/issues/496) [#496](https://github.com/pkcprotocol/pkc-js/issues/496) [#490](https://github.com/pkcprotocol/pkc-js/issues/490) [#502](https://github.com/pkcprotocol/pkc-js/issues/502) [#502](https://github.com/pkcprotocol/pkc-js/issues/502)
+
 ## [0.0.141](https://github.com/pkcprotocol/pkc-js/compare/v0.0.140...v0.0.141) (2026-11-10)
 
 ## [0.0.140](https://github.com/pkcprotocol/pkc-js/compare/v0.0.139...v0.0.140) (2026-11-10)
