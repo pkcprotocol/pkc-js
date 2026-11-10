@@ -76,6 +76,7 @@ import {
 import { loadPageSortsForStartedCommunity, type ResolvedPageSorts } from "./page-sorts/index.js";
 import { checkPublicationValidity } from "./local-community/publication-validation.js";
 import { calculateLocalMfsPathForCommentUpdate, updateCommentsThatNeedToBeUpdated } from "./local-community/comment-updates.js";
+import { POST_UPDATES_NODE_BUILT_BUCKET_MIN_POSTS } from "./local-community/post-updates-bucket.js";
 import { purgeDisapprovedCommentsOlderThan } from "./local-community/cleanup.js";
 import {
     addOldPageCidsToCidsToUnpin,
@@ -108,6 +109,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     override signer!: SignerWithPublicKeyAddress;
     override raw: RpcLocalCommunity["raw"] = {};
     _postUpdatesBuckets = [86400, 604800, 2592000, 3153600000]; // 1 day, 1 week, 1 month, 100 years. Expecting to be sorted from smallest to largest
+    // A postUpdates bucket that gets at least this many of a slice's posts is rebuilt in node and swapped
+    // into MFS whole instead of having its files written one by one (issue #471). A test can lower it.
+    _postUpdatesNodeBuiltBucketMinPosts: number = POST_UPDATES_NODE_BUILT_BUCKET_MIN_POSTS;
 
     _defaultCommunityChallenges: CommunityChallengeSetting[] = generateDefaultChallenges();
 

@@ -19,8 +19,11 @@ import type { LocalCommunity } from "../local-community.js";
 import { createCommunityAuthorMemo, type CalculatedCommentUpdate, type CommunityAuthorMemo } from "../db-handler.js";
 import type { CommentUpdateToWriteToDbAndPublishToIpfs } from "./defaults.js";
 import { rmUnneededMfsPaths } from "./cleanup.js";
+import { rebuildPostUpdatesBucket } from "./post-updates-bucket.js";
 import { wirePagesFromGeneration } from "../page-generator.js";
 import { generatePagesReportingFailedSorts } from "../page-sorts/index.js";
+
+const textEncoder = new TextEncoder();
 
 // A cycle that recalculated any comment must have recalculated at least one post: a reply's update
 // dirties its whole ancestry, and only a post has a postUpdates file. A cycle that ends with no post
@@ -43,13 +46,17 @@ export function challengeExchangePubsubTopic(community: LocalCommunity): string 
     return communityChallengePubsubTopic(community);
 }
 
+// The MFS directory holding the postUpdates files of one time bucket
+export function calculateLocalMfsPathForPostUpdatesBucket(community: LocalCommunity, timestampRange: number) {
+    return ["/" + community.address, "postUpdates", timestampRange].join("/");
+}
+
 export function calculateLocalMfsPathForCommentUpdate(
     community: LocalCommunity,
     postDbComment: Pick<CommentsTableRow, "cid">,
     timestampRange: number
 ) {
-    // TODO Can optimize the call below by only asking for timestamp field
-    return ["/" + community.address, "postUpdates", timestampRange, postDbComment.cid, "update"].join("/");
+    return [calculateLocalMfsPathForPostUpdatesBucket(community, timestampRange), postDbComment.cid, "update"].join("/");
 }
 
 export async function calculateNewCommentUpdate(opts: {
@@ -315,17 +322,48 @@ export async function writePostUpdatesToMfs(
         log(`Skipping ${purgedMidSyncCount} post CommentUpdate(s) for community ${community.address} whose comment was purged mid-sync`);
 
     const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
-    const removedMfsPaths: string[] = await rmUnneededMfsPaths(community);
+    await rmUnneededMfsPaths(community);
     let postUpdatesDirectoryCid: Awaited<ReturnType<typeof kuboRpc._client.files.flush>> | undefined;
 
+    // A bucket that gets enough of the slice's posts is rebuilt in node and swapped in whole (issue
+    // #471: on a bucket of thousands of posts every files.write costs the daemon a walk of the bucket,
+    // ipfs/boxo#1226). The others get their files written one by one as before. The threshold is
+    // per bucket: a cycle that touches a few posts in a big bucket still writes a few files.
+    const rowsByBucketPath = new Map<string, typeof liveCommentUpdates>();
+    for (const row of liveCommentUpdates) {
+        const bucket = row.newCommentUpdateToWriteToDb.postUpdatesBucket;
+        if (typeof bucket !== "number") throw Error(`Post ${row.newCommentUpdate.cid} has a postUpdates MFS path but no bucket`); // the path is derived from the bucket
+        const bucketPath = calculateLocalMfsPathForPostUpdatesBucket(community, bucket);
+        const bucketRows = rowsByBucketPath.get(bucketPath);
+        if (bucketRows) bucketRows.push(row);
+        else rowsByBucketPath.set(bucketPath, [row]);
+    }
+    const rowsToWriteOneByOne: typeof liveCommentUpdates = [];
+    const keptPostsByRebuiltBucket: { bucketPath: string; keptPostCids: string[] }[] = [];
+    for (const [bucketPath, rows] of rowsByBucketPath) {
+        if (rows.length < community._postUpdatesNodeBuiltBucketMinPosts) {
+            rowsToWriteOneByOne.push(...rows);
+            continue;
+        }
+        const { keptPostCids } = await rebuildPostUpdatesBucket({
+            community,
+            bucketPath,
+            posts: rows.map((row) => ({
+                postCid: row.newCommentUpdate.cid,
+                updateFileBytes: textEncoder.encode(deterministicStringify(row.newCommentUpdate))
+            }))
+        });
+        keptPostsByRebuiltBucket.push({ bucketPath, keptPostCids });
+    }
+
     // 50 is measured, not arbitrary. Benchmarked against kubo 0.43.0 (6 communities syncing
-    // concurrently, 600 writes each, flush:true, warm repo): 50 and 100 are within noise of each
-    // other (~3650 vs ~3710 writes/s) and 200/400 are 9-12% SLOWER. Above ~200, concurrent
-    // files.write with parents:true also starts failing outright with "file already exists" as the
-    // implicit parent mkdir races itself. Raising this buys nothing.
+    // concurrently, 600 writes each, warm repo): 50 and 100 are within noise of each other
+    // (~3650 vs ~3710 writes/s) and 200/400 are 9-12% SLOWER. Above ~200, concurrent files.write
+    // with parents:true also starts failing outright with "file already exists" as the implicit
+    // parent mkdir races itself. Raising this buys nothing.
     const BATCH_SIZE = 50;
-    for (let index = 0; index < liveCommentUpdates.length; index += BATCH_SIZE) {
-        const batch = liveCommentUpdates.slice(index, index + BATCH_SIZE);
+    for (let index = 0; index < rowsToWriteOneByOne.length; index += BATCH_SIZE) {
+        const batch = rowsToWriteOneByOne.slice(index, index + BATCH_SIZE);
 
         await Promise.all(
             batch.map(async (row) => {
@@ -341,19 +379,24 @@ export async function writePostUpdatesToMfs(
                         create: true,
                         truncate: true,
                         parents: true,
-                        // flush: true to avoid Kubo's global Internal.MFSNoFlushLimit (default 256).
-                        // Costs some throughput (each write self-flushes instead of batching) but
-                        // is safe under multi-community concurrency, which the global counter is not.
-                        flush: true
+                        // flush:false: the batch is flushed once below. With flush:true every write
+                        // re-serializes the bucket's directory and the path up to the MFS root; on a
+                        // sharded bucket that was most of the daemon's CPU for a cycle (issue #471).
+                        // Kubo counts unflushed operations globally (Internal.MFSNoFlushLimit, 256 by
+                        // default, reset by any flush) and fails a write past the limit instead of
+                        // flushing; under multi-community concurrency the batches of several
+                        // communities can add up to it, so writeKuboFilesWithTimeout rewrites with
+                        // flush:true when the daemon reports the limit.
+                        flush: false
                     }
                 });
-
-                removedMfsPaths.push(localMfsPath);
             })
         );
 
         postUpdatesDirectoryCid = await kuboRpc._client.files.flush(postUpdatesDirectory);
     }
+    if (rowsToWriteOneByOne.length === 0 && keptPostsByRebuiltBucket.length > 0)
+        postUpdatesDirectoryCid = await kuboRpc._client.files.flush(postUpdatesDirectory);
 
     // The filter above still leaves a window: a purge landing between it and the writes has already
     // run its own MFS cleanup, so the write resurrects the purged post's update file with nothing
@@ -361,12 +404,21 @@ export async function writePostUpdatesToMfs(
     // always deletes from the DB before removing MFS paths, so any purge whose rm preceded one of
     // the writes is visible to this re-check. If the rm here fails the paths stay queued in
     // _mfsPathsToRemove and the rmUnneededMfsPaths call above retries them next sync. See issue #304.
-    const rowsPurgedDuringWrites = liveCommentUpdates.filter((row) => !community._dbHandler.commentExistsInDb(row.newCommentUpdate.cid));
-    if (rowsPurgedDuringWrites.length > 0) {
+    // A rebuilt bucket carries the same window for the entries it kept: a purge that removed one of
+    // them from the old bucket after the rebuild listed it is undone by the swap.
+    const mfsPathsPurgedDuringWrites = [
+        ...liveCommentUpdates
+            .filter((row) => !community._dbHandler.commentExistsInDb(row.newCommentUpdate.cid))
+            .map((row) => row.localMfsPath),
+        ...keptPostsByRebuiltBucket.flatMap(({ bucketPath, keptPostCids }) =>
+            keptPostCids.filter((postCid) => !community._dbHandler.commentExistsInDb(postCid)).map((postCid) => `${bucketPath}/${postCid}`)
+        )
+    ];
+    if (mfsPathsPurgedDuringWrites.length > 0) {
         log(
-            `${rowsPurgedDuringWrites.length} post CommentUpdate(s) of community ${community.address} were purged during the MFS writes. Removing their MFS entries`
+            `${mfsPathsPurgedDuringWrites.length} post CommentUpdate(s) of community ${community.address} were purged during the MFS writes. Removing their MFS entries`
         );
-        for (const row of rowsPurgedDuringWrites) community._mfsPathsToRemove.add(row.localMfsPath);
+        for (const mfsPath of mfsPathsPurgedDuringWrites) community._mfsPathsToRemove.add(mfsPath);
         await rmUnneededMfsPaths(community);
         postUpdatesDirectoryCid = await kuboRpc._client.files.flush(postUpdatesDirectory);
     }
