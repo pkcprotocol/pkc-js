@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.139](https://github.com/pkcprotocol/pkc-js/compare/v0.0.138...v0.0.139) (2026-11-10)
+
+### Features
+
+* **helia:** dial seeders over WebTransport from browsers, private-only providers last ([#492](https://github.com/pkcprotocol/pkc-js/issues/492)) ([de66d90](https://github.com/pkcprotocol/pkc-js/commit/de66d90bfbc61fafc6e0e97027c2fb65623542e8)), closes [#166](https://github.com/pkcprotocol/pkc-js/issues/166) [#475](https://github.com/pkcprotocol/pkc-js/issues/475) [#495](https://github.com/pkcprotocol/pkc-js/issues/495) [#475](https://github.com/pkcprotocol/pkc-js/issues/475)
+
 ## [0.0.138](https://github.com/pkcprotocol/pkc-js/compare/v0.0.137...v0.0.138) (2026-11-09)
 
 ### Bug Fixes
