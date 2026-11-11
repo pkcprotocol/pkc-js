@@ -1248,8 +1248,11 @@ export class Comment
         if (this.state === "updating") return; // Do nothing if it's already updating
 
         if (!this.cid) throw Error("Can't call comment.update() without defining cid");
-        this._updateAttempt++;
+        const updateAttempt = ++this._updateAttempt;
         this._setStateWithEmission("updating");
+        // A statechange listener called stop() for "updating". The start-up below reads the attempt after this point, so it
+        // would take the stop()'s attempt for its own and track, mirror and start an instance for the stopped comment
+        if (updateAttempt !== this._updateAttempt) return;
 
         const existingUpdatingComment = findUpdatingComment(this._pkc, { cid: this.cid });
         if (existingUpdatingComment) {

@@ -56,6 +56,32 @@ describe("comment.stop() before update() has started the shared updating instanc
         expect(pkc._updatingComments.size()).to.equal(0);
     });
 
+    // update() emits statechange "updating" before it starts anything, so a listener that calls stop() there runs before
+    // the start-up. The start-up used to read the update attempt only after that emission, which took the stop()'s
+    // attempt for its own
+    it("does not start the shared instance when a statechange listener stops the comment on updating", async () => {
+        const comment = await pkc.createComment({ cid: COMMENT_CID });
+        const loopStarts = vi.fn(async () => {});
+        const realCreateComment = pkc.createComment.bind(pkc);
+        vi.spyOn(pkc, "createComment").mockImplementation(async (...args: Parameters<PKCType["createComment"]>) => {
+            const created = await realCreateComment(...args);
+            created.loadCommentIpfsAndStartCommentUpdateSubscription = loopStarts;
+            return created;
+        });
+        let stopping: Promise<void> | undefined;
+        comment.on("statechange", (state) => {
+            if (state === "updating" && !stopping) stopping = comment.stop();
+        });
+
+        await comment.update();
+        await stopping;
+
+        expect(comment.state).to.equal("stopped");
+        expect(comment._updatingCommentInstance).to.be.undefined;
+        expect(loopStarts).not.toHaveBeenCalled();
+        expect(pkc._updatingComments.size()).to.equal(0);
+    });
+
     // update(), then stop(), then update() again, while the first update()'s pkc.createComment() is still pending. The
     // first start-up used to check only `state`, which the second update() had set back to "updating", so both start-ups
     // went on: one shared instance was orphaned with a running loop, and the other update() rejected with "This client is
