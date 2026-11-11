@@ -80,6 +80,19 @@ describe("testRateLimit", () => {
         expect(wrapTestRateLimit(exclude, { comment: publication }, otherCommunityAddress)).to.equal(false);
     });
 
+    it("1 any publication type counted separately for community and author pairs whose addresses join to the same text", async () => {
+        // Domain addresses can contain "-", so joining the community and author addresses with "-" would map both pairs to one limiter
+        const communityAddress = `${getRandomAddress()}.eth`;
+        const exclude = { rateLimit: 1 };
+        const communityChallenges = [{ exclude: [exclude] }];
+        const publication = { author: { address: "b.eth-c.eth" } };
+        const otherCommunityAddress = `${communityAddress}-b.eth`;
+        const otherPublication = { author: { address: "c.eth" } };
+        wrapAddToRateLimiter(communityChallenges, { comment: publication }, true, communityAddress);
+        expect(wrapTestRateLimit(exclude, { comment: publication }, communityAddress)).to.equal(false);
+        expect(wrapTestRateLimit(exclude, { comment: otherPublication }, otherCommunityAddress)).to.equal(true);
+    });
+
     it("1 any publication type challengeSuccess false", async () => {
         const author1 = { address: getRandomAddress() };
         const author2 = { address: getRandomAddress() };

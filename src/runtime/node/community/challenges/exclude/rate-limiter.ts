@@ -19,7 +19,7 @@ type RateLimiterInstance = InstanceType<typeof RateLimiter>;
 type PublicationType = "post" | "reply" | "vote" | "commentEdit" | "commentModeration" | "communityEdit";
 // each author could have 20+ rate limiters each if the community has
 // several rate limit rules so keep a large cache. One cache serves every community this process runs,
-// so each limiter name starts with the community address: an author's publications in one community
+// so each limiter name includes the community address: an author's publications in one community
 // must not spend the rate limit of another community that uses the same exclude.rateLimit.
 const rateLimiters = new QuickLRU<string, RateLimiterInstance>({ maxSize: 50000 });
 
@@ -38,13 +38,14 @@ const getPublicationType = (request: DecryptedChallengeRequestMessageTypeWithCom
                   ? "communityEdit"
                   : undefined;
 
+// A JSON tuple, not a "-" join: domain addresses can contain "-", so a joined name could match another community and author pair
 const getRateLimiterName = (
     communityAddress: string,
     exclude: Exclude,
     publication: PublicationWithCommunityAuthorFromDecryptedChallengeRequest,
     publicationType: PublicationType,
     challengeSuccess: ChallengeResult["success"]
-) => `${communityAddress}-${publication.author.address}-${exclude.rateLimit}-${publicationType}-${challengeSuccess}`;
+) => JSON.stringify([communityAddress, publication.author.address, exclude.rateLimit, publicationType, challengeSuccess]);
 
 const getOrCreateRateLimiter = (
     communityAddress: string,
