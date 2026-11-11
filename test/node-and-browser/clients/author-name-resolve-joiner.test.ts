@@ -1,5 +1,6 @@
 import { it, expect, afterEach, vi } from "vitest";
 import { sha256 } from "js-sha256";
+import { v4 as uuidv4 } from "uuid";
 import signers from "../../fixtures/signers.js";
 import { createMockNameResolver, mockPKCV2 } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
@@ -24,13 +25,15 @@ describeSkipIfRpc("resolveAuthorNamesInBackground: a caller that joins an in-fli
     const author = { authorName: "carol.bso", signaturePublicKey: signers[3].publicKey };
     const cacheKey = sha256(author.authorName + author.signaturePublicKey);
 
-    // A resolver that holds every resolve until released, then answers with carol's key
+    // A resolver that holds every resolve until released, then answers with carol's key. Each test gets its own key:
+    // the persistent name-resolution cache is keyed by resolver, and in browsers it outlives the pkc (localforage), so
+    // with a shared key the first test's answer would be served to the later tests without asking the resolver.
     const heldResolver = () => {
         const calls: string[] = [];
         let release = () => {};
         const held = new Promise<void>((resolve) => (release = resolve));
         const resolver: NameResolver = createMockNameResolver({
-            key: "held-resolver",
+            key: `held-resolver-${uuidv4()}`,
             provider: "mock://held",
             resolveFunction: async ({ name }) => {
                 calls.push(name);
