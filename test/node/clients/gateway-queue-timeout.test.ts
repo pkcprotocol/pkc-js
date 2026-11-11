@@ -6,6 +6,7 @@ import { calculateIpfsCidV0 } from "../../../dist/node/util.js";
 import Logger from "../../../dist/node/logger.js";
 
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
 
 // Both gateway fetchers run at most 3 gateways at a time and queue the rest. Each gateway's timeout used
 // to be armed when it was queued, not when its request started, so when the first 3 gateways hung, every
@@ -76,6 +77,40 @@ describe("gateway timeouts start when the gateway's request does, not while it w
         }
         expect(requestsPerGateway.slice(0, 3)).to.deep.equal([1, 1, 1]);
         expect(requestsPerGateway[3], "the 4th gateway was never asked").to.equal(1);
+    });
+});
+
+// pkc.getComment's deadline is the comment-ipfs timeout, the same length as each gateway's. A gateway that gets a
+// slot at once has its timeout armed when it is queued, before getComment arms its own, so when every gateway hangs,
+// getComment rejects with what the gateways did rather than with a bare timeout. Armed a tick later, when the request
+// starts, that timeout always lost the race to getComment's.
+describe("a gateway that starts at once times out before a caller's deadline of the same length", () => {
+    let server: Server;
+    let gatewayUrl: string;
+    let pkc: PKC;
+
+    beforeAll(async () => {
+        server = http.createServer(() => {}); // accepts the request and never answers
+        await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+        gatewayUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+        pkc = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: [gatewayUrl] } });
+    });
+
+    afterAll(async () => {
+        await pkc?.destroy();
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+
+    it("pkc.getComment rejects with the gateways' errors when every gateway hangs", async () => {
+        pkc._timeouts["comment-ipfs"] = 200;
+        const cid = await calculateIpfsCidV0("a comment no gateway serves");
+        const error = await pkc.getComment({ cid }).then(
+            (): undefined => undefined,
+            (e: PKCError) => e
+        );
+        expect(error?.code, "getComment timed out before the gateway did").to.equal("ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS");
+        expect((error?.details.gatewayToError as Record<string, PKCError>)[gatewayUrl].code).to.equal("ERR_GATEWAY_TIMED_OUT_OR_ABORTED");
     });
 });
 

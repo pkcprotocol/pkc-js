@@ -657,16 +657,22 @@ export class BaseClientsManager {
             loadOpts.abortSignal.addEventListener("abort", onParentAbort, { once: true });
         }
 
-        for (const gateway of gatewaysSorted) {
+        for (const [i, gateway] of gatewaysSorted.entries()) {
             const abortController = new AbortController();
             const gatewayFetch = { abortController, timeoutId: undefined } as GenericGatewayFetch[string];
             gatewayFetches[gateway] = gatewayFetch;
+            const armTimeout = () =>
+                (gatewayFetch.timeoutId = setTimeout(() => abortController.abort("Gateway request timed out"), timeoutMs));
+            // The timeout is this gateway's own, so it runs from when the gateway can send its request. The first
+            // `concurrencyLimit` gateways get a slot at once, so theirs is armed now, before the caller arms a deadline of
+            // the same length (getComment's is the comment-ipfs timeout too): when the gateways hang, their errors reach the
+            // caller first. A gateway that waits for a slot gets its timeout when its request starts. Armed at enqueue, it
+            // would run down in the queue, and a gateway queued behind 3 hanging ones would start aborted. A gateway that
+            // cleanUp() reached first starts aborted anyway, and gets no timer cleanUp() can't clear
+            const startsAtOnce = i < concurrencyLimit;
+            if (startsAtOnce) armTimeout();
             gatewayFetch.promise = queueLimit(() => {
-                // The timeout is this gateway's own, so it starts with its request. Armed at enqueue, it would run down
-                // while the gateway waits for a slot, and a gateway queued behind 3 hanging ones would start aborted.
-                // A gateway that cleanUp() reached first starts aborted anyway, and gets no timer cleanUp() can't clear
-                if (!abortController.signal.aborted)
-                    gatewayFetch.timeoutId = setTimeout(() => abortController.abort("Gateway request timed out"), timeoutMs);
+                if (!startsAtOnce && !abortController.signal.aborted) armTimeout();
                 return this._fetchWithGateway(gateway, { ...loadOpts, abortController });
             });
         }

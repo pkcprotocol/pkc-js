@@ -1218,7 +1218,7 @@ export class CommunityClientsManager extends PKCClientsManager {
             stopSignal.addEventListener("abort", onStopAbort, { once: true });
         }
 
-        for (const gatewayUrl of gatewaysSorted) {
+        for (const [gatewayIndex, gatewayUrl] of gatewaysSorted.entries()) {
             const abortController = new AbortController();
             const throwIfGatewayRespondsWithInvalidCommunity: OptionsToLoadFromGateway["validateGatewayResponseFunc"] = async (
                 gatewayRes
@@ -1391,15 +1391,20 @@ export class CommunityClientsManager extends PKCClientsManager {
                 etagsForConditionalRequest.size > 0 ? { "If-None-Match": Array.from(etagsForConditionalRequest).join(", ") } : undefined;
             const gatewayFetch = { abortController } as CommunityGatewayFetch[string];
             gatewayFetches[gatewayUrl] = gatewayFetch;
+            const armTimeout = () =>
+                (gatewayFetch.timeoutId = setTimeout(
+                    () => abortController.abort("Aborting community IPNS request because it timed out after " + timeoutMs + "ms"),
+                    timeoutMs
+                ));
+            // The timeout is this gateway's own, so it runs from when the gateway can send its request, as in
+            // fetchFromMultipleGateways: armed now for the first `concurrencyLimit` gateways, which get a slot at once, and
+            // when its request starts for a gateway that waits for a slot. Armed at enqueue, a queued gateway's timeout would
+            // run down while it waits, and a gateway queued behind 3 hanging ones would start aborted. A gateway that
+            // cleanUp() reached first starts aborted anyway, and gets no timer cleanUp() can't clear
+            const startsAtOnce = gatewayIndex < concurrencyLimit;
+            if (startsAtOnce) armTimeout();
             gatewayFetch.promise = queueLimit(() => {
-                // The timeout is this gateway's own, so it starts with its request. Armed at enqueue, it would run down
-                // while the gateway waits for a slot, and a gateway queued behind 3 hanging ones would start aborted.
-                // A gateway that cleanUp() reached first starts aborted anyway, and gets no timer cleanUp() can't clear
-                if (!abortController.signal.aborted)
-                    gatewayFetch.timeoutId = setTimeout(
-                        () => abortController.abort("Aborting community IPNS request because it timed out after " + timeoutMs + "ms"),
-                        timeoutMs
-                    );
+                if (!startsAtOnce && !abortController.signal.aborted) armTimeout();
                 return this._fetchWithGateway(gatewayUrl, {
                     recordIpfsType: "ipns",
                     root: ipnsName,
