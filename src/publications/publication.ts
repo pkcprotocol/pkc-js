@@ -192,7 +192,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
     private _setProviderFailureThresholdSeconds: number;
     private _rpcPublishSubscriptionId?: number = undefined;
     // RPC publish subscriptions that a later publish() dropped while they were still live, mapped to their unsubscribe
-    // call (see _dropRpcPublishSubscriptionOfFailedAttempt). Their events are ignored until that call removes their listeners
+    // call (see _dropRpcPublishSubscriptionOfFailedAttempt). _publishWithRpc waits for those calls; their events, which belong
+    // to an earlier attempt, are ignored until the calls remove their listeners
     private _droppedRpcPublishSubscriptions = new Map<number, Promise<void>>();
     _clientsManager!: PublicationClientsManager;
     _pkc: PKC;
@@ -1321,9 +1322,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
         }
         this._rpcPublishSubscriptionId = subscriptionId;
 
-        // Until its unsubscribe removes these handlers, a subscription that a later publish() dropped still delivers events
-        const unlessDropped = (handler: (args: unknown) => unknown) => (args: unknown) => {
-            if (!this._droppedRpcPublishSubscriptions.has(subscriptionId)) return handler(args);
+        // The RPC client removes these handlers only once an unsubscribe call returns, so the subscription still delivers
+        // events after its attempt is over: after stop(), while its unsubscribe is pending (a publish() can start right
+        // after an un-awaited stop()) or when it failed, and after a later publish() dropped it (see
+        // _dropRpcPublishSubscriptionOfFailedAttempt). Like the pubsub messages of an earlier attempt, they are ignored: a
+        // stopped attempt's verdict used to end the newer attempt, unregister it and unsubscribe its subscription
+        const unlessStale = (handler: (args: unknown) => unknown) => (args: unknown) => {
+            if (!this._isStalePublishAttempt(publishAttempt)) return handler(args);
         };
         // Deferred so a listener attached synchronously after `await publish()` resolves still
         // receives events the server emitted before the publish response (#314); see
@@ -1333,13 +1338,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
             isStale: () => this._rpcPublishSubscriptionId !== subscriptionId,
             attach: (subscription) =>
                 subscription
-                    .on("challengerequest", unlessDropped(this._handleIncomingChallengeRequestFromRpc.bind(this)))
-                    .on("challenge", unlessDropped(this._handleIncomingChallengeFromRpc.bind(this)))
-                    .on("challengeanswer", unlessDropped(this._handleIncomingChallengeAnswerFromRpc.bind(this)))
-                    .on("challengeverification", unlessDropped(this._handleIncomingChallengeVerificationFromRpc.bind(this)))
-                    .on("publishingstatechange", unlessDropped(this._handleIncomingPublishingStateFromRpc.bind(this)))
-                    .on("statechange", unlessDropped(this._handleIncomingStateFromRpc.bind(this)))
-                    .on("error", unlessDropped(this._handleIncomingErrorFromRpc.bind(this))),
+                    .on("challengerequest", unlessStale(this._handleIncomingChallengeRequestFromRpc.bind(this)))
+                    .on("challenge", unlessStale(this._handleIncomingChallengeFromRpc.bind(this)))
+                    .on("challengeanswer", unlessStale(this._handleIncomingChallengeAnswerFromRpc.bind(this)))
+                    .on("challengeverification", unlessStale(this._handleIncomingChallengeVerificationFromRpc.bind(this)))
+                    .on("publishingstatechange", unlessStale(this._handleIncomingPublishingStateFromRpc.bind(this)))
+                    .on("statechange", unlessStale(this._handleIncomingStateFromRpc.bind(this)))
+                    .on("error", unlessStale(this._handleIncomingErrorFromRpc.bind(this))),
             // Pre-deferral a replay throw rejected publish(); the helper contains it (log,
             // surface as an "error" event, stop)
             replayErrorContainment: {

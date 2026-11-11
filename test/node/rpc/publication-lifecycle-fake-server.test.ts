@@ -507,6 +507,48 @@ describe("publications over RPC (fake RPC server)", () => {
             expect(publishVoteCalls()).to.equal(3);
             expect(server.unsubscribedIds()).to.deep.equal([firstSubscriptionId, retrySubscriptionId]);
         });
+
+        // The RPC client removes a subscription's listeners only once the server answered its unsubscribe call, so a stopped
+        // publish keeps receiving its events until then. Here the next publish() starts in that window
+        it("ignores the events of a stopped publish whose unsubscribe is still pending", async () => {
+            const vote = await createVote();
+            const events = recordEvents(vote);
+            await vote.publish();
+            const firstSubscriptionId = server.subscriptionIdOf("publishVote");
+            // The handlers attach after publish() resolved; this event lands only once they did
+            server.sendNotification({
+                method: "publishVoteNotification",
+                subscription: firstSubscriptionId,
+                event: "publishingstatechange",
+                result: { state: "waiting-challenge" }
+            });
+            await vi.waitFor(() => expect(vote.publishingState).to.equal("waiting-challenge"), { timeout: 10000, interval: 10 });
+            server.holdResponsesTo("unsubscribe");
+            const stopping = vote.stop();
+            await server.waitForHeldCall("unsubscribe");
+            await vote.publish();
+            expect(publishVoteCalls()).to.equal(2);
+            const secondSubscriptionId = server.calls.filter((call) => call.method === "publishVote")[1].subscriptionId!;
+
+            // The stopped publish's verdict used to end the new attempt: it set it "stopped" and "succeeded", unregistered it
+            // and unsubscribed its subscription
+            sendVerdict(firstSubscriptionId);
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(events).to.not.include("challengeverification:true");
+            expect(vote.state).to.equal("publishing");
+            expect(server.unsubscribedIds()).to.deep.equal([firstSubscriptionId]);
+            expect(pkc._publishingPublications.has(vote)).to.be.true;
+
+            server.releaseHeldResponse("unsubscribe");
+            await stopping;
+            sendVerdict(secondSubscriptionId);
+            await vi.waitFor(() => expect(events).to.include("challengeverification:true"), { timeout: 10000, interval: 10 });
+            expect(vote.state).to.equal("stopped");
+            await vi.waitFor(() => expect(server.unsubscribedIds()).to.deep.equal([firstSubscriptionId, secondSubscriptionId]), {
+                timeout: 10000,
+                interval: 10
+            });
+        });
     });
 
     describe("stop() while the server is starting the publish", () => {
