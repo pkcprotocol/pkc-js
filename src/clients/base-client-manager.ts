@@ -1337,10 +1337,13 @@ export class BaseClientsManager {
         return calculateIpfsCidV0(content);
     }
 
+    // abortSignal is the caller's own cancellation: a caller that joined another community's fetch fetches again
+    // when that community is stopped, unless it was stopped too
     protected async _withInflightCommunityFetch(
         communityAddress: string,
-        fetcher: () => Promise<ResultOfFetchingCommunity>
+        fetcher: () => Promise<ResultOfFetchingCommunity>,
+        abortSignal?: AbortSignal
     ): Promise<ResultOfFetchingCommunity> {
-        return this._pkc._inflightFetchManager.withResource(InflightResourceTypes.COMMUNITY_IPNS, communityAddress, fetcher);
+        return this._pkc._inflightFetchManager.withResource(InflightResourceTypes.COMMUNITY_IPNS, communityAddress, fetcher, abortSignal);
     }
 }

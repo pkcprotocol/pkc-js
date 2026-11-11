@@ -344,7 +344,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         this._initRpcClientsIfNeeded();
         this._initIpfsGatewaysIfNeeded();
         this._initMemCaches();
-        this._inflightFetchManager = new InflightFetchManager();
+        this._inflightFetchManager = new InflightFetchManager({ isDestroyed: () => this.destroyed });
 
         if (!this.noData) {
             if (!this.pkcRpcClientsOptions)
@@ -575,6 +575,10 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         // abort fires, which leaks one listener per call (issues #145, #146).
         abortSignal?.addEventListener("abort", abortListener);
 
+        // The load runs under the comment's stop signal, which the comment.stop() below aborts. So when this call
+        // ends without the comment (abort, timeout, failure), its own fetch is cancelled, and a fetch it joined
+        // is not fetched again on its behalf once that fetch's owner is stopped.
+        comment._createStopAbortController();
         const commentTimeout = this._timeouts["comment-ipfs"];
         try {
             await pTimeout(Promise.race([comment._attemptInfintelyToLoadCommentIpfs(), abortPromise]), {
@@ -584,6 +588,10 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                     new TimeoutError(`pkc.getComment({cid: ${parsedGetCommentArgs}}) timed out after ${commentTimeout}ms`)
             });
             if (!comment.signature) throw Error("Failed to load CommentIpfs");
+            // The loaded comment started resolving its author's name under that signal. That resolve outlives this
+            // call: its verdict lands on the comment and in the pkc-wide cache. Detach the signal so the
+            // comment.stop() below does not cancel it.
+            comment._clearStopAbortController();
             return comment;
         } catch (e) {
             // Abort wins over whatever else the comment happened to emit: the caller cancelled on

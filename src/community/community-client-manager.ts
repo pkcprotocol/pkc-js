@@ -929,7 +929,7 @@ export class CommunityClientsManager extends PKCClientsManager {
     }
 
     async fetchNewUpdateForCommunity(communityAddress: string): Promise<ResultOfFetchingCommunity> {
-        return this._withInflightCommunityFetch(communityAddress, async () => {
+        const fetchCommunity = async (): Promise<ResultOfFetchingCommunity> => {
             let ipnsName: string | null;
             const isDomain = isStringDomain(communityAddress);
 
@@ -1047,7 +1047,10 @@ export class CommunityClientsManager extends PKCClientsManager {
                     this._pkc._memCaches.communityForPublishing.set(identityPublicKey, communityForPublishing);
             }
             return subRes;
-        });
+        };
+        // The stop signal is this community's own cancellation: when the fetch we joined belongs to another
+        // community that gets stopped, we fetch on our own instead, unless this community was stopped too
+        return this._withInflightCommunityFetch(communityAddress, fetchCommunity, this._community._getStopAbortSignal());
     }
 
     // True while the libp2p-js resolver's push-channel watchdog vouches for `ipnsName`'s topic
