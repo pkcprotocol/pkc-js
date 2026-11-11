@@ -399,7 +399,8 @@ async function publishCommunityRecordToIpns(
 
     log.trace("Updated combined hash of pending comments to", community._combinedHashOfPendingCommentsCids);
 
-    await community._updateDbInternalState(community.toJSONInternalAfterFirstUpdate());
+    // built under the state lock, so it keeps an edit stored meanwhile (see updateDbInternalState)
+    await community._updateDbInternalState(() => community.toJSONInternalAfterFirstUpdate());
 
     community._changeStateEmitEventEmitStateChangeEvent({
         newStartedState: "succeeded",

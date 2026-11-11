@@ -76,19 +76,27 @@ export async function getDbInternalState(
     }
 }
 
+type InternalStateProps = Partial<InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType>;
+
+// A writer of the whole record (the publish cycle, stop()) passes a function that builds it, called once the state lock is
+// taken. A record built before the lock lacked an edit of a started community that stored itself in the meantime, and was
+// written over it. That edit applies itself to the instance right after its write, before another writer can take the lock.
 export async function updateDbInternalState(
     community: LocalCommunity,
-    props: Partial<InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType>
+    propsOrBuildProps: InternalStateProps | (() => InternalStateProps)
 ): Promise<InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType> {
     const log = Logger("pkc-js:local-community:_updateDbInternalState");
-    if (isEmpty(props)) throw Error("props to update DB internal state should not be empty");
+    if (typeof propsOrBuildProps !== "function" && isEmpty(propsOrBuildProps))
+        throw Error("props to update DB internal state should not be empty");
     await community._dbHandler.initDbIfNeeded();
 
-    props._internalStateUpdateId = uuidV4();
+    let props: InternalStateProps = typeof propsOrBuildProps === "function" ? {} : propsOrBuildProps;
     let lockedIt = false;
     try {
         await community._dbHandler.lockCommunityState();
         lockedIt = true;
+        if (typeof propsOrBuildProps === "function") props = propsOrBuildProps();
+        props._internalStateUpdateId = uuidV4();
         const internalStateBefore = await community._getDbInternalState(false);
         // Convert posts to CID-ref format for compact DB storage (strip preloaded page data)
         const propsToStore =

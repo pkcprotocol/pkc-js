@@ -546,8 +546,8 @@ export async function stop(community: LocalCommunity) {
         }
 
         try {
-            await updateDbInternalState(
-                community,
+            // built under the state lock, so it keeps an edit stored meanwhile (see updateDbInternalState)
+            await updateDbInternalState(community, () =>
                 community.updateCid ? community.toJSONInternalAfterFirstUpdate() : community.toJSONInternalBeforeFirstUpdate()
             );
         } catch (e) {

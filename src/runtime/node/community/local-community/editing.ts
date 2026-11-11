@@ -280,6 +280,8 @@ export async function editPropsOnStartedCommunity(
         // publish or stop() stored it, and a crash before either (a cycle keeps failing while kubo is down) lost the edit.
         // An empty edit (edit({}), or edit({ roles: undefined }) once parsed) has nothing to store, and updateDbInternalState()
         // throws on empty props. The props are copied because it sets _internalStateUpdateId on what it gets.
+        // Keep the in-memory apply below right after this write, with no I/O between them: the publish cycle and stop() build
+        // the whole record from the instance once they hold the state lock, and must find the edit there once it is stored.
         if (!isEmpty(parsedEditOptions)) await updateDbInternalState(community, { ...parsedEditOptions });
         community._pendingEditProps.push({ ...parsedEditOptions, editId: uniqueEditId });
     }
