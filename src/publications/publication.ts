@@ -1596,10 +1596,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     log(`Published a challenge request of publication`, this.getType(), "with provider", providerUrl);
                     this.emit("challengerequest", decryptedRequest);
                     if (currentPubsubProviderIndex !== providers.length)
-                        await sleepUntilTimeoutOrAbort(
-                            this._publishToDifferentProviderThresholdSeconds * 1000,
-                            runSignal
-                        );
+                        await sleepUntilTimeoutOrAbort(this._publishToDifferentProviderThresholdSeconds * 1000, runSignal);
                     if (this._isPublishRunOver(runSignal) || this._isStalePublishAttempt(publishAttempt)) return;
                 }
             } else {
@@ -1673,6 +1670,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
         community.on("challenge", communityChallengeListener);
 
+        // The handling of the community's verdict, which records it only after its signature is checked. Set synchronously
+        // on the emission, so a rejection that follows the verdict can wait for it
+        let verificationHandling: Promise<void> | undefined;
         const communityChallengeVerificationListener = async (
             decryptedChallengeVerification: DecryptedChallengeVerificationMessageType
         ) => {
@@ -1681,9 +1681,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 log("Received a challenge verification from the local community", decryptedChallengeVerification);
                 // need to remove publicatioon fields from challenge verification otherwise verifyChallengeVerification will throw
                 const publicationFieldsToRemove = ["comment", "commentUpdate"] as const;
-                await this._handleIncomingChallengeVerificationPubsubMessage(
+                verificationHandling = this._handleIncomingChallengeVerificationPubsubMessage(
                     omit(decryptedChallengeVerification, publicationFieldsToRemove)
                 );
+                await verificationHandling;
             }
         };
 
@@ -1698,12 +1699,28 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     challengeRequestPublishTimestamp: timestamp()
                 };
             })
-            .catch((e) => {
+            .catch(async (e) => {
                 log.error("Failed to handle challenge request with local community", e);
-                this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequestPublishError = e as
-                    | Error
-                    | PKCError;
-                throw e;
+                const challengeRequestId = challengeRequest.challengeRequestId.toString();
+                this._challengeExchanges[challengeRequestId].challengeRequestPublishError = e as Error | PKCError;
+                // A request the community could not decrypt or parse gets a failed verdict right before this rejection. That
+                // verdict ends the attempt, so wait for its handling (a rejection of it still rejects the listener above)
+                await verificationHandling?.catch(() => {});
+                // Without a verdict, nothing else can end the attempt: the listeners above are removed once this settles. It
+                // used to stay "publishing" and in flight until stop(), which made publish() again a no-op, and the rejection
+                // was unhandled
+                if (this._isStalePublishAttempt(publishAttempt) || this._challengeExchanges[challengeRequestId].challengeVerification)
+                    return;
+                try {
+                    await this._endPublishAttemptWithFailure(() =>
+                        this._changePublicationStateEmitEventEmitStateChangeEvent({
+                            newPublishingState: "failed",
+                            event: { name: "error", args: [e as Error | PKCError] }
+                        })
+                    );
+                } catch (endError) {
+                    log.error("Failed to end the exchange the local community rejected", endError);
+                }
             })
             .finally(() => {
                 community.removeListener("challenge", communityChallengeListener);

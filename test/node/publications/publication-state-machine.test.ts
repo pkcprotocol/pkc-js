@@ -502,6 +502,104 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             }
         });
 
+        // A started local community handles the request in one call that settles once the exchange is over, and the
+        // publication's listeners on the community are removed then. That call can reject with no verdict, or right after
+        // the community emitted a failed one
+        describe("a request the local community rejected", () => {
+            const trackRejectingLocalCommunity = () => {
+                let rejectRequest!: (error: Error) => void;
+                const localCommunity = trackFakeLocalCommunity({
+                    handleChallengeRequest: () => new Promise<void>((_, reject) => (rejectRequest = reject))
+                });
+                return { ...localCommunity, rejectRequest: (error: Error) => rejectRequest(error) };
+            };
+
+            it("ends the attempt as failed with the rejection, and publish() runs again", async () => {
+                const { post, pubsub, events } = await createPostWithStubbedPubsub();
+                const errorMessages: string[] = [];
+                post.on("error", (error) => errorMessages.push(error.message));
+                const localCommunity = trackRejectingLocalCommunity();
+                try {
+                    await post.publish();
+                    expect(localCommunity.community.handleChallengeRequest).toHaveBeenCalledTimes(1);
+                    localCommunity.rejectRequest(new Error("stubbed handleChallengeRequest failure"));
+
+                    // Nothing ended the attempt: it stayed "publishing", in flight and registered until stop(), so publish()
+                    // again was a no-op, and the rejection was unhandled
+                    await vi.waitFor(() => expect(post.state).to.equal("stopped"), { timeout: 5000, interval: 10 });
+                    expect(post.publishingState).to.equal("failed");
+                    expect(errorMessages).to.deep.equal(["stubbed handleChallengeRequest failure"]);
+                    expect(publishingStates(events).at(-1)).to.equal("failed");
+                    expect(pkc._publishingPublications.has(post)).to.be.false;
+
+                    await post.publish();
+                    expect(localCommunity.community.handleChallengeRequest).toHaveBeenCalledTimes(2);
+                    expect(post.state).to.equal("publishing");
+                    expect(pkc._publishingPublications.has(post)).to.be.true;
+                    localCommunity.rejectRequest(new Error("stubbed handleChallengeRequest failure"));
+                    await vi.waitFor(() => expect(errorMessages).to.have.length(2), { timeout: 5000, interval: 10 });
+                    expect(post.state).to.equal("stopped");
+                    expect(post.publishingState).to.equal("failed");
+                    expect(pubsub.requests.length).to.equal(0);
+                } finally {
+                    localCommunity.untrack();
+                }
+            });
+
+            it("leaves a stopped publication alone when the rejection comes after stop()", async () => {
+                const { post, events, errorCodes } = await createPostWithStubbedPubsub();
+                const localCommunity = trackRejectingLocalCommunity();
+                try {
+                    await post.publish();
+                    await post.stop();
+                    const eventsAfterStop = events.length;
+                    localCommunity.rejectRequest(new Error("stubbed handleChallengeRequest failure"));
+                    await new Promise((resolve) => setTimeout(resolve, 100));
+
+                    expect(post.state).to.equal("stopped");
+                    expect(post.publishingState).to.equal("stopped");
+                    expect(events.slice(eventsAfterStop)).to.deep.equal([]);
+                    expect(errorCodes).to.deep.equal([]);
+                } finally {
+                    localCommunity.untrack();
+                }
+            });
+
+            it("lets the failed verdict the community emitted before it rejected end the attempt", async () => {
+                const { post, events } = await createPostWithStubbedPubsub();
+                const errorMessages: string[] = [];
+                post.on("error", (error) => errorMessages.push(error.message));
+                // A request the community cannot decrypt or parse gets a failed verdict, and then the call rethrows the error
+                const localCommunity = trackFakeLocalCommunity({
+                    handleChallengeRequest: async (request) => {
+                        const verdict = await challengeVerificationFor({ request, by: communitySigner, challengeSuccess: false });
+                        localCommunity.community.emit("challengeverification", verdict);
+                        throw new Error("stubbed failure after the verdict");
+                    }
+                });
+                try {
+                    await post.publish();
+                    await vi.waitFor(() => expect(post.state).to.equal("stopped"), { timeout: 5000, interval: 10 });
+                    await new Promise((resolve) => setTimeout(resolve, 100));
+
+                    // The rejection used to overtake the verdict, which is recorded only once its signature is checked: the
+                    // attempt ended as a failure with the rejection as an error, and the verdict landed on the stopped publication
+                    expect(errorMessages).to.deep.equal([]);
+                    expect(events).to.deep.equal([
+                        "statechange:publishing",
+                        "challengerequest",
+                        "challengeverification:false",
+                        "statechange:stopped",
+                        "publishingstatechange:failed"
+                    ]);
+                    expect(post.publishingState).to.equal("failed");
+                    expect(pkc._publishingPublications.has(post)).to.be.false;
+                } finally {
+                    localCommunity.untrack();
+                }
+            });
+        });
+
         // The message is handed over before stop(), so its handler is still verifying or decrypting it when stop() and
         // publish() run. The handlers used to filter by attempt only on entry
         it("ignores a challenge the stopped attempt was still handling when stop() and publish() ran", async () => {
