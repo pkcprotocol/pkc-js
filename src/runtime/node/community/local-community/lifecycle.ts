@@ -43,9 +43,14 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
     // sort configuration, or an unreachable Kubo, would make stop() hang.
     let syncFailedSinceStop = false;
 
+    // After a lost start lock the loop runs no further cycle, even with an edit pending: the process that holds the lock now
+    // may be running the community. Such an edit is lost although edit() resolved, and the owner has to apply it again: an
+    // edit that keeps the address reaches the DB only through a successful cycle or stop(), and the stop after a lost lock
+    // skips that write too
     const shouldStopPublishLoop = () => {
         return (
             community.state !== "started" ||
+            community._startLockLost ||
             (community._stopHasBeenCalled && (community._pendingEditProps.length === 0 || syncFailedSinceStop))
         );
     };
@@ -169,6 +174,9 @@ export async function start(community: LocalCommunity) {
         findProcessStartedCommunity(community)
     )
         throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: community.address });
+    // Reset only past the check above: a start() refused there, one called from an error listener while the stop after a
+    // lost start lock runs for example, must not turn that stop's writes back on
+    community._startLockLost = false;
     // This process can lose the start lock, mostly to another process that takes it over (see lockCommunityStart). While
     // start() still runs it fails with that error before it subscribes to challenge requests or at its end, after that the
     // running community stops
@@ -200,6 +208,8 @@ export async function start(community: LocalCommunity) {
         // Will throw if community is locked already
         await community._dbHandler.lockCommunityStart({
             onCompromised: (error) => {
+                // Before any stop: the stop that follows, or one already running, must skip its writes (see stop())
+                community._startLockLost = true;
                 const lostLockError = new PKCError("ERR_COMMUNITY_START_LOCK_COMPROMISED", { communityAddress: community.address, error });
                 if (startFinished) stopAfterLosingStartLock(community, lostLockError);
                 else startLockLostDuringStart = lostLockError;
@@ -506,27 +516,34 @@ export async function stop(community: LocalCommunity) {
             community._publishLoopPromise = undefined;
         }
 
-        try {
-            // Bypass the unpin grace period: this is the process's last chance to unpin, and a
-            // community that never starts again would otherwise leak its queued pins forever.
-            await unpinStaleCids(community, { bypassGracePeriod: true });
-        } catch (e) {
-            log.error("Failed to unpin stale cids and remove mfs paths before stopping", e);
-        }
+        if (community._startLockLost) {
+            // The process that took the lock may be running the community already: its internal state, the cids it
+            // publishes and its lock are not this process's to overwrite, unpin or release. The stale cids queued here
+            // stay pinned, and an edit no cycle published is lost (see publishLoop).
+            log(`Community (${community.address}) lost its start lock, stopping without writing its state, unpinning or unlocking`);
+        } else {
+            try {
+                // Bypass the unpin grace period: this is the process's last chance to unpin, and a
+                // community that never starts again would otherwise leak its queued pins forever.
+                await unpinStaleCids(community, { bypassGracePeriod: true });
+            } catch (e) {
+                log.error("Failed to unpin stale cids and remove mfs paths before stopping", e);
+            }
 
-        try {
-            await updateDbInternalState(
-                community,
-                community.updateCid ? community.toJSONInternalAfterFirstUpdate() : community.toJSONInternalBeforeFirstUpdate()
-            );
-        } catch (e) {
-            log.error("Failed to update db internal state before stopping", e);
-        }
+            try {
+                await updateDbInternalState(
+                    community,
+                    community.updateCid ? community.toJSONInternalAfterFirstUpdate() : community.toJSONInternalBeforeFirstUpdate()
+                );
+            } catch (e) {
+                log.error("Failed to update db internal state before stopping", e);
+            }
 
-        try {
-            await community._dbHandler.unlockCommunityStart();
-        } catch (e) {
-            log.error(`Failed to unlock start lock on community (${community.address})`, e);
+            try {
+                await community._dbHandler.unlockCommunityStart();
+            } catch (e) {
+                log.error(`Failed to unlock start lock on community (${community.address})`, e);
+            }
         }
         const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
 

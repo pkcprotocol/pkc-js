@@ -161,6 +161,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _reportedChallengeLoadFailures: string | undefined = undefined;
     _dbHandler!: DbHandler;
     _stopHasBeenCalled: boolean; // we use this to track if community.stop() has been called after community.start() or community.update()
+    // This process lost the start lock of this run (see lockCommunityStart), so another process may be running the community.
+    // The publish loop and stop() then skip every write: no more cycles, no internal state write, no unpinning.
+    _startLockLost: boolean = false;
     _publishLoopPromise?: Promise<void> = undefined;
     _updateLoopPromise?: Promise<void> = undefined;
     _updateLoopAbortController?: AbortController;
