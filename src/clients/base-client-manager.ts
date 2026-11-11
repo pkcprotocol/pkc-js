@@ -659,11 +659,16 @@ export class BaseClientsManager {
 
         for (const gateway of gatewaysSorted) {
             const abortController = new AbortController();
-            gatewayFetches[gateway] = {
-                abortController,
-                promise: queueLimit(() => this._fetchWithGateway(gateway, { ...loadOpts, abortController })),
-                timeoutId: setTimeout(() => abortController.abort("Gateway request timed out"), timeoutMs)
-            };
+            const gatewayFetch = { abortController, timeoutId: undefined } as GenericGatewayFetch[string];
+            gatewayFetches[gateway] = gatewayFetch;
+            gatewayFetch.promise = queueLimit(() => {
+                // The timeout is this gateway's own, so it starts with its request. Armed at enqueue, it would run down
+                // while the gateway waits for a slot, and a gateway queued behind 3 hanging ones would start aborted.
+                // A gateway that cleanUp() reached first starts aborted anyway, and gets no timer cleanUp() can't clear
+                if (!abortController.signal.aborted)
+                    gatewayFetch.timeoutId = setTimeout(() => abortController.abort("Gateway request timed out"), timeoutMs);
+                return this._fetchWithGateway(gateway, { ...loadOpts, abortController });
+            });
         }
 
         const gatewayPromises = Object.values(gatewayFetches).map((fetching) => fetching.promise);
