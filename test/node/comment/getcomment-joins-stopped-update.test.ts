@@ -139,6 +139,10 @@ describeSkipIfRpc("pkc.getComment joining the CommentIpfs fetch of a comment tha
 // comment resolves its author's name in the background, and that resolve has to outlive getComment:
 // its verdict lands on the returned comment and in the pkc-wide cache (docs/protocol/community-lists.md,
 // "same as getComment").
+//
+// Gateway-only PKC against a local HTTP server, with a name resolver on this pkc. Under USE_RPC=1 the fetch and
+// the author name resolve happen on the RPC server, which neither the gateway nor the resolver here reach, so this
+// runs non-RPC only.
 describeSkipIfRpc("pkc.getComment and its comment's background author name resolve", () => {
     let pkc: PKC | undefined;
     let server: Server | undefined;
