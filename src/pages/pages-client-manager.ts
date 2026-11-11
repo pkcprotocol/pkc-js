@@ -228,7 +228,8 @@ export class BasePagesClientsManager extends BaseClientsManager {
         this.updateRpcState("fetching-ipfs", currentRpcUrl, opts.sortTypes);
 
         try {
-            return this._requestPageFromRPC(opts);
+            // Awaited, so the finally below sets "stopped" once the request settles, not while it is in flight
+            return await this._requestPageFromRPC(opts);
         } catch (e) {
             opts.log.error(`Failed to retrieve page (${opts.pageCid}) with rpc due to error:`, e);
             throw e;
