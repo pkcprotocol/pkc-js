@@ -142,6 +142,7 @@ import type { PageTypeJson } from "../pages/types.js";
 // so it stays a type-only import (erased at build time, no runtime cost).
 import type { Libp2pJsClient } from "../helia/libp2pjsClient.js";
 import type { AuthorNameRpcParam, CidRpcParam, PKCCommunitiesEntry, RpcFetchCidResult } from "../clients/rpc-client/types.js";
+import type { AuthorNameResolveInFlight } from "../clients/base-client-manager.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { cleanWireAuthor, getAuthorNameFromWire, normalizeCreatePublicationAuthor } from "../publications/publication-author.js";
 import { CommunityList } from "../community-list/community-list.js";
@@ -245,7 +246,9 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     // name resolve is outstanding right now. On the PKC rather than on a clients manager because the callers
     // that overlap do not share one: a community's page sweep and an updating Comment both resolve the same
     // author on the same community update. Entries are removed when the attempt settles. Issue #353.
-    _authorNameResolvesInFlight = new Set<string>();
+    // Each maps to the callers waiting for that resolve, so a caller that finds one in flight can wait for
+    // its outcome instead of never hearing about the verdict.
+    _authorNameResolvesInFlight = new Map<string, AuthorNameResolveInFlight>();
 
     _timeouts = {
         "community-ipns": 5 * 60 * 1000, // 5min, for resolving community IPNS, or fetching community from gateways
