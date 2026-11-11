@@ -74,12 +74,15 @@ async function _setProvideDhtSweepEnabledOnKuboNode(
     log.trace("Succeeded in setting config key", configKey, "on node", kuboClient._clientOptions.url, "to be", sweepEnabled);
 }
 
-// Codes meaning the TCP connection was never established, so kubo cannot have received the request. undici
-// nests the code at different depths of the cause chain, hence the walk over extractNetworkErrorDetails' tree.
-const CONNECTION_NOT_ESTABLISHED_ERROR_CODES: ReadonlySet<string> = new Set(["ECONNREFUSED", "UND_ERR_CONNECT_TIMEOUT"]);
+// kubo cannot have received the request when the DNS lookup or connect() failed (any error from those syscalls:
+// ENOTFOUND, EAI_AGAIN, ECONNREFUSED, EHOSTUNREACH, ENETUNREACH...) or undici timed out connecting (its
+// UND_ERR_CONNECT_TIMEOUT carries no syscall). undici nests the error at different depths of the cause chain,
+// hence the walk over extractNetworkErrorDetails' tree.
+const CONNECTION_NOT_ESTABLISHED_SYSCALLS: ReadonlySet<string> = new Set(["getaddrinfo", "connect"]);
 function _hasConnectionNotEstablishedCode(details: NetworkErrorDetails | undefined): boolean {
     if (!details) return false;
-    if (details.code && CONNECTION_NOT_ESTABLISHED_ERROR_CODES.has(details.code)) return true;
+    if (details.code === "UND_ERR_CONNECT_TIMEOUT") return true;
+    if (details.syscall && CONNECTION_NOT_ESTABLISHED_SYSCALLS.has(details.syscall)) return true;
     return details.causes?.some(_hasConnectionNotEstablishedCode) ?? false;
 }
 
@@ -148,8 +151,8 @@ async function _setHttpRouterOptionsOnKuboNode(
         } catch (e) {
             // kubo can drop the connection while it shuts down, so an error on a connection it accepted counts
             // as delivered and a retry must not restart it a second time. An abort, or a connection that was
-            // never established (kubo not listening, or its API too busy to accept), means kubo never got
-            // the request: keep it pending so the retry sends it.
+            // never established (kubo not listening, its API too busy to accept, its host unreachable or not
+            // resolving), means kubo never got the request: keep it pending so the retry sends it.
             if (!signal.aborted && !_hasConnectionNotEstablishedCode(extractNetworkErrorDetails(e)))
                 kuboClientsPendingRestart.delete(kuboClient);
             const error = new PKCError("ERR_FAILED_TO_SHUTDOWN_KUBO_NODE", {

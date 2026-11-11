@@ -1,6 +1,6 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { setupKuboHttpRouters } from "../../dist/node/runtime/node/setup-kubo-http-routers.js";
 import { describeSkipIfRpc } from "../helpers/conditional-tests.js";
 import type { PKC } from "../../dist/node/pkc/pkc.js";
@@ -16,7 +16,9 @@ import type { PKC } from "../../dist/node/pkc/pkc.js";
 // "drops" has its socket destroyed, which makes fetch() throw like a transient network error. To refuse
 // a /shutdown it stops listening before answering the request before it, so the /shutdown fails with
 // ECONNREFUSED without reaching it; it listens again on the next config read, as a kubo whose API came
-// back before the retry.
+// back before the retry. Other failures that happen before a connection exists (an unreachable host or
+// network, a failed DNS lookup, a connect timeout) are injected into the first /shutdown's fetch() with the
+// error shape undici gives them.
 type KuboRoutingConfig = { Routers?: Record<string, { Parameters?: { Endpoint?: string } }> };
 
 const createFakeKubo = async () => {
@@ -112,6 +114,7 @@ describeSkipIfRpc("setupKuboHttpRouters restarts kubo after a router change even
     let closeFakeKubo: (() => Promise<void>) | undefined;
 
     afterEach(async () => {
+        vi.restoreAllMocks();
         await closeFakeKubo?.();
         closeFakeKubo = undefined;
     });
@@ -137,6 +140,47 @@ describeSkipIfRpc("setupKuboHttpRouters restarts kubo after a router change even
 
         expect(fakeKubo.state.sweepWrites, "the refused /shutdown failed the first attempt, so setup retried").to.equal(2);
         expect(fakeKubo.state.shutdowns, "the refused /shutdown never reached kubo, so the retry must send it").to.equal(1);
+    });
+
+    // undici's fetch() rejects with TypeError("fetch failed") and the socket or DNS error as its cause
+    const fetchFailed = (cause: Error) => Object.assign(new TypeError("fetch failed"), { cause });
+    const systemError = (message: string, props: { code: string; syscall?: string }) => Object.assign(new Error(message), props);
+    it.each([
+        [
+            "EHOSTUNREACH from connect()",
+            () => systemError("connect EHOSTUNREACH 192.0.2.1:5001", { code: "EHOSTUNREACH", syscall: "connect" })
+        ],
+        [
+            "ENETUNREACH from connect()",
+            () => systemError("connect ENETUNREACH 192.0.2.1:5001", { code: "ENETUNREACH", syscall: "connect" })
+        ],
+        [
+            "ENOTFOUND from the DNS lookup",
+            () => systemError("getaddrinfo ENOTFOUND kubo.invalid", { code: "ENOTFOUND", syscall: "getaddrinfo" })
+        ],
+        [
+            "EAI_AGAIN from the DNS lookup",
+            () => systemError("getaddrinfo EAI_AGAIN kubo.invalid", { code: "EAI_AGAIN", syscall: "getaddrinfo" })
+        ],
+        ["undici's connect timeout", () => systemError("Connect Timeout Error", { code: "UND_ERR_CONNECT_TIMEOUT" })]
+    ])("sends /shutdown again on the retry when the first one failed before connecting: %s", async (_name, createCause) => {
+        const fakeKubo = await createFakeKubo();
+        closeFakeKubo = fakeKubo.close;
+        const realFetch = globalThis.fetch;
+        let failedShutdowns = 0;
+        vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+            if (failedShutdowns === 0 && String(input).endsWith("/shutdown")) {
+                failedShutdowns++;
+                throw fetchFailed(createCause());
+            }
+            return realFetch(input, init);
+        });
+
+        await setupKuboHttpRouters(createPkcStub(fakeKubo));
+
+        expect(failedShutdowns).to.equal(1);
+        expect(fakeKubo.state.sweepWrites, "the failed /shutdown failed the first attempt, so setup retried").to.equal(2);
+        expect(fakeKubo.state.shutdowns, "the first /shutdown never reached kubo, so the retry must send it").to.equal(1);
     });
 
     it("does not restart kubo a second time when kubo closed the connection while shutting down", async () => {
