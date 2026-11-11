@@ -130,6 +130,13 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     // is not a requested name, so a record that does not claim it is still accepted, and the result is applied only
     // if the loaded record claims the name.
     _nameToResolveBeforeFirstRecord?: string = undefined;
+    // Bumped by every stop(). An update() run keeps the value it started with and does nothing more once it changed:
+    // a run that a stop() ended, while it awaited or from a listener it called, must not track, mirror or start an
+    // updating instance, which would leave a "stopped" community attached to a live update loop.
+    protected _updateRunId = 0;
+    // Set while stop() cleans up. The instance reports "updating" until stop() finishes, so update() waits for it
+    // instead of returning early, and a second stop() joins it instead of cleaning up the same listeners twice.
+    protected _stoppingPromise?: Promise<void> = undefined;
 
     // Add a private property to store the actual updatingState value
     protected _updatingState!: CommunityUpdatingState;
@@ -834,7 +841,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
     // Resolves to true when the attach-time replay below emitted an "update" for the record it
     // applied, so update() can avoid emitting a duplicate for the same record.
-    private async fetchLatestCommunityOrSubscribeToEvent(): Promise<boolean> {
+    private async fetchLatestCommunityOrSubscribeToEvent({ runId }: { runId: number }): Promise<boolean> {
         const log = Logger("pkc-js:remote-community:update:updateOnce");
 
         // The instance flows from a single find-or-create: after a key migration this instance's
@@ -853,6 +860,9 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
                     ? { name: this.address, publicKey: this.publicKey }
                     : { address: this.address };
             const updatingCommunity = await this._pkc.createCommunity(createOpts);
+            // A stop() during the await above ended this run: tracking and mirroring the new instance now would
+            // leave this community stopped while it mirrors a live update loop
+            if (runId !== this._updateRunId) return false;
             if (
                 this._nameToResolveBeforeFirstRecord &&
                 updatingCommunity instanceof RemoteCommunity &&
@@ -862,6 +872,9 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             communityInstance = trackUpdatingCommunity(this._pkc, updatingCommunity);
             log("Creating a new entry for this._pkc._updatingCommunities", this.address);
         }
+        // An already tracked instance is attached to without an await, so this also covers a stop() that update()'s own
+        // listeners called before this method ran (an "error" listener of the deferred key-migration announcement)
+        if (runId !== this._updateRunId) return false;
         if (communityInstance === this) {
             // Already tracking this instance; start the loop directly without mirroring to itself
             this._clientsManager.startUpdatingLoop().catch((err) => log.error("Failed to start update loop of community", err));
@@ -914,6 +927,11 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
             this._announcePendingWarmStartKeyMigrationIfAny();
         }
 
+        // A listener called synchronously during the attach above called stop(): an "error" listener of the announcement,
+        // or an "updatingstatechange" listener the mirror forwards from the updating instance's first loop iteration.
+        // Do not replay a record into a stopped community.
+        if (runId !== this._updateRunId) return false;
+
         // Replay the updating instance's current record through the mirror's own update handler.
         // Listener attach alone has a gap: an instance that already holds a newer record than ours
         // (e.g. it settled a key migration before we joined, #197) emits nothing until its NEXT
@@ -958,11 +976,22 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     }
 
     async update() {
+        if (this._stoppingPromise) {
+            // A stop() still cleaning up reports "updating" until it finishes. Wait for it instead of returning as if
+            // the community kept updating, unless another stop() was called after this update(): the last call wins.
+            const runIdBeforeStopFinished = this._updateRunId;
+            await this._stoppingPromise.catch(() => {}); // the stop() caller handles its own failure
+            if (runIdBeforeStopFinished !== this._updateRunId) return;
+        }
         if (this.state !== "stopped") return; // No need to do anything if community is already updating
 
         const log = Logger("pkc-js:remote-community:update");
 
+        // Captured before the first event: every listener this run calls synchronously can call stop()
+        const runId = this._updateRunId;
         this._setState("updating");
+        // A statechange listener called stop(). A pending key-migration announcement stays for the next run.
+        if (runId !== this._updateRunId) return;
 
         this._announcePendingWarmStartKeyMigrationIfAny();
         // Only the construction-time warm start emits here. The attach-time replay reports whether
@@ -970,7 +999,16 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         // record we warm-started with), and on the cold path the record lands asynchronously after
         // this returns.
         const hadRecordBeforeFetch = Boolean(this.raw.communityIpfs);
-        const replayEmittedUpdate = await this.fetchLatestCommunityOrSubscribeToEvent();
+        let replayEmittedUpdate: boolean;
+        try {
+            replayEmittedUpdate = await this.fetchLatestCommunityOrSubscribeToEvent({ runId });
+        } catch (error) {
+            // Failed before attaching to an updating instance, so no loop or mirror runs. Report stopped, otherwise
+            // every later update() returns early on a community that never started.
+            if (runId === this._updateRunId && !this._updatingCommunityInstanceWithListeners) this._setState("stopped");
+            throw error;
+        }
+        if (runId !== this._updateRunId) return; // stop() was called while this run was attaching
         if (this.raw.communityIpfs && hadRecordBeforeFetch && !replayEmittedUpdate) this.emit("update", this);
     }
 
@@ -1022,9 +1060,20 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     }
 
     async stop() {
+        // Every stop() ends the current run: one still attaching to its updating instance, and an update() waiting
+        // for an earlier stop() to finish
+        this._updateRunId++;
+        if (this._stoppingPromise) return this._stoppingPromise;
         if (this.state === "stopped") return; // no-op if already stopped, mirrors update()'s idempotency
         if (this.state !== "updating") throw new PKCError("ERR_CALLED_COMMUNITY_STOP_WITHOUT_UPDATE", { address: this.address });
 
+        this._stoppingPromise = this._stopUpdating().finally(() => {
+            this._stoppingPromise = undefined;
+        });
+        return this._stoppingPromise;
+    }
+
+    private async _stopUpdating() {
         const log = Logger("pkc-js:remote-community:stop");
         this._abortStopOperations(`Aborting community operations for ${this.address} because community.stop() was called`);
         // The next update() is a new run whose listeners have not been told about any refused record
