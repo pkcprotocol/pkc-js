@@ -266,6 +266,69 @@ describeSkipIfRpc("stop() while start() is in flight", () => {
 });
 
 // Not over RPC: drives a LocalCommunity in this process with fake kubo and pubsub clients (see the header)
+describeSkipIfRpc("stop() while another stop() is tearing down", () => {
+    it("waits for that teardown instead of running a second one at the same time", async () => {
+        const { community, isStartLocked } = await createOfflineCommunity();
+        await community.start();
+        const countUnlocks = countStartUnlocks(community);
+
+        const results = await Promise.allSettled([community.stop(), community.stop()]);
+
+        expect(results.map((result) => result.status)).to.deep.equal(["fulfilled", "fulfilled"]);
+        expect(countUnlocks()).to.equal(1);
+        expect(community.state).to.equal("stopped");
+        expect(await isStartLocked()).to.equal(false);
+    });
+
+    it("waits for a failed start()'s own teardown, then stops the start() a 'stopped' listener begins after it", async () => {
+        const { community, subscribedTopics, isStartLocked } = await createOfflineCommunity();
+        const challengeTopic = communityChallengePubsubTopic(community);
+        const { release: releaseFirstStart } = failStartAfterItEnteredTheStartedState();
+        releaseFirstStart.resolve(); // the first start() fails as soon as it is in the started state
+
+        let restart: Promise<void> | undefined;
+        community.on("statechange", (state) => {
+            if (state === "stopped" && !restart) {
+                restart = community.start();
+                restart.catch(() => {}); // checked below
+            }
+        });
+        // Hold the failed start()'s own teardown where it releases the start lock
+        const teardownHeld = deferred();
+        const releaseTeardown = deferred();
+        const unlockCommunityStart = community._dbHandler.unlockCommunityStart.bind(community._dbHandler);
+        let held = false;
+        community._dbHandler.unlockCommunityStart = async (...args: Parameters<typeof unlockCommunityStart>) => {
+            if (!held) {
+                held = true;
+                teardownHeld.resolve();
+                await releaseTeardown.promise;
+            }
+            return unlockCommunityStart(...args);
+        };
+
+        const startPromise = community.start();
+        await teardownHeld.promise;
+        const stopPromise = community.stop();
+        // Room for a stop() that does not wait to finish its own teardown, whose "stopped" begins the restart, before the
+        // held teardown resumes and releases the restart's lock and DB
+        await Promise.race([stopPromise, sleep(500)]);
+        releaseTeardown.resolve();
+        const [startResult, stopResult] = await Promise.allSettled([startPromise, stopPromise]);
+
+        expect(startResult.status).to.equal("rejected");
+        expect(stopResult.status).to.equal("fulfilled");
+        expect(restart).to.not.equal(undefined);
+        const [restartResult] = await Promise.allSettled([restart!]);
+        expect(restartResult.status).to.equal("fulfilled");
+        expect(community.state).to.equal("stopped");
+        expect(subscribedTopics()).to.not.include(challengeTopic);
+        expect(await isStartLocked()).to.equal(false);
+        expect(community._publishLoopPromise).to.equal(undefined);
+    });
+});
+
+// Not over RPC: drives a LocalCommunity in this process with fake kubo and pubsub clients (see the header)
 describeSkipIfRpc("start() while stop() is in flight", () => {
     it("is refused without touching the stop: stop() still finishes once the publish cycle it waits for ends", async () => {
         const { community } = await createOfflineCommunity();

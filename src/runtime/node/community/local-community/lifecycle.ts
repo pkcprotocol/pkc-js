@@ -497,14 +497,28 @@ export async function update(community: LocalCommunity) {
 }
 
 export async function stop(community: LocalCommunity) {
-    const log = Logger("pkc-js:local-community:stop");
     community._stopHasBeenCalled = true;
     // Set above first, so the publish or update loop the start() or update() launches ends at its first check. Also waits
     // for a start() begun while it waited (from a listener during a failed start()'s teardown), so it stops that one too.
-    while (community._startOrUpdateInFlight) {
-        await community._startOrUpdateInFlight;
+    // A stop() that is tearing down is waited for as well: two teardowns at once each released the start lock and closed
+    // the DB, also those of a start() that a "stopped" listener began once the first teardown was done.
+    while (community._startOrUpdateInFlight || community._stopInFlight) {
+        await (community._startOrUpdateInFlight ?? community._stopInFlight);
         community._stopHasBeenCalled = true; // a start() begun meanwhile cleared it
     }
+    let settle!: () => void;
+    const stopInFlight = new Promise<void>((resolve) => (settle = resolve));
+    community._stopInFlight = stopInFlight;
+    try {
+        await stopCommunity(community);
+    } finally {
+        if (community._stopInFlight === stopInFlight) community._stopInFlight = undefined;
+        settle();
+    }
+}
+
+async function stopCommunity(community: LocalCommunity) {
+    const log = Logger("pkc-js:local-community:stop");
     if (community._updateLoopAbortController) {
         community._updateLoopAbortController.abort();
     }
