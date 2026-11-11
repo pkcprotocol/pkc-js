@@ -600,6 +600,54 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             });
         });
 
+        // A publication stays in pkc._publishingPublications until the community refresh its publish() fired from a stale
+        // cache entry settles, so pkc.destroy() can still drain that refresh (#270)
+        it("stays registered for a retry when the previous attempt's community refresh settles", async () => {
+            const { post: vote, pubsub } = await createPostWithStubbedPubsub({ kind: "vote" });
+            // The community comes from a stale cache entry, and the background refresh it fires waits for the test (or for
+            // stop(), so a failing test does not hold up pkc.destroy())
+            const community = vote._community!;
+            vote._community = undefined;
+            pkc._memCaches.communityForPublishing.set(vote.communityAddress, community);
+            vi.spyOn(pkc._memCaches.communityForPublishing, "has").mockReturnValue(false);
+            let settleRefresh!: () => void;
+            vi.spyOn(pkc, "getCommunity").mockImplementation(
+                ({ abortSignal }) =>
+                    new Promise((_, reject) => {
+                        settleRefresh = () => reject(new Error("stubbed community refresh failure"));
+                        abortSignal?.addEventListener("abort", settleRefresh, { once: true });
+                    })
+            );
+
+            await vote.publish();
+            const refresh = vote._backgroundCommunityRefresh;
+            expect(refresh).to.not.be.undefined;
+            await deliver(
+                pubsub,
+                await challengeVerificationFor({ request: pubsub.requests[0], by: communitySigner, challengeSuccess: false })
+            );
+            expect(vote.publishingState).to.equal("failed");
+            // Waits for the refresh
+            expect(pkc._publishingPublications.has(vote)).to.be.true;
+
+            await vote.publish();
+            expect(pubsub.requests.length).to.equal(2);
+            settleRefresh();
+            await refresh;
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            // The first attempt's deferred unregister used to remove the retry, which pkc.destroy() then could not stop
+            expect(vote.state).to.equal("publishing");
+            expect(pkc._publishingPublications.has(vote)).to.be.true;
+
+            // With no refresh left, the retry leaves the registry as soon as it ends
+            await deliver(
+                pubsub,
+                await challengeVerificationFor({ request: pubsub.requests[1], by: communitySigner, challengeSuccess: false })
+            );
+            expect(vote.state).to.equal("stopped");
+            expect(pkc._publishingPublications.has(vote)).to.be.false;
+        });
+
         // The message is handed over before stop(), so its handler is still verifying or decrypting it when stop() and
         // publish() run. The handlers used to filter by attempt only on entry
         it("ignores a challenge the stopped attempt was still handling when stop() and publish() ran", async () => {

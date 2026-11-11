@@ -1159,10 +1159,18 @@ class Publication extends TypedEmitter<PublicationEvents> {
     // getCommunity() on a remote community waits for an IPNS update, while a local challenge
     // exchange finishes in milliseconds. Stay registered until it settles, otherwise the publish
     // ends, we unregister, and pkc.destroy() has nothing left to drain the refresh through.
+    // The deferred unregister belongs to the attempt that ended here: a publish() before the refresh settles registered
+    // again for its own attempt, which used to be removed then, so pkc.destroy() could not stop it.
     private _unregisterFromPkcOncePublishWorkSettles() {
         const refresh = this._backgroundCommunityRefresh;
-        if (refresh) void refresh.finally(() => this._pkc._publishingPublications.delete(this));
-        else this._pkc._publishingPublications.delete(this);
+        if (!refresh) {
+            this._pkc._publishingPublications.delete(this);
+            return;
+        }
+        const publishAttempt = this._publishAttempt;
+        void refresh.finally(() => {
+            if (!this._isStalePublishAttempt(publishAttempt)) this._pkc._publishingPublications.delete(this);
+        });
     }
 
     private async _postSucessOrFailurePublishing() {
