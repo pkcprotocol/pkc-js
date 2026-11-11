@@ -27,6 +27,14 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
     protected _pages: RepliesPages | PostsPages | ModQueuePages; // can be undefined if it's a mod queue
 
+    // Page fetches in flight per transport, sort and client. Concurrent fetches under one sort (a page and its nextCid,
+    // or the same page twice) share one client state, which goes back to "stopped" only when the last of them settles.
+    private _pageFetchesInFlight = new Map<string, number>();
+    // The sorts each gateway fetch set to "fetching-ipfs", read from the shared cid cache once, when the fetch starts. Its
+    // post-fetch hooks release exactly those sorts, and only once: the cache may have changed or evicted the cid since,
+    // and _fetchWithGateway can call postFetchGatewaySuccess and then postFetchGatewayFailure for the same fetch.
+    private _gatewayFetchSortTypes = new WeakMap<OptionsToLoadFromGateway, Map<string, string[] | undefined>>();
+
     constructor(opts: { pages: BasePagesClientsManager["_pages"]; pkc: PKC }) {
         super(opts.pkc);
         this._pages = opts.pages;
@@ -96,12 +104,24 @@ export class BasePagesClientsManager extends BaseClientsManager {
         const cid = loadOpts.root;
         const sortTypes = this._pkc._memCaches.pageCidToSortTypes.get(cid);
 
-        this.updateGatewayState("fetching-ipfs", gatewayUrl, sortTypes);
+        const sortTypesPerGateway = this._gatewayFetchSortTypes.get(loadOpts) ?? new Map<string, string[] | undefined>();
+        sortTypesPerGateway.set(gatewayUrl, sortTypes);
+        this._gatewayFetchSortTypes.set(loadOpts, sortTypesPerGateway);
+        try {
+            this.updateGatewayState("fetching-ipfs", gatewayUrl, sortTypes);
+        } catch (e) {
+            // A statechange listener threw after this fetch was counted in flight. _fetchWithGateway calls this hook outside
+            // its try, so no post-fetch hook will release the fetch's sorts: release them here.
+            this.postFetchGatewaySuccess(gatewayUrl, loadOpts);
+            throw e;
+        }
     }
 
     override postFetchGatewaySuccess(gatewayUrl: string, loadOpts: OptionsToLoadFromGateway) {
-        const cid = loadOpts.root;
-        const sortTypes = this._pkc._memCaches.pageCidToSortTypes.get(cid);
+        const sortTypesPerGateway = this._gatewayFetchSortTypes.get(loadOpts);
+        if (!sortTypesPerGateway?.has(gatewayUrl)) return; // this fetch already released its sorts
+        const sortTypes = sortTypesPerGateway.get(gatewayUrl);
+        sortTypesPerGateway.delete(gatewayUrl);
 
         this.updateGatewayState("stopped", gatewayUrl, sortTypes);
     }
@@ -153,9 +173,42 @@ export class BasePagesClientsManager extends BaseClientsManager {
         this._updatePageCidsSortCache(nextPageCid, sortTypes);
     }
 
+    // Counts a fetch starting ("fetching-ipfs") or settling ("stopped") under each sort on one client, and returns the
+    // sorts whose state follows: all of them when a fetch starts, and when one settles only the sorts it was the last
+    // fetch of. Each fetch passes the same sortTypes when it starts and when it settles.
+    private _sortTypesToUpdate(opts: {
+        transport: keyof BasePagesClientsManager["clients"];
+        clientKey: string | number; // a libp2pJsClients key is typed keyof an index signature
+        newState: PagesIpfsGatewayClient["state"];
+        sortTypes: string[];
+    }): string[] {
+        const sortTypesToUpdate: string[] = [];
+        for (const sortType of this._indexableSortTypes(opts.sortTypes)) {
+            const fetchKey = JSON.stringify([opts.transport, sortType, opts.clientKey]);
+            const fetchesInFlight = this._pageFetchesInFlight.get(fetchKey) ?? 0;
+            if (opts.newState === "fetching-ipfs") this._pageFetchesInFlight.set(fetchKey, fetchesInFlight + 1);
+            else if (fetchesInFlight > 1) {
+                this._pageFetchesInFlight.set(fetchKey, fetchesInFlight - 1);
+                continue; // another fetch under this sort is still in flight
+            } else this._pageFetchesInFlight.delete(fetchKey);
+            sortTypesToUpdate.push(sortType);
+        }
+        return sortTypesToUpdate;
+    }
+
+    // The sortTypes these four receive come from pkc._memCaches.pageCidToSortTypes, which every instance shares. Another
+    // instance may have cached the cid under a sort this one has no client state for (a custom sort from settings.pages
+    // on an instance created without a record), so the missing states are seeded before they are read.
     updateKuboRpcState(newState: PagesKuboRpcClient["state"], kuboRpcClientUrl: string, sortTypes: string[] | undefined) {
         if (!Array.isArray(sortTypes)) return;
-        for (const sortType of sortTypes) {
+        this._updateKuboRpcClientStates(sortTypes);
+        const sortTypesToUpdate = this._sortTypesToUpdate({
+            transport: "kuboRpcClients",
+            clientKey: kuboRpcClientUrl,
+            newState,
+            sortTypes
+        });
+        for (const sortType of sortTypesToUpdate) {
             if (this.clients.kuboRpcClients[sortType][kuboRpcClientUrl].state === newState) continue;
             this.clients.kuboRpcClients[sortType][kuboRpcClientUrl].state = newState;
             this.clients.kuboRpcClients[sortType][kuboRpcClientUrl].emit("statechange", newState);
@@ -168,7 +221,14 @@ export class BasePagesClientsManager extends BaseClientsManager {
         sortTypes: string[] | undefined
     ) {
         if (!Array.isArray(sortTypes)) return;
-        for (const sortType of sortTypes) {
+        this._updateLibp2pJsClientStates(sortTypes);
+        const sortTypesToUpdate = this._sortTypesToUpdate({
+            transport: "libp2pJsClients",
+            clientKey: libp2pJsClientKey,
+            newState,
+            sortTypes
+        });
+        for (const sortType of sortTypesToUpdate) {
             if (this.clients.libp2pJsClients[sortType][libp2pJsClientKey].state === newState) continue;
             this.clients.libp2pJsClients[sortType][libp2pJsClientKey].state = newState;
             this.clients.libp2pJsClients[sortType][libp2pJsClientKey].emit("statechange", newState);
@@ -177,7 +237,9 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
     updateGatewayState(newState: PagesIpfsGatewayClient["state"], gateway: string, sortTypes: string[] | undefined) {
         if (!Array.isArray(sortTypes)) return;
-        for (const sortType of sortTypes) {
+        this._updateIpfsGatewayClientStates(sortTypes);
+        const sortTypesToUpdate = this._sortTypesToUpdate({ transport: "ipfsGateways", clientKey: gateway, newState, sortTypes });
+        for (const sortType of sortTypesToUpdate) {
             if (this.clients.ipfsGateways[sortType][gateway].state === newState) continue;
             this.clients.ipfsGateways[sortType][gateway].state = newState;
             this.clients.ipfsGateways[sortType][gateway].emit("statechange", newState);
@@ -186,7 +248,9 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
     updateRpcState(newState: PagesPKCRpcStateClient["state"], rpcUrl: string, sortTypes: string[] | undefined) {
         if (!Array.isArray(sortTypes)) return;
-        for (const sortType of sortTypes) {
+        this._updatePKCRpcClientStates(sortTypes);
+        const sortTypesToUpdate = this._sortTypesToUpdate({ transport: "pkcRpcClients", clientKey: rpcUrl, newState, sortTypes });
+        for (const sortType of sortTypesToUpdate) {
             if (this.clients.pkcRpcClients[sortType][rpcUrl].state === newState) continue;
             this.clients.pkcRpcClients[sortType][rpcUrl].state = newState;
             this.clients.pkcRpcClients[sortType][rpcUrl].emit("statechange", newState);
@@ -225,9 +289,11 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
         this.preFetchPage();
         opts.log.trace(`Fetching page cid (${opts.pageCid}) using rpc`);
-        this.updateRpcState("fetching-ipfs", currentRpcUrl, opts.sortTypes);
 
         try {
+            // Inside the try: the fetch is counted in flight before the statechange emit, so the finally must release it
+            // even if a listener throws
+            this.updateRpcState("fetching-ipfs", currentRpcUrl, opts.sortTypes);
             // Awaited, so the finally below sets "stopped" once the request settles, not while it is in flight
             return await this._requestPageFromRPC(opts);
         } catch (e) {
@@ -252,9 +318,10 @@ export class BasePagesClientsManager extends BaseClientsManager {
     }): Promise<PageIpfs | ModQueuePageIpfs> {
         const { pageCid, log, sortTypes, pageMaxSize, abortSignal } = opts;
         const heliaOrKubo = this.getDefaultKuboRpcClientOrHelia();
-        this._updateKuboRpcClientOrHeliaState("fetching-ipfs", heliaOrKubo, sortTypes);
         const pageTimeoutMs = this._pkc._timeouts["page-ipfs"];
         try {
+            // Inside the try, so the finally releases this fetch's in-flight count even if a statechange listener throws
+            this._updateKuboRpcClientOrHeliaState("fetching-ipfs", heliaOrKubo, sortTypes);
             const rawJson = await this._retryTransientP2PFetch(
                 () =>
                     this._fetchCidP2P(pageCid, {
