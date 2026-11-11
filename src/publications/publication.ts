@@ -328,7 +328,6 @@ class Publication extends TypedEmitter<PublicationEvents> {
         verification: DecryptedChallengeVerificationMessageType,
         runtimeFields?: Record<string, any>
     ) {
-        const log = Logger("pkc-js:publication:_handleRpcChallengeVerification");
         if (verification.comment)
             await this._verifyDecryptedChallengeVerificationAndUpdateCommentProps(<DecryptedChallengeVerification>verification);
         if (this instanceof Comment && runtimeFields) deepMergeRuntimeFields(this, runtimeFields);
@@ -342,22 +341,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 args: [verification, this instanceof Comment && verification.comment ? this : undefined]
             }
         });
-        // The exchange is over. This path does its own teardown instead of going through
-        // _postSucessOrFailurePublishing, and without this every publication an RPC client verified
-        // stayed in pkc._publishingPublications (and in memory) until pkc.destroy(): Comment.stop()
-        // only reaches Publication.stop() while publishing, so nothing removed it afterwards
-        this._unregisterFromPkcOncePublishWorkSettles();
-        if (this._rpcPublishSubscriptionId) {
-            // Cleared synchronously before the awaited unsubscribe so the deferred
-            // attach-and-replay timer from _publishWithRpc (#314) sees the teardown immediately
-            const subscriptionId = this._rpcPublishSubscriptionId;
-            this._rpcPublishSubscriptionId = undefined;
-            try {
-                await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
-            } catch (e) {
-                log.error("Failed to unsubscribe from publication publish", e);
-            }
-        }
+        // The exchange is over. End it through the funnel like the pubsub path does: it unsubscribes, unregisters from
+        // pkc._publishingPublications (a verified RPC publication otherwise stayed there until pkc.destroy() stopped it
+        // again) and ends the publish run
+        await this._postSucessOrFailurePublishing();
     }
 
     private async _handleIncomingChallengePubsubMessage(msg: ChallengeMessageType) {
