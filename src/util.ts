@@ -1074,6 +1074,12 @@ export async function retryKuboIpfsAdd({
 
 type KuboFilesWriteParameters = Parameters<PKC["clients"]["kuboRpcClients"][string]["_client"]["files"]["write"]>;
 
+// The error kubo returns for a flush:false MFS operation once its global unflushed-operation counter
+// (Internal.MFSNoFlushLimit, 256 by default) is full: "reached limit of N unflushed MFS operations"
+export function isMfsUnflushedLimitError(error: unknown): boolean {
+    return error instanceof Error && error.message.includes("unflushed MFS operations");
+}
+
 export async function writeKuboFilesWithTimeout({
     ipfsClient: kuboRpcClient,
     log,
@@ -1102,7 +1108,12 @@ export async function writeKuboFilesWithTimeout({
     // op server-side and releases the MFS lock, where a bare client-side abort would leave the write
     // running under the lock. pTimeout stays as the backstop for a daemon that never answers at all,
     // with enough slack that the server's own (more informative) error normally wins the race.
-    const writeOptions: FilesWriteOptions = { timeout: timeoutMilliseconds, ...options };
+    let writeOptions: FilesWriteOptions = { timeout: timeoutMilliseconds, ...options };
+    const write = () =>
+        pTimeout(kuboRpcClient.files.write(path, content, writeOptions), {
+            milliseconds: timeoutMilliseconds + 5_000,
+            message: `Timed out writing to MFS path ${path} after ${timeoutMilliseconds + 5_000}ms`
+        });
 
     return new Promise((resolve, reject) => {
         const operation = retry.operation({
@@ -1113,10 +1124,17 @@ export async function writeKuboFilesWithTimeout({
 
         operation.attempt(async (currentAttempt) => {
             try {
-                await pTimeout(kuboRpcClient.files.write(path, content, writeOptions), {
-                    milliseconds: timeoutMilliseconds + 5_000,
-                    message: `Timed out writing to MFS path ${path} after ${timeoutMilliseconds + 5_000}ms`
-                });
+                try {
+                    await write();
+                } catch (error) {
+                    // Kubo counts flush:false operations globally (Internal.MFSNoFlushLimit) and refuses
+                    // the next one past the limit instead of flushing. Any flushing operation resets the
+                    // counter, so the write the daemon just refused goes through as a self-flushing one.
+                    if (writeOptions.flush !== false || !isMfsUnflushedLimitError(error)) throw error;
+                    log(`Kubo reached its unflushed MFS operation limit, writing ${path} with flush:true instead`);
+                    writeOptions = { ...writeOptions, flush: true };
+                    await write();
+                }
                 resolve();
             } catch (error) {
                 log.error(`Failed attempt ${currentAttempt}/${numOfRetries + 1} to write content to MFS path ${path}:`, error);

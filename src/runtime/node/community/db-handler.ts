@@ -87,8 +87,19 @@ export type CommentUpdateCalculationInput = Pick<CommentsTableRow, "cid" | "auth
 // publication write generation they were read at (DbHandler._publicationWriteGeneration). A vote, comment, edit or
 // moderation stored between two slices of the cycle advances the generation and the next slice starts the memo over,
 // so a comment's author.community is never older than the vote counts read in the same slice.
-export type CommunityAuthorMemo = { writeGeneration: number; authors: Map<string, CommunityAuthor | undefined> };
-export const createCommunityAuthorMemo = (): CommunityAuthorMemo => ({ writeGeneration: -1, authors: new Map() });
+// expandedAddresses: the alias-expanded address set of each plain author address, computed once per generation.
+// The expansion walks every comment of the address (idx_comments_authorSignerAddress); run per slice, as it was,
+// a board whose posts are mostly one author's walked that author's whole board for each of its slices (issue #471).
+export type CommunityAuthorMemo = {
+    writeGeneration: number;
+    authors: Map<string, CommunityAuthor | undefined>;
+    expandedAddresses: Map<string, Set<string>>;
+};
+export const createCommunityAuthorMemo = (): CommunityAuthorMemo => ({
+    writeGeneration: -1,
+    authors: new Map(),
+    expandedAddresses: new Map()
+});
 
 // Per-connection temp table holding the rowids of the comments the update cycle has to recalculate (issue #355)
 const COMMENTS_TO_UPDATE_TEMP_TABLE = "temp.commentsToUpdate";
@@ -2951,13 +2962,23 @@ export class DbHandler {
         type Need = { karma: string[]; modEdit: string[]; domain?: string; key: string };
         if (memo.writeGeneration !== this._publicationWriteGeneration) {
             memo.authors.clear();
+            memo.expandedAddresses.clear();
             memo.writeGeneration = this._publicationWriteGeneration;
         }
         const aliasByCid = this._queryPseudonymityAliasesByCommentCids(entries.map((entry) => entry.comment.cid));
         const plainAddresses = [
             ...new Set(entries.filter((entry) => !aliasByCid.has(entry.comment.cid)).map((entry) => entry.comment.authorSignerAddress))
         ];
-        const expanded = this._queryAliasExpandedAddressSets(plainAddresses);
+        const addressesToExpand = plainAddresses.filter((address) => !memo.expandedAddresses.has(address));
+        if (addressesToExpand.length > 0)
+            for (const [address, addressSet] of this._queryAliasExpandedAddressSets(addressesToExpand))
+                memo.expandedAddresses.set(address, addressSet);
+        const expanded = new Map<string, Set<string>>();
+        for (const address of plainAddresses) {
+            const addressSet = memo.expandedAddresses.get(address);
+            if (!addressSet) throw Error(`Alias expansion of author ${address} missing from the cycle's memo`);
+            expanded.set(address, addressSet);
+        }
         const keyOf = (karma: string[], modEdit: string[], domain?: string) =>
             `${[...karma].sort().join(",")}|${[...modEdit].sort().join(",")}|${domain ?? ""}`;
         const needByCid = new Map<string, Need>();
