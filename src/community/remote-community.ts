@@ -1067,10 +1067,21 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         if (this.state === "stopped") return; // no-op if already stopped, mirrors update()'s idempotency
         if (this.state !== "updating") throw new PKCError("ERR_CALLED_COMMUNITY_STOP_WITHOUT_UPDATE", { address: this.address });
 
-        this._stoppingPromise = this._stopUpdating().finally(() => {
-            this._stoppingPromise = undefined;
+        // Set before the cleanup starts: it emits events synchronously (unmirror() emits the clients' statechange), and an
+        // update() or stop() called from one of those listeners must find this stop in flight
+        let resolveStopping!: () => void;
+        let rejectStopping!: (error: unknown) => void;
+        const stoppingPromise = new Promise<void>((resolve, reject) => {
+            resolveStopping = resolve;
+            rejectStopping = reject;
         });
-        return this._stoppingPromise;
+        this._stoppingPromise = stoppingPromise;
+        this._stopUpdating()
+            .finally(() => {
+                this._stoppingPromise = undefined;
+            })
+            .then(resolveStopping, rejectStopping);
+        return stoppingPromise;
     }
 
     private async _stopUpdating() {

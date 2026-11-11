@@ -18,6 +18,20 @@ const setPendingWarmStartKeyMigration = (community: RemoteCommunity, migration: 
     (community as unknown as { _pendingWarmStartKeyMigration?: KeyMigration })._pendingWarmStartKeyMigration = migration;
 };
 
+// A client of the community that mirrors the matching client of its updating instance
+type StateClient = {
+    state: string;
+    _mirroredClient?: StateClient;
+    emit(event: "statechange", state: string): boolean;
+    on(event: "statechange", listener: (state: string) => void): unknown;
+};
+const firstMirroredClient = (community: RemoteCommunity) => {
+    for (const clientsOfType of Object.values(community.clients))
+        for (const client of Object.values(clientsOfType ?? {}) as unknown as StateClient[])
+            if (client._mirroredClient) return { client, sourceClient: client._mirroredClient };
+    throw Error("the community mirrors no client");
+};
+
 // Records the events a community emits after the first stop() a listener of the test calls
 const eventsAfterStop = (community: RemoteCommunity) => {
     const events: string[] = [];
@@ -119,6 +133,59 @@ describeSkipIfRpc("RemoteCommunity update() and stop() overlapping on one instan
         expect(listUpdatingCommunities(pkc)).toEqual([mirrored!.community]);
 
         await community.stop();
+        expect(listUpdatingCommunities(pkc)).toHaveLength(0);
+    });
+
+    // stop() unmirrors the community's clients before its first await, and unmirror() emits the client's statechange
+    // "stopped" synchronously when the mirrored state was something else. A listener of that event runs inside stop().
+    it("update() from a client statechange listener while stop() unmirrors the clients restarts the community", async () => {
+        const community = (await pkc.createCommunity({ address: signers[0].address })) as RemoteCommunity;
+        await community.update();
+        const firstSharedInstance = community._updatingCommunityInstanceWithListeners!.community;
+        const { client, sourceClient } = firstMirroredClient(community);
+        sourceClient.state = "fetching-ipns";
+        sourceClient.emit("statechange", "fetching-ipns");
+        expect(client.state).toBe("fetching-ipns");
+
+        let updatePromise: Promise<void> | undefined;
+        client.on("statechange", (state) => {
+            if (state === "stopped" && !updatePromise) updatePromise = community.update();
+        });
+        await community.stop();
+        expect(updatePromise).toBeDefined();
+        await updatePromise;
+
+        expect(firstSharedInstance.state).toBe("stopped");
+        expect(community.state).toBe("updating");
+        const mirrored = community._updatingCommunityInstanceWithListeners;
+        expect(mirrored).toBeDefined();
+        expect(mirrored!.community._numOfListenersForUpdatingInstance).toBe(1);
+        expect(listUpdatingCommunities(pkc)).toEqual([mirrored!.community]);
+
+        await community.stop();
+        expect(listUpdatingCommunities(pkc)).toHaveLength(0);
+    });
+
+    it("stop() from a client statechange listener while stop() unmirrors the clients cleans up once", async () => {
+        const community = (await pkc.createCommunity({ address: signers[0].address })) as RemoteCommunity;
+        await community.update();
+        const sharedInstance = community._updatingCommunityInstanceWithListeners!.community;
+        const { client, sourceClient } = firstMirroredClient(community);
+        sourceClient.state = "fetching-ipns";
+        sourceClient.emit("statechange", "fetching-ipns");
+
+        let secondStopPromise: Promise<void> | undefined;
+        client.on("statechange", (state) => {
+            if (state === "stopped" && !secondStopPromise) secondStopPromise = community.stop();
+        });
+        await community.stop();
+        expect(secondStopPromise).toBeDefined();
+        await secondStopPromise;
+
+        expect(community.state).toBe("stopped");
+        expect(community._updatingCommunityInstanceWithListeners).toBeUndefined();
+        expect(sharedInstance._numOfListenersForUpdatingInstance).toBe(0);
+        expect(sharedInstance.state).toBe("stopped");
         expect(listUpdatingCommunities(pkc)).toHaveLength(0);
     });
 
