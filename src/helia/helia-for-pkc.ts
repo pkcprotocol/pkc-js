@@ -1114,6 +1114,12 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 },
                 subscribe: async (topic, handler, options) => {
                     throwIfHeliaIsStoppingOrStopped();
+                    // Reject a second subscribe of the same handler like kubo-rpc-client does; the client
+                    // manager reads this as "already subscribed". Registering it again left a copy that the
+                    // single unsubscribe never removed, keeping the topic subscribed and the publication
+                    // that owns the handler reachable (a single libp2p-js client is listed twice as a provider)
+                    if ((pubsubEventHandler.listeners(topic) as unknown[]).includes(handler))
+                        throw new Error(`Already subscribed to ${topic} with this handler`);
                     //@ts-expect-error
                     pubsubEventHandler.on(topic, handler);
                     // Start warmup BEFORE native subscribe so the caller's abort signal lands
@@ -1127,7 +1133,16 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     // locally subscribed to).
                     const warmupPromise = warmupForTopic(topic, options);
                     helia.libp2p.services.pubsub.subscribe(topic);
-                    await warmupPromise;
+                    try {
+                        await warmupPromise;
+                    } catch (e) {
+                        // Undo the registration, or a retry of the same handler is rejected as "Already
+                        // subscribed" above, which the client manager reads as success, and warmup never reruns
+                        //@ts-expect-error
+                        pubsubEventHandler.removeListener(topic, handler);
+                        if (pubsubEventHandler.listenerCount(topic) === 0) helia.libp2p.services.pubsub.unsubscribe(topic);
+                        throw e;
+                    }
                 },
                 unsubscribe: async (topic, handler, options) => {
                     throwIfHeliaIsStoppingOrStopped();

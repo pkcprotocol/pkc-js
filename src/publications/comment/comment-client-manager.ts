@@ -20,6 +20,7 @@ import {
     ipnsNameToIpnsOverPubsubTopic,
     isAbortError,
     isIpns,
+    linkAbortSignals,
     resolveWhenPredicateIsTrue,
     throwIfAbortSignalAborted
 } from "../../util.js";
@@ -100,14 +101,12 @@ export class CommentClientsManager extends PublicationClientsManager {
     }
 
     // Combines the comment's stop signal with the fresh-handler signal, so retries bail on either
-    // user-initiated stop or a newer handler invocation superseding this one.
-    private _combinedAbortSignalForRetry(): AbortSignal | undefined {
-        const stopSignal = this._comment._getStopAbortSignal();
-        const freshSignal = this._freshHandlerAbortController?.signal;
-        const signals = [stopSignal, freshSignal].filter((s): s is AbortSignal => Boolean(s));
-        if (signals.length === 0) return undefined;
-        if (signals.length === 1) return signals[0];
-        return AbortSignal.any(signals);
+    // user-initiated stop or a newer handler invocation superseding this one. Linked with listeners, not
+    // AbortSignal.any(): the stop signal lives as long as the comment updates, and on Node 20/22 every
+    // AbortSignal.any() over it retained memory until then, once per CommentUpdate fetch (#502). The
+    // caller disposes the link when its lookup settles.
+    private _combinedAbortSignalForRetry(): { signal: AbortSignal | undefined; dispose: () => void } {
+        return linkAbortSignals([this._comment._getStopAbortSignal(), this._freshHandlerAbortController?.signal]);
     }
 
     protected override _initKuboRpcClients(): void {
@@ -480,7 +479,8 @@ export class CommentClientsManager extends PublicationClientsManager {
         if (timestampRanges.length === 0) throw Error("Post has no timestamp range bucket");
 
         // Taken once for the whole lookup: read again later it would be a newer invocation's signal (issue #312)
-        const abortSignal = this._combinedAbortSignalForRetry();
+        const linkedAbortSignal = this._combinedAbortSignalForRetry();
+        const abortSignal = linkedAbortSignal.signal;
         let newCommentUpdate: NewCommentUpdate;
         try {
             if (Object.keys(this._pkc.clients.kuboRpcClients).length > 0 || Object.keys(this._pkc.clients.libp2pJsClients).length > 0) {
@@ -513,6 +513,8 @@ export class CommentClientsManager extends PublicationClientsManager {
                 }
             }
             return;
+        } finally {
+            linkedAbortSignal.dispose();
         }
         if (newCommentUpdate) {
             this._useLoadedCommentUpdateIfNewInfo(newCommentUpdate, subIpfs, log);

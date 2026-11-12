@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { mockPKC, mockRemotePKC, generateMockPost, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
+import { mockPKC, mockRemotePKC, mockGatewayPKC, generateMockPost, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
+import { PKCError } from "../../../dist/node/pkc-error.js";
 import signers from "../../fixtures/signers.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
@@ -78,6 +79,69 @@ describe("publication registry (pkc._publishingPublications) lifecycle", () => {
             expect(post.publishingState).to.equal("stopped");
         } finally {
             unsubscribeSpy.mockRestore();
+        }
+    });
+});
+
+// A comment whose publish already succeeded stays in pkc._publishingPublications while the stale-cache
+// community refresh it fired is still in flight, so pkc.destroy() can cancel and drain that refresh (#270).
+// The refresh's only cancel signal is the publication's community-fetch signal (no longer composed with
+// the destroy signal since #502), and Comment.stop() only reached Publication.stop(), which aborts it,
+// while the comment was still publishing. A finished comment's refresh then outlived destroy().
+describe("pkc.destroy() cancels the background community refresh of a comment that finished publishing", () => {
+    it("the refresh is aborted and settled by the time destroy() resolves", async () => {
+        const communityPKC = await mockPKC();
+        const community = (await communityPKC.createCommunity()) as LocalCommunity;
+        await community.edit({ settings: { challenges: [] } });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        // A separate publisher with no live instance of the community, so a stale cache entry is refreshed
+        // in the background. The mock pubsub clients of both PKCs share one in-process bus.
+        const publisherPKC = await mockGatewayPKC({
+            forceMockPubsub: true,
+            pkcOptions: { pubsubKuboRpcClientsOptions: ["http://localhost:15002/api/v0"] }
+        });
+        let releaseRefresh: (() => void) | undefined;
+        try {
+            const publishAndWaitForVerification = async () => {
+                const post = await generateMockPost({ communityAddress: community.address, pkc: publisherPKC });
+                post.on("error", () => {});
+                const verified = new Promise<void>((resolve) => post.once("challengeverification", () => resolve()));
+                await post.publish();
+                await verified;
+                return post;
+            };
+            await publishAndWaitForVerification(); // fills the communityForPublishing cache
+
+            // The cache entry now reads as stale, and the refresh it fires waits until it is cancelled
+            vi.spyOn(publisherPKC._memCaches.communityForPublishing, "has").mockReturnValue(false);
+            let refreshAborted = false;
+            let refreshSettled = false;
+            vi.spyOn(publisherPKC, "getCommunity").mockImplementation(
+                ({ abortSignal }) =>
+                    new Promise((_, reject) => {
+                        const cancel = () => {
+                            refreshAborted = abortSignal?.aborted === true;
+                            reject(new PKCError("ERR_GET_COMMUNITY_ABORTED", { communityAddress: community.address }));
+                        };
+                        releaseRefresh = cancel;
+                        abortSignal?.addEventListener("abort", cancel, { once: true });
+                    })
+            );
+
+            const post = await publishAndWaitForVerification();
+            expect(post._backgroundCommunityRefresh).toBeDefined();
+            void post._backgroundCommunityRefresh!.finally(() => (refreshSettled = true));
+            expect(publisherPKC._publishingPublications.has(post)).toBe(true);
+
+            await publisherPKC.destroy();
+            expect({ refreshAborted, refreshSettled }).toEqual({ refreshAborted: true, refreshSettled: true });
+        } finally {
+            releaseRefresh?.();
+            vi.restoreAllMocks();
+            if (!publisherPKC.destroyed) await publisherPKC.destroy();
+            await community.delete();
+            await communityPKC.destroy();
         }
     });
 });
