@@ -2,7 +2,7 @@ import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import signers from "../../fixtures/signers.js";
 import { getAvailablePKCConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
 import { PostsPagesIpfsSchema, RepliesPagesIpfsSchema, ModQueuePagesIpfsSchema } from "../../../dist/node/pages/schema.js";
-import { CommunityPageSortsSchema, PageSortFileSchema } from "../../../dist/node/community/schema.js";
+import { CommunityPageSortSettingSchema, CommunityPageSortsSchema, PageSortFileSchema } from "../../../dist/node/community/schema.js";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
@@ -56,6 +56,44 @@ describe("reserved sort names are rejected by the page and community schemas", (
         // a string value is visited, so every reserved name is rejected here, __proto__ included
         for (const key of RESERVED) expect(PageSortFileSchema.safeParse({ sortName: key, score: () => 1 }).success, key).to.be.false;
         expect(PageSortFileSchema.safeParse({ sortName: "activeNoBump", score: () => 1 }).success).to.be.true;
+    });
+
+    // Issue #483: an entry of settings.pages may override the file's sortName, under the same rule as the file's own
+    it("a settings.pages entry's sortName override", () => {
+        const entries = [{ name: "hot" }, { path: "/some/page-sort.js" }, { name: "top", options: { maxAge: "2w" }, preloaded: true }];
+        for (const entry of entries) {
+            // a string value is visited, so every reserved name is rejected here, __proto__ included
+            for (const key of RESERVED)
+                expect(CommunityPageSortSettingSchema.safeParse({ ...entry, sortName: key }).success, `${JSON.stringify(entry)} ${key}`).to
+                    .be.false;
+            expect(CommunityPageSortSettingSchema.safeParse({ ...entry, sortName: "" }).success, "empty").to.be.false;
+            for (const notAString of [5, true, null, ["hot"], { key: "hot" }])
+                expect(CommunityPageSortSettingSchema.safeParse({ ...entry, sortName: notAString }).success, String(notAString)).to.be
+                    .false;
+
+            const parsed = CommunityPageSortSettingSchema.safeParse({ ...entry, sortName: "topFortnight" });
+            expect(parsed.success, JSON.stringify(entry)).to.be.true;
+            if (parsed.success) expect(parsed.data).to.deep.equal({ ...entry, sortName: "topFortnight" });
+
+            // the field is optional: an entry written before it existed parses to itself, with no sortName key added
+            const withoutOverride = CommunityPageSortSettingSchema.safeParse(entry);
+            expect(withoutOverride.success).to.be.true;
+            if (withoutOverride.success) expect(withoutOverride.data).to.deep.equal(entry);
+        }
+    });
+
+    it("a settings.pages entry's sortName takes any other non-empty string, like a file's sortName", () => {
+        for (const key of ["custom-newest", "top 2 weeks", "toString", "hasOwnProperty", "älteste/первые", "x".repeat(300)]) {
+            expect(CommunityPageSortSettingSchema.safeParse({ name: "hot", sortName: key }).success, key).to.be.true;
+            expect(PageSortFileSchema.safeParse({ sortName: key, score: () => 1 }).success, `file ${key}`).to.be.true;
+        }
+    });
+
+    it("a settings.pages entry is still strict: a misspelt sortName key is rejected instead of silently ignored", () => {
+        for (const misspelt of ["sortname", "sort_name", "key", "wireKey"])
+            expect(CommunityPageSortSettingSchema.safeParse({ name: "hot", [misspelt]: "frontPage" }).success, misspelt).to.be.false;
+        // and the override does not stand in for name/path
+        expect(CommunityPageSortSettingSchema.safeParse({ sortName: "frontPage" }).success).to.be.false;
     });
 });
 
