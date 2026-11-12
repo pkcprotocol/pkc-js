@@ -392,6 +392,7 @@ export enum messages {
     ERR_COMMUNITY_STATE_LOCKED = "The internal state of the community in DB is locked",
     ERR_COMMUNITY_CREATION_LOCKED = "Community creation is locked",
     ERR_COMMUNITY_ALREADY_STARTED = "Community already started",
+    ERR_COMMUNITY_START_LOCK_COMPROMISED = "This instance lost the start lock of this community (another process took it over, or the lock was removed), so it stopped running it",
     ERR_FAILED_TO_IMPORT_IPFS_KEY = "Community failed to import IPFS key",
     ERR_LOCAL_COMMUNITY_PRODUCED_INVALID_RECORD = "The local community has produced a new IPNS record with invalid signature. This is a critical error",
     ERR_FAILED_TO_PARSE_LOCAL_RAW_IPNS_RECORD = "Failed to parse the local IPNS record within our kubo node",
