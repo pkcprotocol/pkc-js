@@ -34,7 +34,8 @@ import {
     removeUndefinedValuesRecursively,
     timestamp,
     resolveWhenPredicateIsTrue,
-    throwIfAbortSignalAborted
+    throwIfAbortSignalAborted,
+    linkAbortSignals
 } from "../util.js";
 import Vote from "../publications/vote/vote.js";
 import { createSigner, verifyCommentPubsubMessage } from "../signer/index.js";
@@ -1394,11 +1395,12 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     // Folds teardown into a caller's signal, so work nobody explicitly cancelled still stops when the
-    // pkc is destroyed. Returns the destroy signal untouched when there is nothing to combine, which
-    // keeps AbortSignal.any() (and the listener it registers on both sources) off the common path.
-    _combineWithDestroyAbortSignal(abortSignal?: AbortSignal): AbortSignal {
-        const destroySignal = this._getDestroyAbortSignal();
-        return abortSignal ? AbortSignal.any([abortSignal, destroySignal]) : destroySignal;
+    // pkc is destroyed. Returns the destroy signal untouched when there is nothing to combine. Linked with
+    // listeners rather than AbortSignal.any(), which on Node 20/22 retains memory per call for as long as
+    // the destroy signal lives (#502), so the caller must dispose() once its operation settles.
+    _combineWithDestroyAbortSignal(abortSignal?: AbortSignal): { signal: AbortSignal; dispose: () => void } {
+        const linked = linkAbortSignals([abortSignal, this._getDestroyAbortSignal()]);
+        return { signal: linked.signal!, dispose: linked.dispose };
     }
 
     async destroy() {

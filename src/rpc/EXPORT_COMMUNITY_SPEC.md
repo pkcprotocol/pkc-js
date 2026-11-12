@@ -146,6 +146,18 @@ Three new RPC methods. `AbortSignal` is a client-side concept and never crosses 
 - The wire-format `record.url` is a **relative URL** (`/exports/<exportId>`); the RPC client absolutizes.
 - Tearing down the subscription does **not** cancel any in-flight exports.
 
+#### Client-side subscription lifetime (`RpcLocalCommunity`)
+
+`pkc.createCommunity()` / `pkc.getCommunity()` subscribe before returning, so `community.exports` already holds the current list. After that the instance keeps the subscription only while it has a use for live records:
+
+- it is started or updating,
+- an `export()` it issued has not reached a terminal state (`progress: 1` or `error`), or
+- it has at least one `exportschange` listener.
+
+When none of these hold (for example once `stop()` resolves), the instance unsubscribes and `community.exports` stays a snapshot, the same way every other field of a stopped community stops refreshing. Exports started elsewhere (another client, the server) then appear only after the instance re-subscribes: add an `exportschange` listener, `update()` / `start()` it, or create a new instance.
+
+The reason is memory: the RPC client's subscription registry holds the `exportschange` handler, which references the instance. A subscription kept for the instance's whole life pinned every instance ever created, and a publisher leaked one community instance (record, pages, page clients) per publication (#490).
+
 ### `cancelExport({ exportId })` → `void`
 
 - Idempotent: unknown `exportId` returns success without action.
