@@ -433,12 +433,18 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         const serverSubscriptionId = this._serverIdByLocalId.get(subscriptionId) ?? subscriptionId;
         this._resubscribeCalls.delete(subscriptionId);
         this._publishSubscriptionIds.delete(subscriptionId);
-        if (liveOnServer) await this._webSocketClient.call("unsubscribe", [{ subscriptionId: serverSubscriptionId }]);
-        this._serverIdByLocalId.delete(subscriptionId);
-        this._localIdByServerId.delete(serverSubscriptionId);
-        if (this._subscriptionEvents[subscriptionId]) this._subscriptionEvents[subscriptionId].removeAllListeners();
-        delete this._subscriptionEvents[subscriptionId];
-        delete this._pendingSubscriptionMsgs[subscriptionId];
+        try {
+            if (liveOnServer) await this._webSocketClient.call("unsubscribe", [{ subscriptionId: serverSubscriptionId }]);
+        } finally {
+            // Clean up locally even when the call rejects: a call that fails because the connection dropped
+            // has nothing left to retry (the server dropped the subscription with the connection), and
+            // callers clear their own handle to this id, so anything kept here would never be released
+            this._serverIdByLocalId.delete(subscriptionId);
+            this._localIdByServerId.delete(serverSubscriptionId);
+            if (this._subscriptionEvents[subscriptionId]) this._subscriptionEvents[subscriptionId].removeAllListeners();
+            delete this._subscriptionEvents[subscriptionId];
+            delete this._pendingSubscriptionMsgs[subscriptionId];
+        }
     }
 
     private _attachNotificationHandler() {
