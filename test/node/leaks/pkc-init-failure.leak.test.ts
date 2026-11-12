@@ -57,7 +57,8 @@ it.runIf(process.platform === "linux").fails(
         } as Parameters<typeof createLibp2pJsClientOrUseExistingOne>[0]);
         const usesHeldByFailedInits = probe.countOfUsesOfInstance - 1;
         try {
-            expect(outcomes.every((outcome) => outcome.startsWith("rejected"))).toBe(true); // the trigger really fired
+            // The trigger really fired: every attempt was rejected by the listen failure, not by something else
+            expect(outcomes.filter((outcome) => !outcome.startsWith("rejected: UnsupportedListenAddressesError"))).toEqual([]);
             // The watcher is counted on its own: several fs watchers can share one inotify fd, so fdGrowth can
             // stay 0 while one watcher per failed init is left
             const fsWatchersLeft = (resourcesAfter.FSEventWrap ?? 0) - (resourcesBefore.FSEventWrap ?? 0);
