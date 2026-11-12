@@ -2,20 +2,33 @@ import { testRateLimit, addToRateLimiter } from "../../dist/node/runtime/node/co
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
 import type { Exclude, CommunitySettings, ChallengeResult } from "../../dist/node/community/types.js";
 
+// Rate limits are counted per community; the cases below all run in this one unless they name another
+const COMMUNITY_ADDRESS = "rate-limiter-test-community.bso";
+
 // Wrapper functions for type assertion boilerplate
-const wrapTestRateLimit = (exclude: Record<string, unknown>, request: Record<string, unknown>): boolean => {
-    return testRateLimit(exclude as Exclude, request as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor);
+const wrapTestRateLimit = (
+    exclude: Record<string, unknown>,
+    request: Record<string, unknown>,
+    communityAddress: string = COMMUNITY_ADDRESS
+): boolean => {
+    return testRateLimit(
+        exclude as Exclude,
+        request as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
+        communityAddress
+    );
 };
 
 const wrapAddToRateLimiter = (
     communityChallenges: Array<{ exclude: Array<Record<string, unknown>> }>,
     request: Record<string, unknown>,
-    challengeSuccess: boolean
+    challengeSuccess: boolean,
+    communityAddress: string = COMMUNITY_ADDRESS
 ): void => {
     addToRateLimiter(
         communityChallenges as unknown as NonNullable<CommunitySettings["challenges"]>,
         request as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor,
-        challengeSuccess as ChallengeResult["success"]
+        challengeSuccess as ChallengeResult["success"],
+        communityAddress
     );
 };
 
@@ -51,6 +64,33 @@ describe("testRateLimit", () => {
         wrapAddToRateLimiter(communityChallenges, { comment: publication1 }, challengeSuccess);
         expect(wrapTestRateLimit(exclude, { comment: publication1 })).to.equal(false);
         expect(wrapTestRateLimit(exclude, { comment: publication2 })).to.equal(true);
+    });
+
+    it("1 any publication type counted separately per community", async () => {
+        // One process can run several communities with the same exclude rule
+        const author = { address: getRandomAddress() };
+        const exclude = { rateLimit: 1 };
+        const communityChallenges = [{ exclude: [exclude] }];
+        const publication = { author };
+        const otherCommunityAddress = "other-rate-limiter-test-community.bso";
+        wrapAddToRateLimiter(communityChallenges, { comment: publication }, true);
+        expect(wrapTestRateLimit(exclude, { comment: publication })).to.equal(false);
+        expect(wrapTestRateLimit(exclude, { comment: publication }, otherCommunityAddress)).to.equal(true);
+        wrapAddToRateLimiter(communityChallenges, { comment: publication }, true, otherCommunityAddress);
+        expect(wrapTestRateLimit(exclude, { comment: publication }, otherCommunityAddress)).to.equal(false);
+    });
+
+    it("1 any publication type counted separately for community and author pairs whose addresses join to the same text", async () => {
+        // Domain addresses can contain "-", so joining the community and author addresses with "-" would map both pairs to one limiter
+        const communityAddress = `${getRandomAddress()}.eth`;
+        const exclude = { rateLimit: 1 };
+        const communityChallenges = [{ exclude: [exclude] }];
+        const publication = { author: { address: "b.eth-c.eth" } };
+        const otherCommunityAddress = `${communityAddress}-b.eth`;
+        const otherPublication = { author: { address: "c.eth" } };
+        wrapAddToRateLimiter(communityChallenges, { comment: publication }, true, communityAddress);
+        expect(wrapTestRateLimit(exclude, { comment: publication }, communityAddress)).to.equal(false);
+        expect(wrapTestRateLimit(exclude, { comment: otherPublication }, otherCommunityAddress)).to.equal(true);
     });
 
     it("1 any publication type challengeSuccess false", async () => {

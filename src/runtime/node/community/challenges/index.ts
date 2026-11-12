@@ -930,7 +930,7 @@ const getChallengeVerification = async ({
         challengeVerification.aggregatedReason = decisiveNameFailure.reason;
 
     // store the publication result and author address in mem cache for rateLimit exclude challenge settings
-    addToRateLimiter(community.settings?.challenges, challengeRequestMessage, challengeVerification.challengeSuccess);
+    addToRateLimiter(community.settings?.challenges, challengeRequestMessage, challengeVerification.challengeSuccess, community.address);
 
     // scenarios:
     // - all required challenges pass without pendingApproval flag -> publish normally

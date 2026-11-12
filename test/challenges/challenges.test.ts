@@ -350,6 +350,37 @@ describe("getChallengeVerification", () => {
         });
     });
 
+    it("rate limits are counted per community", async () => {
+        // Two communities run by the same node with the same exclude rule. Publishing in one must not spend the other's rate limit.
+        const pkc = await PKC();
+        const createRateLimitedCommunity = (address: string) =>
+            ({
+                address,
+                settings: { challenges: [{ name: "fail", options: { error: "rate limited" }, exclude: [{ rateLimit: 1 }] }] },
+                _pkc: pkc
+            }) as unknown as LocalCommunity;
+        const communityA = createRateLimitedCommunity(`community-a-${getRandomAddress()}.bso`);
+        const communityB = createRateLimitedCommunity(`community-b-${getRandomAddress()}.bso`);
+        const challengeRequestMessage = {
+            comment: { author: { address: getRandomAddress() }, signature: DEFAULT_SIGNATURE }
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+        const shouldNotCall = async () => {
+            throw Error("should not call");
+        };
+        const verify = async (community: LocalCommunity) =>
+            (await getChallengeVerification({
+                challengeRequestMessage,
+                community,
+                getChallengeAnswers: shouldNotCall
+            })) as GetChallengeVerificationResult;
+
+        expect((await verify(communityA)).challengeSuccess).to.equal(true);
+        expect(await verify(communityA)).to.deep.equal({ challengeErrors: { 0: "rate limited" }, challengeSuccess: false });
+        // The author has published nothing in community B this hour
+        expect((await verify(communityB)).challengeSuccess).to.equal(true);
+        expect(await verify(communityB)).to.deep.equal({ challengeErrors: { 0: "rate limited" }, challengeSuccess: false });
+    });
+
     it("getChallenge function throws", async () => {
         const throwCommunity = {
             settings: {
