@@ -52,8 +52,9 @@ describe("leak: RPC server state after disconnects, deletes and aborted download
         `a start() subscription parked on a pending community, whose client disconnects, leaves no listeners (${ATTEMPTS} clients)`,
         async () => {
             const owner = await newClient();
+            let toStop: RpcLocalCommunity | undefined;
             try {
-                const community = (await owner.createCommunity({})) as RpcLocalCommunity;
+                const community = (toStop = (await owner.createCommunity({})) as RpcLocalCommunity);
                 await community.edit({ settings: { challenges: [] } });
                 await community.start();
                 await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
@@ -78,8 +79,10 @@ describe("leak: RPC server state after disconnects, deletes and aborted download
                     await sleep(300); // the parked handler resumes
                 }
                 expect(listenerCounts()).toEqual(baseline);
-                await community.stop();
             } finally {
+                // In finally: the assertion above throws while the leak exists, and a community left started
+                // would keep publishing on the shared server for the rest of the file
+                await toStop?.stop().catch(() => {});
                 await owner.destroy();
             }
         }
@@ -109,8 +112,9 @@ describe("leak: RPC server state after disconnects, deletes and aborted download
         `aborting GET /exports/<id> mid-stream ${ATTEMPTS} times leaves no file descriptor open`,
         async () => {
             const client = await newClient();
+            let toDelete: RpcLocalCommunity | undefined;
             try {
-                const community = (await client.createCommunity({})) as RpcLocalCommunity;
+                const community = (toDelete = (await client.createCommunity({})) as RpcLocalCommunity);
                 const { exportId } = await community.export();
                 await pollUntil(() => community.exports.some((rec) => rec.exportId === exportId && rec.progress === 1), {
                     timeoutMs: 30_000
@@ -139,8 +143,8 @@ describe("leak: RPC server state after disconnects, deletes and aborted download
                 for (let i = 0; i < ATTEMPTS; i++) await abortedDownload();
                 await sleep(1000);
                 expect({ fdsLeftOpen: countOpenFds()! - fdsBefore }).toEqual({ fdsLeftOpen: 0 });
-                await community.delete();
             } finally {
+                await toDelete?.delete().catch(() => {}); // in finally: the assertion above throws while the leak exists
                 await client.destroy();
             }
         }

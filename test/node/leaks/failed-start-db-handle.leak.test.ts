@@ -40,7 +40,7 @@ describeSkipIfRpc("leak: db handle after a start() that fails early", () => {
 
     it.fails(`${INSTANCES} instances whose start() fails leave no db connection open`, async () => {
         const held: LocalCommunity[] = []; // kept referenced: the claim is that only GC closes the handle
-        const fdsBefore = countOpenFds()!;
+        const fdsBefore = countOpenFds(); // undefined off Linux: the db handle checks below still run there
         let openBeforeStart = 0;
         let startsThatThrew = 0;
         let openAfterFailedStart = 0;
@@ -61,7 +61,7 @@ describeSkipIfRpc("leak: db handle after a start() that fails early", () => {
             startsThatThrew,
             states: [...new Set(held.map((instance) => instance.state))],
             openAfterFailedStart,
-            fdGrowth: countOpenFds()! - fdsBefore
+            fdGrowth: fdsBefore === undefined ? 0 : countOpenFds()! - fdsBefore
         };
         for (const instance of held) (instance._dbHandler as unknown as { destoryConnection: () => void }).destoryConnection();
         expect(result).toEqual({

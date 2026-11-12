@@ -1,17 +1,18 @@
 // Leak suite (#496): pkc.destroy() must still close storage and the communities watcher when one stop() rejects.
-import { it, expect } from "vitest";
+import { expect } from "vitest";
 import { mockPKC, publishStaticCommunityWithPostInPages, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
 import { listUpdatingCommunities } from "../../../dist/node/pkc/tracked-instance-registry-util.js";
-import { countOpenFds } from "../../helpers/leak-detection.js";
+import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 
 // it.fails: this is a known leak with no fix yet (#516). The body asserts the clean behaviour, so the test
 // starts failing once the leak is fixed: remove the .fails then.
 
 type PkcInternals = { _communityFsWatchAbort?: AbortController; _storage: { _db: { open: boolean; close: () => void } } };
 
-it.fails("kubo with a dataPath: destroy() with a community whose stop() rejects still closes storage and the fs watcher", async () => {
+// Skipped under RPC: an RPC client PKC has no communities watcher (pkc.ts creates it only without
+// pkcRpcClientsOptions), so the assertion below could never hold there and .fails would never flip
+itSkipIfRpc.fails("kubo with a dataPath: destroy() still closes storage and the fs watcher when a community's stop() rejects", async () => {
     const fixture = await publishStaticCommunityWithPostInPages();
-    const fdsBefore = countOpenFds();
     // stubStorage false: the real sqlite storage is what must be closed
     const pkc = await mockPKC({ dataPath: `.tmp/leak-data-destroy-${Date.now()}` }, false, false);
     const internals = pkc as unknown as PkcInternals;

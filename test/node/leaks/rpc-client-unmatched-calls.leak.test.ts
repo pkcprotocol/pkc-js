@@ -117,7 +117,11 @@ describe("leak: RPC client state for unmatched calls and notifications", () => {
         const calls = Array.from({ length: CALLS }, (_, i) =>
             client!.startCommunity({ publicKey: `12D3KooWFakePublicKeyForLeakTest${i}` }).catch((e: { code?: string }) => e.code)
         );
-        while (sockets.length < CALLS) await new Promise((resolve) => setTimeout(resolve, 20));
+        const deadline = Date.now() + 10_000;
+        while (sockets.length < CALLS) {
+            if (Date.now() > deadline) throw Error(`Setup failed: only ${sockets.length}/${CALLS} calls reached the server`);
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        }
         sockets[0].terminate();
         const outcomes = await Promise.all(calls);
         expect(new Set(outcomes)).toEqual(new Set(["ERR_RPC_CONNECTION_LOST"]));

@@ -97,6 +97,7 @@ describeIfRpc("leak: RPC publish teardown", () => {
             const post = await generateMockPost({ communityAddress: fixture.communityAddress, pkc: client });
             const errors: string[] = [];
             post.on("error", (e: Error & { code?: string }) => errors.push(e.code ?? e.message));
+            await new Promise((resolve) => setTimeout(resolve, 2000)); // same settle as above, so the test also holds when run alone
             const before = counts();
             const serverIdsBefore = new Set(Object.keys(server().publishing));
             try {
