@@ -41,8 +41,26 @@ const DEFAULT_NODE_OPTIONS = [
     "--trace-deprecation"
 ];
 
+// `childProcess.killed` only records that childProcess.kill() delivered a signal: it stays false after a
+// process-group signal (process.kill(-pid)) and says nothing about whether anything is still running, so
+// the group is probed instead. ESRCH means the group is gone; EPERM (macOS reports it for a group left
+// with only an unreaped zombie) means nothing in it can be signalled anyway.
+const isProcessTreeAlive = (childProcess) => {
+    if (process.platform === "win32") {
+        return childProcess.exitCode === null && childProcess.signalCode === null;
+    }
+    try {
+        process.kill(-childProcess.pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+};
+
+const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
 const sendSignalToProcessTree = (childProcess, signal) => {
-    if (!childProcess || childProcess.killed) {
+    if (!childProcess) {
         return false;
     }
     if (process.platform !== "win32") {
@@ -66,17 +84,23 @@ const sendSignalToProcessTree = (childProcess, signal) => {
     return false;
 };
 
+// Called from process "exit" handlers, where timers never fire, so the SIGKILL escalation waits synchronously.
 const terminateProcessTree = (childProcess, label) => {
-    if (!childProcess || childProcess.killed) {
+    if (!childProcess?.pid || !isProcessTreeAlive(childProcess)) {
         return;
     }
     sendSignalToProcessTree(childProcess, "SIGTERM");
-    setTimeout(() => {
-        if (!childProcess.killed) {
-            console.warn(`Process ${childProcess.pid} still alive after SIGTERM (${label}); sending SIGKILL.`);
-            sendSignalToProcessTree(childProcess, "SIGKILL");
-        }
-    }, 1000);
+    if (process.platform === "win32") {
+        return; // kill() terminates the process outright on Windows, there is nothing to escalate
+    }
+    const deadline = Date.now() + 1000;
+    while (Date.now() < deadline && isProcessTreeAlive(childProcess)) {
+        sleepSync(25);
+    }
+    if (isProcessTreeAlive(childProcess)) {
+        console.warn(`Process ${childProcess.pid} still alive after SIGTERM (${label}); sending SIGKILL.`);
+        sendSignalToProcessTree(childProcess, "SIGKILL");
+    }
 };
 
 const applyNodeOptionsToEnv = (targetEnv) => {
@@ -597,10 +621,14 @@ const runBrowserTests = () => {
     });
     process.on("exit", terminateBrowserRunner);
 
-    vitestProcess.on("exit", (code) => {
+    vitestProcess.on("exit", (code, signal) => {
         process.off("exit", terminateBrowserRunner);
         printLogCaptureSummary();
-        process.exit(code);
+        // A runner killed by a signal has a null code, and process.exit(null) would report a passing run
+        if (signal) {
+            console.error(`Vitest exited due to signal ${signal}.`);
+        }
+        process.exit(signal || typeof code !== "number" ? 1 : code);
     });
 };
 
