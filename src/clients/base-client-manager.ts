@@ -358,7 +358,14 @@ export class BaseClientsManager {
     }
 
     async pubsubUnsubscribe(pubsubTopic: string, handler?: PubsubSubscriptionHandler) {
-        for (const pubsubProviderUrl of keys(this._pkc.clients.pubsubKuboRpcClients)) {
+        // libp2p-js providers too, but only those this manager subscribed the topic on: their shim
+        // throws once helia is stopping, where the kubo path tolerates an unknown topic. Unsubscribing
+        // kubo providers only left every libp2p-js publication's challenge handler on the community's
+        // topic for the life of the PKC, retaining the publication (#496 leak suite).
+        const libp2pJsProvidersWithTopic = keys(this._pkc.clients.libp2pJsClients).filter((key) =>
+            this.pubsubProviderSubscriptions[key]?.includes(pubsubTopic)
+        );
+        for (const pubsubProviderUrl of [...keys(this._pkc.clients.pubsubKuboRpcClients), ...libp2pJsProvidersWithTopic]) {
             try {
                 await this.pubsubUnsubscribeOnProvider(pubsubTopic, pubsubProviderUrl, handler);
             } catch (e) {

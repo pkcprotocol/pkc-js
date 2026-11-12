@@ -1343,6 +1343,7 @@ export class Comment
             `Aborting comment operations for ${this.cid || this.author?.address || "comment"} because comment.stop() was called`
         );
         if (this.state === "publishing") await super.stop();
+        else await this._cancelBackgroundCommunityRefresh();
         this._setStateWithEmission("stopped");
         await this._stopUpdateLoop();
         this.replies._stop();
