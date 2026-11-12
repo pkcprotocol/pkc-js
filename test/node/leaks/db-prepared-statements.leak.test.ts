@@ -57,4 +57,26 @@ describe("leak: DbHandler prepared statement cache", () => {
             statementsAddedAfterFirstCycle: 0
         });
     });
+
+    // Same class as #488, by list length instead of by time: a statement whose IN-list has one placeholder
+    // per cid is a different SQL text for every batch size. A sync cycle marks the k comments it updated,
+    // and k differs from cycle to cycle, so each new k compiles and keeps another statement (~160 bytes of
+    // native memory per placeholder, up to 4096 placeholders). _cidChunks pads to powers of two for this.
+    // it.fails: this is a known leak with no fix yet (#516). The body asserts the clean behaviour, so the test
+    // starts failing once the leak is fixed: remove the .fails then.
+    it.fails(
+        "markCommentsAsPublishedToPostUpdates / forceUpdateOnAllCommentsWithCid keep a bounded number of statements across batch sizes",
+        () => {
+            const handler = dbHandler!;
+            const BATCH_SIZES = 200;
+            const before = preparedStatementCount(handler);
+            for (let size = 1; size <= BATCH_SIZES; size++) {
+                const cids = Array.from({ length: size }, (_, i) => `cid-${i}`);
+                handler.markCommentsAsPublishedToPostUpdates(cids);
+                handler.forceUpdateOnAllCommentsWithCid(cids);
+            }
+            // Padded to powers of two, 200 sizes need 9 variants per query (1, 2, 4, ... 256)
+            expect(preparedStatementCount(handler) - before).toBeLessThanOrEqual(2 * 9);
+        }
+    );
 });
