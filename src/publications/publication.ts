@@ -133,6 +133,12 @@ class Publication extends TypedEmitter<PublicationEvents> {
     // pkc's destroy signal; recreated per publish() so a stopped publication can be published again.
     private _communityFetchAbortController?: AbortController;
     private _communityFetchAbortSignal?: AbortSignal;
+    // Ends the provider-threshold waits of the current publish() run. Aborted when the run finishes
+    // (verification, failure or stop(), all through _postSucessOrFailurePublishing). Those waits used to
+    // wake only on their timer or on pkc.destroy(), so every finished publication stayed referenced by
+    // its timer and by a listener on the pkc destroy signal for up to two minutes after it was done.
+    private _publishRunAbortController?: AbortController;
+    private _publishRunWaitSignal?: AbortSignal;
 
     _challengeExchanges: Record<
         string, // challengeRequestId stringified
@@ -336,6 +342,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 args: [verification, this instanceof Comment && verification.comment ? this : undefined]
             }
         });
+        // The exchange is over. This path does its own teardown instead of going through
+        // _postSucessOrFailurePublishing, and without this every publication an RPC client verified
+        // stayed in pkc._publishingPublications (and in memory) until pkc.destroy(): Comment.stop()
+        // only reaches Publication.stop() while publishing, so nothing removed it afterwards
+        this._unregisterFromPkcOncePublishWorkSettles();
         if (this._rpcPublishSubscriptionId) {
             // Cleared synchronously before the awaited unsubscribe so the deferred
             // attach-and-replay timer from _publishWithRpc (#314) sees the teardown immediately
@@ -822,17 +833,30 @@ class Publication extends TypedEmitter<PublicationEvents> {
         return getPKCAddressFromPublicKeySync(encryptionPublicKey);
     }
 
-    // Fires when this publication is stopped or its pkc is destroyed. Built once and cached rather
-    // than composed per call: AbortSignal.any() registers on both sources every time it is called.
+    // Fires when this publication is stopped, which pkc.destroy() also does: a publication stays in
+    // pkc._publishingPublications until its run and any background refresh settle, and destroy() stops
+    // every one of them. Not composed with the destroy signal itself: on Node 20/22 each AbortSignal.any()
+    // over that never-aborted signal retained memory for the life of the pkc, once per publish (#502). The
+    // remaining user, createCommunity() on a comment's update path, combines with destroy on its own.
     _getCommunityFetchAbortSignal(): AbortSignal {
         if (!this._communityFetchAbortSignal) {
             this._communityFetchAbortController = new AbortController();
-            this._communityFetchAbortSignal = AbortSignal.any([
-                this._communityFetchAbortController.signal,
-                this._pkc._getDestroyAbortSignal()
-            ]);
+            this._communityFetchAbortSignal = this._communityFetchAbortController.signal;
         }
         return this._communityFetchAbortSignal;
+    }
+
+    // Cancels and drains the stale-cache community refresh a finished publish left behind. For
+    // Comment.stop(), which reaches Publication.stop() only while publishing: a comment whose publish
+    // already succeeded can still be in pkc._publishingPublications with its refresh in flight, and
+    // pkc.destroy() only reaches it through stop(). Resets the signal afterwards, since a comment
+    // goes on to use it for update() after being stopped.
+    protected async _cancelBackgroundCommunityRefresh() {
+        this._communityFetchAbortController?.abort(
+            new PKCError("ERR_GET_COMMUNITY_ABORTED", { publicationType: this.getType(), communityAddress: this.communityAddress })
+        );
+        if (this._backgroundCommunityRefresh) await this._backgroundCommunityRefresh;
+        this._resetCommunityFetchAbortSignal();
     }
 
     private _resetCommunityFetchAbortSignal() {
@@ -840,9 +864,36 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this._communityFetchAbortSignal = undefined;
     }
 
+    // Deliberately not composed with the pkc destroy signal: pkc.destroy() stops every publication in
+    // _publishingPublications, which ends its run through _postSucessOrFailurePublishing, and on Node 22
+    // each AbortSignal.any() over the never-aborted destroy signal retains ~180 bytes for the life of the pkc
+    private _beginPublishRun() {
+        this._publishRunAbortController = new AbortController();
+        this._publishRunWaitSignal = this._publishRunAbortController.signal;
+    }
+
+    // Fires when the current publish run has finished (verification, failure, stop() or pkc.destroy())
+    private _getPublishRunWaitSignal(): AbortSignal {
+        if (!this._publishRunWaitSignal) this._beginPublishRun();
+        return this._publishRunWaitSignal!;
+    }
+
+    // True once the run that handed out runSignal is over. Takes the run's own signal, not the current
+    // controller: stop() followed by publish() in the same tick installs the next run's controller before
+    // the previous run's waits wake up, and they must still see their own run as over
+    private _isPublishRunOver(runSignal: AbortSignal): boolean {
+        return this._pkc.destroyed || runSignal.aborted;
+    }
+
+    // Fresh cache entry first, then a community instance this PKC keeps updating or running (its own loop
+    // keeps the record current), then a stale cache entry, which _fetchCommunityForPublishing refreshes
     _getCommunityCache(): NonNullable<Publication["_community"]> | undefined {
-        const cached = this._pkc._memCaches.communityForPublishing.get(this.communityAddress, { allowStale: true });
-        if (cached) return cached;
+        const cache = this._pkc._memCaches.communityForPublishing;
+        if (cache.has(this.communityAddress)) return cache.get(this.communityAddress);
+        return this._getCommunityFromLiveInstance() ?? cache.get(this.communityAddress, { allowStale: true });
+    }
+
+    private _getCommunityFromLiveInstance(): NonNullable<Publication["_community"]> | undefined {
         const subInstance =
             findUpdatingCommunity(this._pkc, { publicKey: this.communityPublicKey, name: this.communityName }) ||
             findStartedCommunity(this._pkc, { publicKey: this.communityPublicKey, name: this.communityName });
@@ -876,8 +927,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
         if (cachedCommunity) {
             // We will use the cached community even though it's stale
             // And in the background we will fetch a new one and update the cache
-            // cache.has will return false if the item is stale
-            if (!this._pkc._memCaches.communityForPublishing.has(this.communityAddress)) {
+            // cache.has will return false if the item is stale. A record served by a live updating or
+            // started instance is current already: its own loop fetches it. Refreshing it anyway fired a
+            // pkc.getCommunity() per publish, since over RPC nothing ever made the cache entry fresh (#490)
+            const isFresh =
+                this._pkc._memCaches.communityForPublishing.has(this.communityAddress) ||
+                this._getCommunityFromLiveInstance() !== undefined;
+            if (!isFresh) {
                 log("The cache of community is stale, we will use the cached and update in the background");
                 // Held on the publication so stop() can drain it. Without that the refresh outlives
                 // the PKC and goes on creating community instances after teardown (issue #270).
@@ -886,6 +942,19 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         publicKey: this.communityPublicKey,
                         name: this.communityName,
                         abortSignal: this._getCommunityFetchAbortSignal()
+                    })
+                    .then((community) => {
+                        // The non-RPC network fetch writes this cache itself; getCommunity over RPC does
+                        // not, which left the entry stale and refreshed it again on every publish (#490)
+                        const record = community.raw.communityIpfs;
+                        if (record && community.publicKey)
+                            this._pkc._memCaches.communityForPublishing.set(this.communityAddress, {
+                                address: community.address,
+                                publicKey: community.publicKey,
+                                name: community.name,
+                                encryption: record.encryption,
+                                pubsubTopic: record.pubsubTopic
+                            });
                     })
                     .catch((e) => {
                         // Cancelling the refresh is what stop() asked for, so it is not an error.
@@ -981,6 +1050,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
     private async _postSucessOrFailurePublishing() {
         const log = Logger("pkc-js:publication:_postSucessOrFailurePublishing");
+        this._publishRunAbortController?.abort();
         this._unregisterFromPkcOncePublishWorkSettles();
         this._setStateWithEmission("stopped");
         if (this._rpcPublishSubscriptionId) {
@@ -1259,13 +1329,15 @@ class Publication extends TypedEmitter<PublicationEvents> {
         currentPubsubProviderIndex: number;
         acceptedChallengeTypes: DecryptedChallengeRequestMessageType["acceptedChallengeTypes"];
     }) {
-        await sleepUntilTimeoutOrAbort(this._publishToDifferentProviderThresholdSeconds * 1000, this._pkc._getDestroyAbortSignal());
+        // The run this watchdog belongs to; every check below asks about this run, never the current one
+        const runSignal = this._getPublishRunWaitSignal();
+        await sleepUntilTimeoutOrAbort(this._publishToDifferentProviderThresholdSeconds * 1000, runSignal);
 
-        // pkc.destroy() aborts the sleep above so teardown isn't blocked waiting it out. Bail before
-        // doing any re-publish work — otherwise we'd create a signer on a destroyed pkc (throwing
-        // ERR_PKC_IS_DESTROYED) and re-subscribe/re-dial peers that nothing is left to tear down.
-        // (state === "stopped" is handled by the existing branch below.)
-        if (this._pkc.destroyed) return;
+        // pkc.destroy() and the end of the run (verification, failure, stop()) abort the sleep above, so
+        // neither teardown nor garbage collection waits it out. Bail before doing any re-publish work:
+        // otherwise we'd create a signer on a destroyed pkc (throwing ERR_PKC_IS_DESTROYED), re-publish a
+        // stopped publication, or re-subscribe/re-dial peers that nothing is left to tear down.
+        if (this._isPublishRunOver(runSignal)) return;
         if (this._didWeReceiveChallengeOrChallengeVerification()) return;
 
         // this provider did not get us a challenge or challenge verification
@@ -1305,6 +1377,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 currentPubsubProviderIndex += 1;
                 while (!this._didWeReceiveChallengeOrChallengeVerification() && currentPubsubProviderIndex < providers.length) {
                     const providerUrl = providers[currentPubsubProviderIndex];
+                    if (this._isPublishRunOver(runSignal)) return;
                     const challengeRequest = await this._generateChallengeRequestToPublish(providerUrl, acceptedChallengeTypes);
 
                     this._updatePublishingStateWithEmission("publishing-challenge-request");
@@ -1347,15 +1420,14 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     if (currentPubsubProviderIndex !== providers.length)
                         await sleepUntilTimeoutOrAbort(
                             this._publishToDifferentProviderThresholdSeconds * 1000,
-                            this._pkc._getDestroyAbortSignal()
+                            runSignal
                         );
-                    if (this._pkc.destroyed) return;
+                    if (this._isPublishRunOver(runSignal)) return;
                 }
-                await sleepUntilTimeoutOrAbort(this._setProviderFailureThresholdSeconds * 1000, this._pkc._getDestroyAbortSignal());
-                if (this._pkc.destroyed) return;
-                // A plain publication.stop() does not abort the wait above (only destroy does), so it
-                // resumes here. Bail out the same way the earlier branch does, otherwise we'd treat an
-                // intentionally-stopped publication as a failure and emit ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS.
+                await sleepUntilTimeoutOrAbort(this._setProviderFailureThresholdSeconds * 1000, runSignal);
+                if (this._isPublishRunOver(runSignal)) return;
+                // Kept although stop() now ends the wait above through the run signal: a stopped
+                // publication must not be treated as a failure and emit ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS.
                 // The enclosing `else` narrowed `this.state` to exclude "stopped", but stop() during the
                 // awaited wait above can have set it since, so widen back to the field's declared type.
                 if ((this.state as Publication["state"]) === "stopped") return;
@@ -1457,6 +1529,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         // A previous stop() left the signal aborted, which would cancel this attempt's community
         // fetch before it started.
         if (this._getCommunityFetchAbortSignal().aborted) this._resetCommunityFetchAbortSignal();
+        this._beginPublishRun();
         // Track before the first await so pkc.destroy() can stop us no matter how far the exchange
         // has progressed. Untracked in _postSucessOrFailurePublishing once the exchange ends, or in
         // the catch below if publish never got that far.
@@ -1473,6 +1546,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
             // a pubsub unsubscribe for a topic that was never subscribed. Deleting twice is a no-op,
             // so the throw sites that do funnel are unaffected.
             this._unregisterFromPkcOncePublishWorkSettles();
+            // pkc.destroy() can no longer reach an unregistered publication, so end the run's waits here
+            this._publishRunAbortController?.abort();
             throw e;
         }
     }

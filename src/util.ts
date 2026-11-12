@@ -104,6 +104,34 @@ export function sleepUntilTimeoutOrAbort(ms: number, signal?: AbortSignal): Prom
     return interruptibleSleep({ ms, signal }).promise;
 }
 
+// AbortSignal.any() replacement for compositions that include a long-lived signal (the pkc destroy
+// signal, a comment's stop signal). On Node 20/22 every AbortSignal.any() call retains memory for as
+// long as any source has not aborted, so composing with a signal that lives as long as the pkc grows
+// the heap by one unit per call (#502). This links the sources with plain abort listeners instead.
+// Call dispose() once the operation settles: listeners left on a long-lived signal are the #144 leak.
+export function linkAbortSignals(signals: (AbortSignal | undefined)[]): { signal: AbortSignal | undefined; dispose: () => void } {
+    const sources = signals.filter((signal): signal is AbortSignal => Boolean(signal));
+    if (sources.length <= 1) return { signal: sources[0], dispose: () => {} };
+    const controller = new AbortController();
+    const alreadyAborted = sources.find((source) => source.aborted);
+    if (alreadyAborted) {
+        controller.abort(alreadyAborted.reason);
+        return { signal: controller.signal, dispose: () => {} };
+    }
+    const listeners = sources.map((source) => {
+        const onAbort = () => {
+            dispose();
+            controller.abort(source.reason);
+        };
+        source.addEventListener("abort", onAbort, { once: true });
+        return { source, onAbort };
+    });
+    const dispose = () => {
+        for (const { source, onAbort } of listeners) source.removeEventListener("abort", onAbort);
+    };
+    return { signal: controller.signal, dispose };
+}
+
 // Race `promise` against `signal` aborting, rejecting with an AbortError if the signal fires first.
 // The abort listener is detached once the race settles regardless of who wins, so it never leaks on
 // a long-lived signal — `{ once: true }` alone only removes it when abort fires, which leaks one
@@ -1046,6 +1074,12 @@ export async function retryKuboIpfsAdd({
 
 type KuboFilesWriteParameters = Parameters<PKC["clients"]["kuboRpcClients"][string]["_client"]["files"]["write"]>;
 
+// The error kubo returns for a flush:false MFS operation once its global unflushed-operation counter
+// (Internal.MFSNoFlushLimit, 256 by default) is full: "reached limit of N unflushed MFS operations"
+export function isMfsUnflushedLimitError(error: unknown): boolean {
+    return error instanceof Error && error.message.includes("unflushed MFS operations");
+}
+
 export async function writeKuboFilesWithTimeout({
     ipfsClient: kuboRpcClient,
     log,
@@ -1074,7 +1108,12 @@ export async function writeKuboFilesWithTimeout({
     // op server-side and releases the MFS lock, where a bare client-side abort would leave the write
     // running under the lock. pTimeout stays as the backstop for a daemon that never answers at all,
     // with enough slack that the server's own (more informative) error normally wins the race.
-    const writeOptions: FilesWriteOptions = { timeout: timeoutMilliseconds, ...options };
+    let writeOptions: FilesWriteOptions = { timeout: timeoutMilliseconds, ...options };
+    const write = () =>
+        pTimeout(kuboRpcClient.files.write(path, content, writeOptions), {
+            milliseconds: timeoutMilliseconds + 5_000,
+            message: `Timed out writing to MFS path ${path} after ${timeoutMilliseconds + 5_000}ms`
+        });
 
     return new Promise((resolve, reject) => {
         const operation = retry.operation({
@@ -1085,10 +1124,17 @@ export async function writeKuboFilesWithTimeout({
 
         operation.attempt(async (currentAttempt) => {
             try {
-                await pTimeout(kuboRpcClient.files.write(path, content, writeOptions), {
-                    milliseconds: timeoutMilliseconds + 5_000,
-                    message: `Timed out writing to MFS path ${path} after ${timeoutMilliseconds + 5_000}ms`
-                });
+                try {
+                    await write();
+                } catch (error) {
+                    // Kubo counts flush:false operations globally (Internal.MFSNoFlushLimit) and refuses
+                    // the next one past the limit instead of flushing. Any flushing operation resets the
+                    // counter, so the write the daemon just refused goes through as a self-flushing one.
+                    if (writeOptions.flush !== false || !isMfsUnflushedLimitError(error)) throw error;
+                    log(`Kubo reached its unflushed MFS operation limit, writing ${path} with flush:true instead`);
+                    writeOptions = { ...writeOptions, flush: true };
+                    await write();
+                }
                 resolve();
             } catch (error) {
                 log.error(`Failed attempt ${currentAttempt}/${numOfRetries + 1} to write content to MFS path ${path}:`, error);
