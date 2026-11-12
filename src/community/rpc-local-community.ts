@@ -1,4 +1,5 @@
 import Logger from "../logger.js";
+import type { EventEmitter } from "events";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 import type {
     AnchorPublishPreparation,
@@ -46,6 +47,10 @@ function cloneExportRecord(record: CommunityExportRecord): CommunityExportRecord
     return { ...record, ...(record.error ? { error: { ...record.error } } : {}) };
 }
 
+function isTerminalExportRecord(record: CommunityExportRecord): boolean {
+    return record.progress === 1 || Boolean(record.error);
+}
+
 // This class is for communities that are running and publishing, over RPC. Can be used for both browser and node
 export class RpcLocalCommunity extends RpcRemoteCommunity {
     override started: boolean; // Is the community started and running? This is not specific to this instance, and applies to all instances of community with this address
@@ -82,10 +87,24 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
     private _startRpcInFlight = false;
     _usingDefaultChallenge!: RpcLocalCommunityLocalProps["_usingDefaultChallenge"];
 
-    // community.export() over RPC. The subscription is attached eagerly during createCommunity
-    // so consumers see prior exports (including ones still in flight from earlier client sessions)
-    // immediately, without having to call community.export() first.
+    // community.export() over RPC. createCommunity/getCommunity load an exports snapshot before
+    // returning, so consumers see prior exports (including ones still in flight from earlier client
+    // sessions) immediately, without having to call community.export() first.
+    //
+    // The subscription is then kept only while the instance has a use for live records: it is
+    // started or updating, an export() it issued has not reached a terminal state, or something
+    // listens to its exportschange. The RPC client's subscription registry holds the exportschange
+    // handler, which closes over this instance, so a subscription kept for the instance's whole
+    // life pinned every instance ever created; a publisher leaked one per publication (#490).
     private _exportsSubscriptionId?: number = undefined;
+    // Set by _loadExportsSnapshot() once the instance is handed to the caller. Until then the
+    // creating code drives update()/stop() itself and the subscription is not managed.
+    private _exportsSubscriptionManaged = false;
+    // Serializes attach/detach so concurrent triggers can't race each other's round trips
+    private _exportsSubscriptionSyncQueue: Promise<void> = Promise.resolve();
+    // export() calls awaiting their exportId, and exportIds this instance issued that are not terminal yet
+    private _pendingExportCalls = 0;
+    private _inFlightExportIds: Set<string> = new Set();
     private _exportsCache: CommunityExportRecord[] = [];
     // exportId → detach AbortSignal listener. Cleared when the export reaches a terminal state.
     private _exportSignalDetachers: Map<string, () => void> = new Map();
@@ -101,6 +120,14 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         this.on("update", () => {
             this.editable = pick(this, keys(CommunityEditOptionsSchema.shape)) as Pick<RpcLocalCommunity, keyof CommunityEditOptions>;
         });
+        // Re-evaluate whether the exports subscription is needed whenever one of its reasons changes
+        this.on("statechange", () => this._scheduleExportsSubscriptionSync());
+        const emitter = this as unknown as EventEmitter;
+        const onListenerChange = (eventName: string | symbol) => {
+            if (eventName === "exportschange") this._scheduleExportsSubscriptionSync();
+        };
+        emitter.on("newListener", onListenerChange);
+        emitter.on("removeListener", onListenerChange);
         hideClassPrivateProps(this);
     }
 
@@ -364,6 +391,7 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         this._setRpcClientStateWithEmission("stopped");
         this.started = false;
         untrackStartedCommunity(this._pkc, this);
+        await this._releaseExportsSubscriptionIfUnneeded();
     }
 
     // Delegation setup (#234), forwarded to the node running the community. The anchor's private key
@@ -384,6 +412,20 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
     }
 
     override async stop() {
+        await this._stopRunOrUpdate();
+        // Resolve only once the exports subscription is released, unless the instance still has a use for it
+        await this._releaseExportsSubscriptionIfUnneeded();
+    }
+
+    private async _releaseExportsSubscriptionIfUnneeded(): Promise<void> {
+        try {
+            await this._syncExportsSubscription();
+        } catch (e) {
+            Logger("pkc-js:rpc-local-community:exports").error("Failed to sync the exports subscription on stop", this.address, e);
+        }
+    }
+
+    private async _stopRunOrUpdate() {
         this.posts._stop();
         if (this.state === "updating") {
             return super.stop();
@@ -463,13 +505,29 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
             throw reason ?? new DOMException("The operation was aborted.", "AbortError");
         }
 
-        const { exportId } = await this._pkc._pkcRpcClient!.exportCommunity({
-            name: this.name,
-            publicKey: this.publicKey,
-            includePrivateKey: options.includePrivateKey
-        });
+        // Subscribed before the export is enqueued, so its first progress notification reaches this instance
+        this._pendingExportCalls++;
+        let exportId: string;
+        let alreadyTerminal = false;
+        try {
+            await this._syncExportsSubscription();
+            ({ exportId } = await this._pkc._pkcRpcClient!.exportCommunity({
+                name: this.name,
+                publicKey: this.publicKey,
+                includePrivateKey: options.includePrivateKey
+            }));
+            // A terminal notification can arrive before the exportCommunity response
+            const knownRecord = this._exportsCache.find((rec) => rec.exportId === exportId);
+            alreadyTerminal = knownRecord !== undefined && isTerminalExportRecord(knownRecord);
+            if (!alreadyTerminal) this._inFlightExportIds.add(exportId);
+        } finally {
+            this._pendingExportCalls--;
+            this._scheduleExportsSubscriptionSync();
+        }
 
-        if (options.signal) {
+        // A finished export has nothing to cancel, and the terminal notification that would detach the
+        // listener has already been absorbed, so attaching one would leave it on the caller's signal
+        if (options.signal && !alreadyTerminal) {
             const userSignal = options.signal;
             const onAbort = () => {
                 this._pkc._pkcRpcClient!.cancelExport({ exportId }).catch((e) => {
@@ -490,7 +548,56 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         return this._pkc._pkcRpcClient!.exportCommunityModLogs({ name: this.name, publicKey: this.publicKey, ...opts });
     }
 
-    async _attachExportsSubscription(): Promise<void> {
+    // Called by pkc.createCommunity()/getCommunity() before the instance is returned: loads the current
+    // exports list, then keeps the subscription only if the instance already needs it
+    async _loadExportsSnapshot(): Promise<void> {
+        this._exportsSubscriptionManaged = true;
+        await this._syncExportsSubscription({ loadSnapshot: true });
+    }
+
+    private _needsLiveExports(): boolean {
+        if (this._pkc.destroyed) return false;
+        return (
+            this.state !== "stopped" ||
+            this._pendingExportCalls > 0 ||
+            this._inFlightExportIds.size > 0 ||
+            this.listenerCount("exportschange") > 0
+        );
+    }
+
+    private _syncExportsSubscription(opts?: { loadSnapshot?: boolean }): Promise<void> {
+        const run = async () => {
+            if (!this._exportsSubscriptionManaged) return;
+            const needed = this._needsLiveExports();
+            if ((needed || opts?.loadSnapshot) && this._exportsSubscriptionId === undefined && !this._pkc.destroyed)
+                await this._attachExportsSubscription();
+            if (!this._needsLiveExports() && this._exportsSubscriptionId !== undefined) await this._detachExportsSubscription();
+        };
+        const result = this._exportsSubscriptionSyncQueue.then(run);
+        this._exportsSubscriptionSyncQueue = result.catch(() => undefined);
+        return result;
+    }
+
+    // Fire-and-forget variant for triggers that can't await (state changes, listener changes)
+    private _scheduleExportsSubscriptionSync(): void {
+        if (!this._exportsSubscriptionManaged) return;
+        this._syncExportsSubscription().catch((e) =>
+            Logger("pkc-js:rpc-local-community:exports").error("Failed to sync the exports subscription", this.address, e)
+        );
+    }
+
+    private async _detachExportsSubscription(): Promise<void> {
+        const subscriptionId = this._exportsSubscriptionId;
+        this._exportsSubscriptionId = undefined;
+        if (subscriptionId === undefined) return;
+        try {
+            await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
+        } catch (e) {
+            Logger("pkc-js:rpc-local-community:exports").error("Failed to unsubscribe from exportsSubscribe", this.address, e);
+        }
+    }
+
+    private async _attachExportsSubscription(): Promise<void> {
         if (this._exportsSubscriptionId !== undefined) return;
         if (!this._pkc._pkcRpcClient) return; // not on an RPC PKC — should not happen for this class
 
@@ -525,7 +632,13 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
         });
 
         this._pkc._pkcRpcClient.emitAllPendingMessages(subscriptionId);
-        await initialReceived;
+        try {
+            await initialReceived;
+        } catch (e) {
+            // Don't keep a subscription that failed to deliver its snapshot
+            if (this._exportsSubscriptionId === subscriptionId) await this._detachExportsSubscription();
+            throw e;
+        }
     }
 
     private _absorbExportRecords(wireRecords: CommunityExportRecord[]): void {
@@ -545,7 +658,17 @@ export class RpcLocalCommunity extends RpcRemoteCommunity {
                 }
             }
         }
+        // An issued export stops holding the subscription once it is terminal or gone from the server's list
+        let inFlightChanged = false;
+        for (const exportId of [...this._inFlightExportIds]) {
+            const rec = wireRecords.find((r) => r.exportId === exportId);
+            if (!rec || isTerminalExportRecord(rec)) {
+                this._inFlightExportIds.delete(exportId);
+                inFlightChanged = true;
+            }
+        }
         this.emit("exportschange", this._exportsCache.map(cloneExportRecord));
+        if (inFlightChanged) this._scheduleExportsSubscriptionSync();
     }
 
     override async delete() {
