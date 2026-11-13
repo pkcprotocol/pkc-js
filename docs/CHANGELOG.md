@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.144](https://github.com/pkcprotocol/pkc-js/compare/v0.0.143...v0.0.144) (2026-11-13)
+
+### Bug Fixes
+
+* **pkc:** deliver shared resolves and fetches to every caller, start gateway timeouts per request ([#536](https://github.com/pkcprotocol/pkc-js/issues/536)) ([b9405ff](https://github.com/pkcprotocol/pkc-js/commit/b9405ff1c79bd25c5bd754e22a898dee5e450b07)), closes [#353](https://github.com/pkcprotocol/pkc-js/issues/353)
+
 ## [0.0.143](https://github.com/pkcprotocol/pkc-js/compare/v0.0.142...v0.0.143) (2026-11-13)
 
 ### Features
