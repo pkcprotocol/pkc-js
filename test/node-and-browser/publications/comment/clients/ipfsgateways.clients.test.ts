@@ -155,13 +155,26 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 await mockPost.update();
                 mockCommentToNotUsePagesForUpdates(mockPost);
 
-                await resolveWhenConditionIsTrue({ toUpdate: mockPost, predicate: async () => errors.length >= 1, eventName: "error" });
+                // The record's postUpdates folder has no entry for this post, and the gateway says so with a 404. That is
+                // an answer about the folder, not a failure to load: the post waits for the next record without an error
+                // and does not fetch the same path again (see post-not-in-post-updates.test.ts)
+                const fetchedUpdateFileAndStopped = () => {
+                    const fetchIndex = recordedStates.indexOf("fetching-update-ipfs");
+                    return fetchIndex !== -1 && recordedStates.indexOf("stopped", fetchIndex) !== -1;
+                };
+                await resolveWhenConditionIsTrue({
+                    toUpdate: mockPost.clients.ipfsGateways[gatewayUrl],
+                    predicate: async () => fetchedUpdateFileAndStopped(),
+                    eventName: "statechange"
+                });
 
                 await new Promise((resolve) => setTimeout(resolve, pkc.updateInterval * 4));
 
                 await mockPost.stop();
 
-                expect(errors.length).to.be.at.least(1);
+                expect(errors.map((error) => (error as PKCError).code ?? error.message)).to.deep.equal([]);
+                expect(mockPost.updatedAt).to.be.undefined;
+                expect(recordedStates.filter((state) => state === "fetching-update-ipfs")).to.have.length(1);
 
                 const expectedFirstStates = ["fetching-ipfs", "stopped", "fetching-community-ipns"];
                 expect(recordedStates.slice(0, expectedFirstStates.length)).to.deep.equal(expectedFirstStates);
