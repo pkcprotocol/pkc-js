@@ -1324,35 +1324,36 @@ export class BaseClientsManager {
             return limit(() => resolveOne(entry)).then(settle, () => settle("failed"));
         });
 
-        const joinedAttempts = joined.map(({ author, inFlightResolve }) =>
-            waitForAuthorNameResolveInFlight({ inFlightResolve, abortSignal }).then((outcome): AuthorNameResolveOutcome => {
-                // This caller was stopped while it waited, so it gets nothing, as if its own attempt had been aborted
-                if (abortSignal?.aborted) return "aborted";
-                // Its owner was stopped before it learned anything, which says nothing about the name: ask on this
-                // caller's behalf, and that call runs onResolved itself on a verdict. A failed attempt is not retried
-                // here, nameResolveFailedCache paces that for joiners as for owners. Not once the pkc is destroyed:
-                // destroy() is what stopped the owner, and it closes the storage and caches a new resolve would use.
-                if (outcome === "aborted" && !this._pkc.destroyed)
-                    this.resolveAuthorNamesInBackground({ authors: [author], onResolved, abortSignal });
-                return outcome;
-            })
-        );
-
-        // The caller hears about the resolves it started as soon as they settle, as before joining existed, and
-        // once more about the ones it joined. One notification for both would hold its own verdicts back until
-        // another caller's resolve settles, and a background resolve has no timeout of its own: it is bounded
-        // only by its owner's signal, so a resolver that hangs for someone else would delay them indefinitely.
-        const notifyOnVerdict = (attempts: Promise<AuthorNameResolveOutcome>[]) => {
-            if (attempts.length === 0) return;
-            Promise.allSettled(attempts)
-                .then((results) => {
-                    const anyNewlySet = results.some((r) => r.status === "fulfilled" && r.value === "verdict");
-                    if (anyNewlySet) onResolved();
+        // The caller hears about the resolves it started once they have all settled, as before joining existed, and
+        // about each resolve it joined as that one lands. A background resolve has no timeout of its own: it is
+        // bounded only by its owner's signal. So a verdict must not wait for a resolve another caller owns, neither
+        // the caller's own verdicts nor the verdict of another resolve it joined.
+        //
+        // A caller that was stopped in the meantime is not notified. Its stop aborts what is still outstanding,
+        // which settles the batch, and a verdict that landed before the stop would otherwise reach a stopped
+        // Comment, whose onResolved changes what it renders and emits "update".
+        for (const { author, inFlightResolve } of joined)
+            waitForAuthorNameResolveInFlight({ inFlightResolve, abortSignal })
+                .then((outcome) => {
+                    // This caller was stopped while it waited, so it gets nothing, as if its own attempt had been aborted
+                    if (abortSignal?.aborted) return;
+                    if (outcome === "verdict") onResolved();
+                    // Its owner was stopped before it learned anything, which says nothing about the name: ask on this
+                    // caller's behalf, and that call runs onResolved itself on a verdict. A failed attempt is not retried
+                    // here, nameResolveFailedCache paces that for joiners as for owners. Not once the pkc is destroyed:
+                    // destroy() is what stopped the owner, and it closes the storage and caches a new resolve would use.
+                    else if (outcome === "aborted" && !this._pkc.destroyed)
+                        this.resolveAuthorNamesInBackground({ authors: [author], onResolved, abortSignal });
                 })
                 .catch((e) => log.error("Unexpected error in resolveAuthorNamesInBackground", e));
-        };
-        notifyOnVerdict(ownAttempts);
-        notifyOnVerdict(joinedAttempts);
+
+        if (ownAttempts.length > 0)
+            Promise.allSettled(ownAttempts)
+                .then((results) => {
+                    const anyNewlySet = results.some((r) => r.status === "fulfilled" && r.value === "verdict");
+                    if (anyNewlySet && !abortSignal?.aborted) onResolved();
+                })
+                .catch((e) => log.error("Unexpected error in resolveAuthorNamesInBackground", e));
     }
 
     // Misc functions

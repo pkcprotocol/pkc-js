@@ -265,10 +265,11 @@ describeSkipIfRpc("resolveAuthorNamesInBackground: a caller that joins an in-fli
         expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(true);
     });
 
-    // A background resolve has no timeout of its own, so the one a caller joined can stay outstanding for as long
-    // as its owner lives. The verdicts of the resolves the caller started itself must not wait for it.
-    it("tells a caller about the resolves it started without waiting for one it joined", async () => {
-        const dave = { authorName: "dave.bso", signaturePublicKey: signers[4].publicKey };
+    const dave = { authorName: "dave.bso", signaturePublicKey: signers[4].publicKey };
+    const daveCacheKey = sha256(dave.authorName + dave.signaturePublicKey);
+
+    // A resolver that holds carol's and dave's resolves separately, each until its own release
+    const heldPerNameResolver = () => {
         const addresses: Record<string, string> = { [author.authorName]: signers[3].address, [dave.authorName]: signers[4].address };
         const calls: string[] = [];
         const releases: Record<string, () => void> = {};
@@ -281,6 +282,13 @@ describeSkipIfRpc("resolveAuthorNamesInBackground: a caller that joins an in-fli
                 return { publicKey: addresses[name] };
             }
         });
+        return { resolver, calls, release: (name: string) => releases[name]() };
+    };
+
+    // A background resolve has no timeout of its own, so the one a caller joined can stay outstanding for as long
+    // as its owner lives. The verdicts of the resolves the caller started itself must not wait for it.
+    it("tells a caller about the resolves it started without waiting for one it joined", async () => {
+        const { resolver, calls, release } = heldPerNameResolver();
         pkc = await makePKC(resolver);
 
         // Another caller owns carol's resolve
@@ -294,16 +302,66 @@ describeSkipIfRpc("resolveAuthorNamesInBackground: a caller that joins an in-fli
         pkc._clientsManager.resolveAuthorNamesInBackground({ authors: [author, dave], onResolved: () => notified++ });
         await vi.waitFor(() => expect(calls).to.deep.equal([author.authorName, dave.authorName]));
 
-        releases[dave.authorName]();
+        release(dave.authorName);
         await vi.waitFor(() => expect(notified, "dave's verdict waited for carol's resolve, which another caller owns").to.equal(1), {
             timeout: 2000
         });
         expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(undefined);
 
-        releases[author.authorName]();
+        release(author.authorName);
         await vi.waitFor(() => expect(notified, "the caller never heard about the verdict it joined").to.equal(2));
         expect(ownerNotified).to.equal(1);
         expect(calls.length).to.equal(2);
+    });
+
+    // The same between two resolves the caller joined: one that hangs must not hold back the other's verdict
+    it("tells a caller about each resolve it joined as it lands, without waiting for the others", async () => {
+        const { resolver, calls, release } = heldPerNameResolver();
+        pkc = await makePKC(resolver);
+
+        // The page sweep's shape: another caller owns both resolves
+        const community = await pkc.createCommunity({ address: signers[0].address });
+        community._clientsManager.resolveAuthorNamesInBackground({ authors: [author, dave], onResolved: () => {} });
+        await vi.waitFor(() => expect(calls.length).to.equal(2));
+
+        let notified = 0;
+        pkc._clientsManager.resolveAuthorNamesInBackground({ authors: [author, dave], onResolved: () => notified++ });
+
+        release(dave.authorName);
+        await vi.waitFor(() => expect(pkc._memCaches.nameResolvedCache.get(daveCacheKey)).to.equal(true));
+        await vi.waitFor(() => expect(notified, "dave's verdict waited for carol's resolve, which is still held").to.equal(1), {
+            timeout: 2000
+        });
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(undefined);
+
+        release(author.authorName);
+        await vi.waitFor(() => expect(notified).to.equal(2));
+        expect(calls.length).to.equal(2);
+    });
+
+    // One of a caller's resolves gave a verdict and another is still outstanding when the caller is stopped. The
+    // stop aborts the outstanding one, which settles the batch, and the stopped caller must not be notified then:
+    // a Comment's onResolved changes what it renders and emits "update".
+    it("does not notify a caller that was stopped before its batch settled", async () => {
+        const { resolver, calls, release } = heldPerNameResolver();
+        pkc = await makePKC(resolver);
+        const stop = new AbortController();
+        let notified = 0;
+        pkc._clientsManager.resolveAuthorNamesInBackground({
+            authors: [author, dave],
+            onResolved: () => notified++,
+            abortSignal: stop.signal
+        });
+        await vi.waitFor(() => expect(calls.length).to.equal(2));
+
+        release(dave.authorName);
+        await vi.waitFor(() => expect(pkc._memCaches.nameResolvedCache.get(daveCacheKey)).to.equal(true));
+        expect(notified).to.equal(0); // carol's resolve is still outstanding
+
+        stop.abort();
+        await vi.waitFor(() => expect(pkc._authorNameResolvesInFlight.size).to.equal(0));
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(notified, "the caller was notified after it was stopped").to.equal(0);
     });
 
     // A resolve is bounded only by its owner's signal, so the one a stopped Comment or community joined can
