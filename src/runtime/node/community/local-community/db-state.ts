@@ -6,7 +6,7 @@ import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
 import { STORAGE_KEYS } from "../../../../constants.js";
 import { parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails } from "../../../../schema/schema-util.js";
-import { existsSync } from "node:fs";
+import { closeSync, openSync } from "node:fs";
 import { deriveDbPosts, resolveDbPostsCidRefs, importSignerIntoKuboNode, removeFileRetryingWhileBusy } from "../../util.js";
 import { SignerWithPublicKeyAddress } from "../../../../signer/index.js";
 import { getIpfsKeyFromPrivateKey, getPublicKeyFromPrivateKey } from "../../../../signer/util.js";
@@ -302,34 +302,57 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
     community.pageSorts = derivePublicPageSorts({ pagesSettings: community.settings.pages, resolved: community._pageSorts });
 
     // The settings are valid, so the DB can be created. A DB with its tables and no internal state is not a community:
-    // it is left out of pkc.communities and nothing would ever remove it. So if a step fails between creating the file
-    // and writing the internal state, the connection is closed and a file this call created is removed. A file that
-    // was already there belongs to whoever created it and is left alone.
+    // it is left out of pkc.communities and nothing would ever remove it. So if a step fails before the internal state
+    // is written, the connection is closed and the file is removed, but only a file this call created. Nothing
+    // serializes two creations of the same community, in this process or across processes, so "this call created it"
+    // is decided by creating the file exclusively: one caller wins, and a file that was already there, or that another
+    // call created a moment ago, belongs to someone else and is left alone.
     await community.initDbHandlerIfNeeded();
     await community._dbHandler.initDbConfigIfNeeded();
     const dbFilePath = community._dbHandler.getDbConfig().filename;
-    const isDbOnDisk = dbFilePath !== ":memory:";
-    const dbFileExistedBefore = isDbOnDisk && existsSync(dbFilePath);
+    let createdDbFile = false;
+    if (dbFilePath !== ":memory:")
+        try {
+            closeSync(openSync(dbFilePath, "wx")); // an empty file is an empty SQLite DB
+            createdDbFile = true;
+        } catch (e) {
+            if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+        }
+    const internalStateKey = STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY];
     try {
         await community._dbHandler.initDbIfNeeded({ fileMustExist: false });
         await community._dbHandler.createOrMigrateTablesIfNeeded();
 
-        if (community._dbHandler.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY])) throw Error("Internal state exists already");
+        if (community._dbHandler.keyvHas(internalStateKey)) throw Error("Internal state exists already");
 
-        await community._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY], community.toJSONInternalBeforeFirstUpdate());
-
-        await community._updateStartedValue();
+        await community._dbHandler.keyvSet(internalStateKey, community.toJSONInternalBeforeFirstUpdate());
     } catch (e) {
+        // Another call may have written its internal state into the file this one created. Then it is a community
+        let hasInternalState = false;
+        try {
+            hasInternalState = community._dbHandler.keyvHas(internalStateKey);
+        } catch {
+            // no connection, or not a database: there is no internal state to keep
+        }
         try {
             community._dbHandler.destoryConnection();
         } catch (closeError) {
             log.error(`Failed to close the DB of community (${community.address}) after its creation failed`, closeError);
         }
-        if (isDbOnDisk && !dbFileExistedBefore)
+        if (createdDbFile && !hasInternalState)
             for (const filePath of [dbFilePath, `${dbFilePath}-wal`, `${dbFilePath}-shm`])
                 await removeFileRetryingWhileBusy(filePath, { log }).catch((removeError) =>
                     log.error(`Failed to remove ${filePath} after the creation of community (${community.address}) failed`, removeError)
                 );
+        throw e;
+    }
+
+    // The internal state is written, so the community exists from here on: a failure below closes the connection and
+    // keeps the DB
+    try {
+        await community._updateStartedValue();
+    } catch (e) {
+        community._dbHandler.destoryConnection();
         throw e;
     }
 

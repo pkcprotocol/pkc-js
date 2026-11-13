@@ -91,6 +91,62 @@ describeSkipIfRpc("createCommunity rejected for invalid settings leaves no commu
             await community.delete();
         });
 
+        // Nothing serializes two creations of the same community. The one that finds the other's internal state fails,
+        // and the DB it fails on is the other call's community, not a leftover of its own.
+        it("does not remove the DB of a concurrent createCommunity with the same signer that succeeded", async () => {
+            const signer = await pkc.createSigner();
+            const filePath = path.join(pkc.dataPath!, "communities", signer.address);
+            // Both calls are held just before they open the DB until both are there, so neither sees the other's file
+            // when it gets that far. Left alone, the first call of one process is always a step ahead of the second
+            const realInitDbIfNeeded = DbHandler.prototype.initDbIfNeeded;
+            let callsWaiting = 0;
+            let releaseBoth: () => void;
+            const bothWaiting = new Promise<void>((resolve) => (releaseBoth = resolve));
+            vi.spyOn(DbHandler.prototype, "initDbIfNeeded").mockImplementation(async function (this: DbHandler, ...args) {
+                if (++callsWaiting === 2) releaseBoth();
+                await bothWaiting;
+                return realInitDbIfNeeded.apply(this, args);
+            });
+            const settled = Promise.allSettled([pkc.createCommunity({ signer }), pkc.createCommunity({ signer })]);
+            // A call whose DB was removed under it waits for a community that never gets listed
+            const results = await Promise.race([
+                settled,
+                new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 15_000))
+            ]);
+            expect(results, "both calls should settle").to.not.be.undefined;
+            vi.restoreAllMocks();
+            expect(results!.filter((result) => result.status === "fulfilled").length).to.be.greaterThan(0);
+            expect(fs.existsSync(filePath)).to.be.true;
+
+            const community = await pkc.createCommunity({ address: signer.address });
+            expect(community.signer?.address).to.equal(signer.address);
+            await community.delete();
+        });
+
+        // The cleanup is for a DB that has no internal state. Once the state is written the community exists, and a
+        // later step failing must not take it away.
+        it("keeps the DB when a step fails after the internal state was written", async () => {
+            const signer = await pkc.createSigner();
+            const filePath = path.join(pkc.dataPath!, "communities", signer.address);
+            const { LocalCommunity } = await import("../../../dist/node/runtime/node/community/local-community.js");
+            vi.spyOn(LocalCommunity.prototype, "_updateStartedValue").mockRejectedValueOnce(new Error("the start lock could not be read"));
+
+            let thrown: unknown;
+            try {
+                await pkc.createCommunity({ signer });
+            } catch (e) {
+                thrown = e;
+            }
+            expect((thrown as Error | undefined)?.message).to.equal("the start lock could not be read");
+            expect(fs.existsSync(filePath)).to.be.true;
+            if (process.platform === "linux") expect(openFileDescriptorsOn(filePath)).to.equal(0);
+
+            vi.restoreAllMocks();
+            const community = await pkc.createCommunity({ address: signer.address });
+            expect(community.signer?.address).to.equal(signer.address);
+            await community.delete();
+        });
+
         // A file that is not a SQLite DB is not listed as a community, so createCommunity takes the creation path and
         // fails when it opens it. That file was there before the call and is not this call's to remove.
         it("leaves a file that was already at that address untouched", async () => {
