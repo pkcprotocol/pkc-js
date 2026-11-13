@@ -802,7 +802,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             return clone(cachedComment);
         }
 
-        const verifiedComment = await this._pkc._inflightFetchManager.withResource(InflightResourceTypes.COMMENT_IPFS, cid, async () => {
+        const fetchAndVerify = async () => {
             fetchCommentLogger.trace("Fetching comment CID", cid);
             let commentRawString: string;
             if (Object.keys(this._pkc.clients.kuboRpcClients).length > 0 || Object.keys(this._pkc.clients.libp2pJsClients).length > 0) {
@@ -812,7 +812,15 @@ export class CommentClientsManager extends PublicationClientsManager {
             const commentIpfs = parseCommentIpfsSchemaWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(commentRawString)); // could throw if schema is invalid
             await this._throwIfCommentIpfsIsInvalid(commentIpfs, cid);
             return commentIpfs;
-        });
+        };
+        // The stop signal is this comment's own cancellation: when the fetch we joined belongs to another comment
+        // that gets stopped, we fetch on our own instead, unless this comment was stopped too
+        const verifiedComment = await this._pkc._inflightFetchManager.withResource(
+            InflightResourceTypes.COMMENT_IPFS,
+            cid,
+            fetchAndVerify,
+            this._comment._getStopAbortSignal()
+        );
 
         this._pkc._memCaches.commentIpfs.set(cid, verifiedComment);
         return verifiedComment;

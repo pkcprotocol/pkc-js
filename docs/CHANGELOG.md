@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.0.144](https://github.com/pkcprotocol/pkc-js/compare/v0.0.143...v0.0.144) (2026-11-13)
+
+### Bug Fixes
+
+* **pkc:** deliver shared resolves and fetches to every caller, start gateway timeouts per request ([#536](https://github.com/pkcprotocol/pkc-js/issues/536)) ([b9405ff](https://github.com/pkcprotocol/pkc-js/commit/b9405ff1c79bd25c5bd754e22a898dee5e450b07)), closes [#353](https://github.com/pkcprotocol/pkc-js/issues/353)
+
+## [0.0.143](https://github.com/pkcprotocol/pkc-js/compare/v0.0.142...v0.0.143) (2026-11-13)
+
+### Features
+
+* **community:** let a settings.pages entry choose its wire key ([#483](https://github.com/pkcprotocol/pkc-js/issues/483)) ([#538](https://github.com/pkcprotocol/pkc-js/issues/538)) ([6a1c5ff](https://github.com/pkcprotocol/pkc-js/commit/6a1c5ffe7ade88ac544695ab822eed34b0491940))
+
+### Performance
+
+* **community:** make the author cascade cheap on one-author boards ([#471](https://github.com/pkcprotocol/pkc-js/issues/471)) ([#494](https://github.com/pkcprotocol/pkc-js/issues/494)) ([4a916e8](https://github.com/pkcprotocol/pkc-js/commit/4a916e881c8f21b98558bf3e72ab6845519a0cab))
+
 ## [0.0.142](https://github.com/pkcprotocol/pkc-js/compare/v0.0.141...v0.0.142) (2026-11-10)
 
 ### Bug Fixes

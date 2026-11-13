@@ -143,6 +143,7 @@ import type { PageTypeJson } from "../pages/types.js";
 // so it stays a type-only import (erased at build time, no runtime cost).
 import type { Libp2pJsClient } from "../helia/libp2pjsClient.js";
 import type { AuthorNameRpcParam, CidRpcParam, PKCCommunitiesEntry, RpcFetchCidResult } from "../clients/rpc-client/types.js";
+import type { AuthorNameResolveInFlight } from "../clients/base-client-manager.js";
 import { parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { cleanWireAuthor, getAuthorNameFromWire, normalizeCreatePublicationAuthor } from "../publications/publication-author.js";
 import { CommunityList } from "../community-list/community-list.js";
@@ -246,7 +247,9 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     // name resolve is outstanding right now. On the PKC rather than on a clients manager because the callers
     // that overlap do not share one: a community's page sweep and an updating Comment both resolve the same
     // author on the same community update. Entries are removed when the attempt settles. Issue #353.
-    _authorNameResolvesInFlight = new Set<string>();
+    // Each maps to the callers waiting for that resolve, so a caller that finds one in flight can wait for
+    // its outcome instead of never hearing about the verdict.
+    _authorNameResolvesInFlight = new Map<string, AuthorNameResolveInFlight>();
 
     _timeouts = {
         "community-ipns": 5 * 60 * 1000, // 5min, for resolving community IPNS, or fetching community from gateways
@@ -342,7 +345,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         this._initRpcClientsIfNeeded();
         this._initIpfsGatewaysIfNeeded();
         this._initMemCaches();
-        this._inflightFetchManager = new InflightFetchManager();
+        this._inflightFetchManager = new InflightFetchManager({ isDestroyed: () => this.destroyed });
 
         if (!this.noData) {
             if (!this.pkcRpcClientsOptions)
@@ -573,6 +576,10 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         // abort fires, which leaks one listener per call (issues #145, #146).
         abortSignal?.addEventListener("abort", abortListener);
 
+        // The load runs under the comment's stop signal, which the comment.stop() below aborts. So when this call
+        // ends without the comment (abort, timeout, failure), its own fetch is cancelled, and a fetch it joined
+        // is not fetched again on its behalf once that fetch's owner is stopped.
+        comment._createStopAbortController();
         const commentTimeout = this._timeouts["comment-ipfs"];
         try {
             await pTimeout(Promise.race([comment._attemptInfintelyToLoadCommentIpfs(), abortPromise]), {
@@ -582,6 +589,10 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                     new TimeoutError(`pkc.getComment({cid: ${parsedGetCommentArgs}}) timed out after ${commentTimeout}ms`)
             });
             if (!comment.signature) throw Error("Failed to load CommentIpfs");
+            // The loaded comment started resolving its author's name under that signal. That resolve outlives this
+            // call: its verdict lands on the comment and in the pkc-wide cache. Detach the signal so the
+            // comment.stop() below does not cancel it.
+            comment._clearStopAbortController();
             return comment;
         } catch (e) {
             // Abort wins over whatever else the comment happened to emit: the caller cancelled on
