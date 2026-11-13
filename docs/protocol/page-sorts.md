@@ -408,11 +408,12 @@ import PKC from "@pkcprotocol/pkc-js";
 import activePageSort from "@pkcprotocol/active-page-sort"; // installed by the UI, looked up by the published name
 
 const sortName = Object.keys(community.posts.pages)[0]; // the community's default; a wire key, not a package name
-const published = community.pageSorts?.posts?.[sortName]; // undefined on an unconfigured community
+const published = community.pageSorts?.posts?.[sortName]; // undefined when settings.pages.posts is unset
 const registry = { "@pkcprotocol/active-page-sort": activePageSort, ...PKC.pageSorts };
-// Only an unconfigured community (no pageSorts at all) guarantees its keys are the built-ins of the same name.
-// A configured one names the file in `name`; the key may be anything the owner chose, `hot` included.
-const packageName = community.pageSorts ? published?.name : sortName;
+// Only an unconfigured scope (no pageSorts.posts: settings.pages may configure replies alone) guarantees its keys
+// are the built-ins of the same name. A configured one names the file in `name`; the key may be anything the owner
+// chose, `hot` included.
+const packageName = community.pageSorts?.posts ? published?.name : sortName;
 const factory = packageName ? registry[packageName] : undefined;
 if (!factory) throw Error(`cannot re-sort ${sortName}: its package is not installed, or it was loaded by path`);
 const options = published?.publicOptions ?? {}; // the option set the sort ran with, reserved options included
