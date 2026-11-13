@@ -206,31 +206,79 @@ export function snapshotProcessResources(): ProcessResourceSnapshot {
 }
 
 // Process-level resources (fds, timers, sockets, ...) that grew by at least minGrowth
-export function findProcessResourceGrowth(before: ProcessResourceSnapshot, after: ProcessResourceSnapshot, minGrowth: number): RetentionGrowth[] {
+export function findProcessResourceGrowth(
+    before: ProcessResourceSnapshot,
+    after: ProcessResourceSnapshot,
+    minGrowth: number
+): RetentionGrowth[] {
     const growth: RetentionGrowth[] = [];
     if (before.openFds !== undefined && after.openFds !== undefined && after.openFds - before.openFds >= minGrowth)
         growth.push({ path: "process.openFds", before: before.openFds, after: after.openFds });
     for (const [type, afterCount] of Object.entries(after.activeResources)) {
         const beforeCount = before.activeResources[type] ?? 0;
-        if (afterCount - beforeCount >= minGrowth) growth.push({ path: `process.activeResources.${type}`, before: beforeCount, after: afterCount });
+        if (afterCount - beforeCount >= minGrowth)
+            growth.push({ path: `process.activeResources.${type}`, before: beforeCount, after: afterCount });
     }
     return growth;
 }
 
-// Per-type minimum over a few samples: a loader's background work (libp2p dials, gossipsub heartbeats,
-// an updating community's loop) keeps short-lived timers in flight at any moment. A per-operation leak
-// is present in every sample; a transient timer is not.
-async function settledProcessResources(samples = 3, intervalMs = 200): Promise<ProcessResourceSnapshot> {
-    const snapshots: ProcessResourceSnapshot[] = [];
-    for (let i = 0; i < samples; i++) {
-        if (i > 0) await new Promise((resolve) => setTimeout(resolve, intervalMs));
-        snapshots.push(snapshotProcessResources());
+// Resources the operations left that are gone a moment later are not leaks: a stopped libp2p-js node keeps its
+// gossipsub heartbeat timer armed for up to a second (its stop() does not clear it), and a worker's stdout
+// writes stay queued (SimpleWriteWrap) until the parent reads them. How many of those are in flight when
+// the loop ends depends on how slow the machine is, so a fixed short wait fails on slow CI runners only.
+// Sample until nothing has grown, or until the deadline: a per-operation leak is still there at the
+// deadline, so only a failing measurement pays the full wait. The per-type minimum over the samples also
+// drops a loader's background work (libp2p dials, an updating community's loop), which keeps short-lived
+// timers in flight at any moment.
+async function settledProcessResourceGrowth({
+    before,
+    minGrowth,
+    deadlineMs = 3000,
+    intervalMs = 100
+}: {
+    before: ProcessResourceSnapshot;
+    minGrowth: number;
+    deadlineMs?: number;
+    intervalMs?: number;
+}): Promise<RetentionGrowth[]> {
+    const lowest = snapshotProcessResources();
+    const deadline = Date.now() + deadlineMs;
+    for (;;) {
+        const growth = findProcessResourceGrowth(before, lowest, minGrowth);
+        if (growth.length === 0 || Date.now() >= deadline) return growth;
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        lowerTo(lowest, snapshotProcessResources());
     }
-    const types = new Set(snapshots.flatMap((snapshot) => Object.keys(snapshot.activeResources)));
-    const activeResources: Record<string, number> = {};
-    for (const type of types) activeResources[type] = Math.min(...snapshots.map((snapshot) => snapshot.activeResources[type] ?? 0));
-    const fds = snapshots.map((snapshot) => snapshot.openFds).filter((count): count is number => count !== undefined);
-    return { openFds: fds.length ? Math.min(...fds) : undefined, activeResources };
+}
+
+// Lowers each count of `lowest` to the sample's where the sample has fewer. Returns whether anything was lowered
+function lowerTo(lowest: ProcessResourceSnapshot, sample: ProcessResourceSnapshot): boolean {
+    let lowered = false;
+    if (sample.openFds !== undefined && lowest.openFds !== undefined && sample.openFds < lowest.openFds) {
+        lowest.openFds = sample.openFds;
+        lowered = true;
+    }
+    for (const type of Object.keys(lowest.activeResources)) {
+        const count = sample.activeResources[type] ?? 0;
+        if (count < lowest.activeResources[type]) {
+            lowest.activeResources[type] = count;
+            lowered = true;
+        }
+    }
+    return lowered;
+}
+
+// The baseline the growth is measured from. What the warm-up run left in flight would otherwise be counted
+// in it, and each of those that goes away while the growth settles hides one leaked resource of its type.
+// Sample until the counts stop falling (three samples in a row), or until the deadline.
+async function settledProcessResourceBaseline({ deadlineMs = 1500, intervalMs = 100 } = {}): Promise<ProcessResourceSnapshot> {
+    const lowest = snapshotProcessResources();
+    const deadline = Date.now() + deadlineMs;
+    for (let unchanged = 0; unchanged < 3 && Date.now() < deadline; ) {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        unchanged = lowerTo(lowest, snapshotProcessResources()) ? 0 : unchanged + 1;
+    }
+    return lowest;
 }
 
 // Sources still un-aborted after the runs that received at least minGrowth AbortSignal.any() registrations:
@@ -268,7 +316,7 @@ export async function measureRepeatedOperation(opts: {
     await runOnce(-1, false);
     await forceGc();
     const containersBefore = snapshotRetention(opts.roots());
-    const resourcesBefore = snapshotProcessResources();
+    const resourcesBefore = await settledProcessResourceBaseline();
 
     // On Node 20/22 every AbortSignal.any() over a source that has not aborted retains memory for as long
     // as that source lives (#502). Count the registrations each source receives during the measured runs.
@@ -300,7 +348,7 @@ export async function measureRepeatedOperation(opts: {
         containerGrowth: findPerIterationGrowth(containersBefore, snapshotRetention(opts.roots()), minGrowth).filter(
             (growth) => !opts.allowedGrowth?.some((allowed) => allowed.path.test(growth.path))
         ),
-        processResourceGrowth: findProcessResourceGrowth(resourcesBefore, await settledProcessResources(), minGrowth),
+        processResourceGrowth: await settledProcessResourceGrowth({ before: resourcesBefore, minGrowth }),
         // Resolved only after the collection check: what is still alive here is long-lived by definition
         abortSignalAnyOnLongLivedSources: findLongLivedAnySources(
             new Map(
