@@ -247,11 +247,38 @@ async function settledProcessResourceGrowth({
         const growth = findProcessResourceGrowth(before, lowest, minGrowth);
         if (growth.length === 0 || Date.now() >= deadline) return growth;
         await new Promise((resolve) => setTimeout(resolve, intervalMs));
-        const sample = snapshotProcessResources();
-        if (sample.openFds !== undefined && lowest.openFds !== undefined) lowest.openFds = Math.min(lowest.openFds, sample.openFds);
-        for (const type of Object.keys(lowest.activeResources))
-            lowest.activeResources[type] = Math.min(lowest.activeResources[type], sample.activeResources[type] ?? 0);
+        lowerTo(lowest, snapshotProcessResources());
     }
+}
+
+// Lowers each count of `lowest` to the sample's where the sample has fewer. Returns whether anything was lowered
+function lowerTo(lowest: ProcessResourceSnapshot, sample: ProcessResourceSnapshot): boolean {
+    let lowered = false;
+    if (sample.openFds !== undefined && lowest.openFds !== undefined && sample.openFds < lowest.openFds) {
+        lowest.openFds = sample.openFds;
+        lowered = true;
+    }
+    for (const type of Object.keys(lowest.activeResources)) {
+        const count = sample.activeResources[type] ?? 0;
+        if (count < lowest.activeResources[type]) {
+            lowest.activeResources[type] = count;
+            lowered = true;
+        }
+    }
+    return lowered;
+}
+
+// The baseline the growth is measured from. What the warm-up run left in flight would otherwise be counted
+// in it, and each of those that goes away while the growth settles hides one leaked resource of its type.
+// Sample until the counts stop falling (three samples in a row), or until the deadline.
+async function settledProcessResourceBaseline({ deadlineMs = 1500, intervalMs = 100 } = {}): Promise<ProcessResourceSnapshot> {
+    const lowest = snapshotProcessResources();
+    const deadline = Date.now() + deadlineMs;
+    for (let unchanged = 0; unchanged < 3 && Date.now() < deadline; ) {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        unchanged = lowerTo(lowest, snapshotProcessResources()) ? 0 : unchanged + 1;
+    }
+    return lowest;
 }
 
 // Sources still un-aborted after the runs that received at least minGrowth AbortSignal.any() registrations:
@@ -289,7 +316,7 @@ export async function measureRepeatedOperation(opts: {
     await runOnce(-1, false);
     await forceGc();
     const containersBefore = snapshotRetention(opts.roots());
-    const resourcesBefore = snapshotProcessResources();
+    const resourcesBefore = await settledProcessResourceBaseline();
 
     // On Node 20/22 every AbortSignal.any() over a source that has not aborted retains memory for as long
     // as that source lives (#502). Count the registrations each source receives during the measured runs.
