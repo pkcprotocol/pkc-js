@@ -6,7 +6,9 @@ import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
 import { STORAGE_KEYS } from "../../../../constants.js";
 import { parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails } from "../../../../schema/schema-util.js";
-import { deriveDbPosts, resolveDbPostsCidRefs, importSignerIntoKuboNode } from "../../util.js";
+import { closeSync, existsSync, openSync } from "node:fs";
+import Database from "better-sqlite3";
+import { deriveDbPosts, resolveDbPostsCidRefs, importSignerIntoKuboNode, removeFileRetryingWhileBusy } from "../../util.js";
 import { SignerWithPublicKeyAddress } from "../../../../signer/index.js";
 import { getIpfsKeyFromPrivateKey, getPublicKeyFromPrivateKey } from "../../../../signer/util.js";
 import { findStartedCommunity } from "../../../../pkc/tracked-instance-registry-util.js";
@@ -245,13 +247,37 @@ export async function setChallengesToDefaultIfNotDefined(community: LocalCommuni
     }
 }
 
+// Whether the DB file holds a community's internal state: true, false, or undefined when the file could not be read
+// well enough to tell (locked by another connection, an I/O error). A file that is missing, is not a database or has
+// no keyv table holds none
+function doesDbFileHoldInternalState({
+    dbFilePath,
+    internalStateKey,
+    log
+}: {
+    dbFilePath: string;
+    internalStateKey: string;
+    log: Logger;
+}): boolean | undefined {
+    if (!existsSync(dbFilePath)) return false;
+    let db: Database.Database | undefined;
+    try {
+        db = new Database(dbFilePath, { readonly: true, fileMustExist: true });
+        return db.prepare("SELECT 1 FROM keyv WHERE key = ?").get(`keyv:${internalStateKey}`) !== undefined;
+    } catch (e) {
+        const code = (e as { code?: unknown }).code;
+        if (typeof code === "string" && ["SQLITE_NOTADB", "SQLITE_ERROR"].includes(code)) return false;
+        log.error(`Failed to tell whether ${dbFilePath} holds an internal state, leaving the file in place`, e);
+        return undefined;
+    } finally {
+        db?.close();
+    }
+}
+
 export async function createNewLocalCommunityDb(community: LocalCommunity) {
     // We're creating a totally new community here with a new db
     // This function should be called only once per community
     const log = Logger("pkc-js:local-community:_createNewLocalCommunityDb");
-    await community.initDbHandlerIfNeeded();
-    await community._dbHandler.initDbIfNeeded({ fileMustExist: false });
-    await community._dbHandler.createOrMigrateTablesIfNeeded();
     await initSignerProps(community, community.signer); // init this.encryption as well
 
     // A read-only community gets no backfilled topic: absence of pubsubTopic on the wire is what tells
@@ -274,8 +300,8 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
         community.settings = { ...community.settings, purgeDisapprovedCommentsOlderThan: 1.21e6 }; // two weeks
     }
 
-    // Creation can throw: nothing has been persisted yet, so refusing to create the community is safe and
-    // leaves the owner with no broken config on disk.
+    // Creation can throw: the DB file is only created further down, after every check that can refuse the settings,
+    // so a refused creation leaves nothing on disk (issue #540).
     await throwIfChallengeSettingsAreInvalid({
         challengeSettings: community.settings.challenges!,
         pkc: community._pkc,
@@ -295,7 +321,7 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
         )
     );
 
-    // settings.pages is validated the same way: an invalid entry refuses creation before anything is on disk
+    // settings.pages is validated the same way: an invalid entry refuses creation before the DB file is created
     community._pageSorts = await resolvePageSortsOrThrow({
         pagesSettings: community.settings.pages,
         pkc: community._pkc,
@@ -303,11 +329,58 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
     });
     community.pageSorts = derivePublicPageSorts({ pagesSettings: community.settings.pages, resolved: community._pageSorts });
 
-    if (community._dbHandler.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY])) throw Error("Internal state exists already");
+    // The settings are valid, so the DB can be created. A DB with its tables and no internal state is not a community:
+    // it is left out of pkc.communities and nothing would ever remove it. So if a step fails before the internal state
+    // is written, the connection is closed and the file is removed, but only a file this call created. Nothing
+    // serializes two creations of the same community, in this process or across processes, so "this call created it"
+    // is decided by creating the file exclusively: one caller wins, and a file that was already there, or that another
+    // call created a moment ago, belongs to someone else and is left alone.
+    await community.initDbHandlerIfNeeded();
+    await community._dbHandler.initDbConfigIfNeeded();
+    const dbFilePath = community._dbHandler.getDbConfig().filename;
+    let createdDbFile = false;
+    if (dbFilePath !== ":memory:")
+        try {
+            closeSync(openSync(dbFilePath, "wx")); // an empty file is an empty SQLite DB
+            createdDbFile = true;
+        } catch (e) {
+            if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+        }
+    const internalStateKey = STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY];
+    try {
+        await community._dbHandler.initDbIfNeeded({ fileMustExist: false });
+        await community._dbHandler.createOrMigrateTablesIfNeeded();
 
-    await community._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY], community.toJSONInternalBeforeFirstUpdate());
+        if (community._dbHandler.keyvHas(internalStateKey)) throw Error("Internal state exists already");
 
-    await community._updateStartedValue();
+        await community._dbHandler.keyvSet(internalStateKey, community.toJSONInternalBeforeFirstUpdate());
+    } catch (e) {
+        try {
+            community._dbHandler.destoryConnection();
+        } catch (closeError) {
+            log.error(`Failed to close the DB of community (${community.address}) after its creation failed`, closeError);
+        }
+        // Another call may have written its internal state into the file this one created. Then it is a community and
+        // stays. The file is read for that, not the connection, which a failed table creation has closed already. The
+        // file is removed only when it is known to hold no internal state, which is asked again before every attempt:
+        // a file that stays busy for a while on Windows may be busy because another creator is writing its state
+        const isNotKnownToBeStateless = () => doesDbFileHoldInternalState({ dbFilePath, internalStateKey, log }) !== false;
+        if (createdDbFile)
+            for (const filePath of [dbFilePath, `${dbFilePath}-wal`, `${dbFilePath}-shm`])
+                await removeFileRetryingWhileBusy(filePath, { log, keepIf: isNotKnownToBeStateless }).catch((removeError) =>
+                    log.error(`Failed to remove ${filePath} after the creation of community (${community.address}) failed`, removeError)
+                );
+        throw e;
+    }
+
+    // The internal state is written, so the community exists from here on: a failure below closes the connection and
+    // keeps the DB
+    try {
+        await community._updateStartedValue();
+    } catch (e) {
+        community._dbHandler.destoryConnection();
+        throw e;
+    }
 
     community._dbHandler.destoryConnection(); // Need to destory connection so process wouldn't hang
     community._updateIpnsPubsubPropsIfNeeded({

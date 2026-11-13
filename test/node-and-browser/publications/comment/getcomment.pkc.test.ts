@@ -372,7 +372,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     expect((error.details.gatewayToError as Record<string, PKCError>)["http://localhost:18080"].code).to.equal(
                         "ERR_GATEWAY_TIMED_OUT_OR_ABORTED"
                     );
-                } else expect(error.code).to.equal("ERR_FETCH_CID_P2P_TIMEOUT");
+                }
+                // A fetch that ends before the timeout, e.g. because kubo's RPC could not be reached in time, is reported
+                // as ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P. Either way the comment could not be fetched (issue #497).
+                else expect(error.code).to.be.oneOf(["ERR_FETCH_CID_P2P_TIMEOUT", "ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P"]);
             }
             await customPKC.destroy();
         });

@@ -24,7 +24,7 @@ import { findProcessStartedCommunity, processStartedCommunities, syncProcessStar
 import { updateDbInternalState, updateInstancePropsWithStartedCommunityOrDb } from "./db-state.js";
 import { setResolvedPageSorts } from "./registry-sync.js";
 import { communityIdentityPublicKey } from "./identity.js";
-import { refreshCommunitiesList } from "../../util.js";
+import { refreshCommunitiesList, removeFileRetryingWhileBusy } from "../../util.js";
 import { findCommunitiesEntry } from "../../../../community/communities-entry-util.js";
 
 export async function movePostUpdatesFolderToNewAddress(community: LocalCommunity, oldAddress: string, newAddress: string) {
@@ -186,34 +186,67 @@ function listRenamedCommunityNow(community: LocalCommunity) {
     refreshCommunitiesList(community._pkc);
 }
 
-// Puts a started community back under its old address after its rename failed partway (issue #469): moves the
-// postUpdates folder back if it had moved, then restarts the community. edit() rejects with the rename's own error, so a
-// failure here is emitted as an error event instead. A folder that can't be moved back leaves the community stopped,
-// since starting it would publish without its postUpdates.
-async function restoreCommunityAfterFailedRename({
+// Moves the postUpdates folder back under the old address after the DB rename that follows the move failed (issue
+// #469). Resolves to the error when the folder can't be moved back; the caller reports it, since edit() rejects with the
+// rename's own error.
+async function movePostUpdatesFolderBack({
     community,
     oldAddress,
     newAddress,
-    postUpdatesFolderMoved,
     log
 }: {
     community: LocalCommunity;
     oldAddress: string;
     newAddress: string;
-    postUpdatesFolderMoved: boolean;
+    log: Logger;
+}): Promise<Error | undefined> {
+    try {
+        await movePostUpdatesFolderToNewAddress(community, newAddress, oldAddress);
+        return undefined;
+    } catch (moveBackError) {
+        log.error(`Failed to move the postUpdates folder of community (${oldAddress}) back from ${newAddress}`, moveBackError);
+        return moveBackError as Error;
+    }
+}
+
+// Restarts a started community under its old address after its rename failed (issue #469). edit() rejects with the
+// rename's own error, so a failure here is emitted as an error event instead.
+// Reports an error of a rename's undo with an error event. An error event nobody listens for throws where it is emitted
+// (a community with no listener of its own passes it on to its PKC, which may have none either), and here that throw
+// would replace the error edit() is about to reject with. So a throw of the emit is logged and goes no further
+function emitRenameUndoError({ community, error, log }: { community: LocalCommunity; error: Error; log: Logger }) {
+    try {
+        community.emit("error", error);
+    } catch (emitError) {
+        log.error(`Nothing listens for the errors of community (${community.address}), the error it could not report was`, error);
+    }
+}
+
+async function restartCommunityAfterFailedRename({
+    community,
+    oldAddress,
+    newAddress,
+    log
+}: {
+    community: LocalCommunity;
+    oldAddress: string;
+    newAddress: string;
     log: Logger;
 }) {
     try {
-        if (postUpdatesFolderMoved) await movePostUpdatesFolderToNewAddress(community, newAddress, oldAddress);
         await community.start();
-    } catch (restoreError) {
-        log.error(`Failed to restore community (${oldAddress}) after its rename to ${newAddress} failed`, restoreError);
-        community.emit("error", restoreError as Error);
+    } catch (restartError) {
+        log.error(`Failed to restart community (${oldAddress}) after its rename to ${newAddress} failed`, restartError);
+        emitRenameUndoError({ community, error: restartError as Error, log });
     }
 }
 
 // A DB backup that failed partway leaves a partial DB file at the new address, which lookups by filename would still
-// match. Only removed while the old DB is still there, so a failure after the old one was deleted never loses the DB
+// match. Only removed while the old DB is still there, so a failure after the old one was deleted never loses the DB.
+// On Windows the file can be busy for a moment, held by a reader of the communities directory that opened it, so the
+// removal is retried (issue #514). A file that stays busy is left where it is and named in the error edit() rejects
+// with. It is not recorded for a later delete: after a rename that succeeds on another attempt, that path holds the
+// community's real DB.
 async function removePartialDbCopy({
     community,
     oldAddress,
@@ -224,14 +257,54 @@ async function removePartialDbCopy({
     oldAddress: string;
     newAddress: string;
     log: Logger;
-}) {
+}): Promise<{ removed: true } | { removed: false; path: string; error?: Error }> {
     const communitiesPath = path.join(community._pkc.dataPath!, "communities");
-    if (!fs.existsSync(path.join(communitiesPath, oldAddress))) return;
+    const partialDbCopyPath = path.join(communitiesPath, newAddress);
+    if (!fs.existsSync(path.join(communitiesPath, oldAddress))) return { removed: false, path: partialDbCopyPath };
     try {
-        await fs.promises.rm(path.join(communitiesPath, newAddress), { force: true });
+        await removeFileRetryingWhileBusy(partialDbCopyPath, { log });
+        return { removed: true };
     } catch (e) {
-        log.error(`Failed to remove the partial DB copy of community (${oldAddress}) at ${newAddress}`, e);
+        log.error(`Failed to remove the partial DB copy of community (${oldAddress}) at ${partialDbCopyPath}`, e);
+        return { removed: false, path: partialDbCopyPath, error: e as Error };
     }
+}
+
+// The cleanup after the DB rename failed, shared by a started and a not started community: removes the partial DB file,
+// moves the postUpdates folder back, and builds the error edit() rejects with. It carries the rename's own error and
+// what could and could not be undone, so whoever runs the community can tell why the rename failed and what is left.
+async function undoRenameAfterDbRenameFailed({
+    community,
+    oldAddress,
+    newAddress,
+    dbRenameError,
+    log
+}: {
+    community: LocalCommunity;
+    oldAddress: string;
+    newAddress: string;
+    dbRenameError: unknown;
+    log: Logger;
+}): Promise<{ error: PKCError; moveBackError: Error | undefined }> {
+    const communitiesPath = path.join(community._pkc.dataPath!, "communities");
+    const partialDbCopy = await removePartialDbCopy({ community, oldAddress, newAddress, log });
+    const moveBackError = await movePostUpdatesFolderBack({ community, oldAddress, newAddress, log });
+    const renameError = dbRenameError as Partial<NodeJS.ErrnoException> | undefined;
+    const error = new PKCError("ERR_FAILED_TO_RENAME_COMMUNITY_DB", {
+        oldAddress,
+        newAddress,
+        oldDbPath: path.join(communitiesPath, oldAddress),
+        newDbPath: path.join(communitiesPath, newAddress),
+        error: dbRenameError,
+        errorMessage: renameError?.message,
+        errorName: renameError?.name,
+        errorCode: renameError?.code,
+        partialDbCopyRemoved: partialDbCopy.removed,
+        ...(partialDbCopy.removed ? {} : { partialDbCopyPath: partialDbCopy.path, partialDbCopyRemovalError: partialDbCopy.error }),
+        postUpdatesFolderMovedBack: moveBackError === undefined,
+        ...(moveBackError ? { postUpdatesFolderMoveBackError: moveBackError } : {})
+    });
+    return { error, moveBackError };
 }
 
 export async function editPropsOnStartedCommunity(
@@ -258,15 +331,24 @@ export async function editPropsOnStartedCommunity(
         try {
             await movePostUpdatesFolderToNewAddress(community, oldAddress, newAddress);
         } catch (e) {
-            await restoreCommunityAfterFailedRename({ community, oldAddress, newAddress, postUpdatesFolderMoved: false, log });
+            await restartCommunityAfterFailedRename({ community, oldAddress, newAddress, log });
             throw e;
         }
         try {
             await community._dbHandler.changeDbFilename(oldAddress, newAddress);
         } catch (e) {
-            await removePartialDbCopy({ community, oldAddress, newAddress, log });
-            await restoreCommunityAfterFailedRename({ community, oldAddress, newAddress, postUpdatesFolderMoved: true, log });
-            throw e;
+            const { error, moveBackError } = await undoRenameAfterDbRenameFailed({
+                community,
+                oldAddress,
+                newAddress,
+                dbRenameError: e,
+                log
+            });
+            // A folder that can't be moved back leaves the community stopped, since starting it would publish without
+            // its postUpdates
+            if (moveBackError) emitRenameUndoError({ community, error: moveBackError, log });
+            else await restartCommunityAfterFailedRename({ community, oldAddress, newAddress, log });
+            throw error;
         }
         listRenamedCommunityNow(community);
         community.setAddress(newAddress);
@@ -320,9 +402,16 @@ export async function editPropsOnNotStartedCommunity(
 
         // in this sceneario we're editing a community that's not started anywhere
         log("will rename the community", community.address, "db in edit() because the community is not being ran anywhere else");
-        await movePostUpdatesFolderToNewAddress(community, community.address, parsedEditOptions.address);
-        community._dbHandler.destoryConnection();
-        await community._dbHandler.changeDbFilename(community.address, parsedEditOptions.address);
+        const newAddress = parsedEditOptions.address;
+        await movePostUpdatesFolderToNewAddress(community, oldAddress, newAddress);
+        await community._dbHandler.destoryConnection();
+        try {
+            await community._dbHandler.changeDbFilename(oldAddress, newAddress);
+        } catch (e) {
+            // The same undo a started community gets, so a failed rename leaves this one as it was: its DB and its
+            // postUpdates folder under the old address, and no partial DB file at the new one
+            throw (await undoRenameAfterDbRenameFailed({ community, oldAddress, newAddress, dbRenameError: e, log })).error;
+        }
         listRenamedCommunityNow(community);
         await community._dbHandler.initDbIfNeeded();
         community.setAddress(parsedEditOptions.address);

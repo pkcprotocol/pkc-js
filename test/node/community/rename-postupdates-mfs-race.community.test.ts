@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, describe, it, expect } from "vitest";
+import { beforeAll, afterAll, describe, it, expect, vi } from "vitest";
 import {
     createMockNameResolver,
     publishRandomPost,
@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 
 // Issue #469. Renaming a started community (edit({ address }) or edit({ name })) used to stop it, rename the DB, start it
@@ -181,16 +182,24 @@ for (const editKey of ["address", "name"] as const)
                 expect(cids).to.include.members(postCids);
             });
 
+            // The community is running: a cycle stores a post's row first and writes its file to MFS later in the same
+            // cycle, so one read of both can land in between and see the file one update behind the row. Both are read
+            // again until they agree. A file that stays behind, which is what a rename losing a write would leave,
+            // still fails at the deadline.
             it(`every post's file under the new address is its latest CommentUpdate`, async () => {
-                for (const cid of postCids) {
-                    const stored = community._dbHandler.queryStoredCommentUpdate({ cid })!;
-                    const file = JSON.parse(
-                        await readMfsFile(`/${domainAddress}/postUpdates/${stored.postUpdatesBucket}/${cid}/update`)
-                    ) as {
-                        updatedAt: number;
-                    };
-                    expect(file.updatedAt, `post ${cid}`).to.equal(stored.updatedAt);
-                }
+                for (const cid of postCids)
+                    await vi.waitFor(
+                        async () => {
+                            const stored = community._dbHandler.queryStoredCommentUpdate({ cid })!;
+                            const file = JSON.parse(
+                                await readMfsFile(`/${domainAddress}/postUpdates/${stored.postUpdatesBucket}/${cid}/update`)
+                            ) as {
+                                updatedAt: number;
+                            };
+                            expect(file.updatedAt, `post ${cid}`).to.equal(stored.updatedAt);
+                        },
+                        { timeout: 30_000, interval: 200 }
+                    );
             });
 
             it(`the old address directory is not nested inside the new one`, async () => {
@@ -227,7 +236,50 @@ const startCommunityWithOnePost = async (domainPrefix: string) => {
         predicate: async () => community._dbHandler.queryStoredCommentUpdate({ cid: postCid }) !== undefined
     });
     const kuboFiles: KuboFiles = community._clientsManager.getDefaultKuboRpcClient()._client.files;
+    // The row is stored before its file is written to MFS later in the same cycle. A rename that starts in between
+    // finds no postUpdates folder to move, and the checks on the folder afterwards would have nothing to find
+    await resolveWhenConditionIsTrue({
+        toUpdate: community,
+        predicate: async () => {
+            const stored = community._dbHandler.queryStoredCommentUpdate({ cid: postCid });
+            return (
+                stored?.postUpdatesBucket !== undefined &&
+                (await mfsPathExists(kuboFiles, `/${publicKey}/postUpdates/${stored.postUpdatesBucket}/${postCid}/update`))
+            );
+        }
+    });
     return { pkc, community, publicKey, domainAddress, postCid, errors, kuboFiles };
+};
+
+// What a DB backup that fails partway does: closes the connection, leaves the DB's first page at the new address (which
+// passes listCommunitiesSync's SQLite header check) and throws
+const failDbRenameLeavingPartialCopy = (community: LocalCommunity) => {
+    const dbHandler = community._dbHandler;
+    const originalChangeDbFilename = dbHandler.changeDbFilename;
+    dbHandler.changeDbFilename = async (oldDbName: string, newDbName: string) => {
+        await dbHandler.destoryConnection();
+        await fs.promises.writeFile(path.join(community._pkc.dataPath!, "communities", newDbName), "SQLite format 3\0partial backup");
+        throw new Error(`simulated DB rename failure from ${oldDbName}`);
+    };
+    return () => {
+        dbHandler.changeDbFilename = originalChangeDbFilename;
+    };
+};
+
+const expectDbRenameError = (
+    editError: unknown,
+    expected: { oldAddress: string; newAddress: string; dataPath: string; originalMessage: string }
+) => {
+    const error = editError as PKCError | undefined;
+    expect(error?.code).to.equal("ERR_FAILED_TO_RENAME_COMMUNITY_DB");
+    expect(error!.details.oldAddress).to.equal(expected.oldAddress);
+    expect(error!.details.newAddress).to.equal(expected.newAddress);
+    expect(error!.details.oldDbPath).to.equal(path.join(expected.dataPath, "communities", expected.oldAddress));
+    expect(error!.details.newDbPath).to.equal(path.join(expected.dataPath, "communities", expected.newAddress));
+    // the error the copy itself raised, for whoever has to find out why it failed
+    expect((error!.details.error as Error).message).to.equal(expected.originalMessage);
+    expect(error!.details.errorMessage).to.equal(expected.originalMessage);
+    return error!;
 };
 
 const mfsPathExists = async (kuboFiles: KuboFiles, mfsPath: string): Promise<boolean> => {
@@ -366,20 +418,13 @@ describeSkipIfRpc(`edit({ address }) on a started community when renaming the DB
         setup = await startCommunityWithOnePost("test-rename-db-fails");
         const { community, pkc } = setup;
         newDbPath = path.join(pkc.dataPath!, "communities", setup.domainAddress);
-        const dbHandler = community._dbHandler;
-        const originalChangeDbFilename = dbHandler.changeDbFilename;
-        dbHandler.changeDbFilename = async (oldDbName: string, newDbName: string) => {
-            await dbHandler.destoryConnection();
-            // a backup writes the DB's first page first, so a partial one passes listCommunitiesSync's SQLite header check
-            await fs.promises.writeFile(path.join(pkc.dataPath!, "communities", newDbName), "SQLite format 3\0partial backup");
-            throw new Error(`simulated DB rename failure from ${oldDbName}`);
-        };
+        const restoreDbRename = failDbRenameLeavingPartialCopy(community);
         try {
             await community.edit({ address: setup.domainAddress });
         } catch (e) {
             editError = e;
         } finally {
-            dbHandler.changeDbFilename = originalChangeDbFilename;
+            restoreDbRename();
         }
     });
 
@@ -389,8 +434,16 @@ describeSkipIfRpc(`edit({ address }) on a started community when renaming the DB
         await fs.promises.rm(newDbPath, { force: true });
     });
 
-    it(`edit() rejects with the DB rename's error`, () => {
-        expect((editError as Error | undefined)?.message).to.equal(`simulated DB rename failure from ${setup.publicKey}`);
+    it(`edit() rejects with an error that carries the DB rename's own error and what was cleaned up`, () => {
+        const error = expectDbRenameError(editError, {
+            oldAddress: setup.publicKey,
+            newAddress: setup.domainAddress,
+            dataPath: setup.pkc.dataPath!,
+            originalMessage: `simulated DB rename failure from ${setup.publicKey}`
+        });
+        expect(error.details.partialDbCopyRemoved).to.be.true;
+        expect(error.details.partialDbCopyPath).to.be.undefined;
+        expect(error.details.postUpdatesFolderMovedBack).to.be.true;
     });
 
     it(`the community keeps its old address and is still started`, () => {
@@ -458,8 +511,14 @@ describeSkipIfRpc(`edit({ address }) on a started community when renaming the DB
         await setup?.pkc?.destroy();
     });
 
-    it(`edit() rejects with the DB rename's error`, () => {
-        expect((editError as Error | undefined)?.message).to.equal("simulated DB rename failure");
+    it(`edit() rejects with an error that carries the DB rename's own error and says the folder was not moved back`, () => {
+        const error = expectDbRenameError(editError, {
+            oldAddress: setup.publicKey,
+            newAddress: setup.domainAddress,
+            dataPath: setup.pkc.dataPath!,
+            originalMessage: "simulated DB rename failure"
+        });
+        expect(error.details.postUpdatesFolderMovedBack).to.be.false;
     });
 
     it(`the failed move back is emitted as an error event`, () => {
@@ -469,5 +528,254 @@ describeSkipIfRpc(`edit({ address }) on a started community when renaming the DB
     it(`the community stays stopped under its old address`, () => {
         expect(setup.community.address).to.equal(setup.publicKey);
         expect(setup.community.state).to.equal("stopped");
+    });
+});
+
+// The failed move back is reported with an error event, and an error event nobody listens for throws where it is
+// emitted. A community with no listener of its own passes the event on to its PKC, so with no listener there either the
+// emit threw inside edit(), before edit() could reject with the DB rename's error: the caller got the bare move-back
+// error and never saw the rename error or what was undone.
+// Skipped under RPC: same as above, the domain resolves only through this PKC's mock resolver and the test stubs
+// LocalCommunity internals.
+describeSkipIfRpc(`edit({ address }) when the DB rename and the move back both fail and nothing listens for errors`, async () => {
+    let setup: Awaited<ReturnType<typeof startCommunityWithOnePost>>;
+    let editError: unknown;
+
+    beforeAll(async () => {
+        setup = await startCommunityWithOnePost("test-rename-both-fail-no-listener");
+        const { community, pkc, kuboFiles, domainAddress } = setup;
+        // Each listener is removed by itself: the community's own forwarder to its PKC has to stay
+        const [forwardToPkc, ...addedListeners] = community.listeners("error");
+        expect(forwardToPkc).to.be.a("function");
+        for (const listener of addedListeners) community.removeListener("error", listener as (error: Error) => void);
+        for (const listener of pkc.listeners("error")) pkc.removeListener("error", listener as (error: Error) => void);
+        expect(community.listenerCount("error")).to.equal(1);
+        expect(pkc.listenerCount("error")).to.equal(0);
+
+        const dbHandler = community._dbHandler;
+        const originalChangeDbFilename = dbHandler.changeDbFilename;
+        const originalMv = kuboFiles.mv;
+        dbHandler.changeDbFilename = async () => {
+            await dbHandler.destoryConnection();
+            throw new Error("simulated DB rename failure");
+        };
+        kuboFiles.mv = (async (...args: Parameters<typeof originalMv>) => {
+            if (args[0] === `/${domainAddress}`) throw new Error("simulated rollback move failure");
+            return originalMv.apply(kuboFiles, args);
+        }) as typeof originalMv;
+        try {
+            await community.edit({ address: domainAddress });
+        } catch (e) {
+            editError = e;
+        } finally {
+            dbHandler.changeDbFilename = originalChangeDbFilename;
+            kuboFiles.mv = originalMv;
+            pkc.on("error", () => {}); // what follows must not throw on a stray error event
+        }
+    });
+
+    afterAll(async () => {
+        if (setup && (await mfsPathExists(setup.kuboFiles, `/${setup.domainAddress}`)))
+            await setup.kuboFiles.rm(`/${setup.domainAddress}`, { recursive: true });
+        await setup?.community?.delete();
+        await setup?.pkc?.destroy();
+    });
+
+    it(`edit() still rejects with the DB rename's error, which carries the failed move back`, () => {
+        const error = expectDbRenameError(editError, {
+            oldAddress: setup.publicKey,
+            newAddress: setup.domainAddress,
+            dataPath: setup.pkc.dataPath!,
+            originalMessage: "simulated DB rename failure"
+        });
+        expect(error.details.postUpdatesFolderMovedBack).to.be.false;
+        expect((error.details.postUpdatesFolderMoveBackError as Error).message).to.equal("simulated rollback move failure");
+    });
+
+    it(`the community stays stopped under its old address`, () => {
+        expect(setup.community.address).to.equal(setup.publicKey);
+        expect(setup.community.state).to.equal("stopped");
+    });
+});
+
+// Issue #514: on Windows the removal of the partial DB file can fail with EBUSY or EPERM while another handle still has
+// the file open (a reader of the communities directory that opened it a moment earlier). The removal used to be tried
+// once and its failure only logged, which left the partial file at the new address. A busy file is simulated here by
+// failing fs.promises.rm with the codes Windows returns, so the cases run on every OS.
+// Skipped under RPC: same as above, the domain resolves only through this PKC's mock resolver and the test stubs
+// LocalCommunity internals.
+const busyError = (code: string, filePath: string) =>
+    Object.assign(new Error(`${code}: resource busy or locked, unlink '${filePath}'`), { code, syscall: "unlink" });
+
+for (const code of ["EBUSY", "EPERM"])
+    describeSkipIfRpc(
+        `edit({ address }) on a started community when renaming the DB fails and the partial file is ${code} at first`,
+        async () => {
+            let setup: Awaited<ReturnType<typeof startCommunityWithOnePost>>;
+            let editError: unknown;
+            let newDbPath: string;
+            let removalAttempts = 0;
+
+            beforeAll(async () => {
+                setup = await startCommunityWithOnePost("test-rename-db-fails-busy");
+                const { community, pkc } = setup;
+                newDbPath = path.join(pkc.dataPath!, "communities", setup.domainAddress);
+                const restoreDbRename = failDbRenameLeavingPartialCopy(community);
+                const realRm = fs.promises.rm.bind(fs.promises);
+                const rmSpy = vi.spyOn(fs.promises, "rm").mockImplementation(async (target, options) => {
+                    if (target !== newDbPath) return realRm(target, options);
+                    removalAttempts++;
+                    if (removalAttempts <= 2) throw busyError(code, newDbPath);
+                    return realRm(target, options);
+                });
+                try {
+                    await community.edit({ address: setup.domainAddress });
+                } catch (e) {
+                    editError = e;
+                } finally {
+                    restoreDbRename();
+                    rmSpy.mockRestore();
+                }
+            });
+
+            afterAll(async () => {
+                await setup?.community?.delete();
+                await setup?.pkc?.destroy();
+                await fs.promises.rm(newDbPath, { force: true });
+            });
+
+            it(`the removal is retried until the file is released`, () => {
+                expect(removalAttempts).to.equal(3);
+            });
+
+            it(`the partial DB file at the new address is removed`, () => {
+                expect(fs.existsSync(newDbPath)).to.be.false;
+            });
+
+            it(`edit() rejects saying the partial file was removed`, () => {
+                const error = editError as PKCError | undefined;
+                expect(error?.code).to.equal("ERR_FAILED_TO_RENAME_COMMUNITY_DB");
+                expect(error!.details.partialDbCopyRemoved).to.be.true;
+            });
+
+            it(`the community keeps publishing under its old address`, async () => {
+                await expectToKeepPublishingUnderOldAddress(setup.community, setup.publicKey);
+            });
+        }
+    );
+
+// Issue #514: a file that stays busy past the retry window is left behind. Nothing deletes it later on purpose: after a
+// rename that succeeds on another attempt that path holds the community's real DB. The error names the file instead.
+// Skipped under RPC: same as above, the domain resolves only through this PKC's mock resolver and the test stubs
+// functions of the local community and of fs in this process, which an RPC client has no access to.
+describeSkipIfRpc(`edit({ address }) on a started community when renaming the DB fails and the partial file stays busy`, async () => {
+    let setup: Awaited<ReturnType<typeof startCommunityWithOnePost>>;
+    let editError: unknown;
+    let newDbPath: string;
+
+    beforeAll(async () => {
+        setup = await startCommunityWithOnePost("test-rename-db-fails-stays-busy");
+        const { community, pkc } = setup;
+        newDbPath = path.join(pkc.dataPath!, "communities", setup.domainAddress);
+        const restoreDbRename = failDbRenameLeavingPartialCopy(community);
+        const realRm = fs.promises.rm.bind(fs.promises);
+        const rmSpy = vi.spyOn(fs.promises, "rm").mockImplementation(async (target, options) => {
+            if (target !== newDbPath) return realRm(target, options);
+            throw busyError("EBUSY", newDbPath);
+        });
+        try {
+            await community.edit({ address: setup.domainAddress });
+        } catch (e) {
+            editError = e;
+        } finally {
+            restoreDbRename();
+            rmSpy.mockRestore();
+        }
+    });
+
+    afterAll(async () => {
+        await setup?.community?.delete();
+        await setup?.pkc?.destroy();
+        await fs.promises.rm(newDbPath, { force: true });
+    });
+
+    it(`edit() rejects naming the partial file it could not remove`, () => {
+        const error = editError as PKCError | undefined;
+        expect(error?.code).to.equal("ERR_FAILED_TO_RENAME_COMMUNITY_DB");
+        expect(error!.details.partialDbCopyRemoved).to.be.false;
+        expect(error!.details.partialDbCopyPath).to.equal(newDbPath);
+        expect((error!.details.partialDbCopyRemovalError as NodeJS.ErrnoException).code).to.equal("EBUSY");
+    });
+
+    it(`the community is restored under its old address and keeps publishing`, async () => {
+        expect(setup.community.state).to.equal("started");
+        await expectToKeepPublishingUnderOldAddress(setup.community, setup.publicKey);
+    });
+});
+
+// A community that is not started takes another path through edit(), which had no cleanup at all: a DB rename that
+// failed left the partial DB file at the new address and the postUpdates folder under the new address, with the DB still
+// under the old one.
+// Skipped under RPC: same as above, the domain resolves only through this PKC's mock resolver and the test stubs
+// LocalCommunity internals.
+describeSkipIfRpc(`edit({ address }) on a community that is not started when renaming the DB fails`, async () => {
+    let setup: Awaited<ReturnType<typeof startCommunityWithOnePost>>;
+    let editError: unknown;
+    let newDbPath: string;
+    let postUpdatesBucket: number;
+
+    beforeAll(async () => {
+        setup = await startCommunityWithOnePost("test-rename-stopped-db-fails");
+        const { community, pkc } = setup;
+        postUpdatesBucket = community._dbHandler.queryStoredCommentUpdate({ cid: setup.postCid })!.postUpdatesBucket!;
+        await community.stop();
+        newDbPath = path.join(pkc.dataPath!, "communities", setup.domainAddress);
+        const restoreDbRename = failDbRenameLeavingPartialCopy(community);
+        try {
+            await community.edit({ address: setup.domainAddress });
+        } catch (e) {
+            editError = e;
+        } finally {
+            restoreDbRename();
+        }
+    });
+
+    afterAll(async () => {
+        if (setup && (await mfsPathExists(setup.kuboFiles, `/${setup.domainAddress}`)))
+            await setup.kuboFiles.rm(`/${setup.domainAddress}`, { recursive: true });
+        await setup?.community?.delete();
+        await setup?.pkc?.destroy();
+        await fs.promises.rm(newDbPath, { force: true });
+    });
+
+    it(`edit() rejects with an error that carries the DB rename's own error and what was cleaned up`, () => {
+        const error = expectDbRenameError(editError, {
+            oldAddress: setup.publicKey,
+            newAddress: setup.domainAddress,
+            dataPath: setup.pkc.dataPath!,
+            originalMessage: `simulated DB rename failure from ${setup.publicKey}`
+        });
+        expect(error.details.partialDbCopyRemoved).to.be.true;
+        expect(error.details.postUpdatesFolderMovedBack).to.be.true;
+    });
+
+    it(`the partial DB file at the new address is removed`, () => {
+        expect(fs.existsSync(newDbPath)).to.be.false;
+    });
+
+    it(`the postUpdates folder is back under the old address`, async () => {
+        expect(await mfsPathExists(setup.kuboFiles, `/${setup.publicKey}/postUpdates/${postUpdatesBucket}/${setup.postCid}/update`)).to.be
+            .true;
+        expect(await mfsPathExists(setup.kuboFiles, `/${setup.domainAddress}`)).to.be.false;
+    });
+
+    it(`the community keeps its old address and stays stopped`, () => {
+        expect(setup.community.address).to.equal(setup.publicKey);
+        expect(setup.community.state).to.equal("stopped");
+    });
+
+    it(`the community starts and publishes under its old address afterwards`, async () => {
+        await setup.community.start();
+        await expectToKeepPublishingUnderOldAddress(setup.community, setup.publicKey);
     });
 });
