@@ -87,8 +87,11 @@ describeSkipIfRpc("reply.updatingState via parent pageCIDs (node)", () => {
 
                         await reply.stop();
 
-                        const filteredRecordedStates = cleanupStateArray(recordedStates);
                         const expectedStates = getExpectedStatesForConfig(config.testConfigCode);
+                        const filteredRecordedStates = collapseRepeatedFetchCycles({
+                            states: cleanupStateArray(recordedStates),
+                            expectedStates
+                        });
                         const trimmedRecordedStates = filteredRecordedStates.slice(0, expectedStates.length);
                         expect(trimmedRecordedStates).to.deep.equal(
                             expectedStates,
@@ -211,6 +214,27 @@ function getExpectedStatesForConfig(configCode: string): CommentUpdatingState[] 
         "stopped"
     ]);
 }
+
+// The fetch cycle is the part of the expected states between loading the CommentIpfs and the first update, e.g.
+// fetching-community-ipns, fetching-update-ipfs for a gateway. A fetch in that cycle can fail for a moment (a page
+// fetch from the gateway failed to connect on the Windows runner, issue #543), and the reply then looks again after
+// its retry delay and goes through the cycle a second time before it succeeds. That is a correct load, so a cycle
+// repeated right after itself counts once. A reply that needs a second cycle on every load is therefore not caught
+// here. The retry itself is pinned on a static community in reply-parent-page-search-retry.test.ts.
+const collapseRepeatedFetchCycles = ({
+    states,
+    expectedStates
+}: {
+    states: CommentUpdatingState[];
+    expectedStates: CommentUpdatingState[];
+}): CommentUpdatingState[] => {
+    const cycleStart = 2; // after fetching-ipfs, succeeded
+    const cycle = expectedStates.slice(cycleStart, -2); // before succeeded, stopped
+    const collapsed = [...states];
+    const isCycleAt = (index: number) => cycle.every((state, offset) => collapsed[index + offset] === state);
+    while (cycle.length > 0 && isCycleAt(cycleStart) && isCycleAt(cycleStart + cycle.length)) collapsed.splice(cycleStart, cycle.length);
+    return collapsed;
+};
 
 const cleanupStateArray = (states: CommentUpdatingState[]): CommentUpdatingState[] => {
     const filteredStates = [...states];
