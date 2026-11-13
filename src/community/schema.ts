@@ -619,7 +619,11 @@ export const CommunityIpfsReservedFields = difference(
         "_lastRefusedRecordUpdatedAt",
         // runtime name hint for an instance loaded by key: a wire record carrying it would make the instance resolve a
         // name of the record's choosing
-        "_nameToResolveBeforeFirstRecord"
+        "_nameToResolveBeforeFirstRecord",
+        // runtime update()/stop() bookkeeping: a wire record carrying either would break stopping or restarting the
+        // instance it is assigned to
+        "_updateRunId",
+        "_stoppingPromise"
     ],
     keys(CommunityIpfsSchema.shape)
 );
