@@ -56,7 +56,7 @@ describeIfRpc("leak: RPC publish teardown", () => {
     });
 
     describe("in order", () => {
-        it.fails("stop() while the RPC publish call is in flight leaves no subscription on either side", async () => {
+        it("stop() while the RPC publish call is in flight leaves no subscription on either side", async () => {
             const post = await generateMockPost({ communityAddress: fixture.communityAddress, pkc: client });
             post.on("error", () => {});
             await new Promise((resolve) => setTimeout(resolve, 2000)); // the client's own settings/communities subscriptions land first

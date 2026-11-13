@@ -94,7 +94,7 @@ describeSkipIfRpc("leak: publications that never leave pkc._publishingPublicatio
         internals._setProviderFailureThresholdSeconds = THRESHOLD_SECONDS;
     };
 
-    it.fails("a second publish() on the same instance, still unanswered, fails and unregisters like the first", async () => {
+    it("a second publish() on the same instance, still unanswered, fails and unregisters like the first", async () => {
         const post = await generateMockPost({ communityAddress: silentCommunity.address, pkc: publisherPKC });
         const errors: string[] = [];
         post.on("error", (e: Error & { code?: string }) => errors.push(e.code ?? e.message));
