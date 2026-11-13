@@ -59,6 +59,19 @@ describeSkipIfRpc("createCommunity rejected for invalid settings leaves no commu
             .filter((filename) => filename.startsWith(address))
             .sort();
 
+    // Removes what a case left on the shared dataPath. Retried: a DB that holds an internal state is a community to
+    // every other PKC instance on the dataPath, each of which opens it once to read its identity, and on Windows a file
+    // can't be unlinked while one of them has it open. `maxRetries` only applies with `recursive`
+    const removeFilesOf = async (address: string) => {
+        for (const filename of filesOf(address))
+            await fs.promises.rm(path.join(pkc.dataPath!, "communities", filename), {
+                force: true,
+                recursive: true,
+                maxRetries: 50,
+                retryDelay: 100
+            });
+    };
+
     // Valid settings no longer leave a window, but a step after the file is created can still fail. A DB that has its
     // tables and no internal state is not a community and nothing would ever remove it, so the file this call created
     // goes with the failure, and its connection is closed.
@@ -158,7 +171,7 @@ describeSkipIfRpc("createCommunity rejected for invalid settings leaves no commu
             } finally {
                 db.close();
             }
-            for (const filename of filesOf(signer.address)) fs.rmSync(path.join(pkc.dataPath!, "communities", filename), { force: true });
+            await removeFilesOf(signer.address);
         });
 
         // On Windows the removal is retried while the file is busy, for up to 10s. A file that is busy because another
@@ -196,7 +209,7 @@ describeSkipIfRpc("createCommunity rejected for invalid settings leaves no commu
             expect((thrown as Error | undefined)?.message).to.equal("the internal state could not be written");
             expect(removalAttempts, "the removal was attempted, and found the file busy").to.equal(1);
             expect(fs.existsSync(filePath)).to.be.true;
-            for (const filename of filesOf(signer.address)) fs.rmSync(path.join(pkc.dataPath!, "communities", filename), { force: true });
+            await removeFilesOf(signer.address);
         });
 
         // The cleanup is for a DB that has no internal state. Once the state is written the community exists, and a
@@ -246,8 +259,7 @@ describeSkipIfRpc("createCommunity rejected for invalid settings leaves no commu
                 if (process.platform === "linux") expect(openFileDescriptorsOn(filePath)).to.equal(0);
                 fs.rmSync(filePath);
             } finally {
-                for (const filename of filesOf(signer.address))
-                    fs.rmSync(path.join(pkc.dataPath!, "communities", filename), { force: true });
+                await removeFilesOf(signer.address);
             }
         });
     });
