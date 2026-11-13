@@ -180,9 +180,18 @@ const WINDOWS_FILE_BUSY_ERROR_CODES = ["EBUSY", "EPERM"];
 
 // Removes a file, at once when nothing holds it, and retried with a growing delay only while Windows reports it busy.
 // Rejects with the last error when the file is still busy at the deadline or the removal failed for another reason.
-export async function removeFileRetryingWhileBusy(filePath: string, { timeoutMs = 10000, log }: { timeoutMs?: number; log: Logger }) {
+// `keepIf` is asked before every attempt and ends the removal when it returns true: a file can stay busy for seconds,
+// and what made it removable when the first attempt started may no longer hold by the time a later one runs.
+export async function removeFileRetryingWhileBusy(
+    filePath: string,
+    { timeoutMs = 10000, log, keepIf }: { timeoutMs?: number; log: Logger; keepIf?: () => boolean }
+) {
     const deadline = Date.now() + timeoutMs;
     for (let retryDelayMs = 50; ; retryDelayMs = Math.min(retryDelayMs * 2, 1000)) {
+        if (keepIf?.()) {
+            log(`${filePath} is not to be removed any more, leaving it in place`);
+            return;
+        }
         try {
             await fsPromises.rm(filePath, { force: true });
             return;

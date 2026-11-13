@@ -161,6 +161,44 @@ describeSkipIfRpc("createCommunity rejected for invalid settings leaves no commu
             for (const filename of filesOf(signer.address)) fs.rmSync(path.join(pkc.dataPath!, "communities", filename), { force: true });
         });
 
+        // On Windows the removal is retried while the file is busy, for up to 10s. A file that is busy because another
+        // creator has it open is the one that gains an internal state meanwhile, so each attempt looks again first.
+        it("stops removing the DB when it gains an internal state while its removal is being retried", async () => {
+            const signer = await pkc.createSigner();
+            const filePath = path.join(pkc.dataPath!, "communities", signer.address);
+            const internalStateKey = `keyv:${STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]}`;
+            const realKeyvSet = DbHandler.prototype.keyvSet;
+            vi.spyOn(DbHandler.prototype, "keyvSet").mockImplementation(function (this: DbHandler, ...args) {
+                if (args[0] === STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]) throw new Error("the internal state could not be written");
+                return realKeyvSet.apply(this, args);
+            });
+            // The first removal attempt finds the file busy, and by the next one another creator has written its state
+            const realRm = fs.promises.rm.bind(fs.promises);
+            let removalAttempts = 0;
+            vi.spyOn(fs.promises, "rm").mockImplementation(async (target, options) => {
+                if (target !== filePath) return realRm(target, options);
+                if (++removalAttempts > 1) return realRm(target, options);
+                const otherCreator = new Database(filePath);
+                otherCreator
+                    .prepare("INSERT INTO keyv (key, value) VALUES (?, ?)")
+                    .run(internalStateKey, JSON.stringify({ value: { signer: { address: signer.address } } }));
+                otherCreator.close();
+                throw Object.assign(new Error(`EBUSY: resource busy or locked, unlink '${filePath}'`), { code: "EBUSY" });
+            });
+
+            let thrown: unknown;
+            try {
+                await pkc.createCommunity({ signer });
+            } catch (e) {
+                thrown = e;
+            }
+            vi.restoreAllMocks();
+            expect((thrown as Error | undefined)?.message).to.equal("the internal state could not be written");
+            expect(removalAttempts, "the removal was attempted, and found the file busy").to.equal(1);
+            expect(fs.existsSync(filePath)).to.be.true;
+            for (const filename of filesOf(signer.address)) fs.rmSync(path.join(pkc.dataPath!, "communities", filename), { force: true });
+        });
+
         // The cleanup is for a DB that has no internal state. Once the state is written the community exists, and a
         // later step failing must not take it away.
         it("keeps the DB when a step fails after the internal state was written", async () => {

@@ -362,10 +362,12 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
         }
         // Another call may have written its internal state into the file this one created. Then it is a community and
         // stays. The file is read for that, not the connection, which a failed table creation has closed already. The
-        // file is removed only when it is known to hold no internal state
-        if (createdDbFile && doesDbFileHoldInternalState({ dbFilePath, internalStateKey, log }) === false)
+        // file is removed only when it is known to hold no internal state, which is asked again before every attempt:
+        // a file that stays busy for a while on Windows may be busy because another creator is writing its state
+        const isNotKnownToBeStateless = () => doesDbFileHoldInternalState({ dbFilePath, internalStateKey, log }) !== false;
+        if (createdDbFile)
             for (const filePath of [dbFilePath, `${dbFilePath}-wal`, `${dbFilePath}-shm`])
-                await removeFileRetryingWhileBusy(filePath, { log }).catch((removeError) =>
+                await removeFileRetryingWhileBusy(filePath, { log, keepIf: isNotKnownToBeStateless }).catch((removeError) =>
                     log.error(`Failed to remove ${filePath} after the creation of community (${community.address}) failed`, removeError)
                 );
         throw e;
