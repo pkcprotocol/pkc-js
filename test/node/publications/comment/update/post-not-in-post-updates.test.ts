@@ -50,12 +50,15 @@ async function lookUpPostThatIsInNoFolder({
 }) {
     const originalLookup = prototype.useCommunityPostUpdatesToFetchCommentUpdateForPost;
     let lookups = 0;
+    let firstLookup: Promise<unknown> | undefined;
     vi.spyOn(prototype, "useCommunityPostUpdatesToFetchCommentUpdateForPost").mockImplementation(function (
         this: PostLookupInternals,
         record: CommunityIpfsType
     ) {
         lookups++;
-        return originalLookup.call(this, { ...record, postUpdates });
+        const lookup = originalLookup.call(this, { ...record, postUpdates });
+        firstLookup ??= lookup;
+        return lookup;
     });
     vi.spyOn(prototype, "_calculatePathForPostCommentUpdate").mockImplementation(
         (folderCid: string) => `${folderCid}/${nameNotInAnyFolder}/update`
@@ -72,6 +75,8 @@ async function lookUpPostThatIsInNoFolder({
         timeout: waitForLookupMs,
         interval: 50
     });
+    // The window starts when the first lookup has settled, not when it began, so a slow lookup doesn't use it up
+    await firstLookup?.catch(() => {});
     await new Promise((resolve) => setTimeout(resolve, noRetryWindowMs));
     const result = { lookups, errors: [...errors], states: [...states], updatedAt: post.updatedAt };
     await post.stop();
