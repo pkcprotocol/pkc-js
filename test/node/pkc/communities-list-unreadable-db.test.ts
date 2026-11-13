@@ -157,10 +157,10 @@ describe("pkc.communities and a community DB that can't be read", () => {
         expect(opensOf(notADatabase)).to.equal(1);
     });
 
-    // The watcher calls a refresh on every event in dataPath/communities. On Windows a refresh that opens a DB was seen
-    // to feed the watcher again (one pass about every 16 ms for as long as an unreadable DB existed, issue #540), so the
-    // events a read-only open produces are printed here: the per-test stdout log of the Windows CI job is where to read
-    // which event that is.
+    // The watcher calls a refresh on every event in dataPath/communities, so before, every event on any file opened
+    // every unreadable DB again. On the Windows CI runner that was one pass about every 16 ms for as long as such a DB
+    // existed (issue #540). A read-only open of a DB in WAL mode produces watcher events of its own, on Windows and
+    // Linux alike, but only for the DB's -wal and -shm files, which the watcher ignores.
     it("is not opened again by filesystem events on other files", async () => {
         const rawEvents: string[] = [];
         const rawWatcher = fs.watch(communitiesPath, (eventType, filename) => rawEvents.push(`${eventType}:${filename}`));
@@ -169,7 +169,6 @@ describe("pkc.communities and a community DB that can't be read", () => {
         try {
             // Let the events of the initial refresh's own opens arrive before counting
             await new Promise((resolve) => setTimeout(resolve, 500));
-            console.log(`[${process.platform}] watcher events after the initial read-only opens:`, JSON.stringify(rawEvents));
             rawEvents.length = 0;
             resetCounts();
 
@@ -179,7 +178,6 @@ describe("pkc.communities and a community DB that can't be read", () => {
                 await new Promise((resolve) => setTimeout(resolve, 25));
             }
             await new Promise((resolve) => setTimeout(resolve, 1000));
-            console.log(`[${process.platform}] watcher events after 20 writes to another file:`, JSON.stringify(rawEvents));
 
             expect(rawEvents.length).to.be.greaterThan(0); // the watcher did fire
             expect(headerChecksOf("other-file.bso")).to.be.greaterThan(0); // and its events did reach the refresh

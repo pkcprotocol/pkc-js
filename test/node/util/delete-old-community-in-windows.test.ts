@@ -112,8 +112,6 @@ describe("deleteOldCommunityInWindows", () => {
             clearTimeout(release);
             if (holder.open) holder.close();
         }
-
-        console.log(`[${process.platform}] rm failures while a SQLite connection held the file:`, JSON.stringify(rmFailureCodes));
         expect(existsSync(filePath)).to.be.false;
         expect(storage.get(STORAGE_KEY)).to.be.undefined;
         if (process.platform === "win32") {
