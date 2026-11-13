@@ -152,10 +152,15 @@ export function computePageSortsFingerprint({
 const describePageSort = (pageSortSettings: CommunityPageSortSetting): string =>
     pageSortSettings.name || pageSortSettings.path || "unknown page sort";
 
+// The wire key of an entry: its own `sortName` when the owner set one, else the file's (issue #483). Everything keyed
+// by sort name on the wire and in the database follows it: pages / pageCids, community.pageSorts and the duplicate check.
+const resolveSortName = ({ pageSortSettings, file }: { pageSortSettings: CommunityPageSortSetting; file: PageSortFile }): string =>
+    pageSortSettings.sortName ?? file.sortName;
+
 // One settings.pages[] entry, loaded and merged with everything pkc-js derives from it. Built once per community
 // start, per settings edit and when the registered factory changes (issue #411), then reused by every generation.
 export type ResolvedPageSort = ParsedReservedPageSortOptions & {
-    sortName: string;
+    sortName: string; // the wire key: the entry's sortName override, else file.sortName
     scope: PageSortScope; // where the entry sits, not what the file declares
     file: PageSortFile;
     settings: CommunityPageSortSetting;
@@ -241,7 +246,8 @@ function resolveOneEntry({
     scope: PageSortScope;
     pageSortIndex: number;
 }): { resolved: ResolvedPageSort } | { error: PKCError } {
-    const baseDetails = { scope, pageSortIndex, pageSortName: describePageSort(pageSortSettings), sortName: file.sortName };
+    const sortName = resolveSortName({ pageSortSettings, file });
+    const baseDetails = { scope, pageSortIndex, pageSortName: describePageSort(pageSortSettings), sortName };
     const entryOptions = pageSortSettings.options ?? {}; // removed options already dropped by the caller
 
     if (file.scope && file.scope !== scope)
@@ -305,7 +311,7 @@ function resolveOneEntry({
     return {
         resolved: {
             ...reserved,
-            sortName: file.sortName,
+            sortName,
             scope,
             file,
             settings: pageSortSettings,
@@ -343,21 +349,17 @@ export async function resolvePageSortsAndCollectFailures({
                 failures.push({ scope, pageSortIndex, pageSortName, error: e as PKCError });
                 continue;
             }
-            if (seenSortNames.has(file.sortName)) {
+            const sortName = resolveSortName({ pageSortSettings, file });
+            if (seenSortNames.has(sortName)) {
                 failures.push({
                     scope,
                     pageSortIndex,
                     pageSortName,
-                    error: new PKCError("ERR_PAGE_SORT_DUPLICATE_SORT_NAME", {
-                        scope,
-                        pageSortIndex,
-                        pageSortName,
-                        sortName: file.sortName
-                    })
+                    error: new PKCError("ERR_PAGE_SORT_DUPLICATE_SORT_NAME", { scope, pageSortIndex, pageSortName, sortName })
                 });
                 continue;
             }
-            seenSortNames.add(file.sortName);
+            seenSortNames.add(sortName);
             const result = resolveOneEntry({ pageSortSettings, file, scope, pageSortIndex });
             if ("error" in result) failures.push({ scope, pageSortIndex, pageSortName, error: result.error });
             else resolved[scope].push(result.resolved);
