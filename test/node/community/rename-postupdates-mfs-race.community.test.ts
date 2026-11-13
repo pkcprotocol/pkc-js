@@ -182,16 +182,24 @@ for (const editKey of ["address", "name"] as const)
                 expect(cids).to.include.members(postCids);
             });
 
+            // The community is running: a cycle stores a post's row first and writes its file to MFS later in the same
+            // cycle, so one read of both can land in between and see the file one update behind the row. Both are read
+            // again until they agree. A file that stays behind, which is what a rename losing a write would leave,
+            // still fails at the deadline.
             it(`every post's file under the new address is its latest CommentUpdate`, async () => {
-                for (const cid of postCids) {
-                    const stored = community._dbHandler.queryStoredCommentUpdate({ cid })!;
-                    const file = JSON.parse(
-                        await readMfsFile(`/${domainAddress}/postUpdates/${stored.postUpdatesBucket}/${cid}/update`)
-                    ) as {
-                        updatedAt: number;
-                    };
-                    expect(file.updatedAt, `post ${cid}`).to.equal(stored.updatedAt);
-                }
+                for (const cid of postCids)
+                    await vi.waitFor(
+                        async () => {
+                            const stored = community._dbHandler.queryStoredCommentUpdate({ cid })!;
+                            const file = JSON.parse(
+                                await readMfsFile(`/${domainAddress}/postUpdates/${stored.postUpdatesBucket}/${cid}/update`)
+                            ) as {
+                                updatedAt: number;
+                            };
+                            expect(file.updatedAt, `post ${cid}`).to.equal(stored.updatedAt);
+                        },
+                        { timeout: 30_000, interval: 200 }
+                    );
             });
 
             it(`the old address directory is not nested inside the new one`, async () => {
