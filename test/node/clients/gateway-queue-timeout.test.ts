@@ -1,10 +1,11 @@
 import http, { Server } from "http";
 import type { AddressInfo } from "net";
-import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import { mockGatewayPKC } from "../../../dist/node/test/test-util.js";
 import { calculateIpfsCidV0 } from "../../../dist/node/util.js";
 import Logger from "../../../dist/node/logger.js";
 
+import validPageFixture from "../../fixtures/valid_page.json" with { type: "json" };
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 
@@ -77,6 +78,57 @@ describe("gateway timeouts start when the gateway's request does, not while it w
         }
         expect(requestsPerGateway.slice(0, 3)).to.deep.equal([1, 1, 1]);
         expect(requestsPerGateway[3], "the 4th gateway was never asked").to.equal(1);
+    });
+});
+
+// The same through the public API. comment.update() has no deadline of its own, it retries the load until it is
+// stopped, so with timeouts armed at enqueue every attempt failed the same way and the comment never loaded,
+// although the 4th gateway serves it.
+describe("comment.update() with 4 gateways, the first 3 hanging", () => {
+    const servers: Server[] = [];
+    const requestsPerGateway = [0, 0, 0, 0];
+    let pkc: PKC;
+    const body = JSON.stringify(validPageFixture.comments[0].comment);
+
+    beforeAll(async () => {
+        const gatewayUrls: string[] = [];
+        for (let i = 0; i < 4; i++) {
+            const server = http.createServer((_req, res) => {
+                requestsPerGateway[i]++;
+                if (i < 3) return; // accepts the request and never answers
+                res.writeHead(200, { "content-type": "application/json" });
+                res.end(body);
+            });
+            await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+            servers.push(server);
+            gatewayUrls.push(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+        }
+        pkc = await mockGatewayPKC({ pkcOptions: { ipfsGatewayUrls: gatewayUrls } });
+        pkc._timeouts["comment-ipfs"] = 500;
+    });
+
+    afterAll(async () => {
+        await pkc?.destroy();
+        for (const server of servers) {
+            server.closeAllConnections();
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+        }
+    });
+
+    it("loads the comment from the 4th gateway", async () => {
+        const comment = await pkc.createComment({ cid: await calculateIpfsCidV0(body) });
+        // The first 3 gateways' timeouts are retriable errors, emitted while the comment keeps trying
+        comment.on("error", () => {});
+        await comment.update();
+        try {
+            await vi.waitFor(() => expect(comment.raw.comment, "the comment never loaded its CommentIpfs").to.not.equal(undefined), {
+                timeout: 8000
+            });
+        } finally {
+            await comment.stop();
+        }
+        expect(comment.signature).to.deep.equal(validPageFixture.comments[0].comment.signature);
+        expect(requestsPerGateway[3], "the 4th gateway was never asked for the comment").to.be.greaterThan(0);
     });
 });
 
