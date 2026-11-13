@@ -9,6 +9,7 @@ export enum messages {
     ERR_CID_IS_INVALID = "CID is invalid",
     ERR_DATA_PATH_IS_NOT_DEFINED = "pkcOptions.dataPath needs to be defined with native functions",
     ERR_COMMUNITY_OWNER_ATTEMPTED_EDIT_NEW_ADDRESS_THAT_ALREADY_EXISTS = "Community owner attempted to edit community.address to a new address that already exists",
+    ERR_FAILED_TO_RENAME_COMMUNITY_DB = "Failed to rename the community's DB file to its new address, so the community keeps its old address. details.error is the error the rename itself raised",
     ERR_COMMUNITY_EDIT_NAME_AND_ADDRESS_MISMATCH = "community.edit() received both name and address, and they name different addresses. Pass one of them, or the same value for both",
     ERR_COMMENT_MISSING_IPFS_AND_UPDATE = "Comment is missing CommentIpfs and CommentUpdate",
     ERR_COMMENT_MISSING_CID = "Comment is missing cid",

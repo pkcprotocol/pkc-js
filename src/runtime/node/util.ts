@@ -177,6 +177,23 @@ export const setNativeFunctions = (newNativeFunctions: Partial<NativeFunctions>)
 // The codes Windows returns while a file is still held, e.g. for a moment after its DB connection closed
 const WINDOWS_FILE_BUSY_ERROR_CODES = ["EBUSY", "EPERM"];
 
+// Removes a file, at once when nothing holds it, and retried with a growing delay only while Windows reports it busy.
+// Rejects with the last error when the file is still busy at the deadline or the removal failed for another reason.
+export async function removeFileRetryingWhileBusy(filePath: string, { timeoutMs = 10000, log }: { timeoutMs?: number; log: Logger }) {
+    const deadline = Date.now() + timeoutMs;
+    for (let retryDelayMs = 50; ; retryDelayMs = Math.min(retryDelayMs * 2, 1000)) {
+        try {
+            await fsPromises.rm(filePath, { force: true });
+            return;
+        } catch (e) {
+            const code = (e as NodeJS.ErrnoException).code;
+            if (!code || !WINDOWS_FILE_BUSY_ERROR_CODES.includes(code) || Date.now() + retryDelayMs >= deadline) throw e;
+            log(`${filePath} is still busy (${code}), retrying its removal in ${retryDelayMs}ms`);
+            await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        }
+    }
+}
+
 // Removes a community's old DB file after a delete or a rename. It is tried at once and retried with a growing delay
 // only while Windows reports the file busy, so nothing waits when the file is free (it used to sleep 10s every time)
 export const deleteOldCommunityInWindows = async (
@@ -186,21 +203,11 @@ export const deleteOldCommunityInWindows = async (
 ) => {
     const log = Logger("pkc-js:community:deleteStaleCommunityInWindows");
     const communityAddress = path.basename(subPath);
-    const deadline = Date.now() + timeoutMs;
-    for (let retryDelayMs = 50; ; retryDelayMs = Math.min(retryDelayMs * 2, 1000)) {
-        try {
-            await fsPromises.rm(subPath, { force: true });
-            log(`Succeeded in deleting old community (${communityAddress})`);
-            return;
-        } catch (e) {
-            const code = (e as NodeJS.ErrnoException).code;
-            if (!code || !WINDOWS_FILE_BUSY_ERROR_CODES.includes(code) || Date.now() + retryDelayMs >= deadline) {
-                await recordCommunityThatFailedToBeDeleted({ communityAddress, pkc, error: e, log });
-                return;
-            }
-            log(`Old community (${communityAddress}) is still busy (${code}), retrying in ${retryDelayMs}ms`);
-            await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-        }
+    try {
+        await removeFileRetryingWhileBusy(subPath, { timeoutMs, log });
+        log(`Succeeded in deleting old community (${communityAddress})`);
+    } catch (e) {
+        await recordCommunityThatFailedToBeDeleted({ communityAddress, pkc, error: e, log });
     }
 };
 
