@@ -1257,6 +1257,7 @@ export class Comment
         const log = Logger("pkc-js:comment:update:_stopUpdateLoop");
         if (!this.cid) return;
         this._commentIpfsloadingOperation?.stop();
+        this._clientsManager._cancelTransientFetchRetry();
         if (this._updateRpcSubscriptionId) {
             // Clear the id synchronously, before the awaited unsubscribe round trip, so the
             // deferred attach-and-replay timer from _updateViaRpc (#314) sees the stop immediately

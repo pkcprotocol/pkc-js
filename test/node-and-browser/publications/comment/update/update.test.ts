@@ -7,7 +7,6 @@ import {
     mockPKCNoDataPathWithOnlyKuboClient,
     mockPostToFailToLoadFromPostUpdates,
     createCommentUpdateWithInvalidSignature,
-    mockPostToHaveCommunityWithNoPostUpdates,
     addStringToIpfs,
     resolveWhenConditionIsTrue,
     getAvailablePKCConfigsToTestAgainst,
@@ -524,33 +523,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(errors[0].code).to.equal("ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_ALL_POST_UPDATES_RANGES");
         });
 
-        itSkipIfRpc.sequential(`postCommentInstance.update() emits error when community has no postUpdates`, async () => {
-            const community = await pkc.getCommunity({ address: communityAddress });
-            const postCid = community.posts.pages.hot.comments[0].cid;
-
-            const post = await pkc.getComment({ cid: postCid });
-            const errors: PKCError[] = [];
-            // Same capture-at-emission rationale as the postUpdates-failure test above: sampling
-            // after the await races the next (arrival-driven) community cycle, which sets
-            // waiting-retry over the failed state before the assertion runs (the PR #311 CI flake).
-            let updatingStateAtFirstError: string | undefined;
-            post.on("error", (err) => {
-                errors.push(err as PKCError);
-                updatingStateAtFirstError ??= post.updatingState;
-            });
-            await post.update();
-            await mockPostToHaveCommunityWithNoPostUpdates(post);
-
-            await resolveWhenConditionIsTrue({ toUpdate: post, predicate: async () => errors.length === 1, eventName: "error" });
-            expect(updatingStateAtFirstError).to.equal("failed");
-
-            await post.stop();
-            expect(post.state).to.equal("stopped");
-            expect(post.updatingState).to.equal("stopped");
-
-            expect(errors.length).to.equal(1);
-            expect(errors[0].code).to.equal("ERR_COMMUNITY_HAS_NO_POST_UPDATES");
-        });
+        // A community record without postUpdates is covered on a static community in
+        // test/node/publications/comment/update/post-update-fetch-retry.test.ts: the post waits (waiting-retry) without an
+        // error. That outcome has no event to wait for, which a shared live community cannot assert on reliably.
     });
 });
 

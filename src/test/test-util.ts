@@ -2091,9 +2091,16 @@ export async function publishStaticCommunityWithPostInPages(opts?: {
     // The embedded comments are signed with communityName too, as a client that loaded the community by its name
     // signs them. Requires withSelfResolvingName.
     withCommentsClaimingName?: boolean;
+    // The post's replies are reachable only through replies.pageCids: the first page holds another reply and links to a
+    // second page that holds the returned replyCid. Nothing is preloaded, so a client has to walk both pages (#515)
+    withReplyOnSecondPageOfPostPageCids?: boolean;
+    // The record carries no posts pages, so the post's CommentUpdate can only come from postUpdates
+    withPostOnlyInPostUpdates?: boolean;
 }) {
     if (opts?.withCommentsClaimingName && !opts.withSelfResolvingName)
         throw Error("withCommentsClaimingName requires withSelfResolvingName");
+    if (opts?.withReplyInPostPages && opts.withReplyOnSecondPageOfPostPageCids)
+        throw Error("withReplyInPostPages and withReplyOnSecondPageOfPostPageCids are mutually exclusive");
     const ipnsObj = await createNewIpns();
     const communityAddress = ipnsObj.signer.address;
     const communityName = opts?.withSelfResolvingName ? selfResolvingMockNameForAddress(communityAddress) : undefined;
@@ -2175,6 +2182,37 @@ export async function publishStaticCommunityWithPostInPages(opts?: {
                 }
             };
         }
+        let replyPageCids: { first: string; second: string } | undefined;
+        if (opts?.withReplyOnSecondPageOfPostPageCids) {
+            // Both replies share one timestamp, so neither the "new" nor the "old" walk meets a comment on the first
+            // page that tells it to stop before the second page
+            const repliesTimestamp = post.commentIpfs.timestamp;
+            const createPageEntry = async (content: string) => {
+                const reply = await createStaticPageComment(
+                    { parentCid: commentCid, postCid: commentCid, content, timestamp: repliesTimestamp },
+                    1
+                );
+                const replyCommentUpdate = {
+                    ...reply.commentUpdateWithoutSignature,
+                    signature: await signCommentUpdate({ update: reply.commentUpdateWithoutSignature, signer: ipnsObj.signer })
+                };
+                return { cid: reply.commentCid, entry: { comment: JSON.parse(reply.commentIpfsJson), commentUpdate: replyCommentUpdate } };
+            };
+            const replyOnFirstPage = await createPageEntry(`Static reply on the first page - ${Date.now()}`);
+            const replyOnSecondPage = await createPageEntry(`Static reply on the second page - ${Date.now()}`);
+            replyCid = replyOnSecondPage.cid;
+            const secondPageCid = await addStringToIpfs(JSON.stringify({ comments: [replyOnSecondPage.entry] }));
+            const firstPageCid = await addStringToIpfs(JSON.stringify({ comments: [replyOnFirstPage.entry], nextCid: secondPageCid }));
+            replyPageCids = { first: firstPageCid, second: secondPageCid };
+            postCommentUpdateWithoutSignature = {
+                ...post.commentUpdateWithoutSignature,
+                replyCount: 2,
+                childCount: 2,
+                lastChildCid: replyCid,
+                lastReplyTimestamp: repliesTimestamp,
+                replies: { pages: {}, pageCids: { new: firstPageCid, old: firstPageCid } }
+            };
+        }
         const commentUpdate = {
             ...postCommentUpdateWithoutSignature,
             signature: await signCommentUpdate({ update: postCommentUpdateWithoutSignature, signer: ipnsObj.signer })
@@ -2191,7 +2229,9 @@ export async function publishStaticCommunityWithPostInPages(opts?: {
 
         const communityRecord = <CommunityIpfsType>{
             ...(await getTemplateCommunityRecord(ipnsObj.pkc)),
-            posts: { pages: { hot: { comments: [{ comment: JSON.parse(post.commentIpfsJson), commentUpdate }] } } },
+            ...(opts?.withPostOnlyInPostUpdates
+                ? {}
+                : { posts: { pages: { hot: { comments: [{ comment: JSON.parse(post.commentIpfsJson), commentUpdate }] } } } }),
             postUpdates: { "86400": folderCid },
             pubsubTopic: communityAddress,
             encryption: encryptionForSigner(ipnsObj.signer),
@@ -2199,10 +2239,20 @@ export async function publishStaticCommunityWithPostInPages(opts?: {
         };
         if (communityName) communityRecord.name = communityName;
         else delete communityRecord.name;
+        if (opts?.withPostOnlyInPostUpdates) delete communityRecord.posts;
         communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer });
         await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
 
-        return { communityAddress, communityName, commentCid, replyCid, communityRecord, ipnsObj };
+        return {
+            communityAddress,
+            communityName,
+            commentCid,
+            replyCid,
+            replyPageCids,
+            postUpdatesFolderCid: folderCid,
+            communityRecord,
+            ipnsObj
+        };
     } catch (e) {
         return destroyIpnsPkcAndRethrow(e);
     } finally {
@@ -2381,22 +2431,6 @@ export function mockPostToFailToLoadFromPostUpdates(postToBeMocked: Comment) {
         updatingPostComment._clientsManager._fetchPostCommentUpdateFromGateways = async () => {
             throw new PKCError("ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_ALL_POST_UPDATES_RANGES");
         };
-}
-
-export function mockPostToHaveCommunityWithNoPostUpdates(postToBeMocked: Comment) {
-    const updatingPostComment = findUpdatingComment(postToBeMocked._pkc, { cid: postToBeMocked.cid! });
-    if (!updatingPostComment) throw Error("Post should be updating before starting to mock");
-    if (postToBeMocked._pkc._pkcRpcClient) throw Error("Can't mock Post to to fail loading post from postUpdates when pkc is using RPC");
-
-    mockCommentToNotUsePagesForUpdates(postToBeMocked);
-    const originalCommunityUpdateHandle = updatingPostComment._clientsManager.handleUpdateEventFromCommunity.bind(
-        updatingPostComment._clientsManager
-    );
-    updatingPostComment._clientsManager.handleUpdateEventFromCommunity = (community: RemoteCommunity) => {
-        delete community.postUpdates;
-        delete community.raw.communityIpfs!.postUpdates;
-        return originalCommunityUpdateHandle(community);
-    };
 }
 
 export async function createCommentUpdateWithInvalidSignature(commentCid: string) {
