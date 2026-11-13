@@ -28,11 +28,23 @@ const remotePKCConfigs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibl
 // whether a rejected comment is still retrievable, so tests skip or retry past it instead of asserting on it (issue #461).
 // A gateway error is transient only if every gateway timed out, since any other gateway response is a real answer
 const isTransientFetchError = (err: unknown): boolean => {
-    const { code, details } = err as Error & { code?: string; details?: { gatewayToError?: Record<string, { code?: string }> } };
+    const { code, details } = err as Error & {
+        code?: string;
+        details?: { gatewayToError?: Record<string, { code?: string; details?: { status?: number } }> };
+    };
     if (code === "ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P" || code === "ERR_FETCH_CID_P2P_TIMEOUT") return true;
     if (code !== "ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS") return false;
     const gatewayErrors = Object.values(details?.gatewayToError ?? {});
-    return gatewayErrors.length > 0 && gatewayErrors.every((gatewayError) => gatewayError?.code === "ERR_GATEWAY_TIMED_OUT_OR_ABORTED");
+    // A gateway that timed out, or that was never reached: a fetch that failed without an HTTP status got no answer
+    // from the gateway at all (a failed connect to the local test gateway on a busy runner, issue #543)
+    return (
+        gatewayErrors.length > 0 &&
+        gatewayErrors.every(
+            (gatewayError) =>
+                gatewayError?.code === "ERR_GATEWAY_TIMED_OUT_OR_ABORTED" ||
+                (gatewayError?.code === "ERR_FAILED_TO_FETCH_IPFS_VIA_GATEWAY" && gatewayError.details?.status === undefined)
+        )
+    );
 };
 
 const depthsToTest = [0, 1, 2, 15];
