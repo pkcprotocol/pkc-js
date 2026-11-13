@@ -324,9 +324,13 @@ for (const commentMod of commentModProps) {
                                 expect(newComment.raw.comment).to.be.undefined;
                                 expect(newComment.signature).to.be.undefined;
                                 expect(newComment.updatedAt).to.be.undefined;
+                                // Any failure to fetch the CommentIpfs is the expected outcome. A fetch that ends before the
+                                // timeout, e.g. because kubo's RPC could not be reached in time, is reported as
+                                // ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P and not as a timeout (issue #497).
                                 errors.forEach((err) =>
                                     expect((err as Error & { code: string }).code).to.be.oneOf([
                                         "ERR_FETCH_CID_P2P_TIMEOUT",
+                                        "ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P",
                                         "ERR_FAILED_TO_FETCH_COMMENT_IPFS_FROM_GATEWAYS"
                                     ])
                                 );

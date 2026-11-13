@@ -320,25 +320,43 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
                 predicate: async () => Boolean(ctx.community.modQueue?.pageCids?.pendingApproval)
             });
             // @ts-expect-error - accessing private _dbHandler
-            commentBeforeModeration = (ctx.community._dbHandler as LocalCommunity["_dbHandler"]).queryComment(commentCid);
+            const dbHandler = ctx.community._dbHandler as LocalCommunity["_dbHandler"];
+            commentBeforeModeration = dbHandler.queryComment(commentCid);
 
-            const moderation = await ctx.pkc.createCommentModeration({
-                communityAddress: ctx.community.address,
-                signer: ctx.modSigner,
-                commentModeration: { approved: false },
-                commentCid
-            });
-            await publishWithExpectedResult({ publication: moderation, expectedChallengeSuccess: true });
+            // The purge forces the parent to refresh by clearing publishedToPostUpdatesMFS on its CommentUpdate row,
+            // which only shows on a row that exists and was already published. The parent was published moments ago, so
+            // without this wait the purge can run before the parent's first row is written (issue #497, seen on windows).
+            if (parentCid)
+                await resolveWhenConditionIsTrue({
+                    toUpdate: ctx.community,
+                    predicate: async () => dbHandler.queryStoredCommentUpdate({ cid: parentCid! })?.publishedToPostUpdatesMFS === true
+                });
+            // Read in the same tick the purge returns: the next publish cycle writes the parent's refreshed
+            // CommentUpdate and sets the flag again, so a read after an await can land on either side of that.
+            const originalPurgeComment = dbHandler.purgeComment.bind(dbHandler);
+            dbHandler.purgeComment = (cid: string, isNestedCall?: boolean) => {
+                const purged = originalPurgeComment(cid, isNestedCall);
+                if (cid === commentCid && parentCid)
+                    parentUpdateAfterImmediatePurge = dbHandler.queryStoredCommentUpdate({ cid: parentCid });
+                return purged;
+            };
 
-            await resolveWhenConditionIsTrue({
-                toUpdate: ctx.community,
-                // @ts-expect-error - accessing private _dbHandler
-                predicate: async () => !(ctx.community._dbHandler as LocalCommunity["_dbHandler"]).queryComment(commentCid)
-            });
-            parentUpdateAfterImmediatePurge = parentCid
-                ? // @ts-expect-error - accessing private _dbHandler
-                  (ctx.community._dbHandler as LocalCommunity["_dbHandler"]).queryStoredCommentUpdate({ cid: parentCid })
-                : undefined;
+            try {
+                const moderation = await ctx.pkc.createCommentModeration({
+                    communityAddress: ctx.community.address,
+                    signer: ctx.modSigner,
+                    commentModeration: { approved: false },
+                    commentCid
+                });
+                await publishWithExpectedResult({ publication: moderation, expectedChallengeSuccess: true });
+
+                await resolveWhenConditionIsTrue({
+                    toUpdate: ctx.community,
+                    predicate: async () => !dbHandler.queryComment(commentCid)
+                });
+            } finally {
+                dbHandler.purgeComment = originalPurgeComment;
+            }
         });
 
         afterAll(async () => {
@@ -397,9 +415,22 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
             postUpdatesPath = `/${ctx.community.address}/postUpdates/${postUpdatesBucket}/${disapprovedPost.cid}/update`;
             console.log("[debug] pre-purge postUpdates path", postUpdatesPath);
 
+            // The row is stored before its file is written to MFS later in the same cycle, so the file is waited for
             const kuboClientBefore = (ctx.community as LocalCommunity)._clientsManager.getDefaultKuboRpcClient()._client;
-            const statBefore = await kuboClientBefore.files.stat(postUpdatesPath);
-            expect(statBefore.size).to.be.greaterThan(0);
+            const statPostUpdatesFile = async (): Promise<{ size: number } | undefined> => {
+                try {
+                    return await kuboClientBefore.files.stat(postUpdatesPath);
+                } catch (error) {
+                    if ((error as Error).message === "file does not exist") return undefined;
+                    throw error;
+                }
+            };
+            await resolveWhenConditionIsTrue({
+                toUpdate: ctx.community,
+                predicate: async () => (await statPostUpdatesFile()) !== undefined
+            });
+            const statBefore = await statPostUpdatesFile();
+            expect(statBefore?.size).to.be.greaterThan(0);
 
             backdateAllDisapprovals(ctx, disapprovedPost.cid!, retentionSeconds + 10);
             await (ctx.community as LocalCommunity)._purgeDisapprovedCommentsOlderThan();

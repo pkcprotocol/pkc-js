@@ -41,7 +41,12 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                         for (const gatewayUrl of Object.keys(pkc.clients.ipfsGateways))
                             expect(waitingRetryErr.details.gatewayToError[gatewayUrl].code).to.equal("ERR_GATEWAY_TIMED_OUT_OR_ABORTED");
                     } else {
-                        expect(waitingRetryErr.code).to.equal("ERR_FETCH_CID_P2P_TIMEOUT");
+                        // A fetch that ends before the timeout, e.g. because kubo's RPC could not be reached in time, is
+                        // reported as ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P. Both are retried (issue #497).
+                        expect(waitingRetryErr.code).to.be.oneOf([
+                            "ERR_FETCH_CID_P2P_TIMEOUT",
+                            "ERR_FAILED_TO_FETCH_IPFS_CID_VIA_IPFS_P2P"
+                        ]);
                     }
                 }
 
