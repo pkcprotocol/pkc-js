@@ -272,7 +272,7 @@ describe("pkc.settings.pageSorts over RPC", () => {
         const { clientPKC } = await connectClient();
         const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
         try {
-            for (const reserved of ["__proto__", "constructor", "prototype"]) {
+            for (const reserved of ["__proto__", "constructor", "prototype", "toString"]) {
                 let thrown: unknown;
                 try {
                     await community.edit({ settings: { ...community.settings, pages: { posts: [{ name: "hot", sortName: reserved }] } } });

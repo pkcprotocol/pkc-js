@@ -53,9 +53,10 @@ Rules:
 - `posts: []` and `replies: []` are legal (a feed-only profile takes no replies).
 - The wire key is the entry's `sortName` when it has one, else the file's `sortName`, so
   `{ name: "top", options: { maxAge: "2w" } }` publishes `top`. Two entries of a scope resolving to the same
-  key are rejected. A `sortName` of `__proto__`, `constructor` or `prototype` is rejected everywhere it
-  appears (the entry, the file, `community.pageSorts`, `pages`/`pageCids` keys): clients index plain objects
-  by sort name, and a client skips such a key if a record carries one anyway.
+  key are rejected. A `sortName` of `__proto__`, `constructor` or `prototype`, or any other key a plain
+  object inherits (`toString`, `hasOwnProperty`, `valueOf`, ...), is rejected everywhere it appears (the
+  entry, the file, `community.pageSorts`, `pages`/`pageCids` keys): clients index plain objects by sort name,
+  and a client skips such a key if a record carries one anyway.
 - No entry `preloaded` means nothing is embedded: `pages: {}` and every sort in `pageCids`. Several
   preloaded entries share the preload size budget equally, and one whose first page does not fit its share
   degrades to `pageCids` while the others still embed. The first preloaded entry in list order is the
@@ -104,8 +105,9 @@ pages: {
   entry, with the resolved key as `sortName` in the error details. The check is per scope: `posts` and
   `replies` may use the same key.
 - The value follows the same rule as a file's `sortName`: any non-empty string except `__proto__`,
-  `constructor` and `prototype`. There is no character set or length limit, so pick something a client can
-  put in a URL and a label.
+  `constructor`, `prototype` and the other keys a plain object inherits (`toString`, `valueOf`, ...). There
+  is no character set or length limit, so pick something a client can put in a URL and a label. The only
+  bound on length is the 1 MiB cap on the community record, which holds every key several times.
 - Nothing else about the sort changes. `community.pageSorts[scope][key].name` still names the file, so a
   client finds the package through `name`, never through the key.
 - An override equal to the file's own `sortName` is accepted and changes nothing. One file listed twice with
@@ -197,7 +199,7 @@ with one `failures[]` entry per bad sort; a file that does not load at all
 
 | Check | Error code |
 |---|---|
-| An entry `sortName` that is empty, not a string, or `__proto__` / `constructor` / `prototype` | `ERR_COMMUNITY_EDIT_OPTIONS_SCHEMA` (a schema error, not part of the aggregate) |
+| An entry `sortName` that is empty, not a string, `__proto__` / `constructor` / `prototype`, or another key an object inherits (`toString`, ...) | `ERR_COMMUNITY_EDIT_OPTIONS_SCHEMA` (a schema error, not part of the aggregate) |
 | Two entries of a scope resolving to the same key (the entry's `sortName`, else the file's) | `ERR_PAGE_SORT_DUPLICATE_SORT_NAME` |
 | A sort with a declared `scope` under the other scope | `ERR_PAGE_SORT_SCOPE_MISMATCH` |
 | An `options` key that is neither reserved nor declared in `optionInputs` | `ERR_PAGE_SORT_OPTION_NOT_DECLARED_IN_OPTION_INPUTS` |

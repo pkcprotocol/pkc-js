@@ -247,9 +247,11 @@ describeSkipIfRpc.concurrent("settings.pages[].sortName: validation (issue #483)
         expect((await resolvedKeys(pages, pkc)).posts).to.deep.equal(["hot", "hotAgain"]);
     });
 
-    it("rejects __proto__, constructor and prototype as an override, on every entry kind", async () => {
+    // toString and the rest are keys every plain object inherits: a client's per-sort maps would find the inherited
+    // function instead of an empty slot (review of PR #538)
+    it("rejects __proto__, constructor, prototype and the other keys an object inherits as an override, on every entry kind", async () => {
         const community = (await pkc.createCommunity()) as LocalCommunity;
-        for (const reserved of ["__proto__", "constructor", "prototype"])
+        for (const reserved of ["__proto__", "constructor", "prototype", "toString", "hasOwnProperty", "valueOf"])
             for (const entry of [{ name: "hot" }, { name: REGISTERED_PACKAGE_NAME }, { path: SORT_NAME_ECHO_SORT_PATH }]) {
                 await expectEditToFail(community, { posts: [{ ...entry, sortName: reserved }] }, "ERR_COMMUNITY_EDIT_OPTIONS_SCHEMA");
                 await expectEditToFail(community, { replies: [{ ...entry, sortName: reserved }] }, "ERR_COMMUNITY_EDIT_OPTIONS_SCHEMA");
@@ -277,7 +279,7 @@ describeSkipIfRpc.concurrent("settings.pages[].sortName: validation (issue #483)
                 { name: "hot", sortName: "top 2 weeks" },
                 { name: "new", sortName: "custom-newest" },
                 { name: "old", sortName: "älteste/первые" },
-                { name: "top", sortName: "toString" },
+                { name: "top", sortName: "tostring" },
                 { name: "active", sortName: "x".repeat(300) }
             ]
         };
@@ -287,7 +289,7 @@ describeSkipIfRpc.concurrent("settings.pages[].sortName: validation (issue #483)
         expect((await resolvedKeys(pages, pkc)).posts).to.deep.equal(pages.posts!.map((entry) => entry.sortName));
     });
 
-    it("createCommunity accepts overrides and rejects a duplicate between an override and a file sortName before anything is on disk", async () => {
+    it("createCommunity accepts overrides and rejects a duplicate between an override and a file sortName", async () => {
         const pages: PagesSettings = {
             posts: [
                 { name: "top", sortName: "topFortnight", options: { maxAge: "2w" }, preloaded: true },
