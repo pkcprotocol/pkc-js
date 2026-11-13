@@ -64,7 +64,13 @@ describeSkipIfRpc("pkc.getComment joining the CommentIpfs fetch of a comment tha
         const updatingComment = await pkc.createComment({ cid });
         await updatingComment.update();
         await vi.waitFor(() => expect(requestsReceived).to.equal(1), { timeout: 10_000 });
-        return { cid, commentIpfs, updatingComment };
+        const answerHeldFetch = () => {
+            for (const res of heldResponses) {
+                res.writeHead(200, { "content-type": "application/json" });
+                res.end(body);
+            }
+        };
+        return { cid, commentIpfs, updatingComment, answerHeldFetch };
     };
 
     it("loads the comment instead of rejecting with the other comment's cancellation", async () => {
@@ -110,6 +116,41 @@ describeSkipIfRpc("pkc.getComment joining the CommentIpfs fetch of a comment tha
         await new Promise((resolve) => setTimeout(resolve, 200));
         expect(requestsReceived, "the aborted getComment sent its own request").to.equal(1);
         expect(updatesAfterAbort, "the aborted getComment's comment emitted update").to.equal(0);
+    });
+
+    // The other way round: the fetch the aborted getComment joined is not cancelled, it succeeds. getComment has
+    // stopped its comment by then, and that comment must not be handed the record and emit "update".
+    it("an aborted getComment's comment is not loaded when the fetch it joined succeeds afterwards", async () => {
+        const { cid, updatingComment, answerHeldFetch } = await startUpdatingCommentWithHeldFetch();
+
+        // getComment does not expose the comment it loads into; spyOn with no implementation calls through
+        const createCommentSpy = vi.spyOn(pkc!, "createComment");
+        const withResourceSpy = vi.spyOn(pkc!._inflightFetchManager, "withResource");
+        const getCommentAbort = new AbortController();
+        const loading = settled(pkc!.getComment({ cid, abortSignal: getCommentAbort.signal }));
+        await vi.waitFor(() => expect(withResourceSpy).toHaveBeenCalled(), { timeout: 10_000 });
+        expect(requestsReceived, "getComment joined the in-flight fetch instead of starting its own").to.equal(1);
+        const getCommentInstance = <Comment>await createCommentSpy.mock.results[0].value;
+        const joinedFetch = settled(<Promise<unknown>>withResourceSpy.mock.results[0].value);
+        let updatesAfterAbort = 0;
+        getCommentInstance.on("update", () => updatesAfterAbort++);
+
+        getCommentAbort.abort();
+        expect((await loading).error?.code).to.equal("ERR_GET_COMMENT_ABORTED");
+
+        answerHeldFetch();
+        await vi.waitFor(() => expect(updatingComment.raw.comment, "the updating comment never loaded").to.not.equal(undefined), {
+            timeout: 10_000
+        });
+        try {
+            expect((await joinedFetch).error?.name, "the aborted getComment was handed the record").to.equal("AbortError");
+            // Anything the settled fetch could still set off (an update) starts right away
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(updatesAfterAbort, "the aborted getComment's comment emitted update").to.equal(0);
+            expect(getCommentInstance.raw.comment, "the aborted getComment's comment was loaded").to.equal(undefined);
+        } finally {
+            await updatingComment.stop();
+        }
     });
 
     it("a getComment does not fetch again when pkc.destroy() stops the comment whose fetch it joined", async () => {

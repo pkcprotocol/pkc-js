@@ -94,4 +94,29 @@ describe("InflightFetchManager", () => {
         expect((await joiner).error?.message).to.equal("gateway answered with an invalid record");
         expect(joinerFetcher).not.toHaveBeenCalled();
     });
+
+    // The owner's fetch runs under the owner's signal, so a joiner's stop cannot cancel it. The joiner's own wait
+    // has to end with its stop all the same: otherwise a stopped Comment or community is handed the record when
+    // the owner's fetch succeeds, and goes on to apply it.
+    it("a joiner that is stopped while the owner's fetch is still running gets its own cancellation at once", async () => {
+        const manager = new InflightFetchManager();
+        const joinerStop = new AbortController();
+        const joinerFetcher = vi.fn(async () => "fetched by the joiner");
+        let answerOwner = (_value: string) => {};
+        const ownerFetcher = () => new Promise<string>((resolve) => (answerOwner = resolve));
+
+        const owner = settled(manager.withResource("comment-ipfs", "QmCid", ownerFetcher));
+        const joiner = settled(manager.withResource("comment-ipfs", "QmCid", joinerFetcher, joinerStop.signal));
+
+        joinerStop.abort();
+        const stillWaiting = Symbol("still waiting");
+        const joinerResult = await Promise.race([joiner, new Promise<typeof stillWaiting>((r) => setTimeout(() => r(stillWaiting), 100))]);
+        expect(joinerResult, "the stopped joiner still waits for the owner's fetch").to.not.equal(stillWaiting);
+        expect(isAbortError((joinerResult as { error?: Error }).error)).to.equal(true);
+
+        // The owner's fetch goes on and is still shared with later callers
+        answerOwner("fetched by the owner");
+        expect((await owner).value).to.equal("fetched by the owner");
+        expect(joinerFetcher).not.toHaveBeenCalled();
+    });
 });

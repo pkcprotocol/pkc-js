@@ -34,11 +34,36 @@ export class InflightFetchManager {
             return fetchPromise;
         }
         try {
-            return await inflight;
+            return await this._waitUnlessAborted(inflight, abortSignal);
         } catch (e) {
             if (!(e instanceof Error && e.name === "AbortError") || abortSignal?.aborted || this._isDestroyed()) throw e;
             if (this._inflightFetches.get(key) === inflight) this._inflightFetches.delete(key);
             return this.withKey(key, fetcher, abortSignal);
+        }
+    }
+
+    // A joiner's wait for a fetch another caller owns. That fetch runs under its owner's signal, so the joiner's
+    // stop cannot cancel it, but it ends the joiner's wait: a stopped Comment or community must not be handed the
+    // record when the owner's fetch succeeds later. The fetch itself goes on for its owner and the other joiners.
+    private async _waitUnlessAborted<T>(inflight: Promise<T>, abortSignal?: AbortSignal): Promise<T> {
+        if (!abortSignal) return inflight;
+        let onAbort: (() => void) | undefined;
+        try {
+            return await Promise.race([
+                inflight,
+                new Promise<never>((_, reject) => {
+                    const rejectWithAbort = () => {
+                        const error = new Error("The caller that joined this fetch was stopped");
+                        error.name = "AbortError";
+                        reject(error);
+                    };
+                    if (abortSignal.aborted) return rejectWithAbort();
+                    onAbort = rejectWithAbort;
+                    abortSignal.addEventListener("abort", onAbort, { once: true });
+                })
+            ]);
+        } finally {
+            if (onAbort) abortSignal.removeEventListener("abort", onAbort);
         }
     }
 
