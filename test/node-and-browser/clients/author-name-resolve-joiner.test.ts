@@ -265,6 +265,47 @@ describeSkipIfRpc("resolveAuthorNamesInBackground: a caller that joins an in-fli
         expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(true);
     });
 
+    // A background resolve has no timeout of its own, so the one a caller joined can stay outstanding for as long
+    // as its owner lives. The verdicts of the resolves the caller started itself must not wait for it.
+    it("tells a caller about the resolves it started without waiting for one it joined", async () => {
+        const dave = { authorName: "dave.bso", signaturePublicKey: signers[4].publicKey };
+        const addresses: Record<string, string> = { [author.authorName]: signers[3].address, [dave.authorName]: signers[4].address };
+        const calls: string[] = [];
+        const releases: Record<string, () => void> = {};
+        const resolver: NameResolver = createMockNameResolver({
+            key: `held-per-name-resolver-${uuidv4()}`,
+            provider: "mock://held",
+            resolveFunction: async ({ name }) => {
+                calls.push(name);
+                await new Promise<void>((resolve) => (releases[name] = resolve));
+                return { publicKey: addresses[name] };
+            }
+        });
+        pkc = await makePKC(resolver);
+
+        // Another caller owns carol's resolve
+        let ownerNotified = 0;
+        const community = await pkc.createCommunity({ address: signers[0].address });
+        community._clientsManager.resolveAuthorNamesInBackground({ authors: [author], onResolved: () => ownerNotified++ });
+        await vi.waitFor(() => expect(calls).to.deep.equal([author.authorName]));
+
+        // This caller joins carol's resolve and starts dave's
+        let notified = 0;
+        pkc._clientsManager.resolveAuthorNamesInBackground({ authors: [author, dave], onResolved: () => notified++ });
+        await vi.waitFor(() => expect(calls).to.deep.equal([author.authorName, dave.authorName]));
+
+        releases[dave.authorName]();
+        await vi.waitFor(() => expect(notified, "dave's verdict waited for carol's resolve, which another caller owns").to.equal(1), {
+            timeout: 2000
+        });
+        expect(pkc._memCaches.nameResolvedCache.get(cacheKey)).to.equal(undefined);
+
+        releases[author.authorName]();
+        await vi.waitFor(() => expect(notified, "the caller never heard about the verdict it joined").to.equal(2));
+        expect(ownerNotified).to.equal(1);
+        expect(calls.length).to.equal(2);
+    });
+
     // A resolve is bounded only by its owner's signal, so the one a stopped Comment or community joined can
     // stay outstanding indefinitely. The stopped joiner must not stay referenced (through its onResolved and
     // stop signal) until then.

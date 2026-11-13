@@ -1338,12 +1338,21 @@ export class BaseClientsManager {
             })
         );
 
-        Promise.allSettled([...ownAttempts, ...joinedAttempts])
-            .then((results) => {
-                const anyNewlySet = results.some((r) => r.status === "fulfilled" && r.value === "verdict");
-                if (anyNewlySet) onResolved();
-            })
-            .catch((e) => log.error("Unexpected error in resolveAuthorNamesInBackground", e));
+        // The caller hears about the resolves it started as soon as they settle, as before joining existed, and
+        // once more about the ones it joined. One notification for both would hold its own verdicts back until
+        // another caller's resolve settles, and a background resolve has no timeout of its own: it is bounded
+        // only by its owner's signal, so a resolver that hangs for someone else would delay them indefinitely.
+        const notifyOnVerdict = (attempts: Promise<AuthorNameResolveOutcome>[]) => {
+            if (attempts.length === 0) return;
+            Promise.allSettled(attempts)
+                .then((results) => {
+                    const anyNewlySet = results.some((r) => r.status === "fulfilled" && r.value === "verdict");
+                    if (anyNewlySet) onResolved();
+                })
+                .catch((e) => log.error("Unexpected error in resolveAuthorNamesInBackground", e));
+        };
+        notifyOnVerdict(ownAttempts);
+        notifyOnVerdict(joinedAttempts);
     }
 
     // Misc functions
