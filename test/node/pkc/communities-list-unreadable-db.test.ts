@@ -10,13 +10,23 @@ import type { PKCCommunitiesEntry } from "../../../dist/node/clients/rpc-client/
 
 // Every file better-sqlite3 opens and every file fs.openSync opens (the SQLite header check), by basename, so the tests
 // can count how often the communities list opens a file
-const { openedDbFilenames, openedFilenames } = vi.hoisted(() => ({ openedDbFilenames: [] as string[], openedFilenames: [] as string[] }));
+// `failNext` makes the next open of that kind throw the given error once, for a failure that says nothing about the file
+const { openedDbFilenames, openedFilenames, failNext } = vi.hoisted(() => ({
+    openedDbFilenames: [] as string[],
+    openedFilenames: [] as string[],
+    failNext: {} as { headerCheck?: Error; dbOpen?: Error }
+}));
 
 vi.mock("node:fs", async (importOriginal) => {
     const original = await importOriginal<typeof import("node:fs")>();
     const pathModule = await import("path");
     const openSync: typeof original.openSync = (...args) => {
         if (typeof args[0] === "string") openedFilenames.push(pathModule.basename(args[0]));
+        const failure = failNext.headerCheck;
+        if (failure) {
+            failNext.headerCheck = undefined;
+            throw failure;
+        }
         return original.openSync(...args);
     };
     return { ...original, default: { ...original, openSync }, openSync };
@@ -28,6 +38,11 @@ vi.mock("better-sqlite3", async (importOriginal) => {
     class CountingDatabase extends original.default {
         constructor(...args: ConstructorParameters<typeof Database>) {
             if (typeof args[0] === "string") openedDbFilenames.push(pathModule.basename(args[0]));
+            const failure = failNext.dbOpen;
+            if (failure) {
+                failNext.dbOpen = undefined;
+                throw failure;
+            }
             super(...args);
         }
     }
@@ -155,6 +170,42 @@ describe("pkc.communities and a community DB that can't be read", () => {
         refreshCommunitiesList(pkc);
 
         expect(opensOf(notADatabase)).to.equal(1);
+    });
+
+    // Remembering a file as unreadable until it changes is only right when the read said something about the file. A
+    // read that failed for a reason of the moment (the process is out of file descriptors, the DB is locked by a
+    // writer) says nothing about it, and the file may never change again: a community left out on such a failure
+    // would stay out of pkc.communities for good. So those are read again on the next refresh.
+    describe("a read that fails for a reason of the moment is tried again on the next refresh", () => {
+        const community = "readable-community.bso";
+        const onlyReadableCommunity = () => {
+            for (const filename of fs.readdirSync(communitiesPath)) fs.rmSync(path.join(communitiesPath, filename), { force: true });
+            createStatelessDb(community);
+            writeInternalState(community, "12D3KooWReadableCommunity");
+            resetCounts();
+        };
+
+        it("the SQLite header check fails with EMFILE once", () => {
+            onlyReadableCommunity();
+            const pkc = createFakePkc();
+            failNext.headerCheck = Object.assign(new Error("EMFILE: too many open files"), { code: "EMFILE" });
+            refreshCommunitiesList(pkc);
+            expect(pkc.communities).to.deep.equal([]);
+
+            refreshCommunitiesList(pkc);
+            expect(pkc.communities.map((entry) => entry.address)).to.deep.equal([community]);
+        });
+
+        it("the DB open fails with SQLITE_BUSY once", () => {
+            onlyReadableCommunity();
+            const pkc = createFakePkc();
+            failNext.dbOpen = Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" });
+            refreshCommunitiesList(pkc);
+            expect(pkc.communities).to.deep.equal([]);
+
+            refreshCommunitiesList(pkc);
+            expect(pkc.communities.map((entry) => entry.address)).to.deep.equal([community]);
+        });
     });
 
     // The watcher calls a refresh on every event in dataPath/communities, so before, every event on any file opened

@@ -338,8 +338,15 @@ function getCommunityDbStatSignature(dbPath: string): string | undefined {
 // i.e. its name when it has one (issue #430): a rename moves the file before it writes the new name into the DB (a
 // started community only on its next update), so any reader of the moved file in between, such as another PKC instance
 // on the same dataPath, would otherwise get the old name and cache it under the new filename. Returns undefined if the DB can't be read yet (mid-creation, mid-migration,
-// corrupt). The caller remembers that against the file's stat signature and reads it again once the file changes
-function readLocalCommunityIdentity(pkc: PKC, communityAddress: string): CommunitiesEntryIdentity | undefined {
+// corrupt). `unreadableUntilFileChanges` says whether that is a statement about the file (no internal state, not a
+// database, no keyv table), which the caller remembers against the file's stat signature, or a failure of the moment
+// (the DB is locked, the process is out of file descriptors), which it reads again on the next refresh
+const SQLITE_ERROR_CODES_ABOUT_THE_FILE = ["SQLITE_NOTADB", "SQLITE_CORRUPT", "SQLITE_ERROR"];
+
+function readLocalCommunityIdentity(
+    pkc: PKC,
+    communityAddress: string
+): { identity: CommunitiesEntryIdentity } | { identity: undefined; unreadableUntilFileChanges: boolean } {
     const log = Logger("pkc-js:readLocalCommunityIdentity");
     const dbPath = path.join(pkc.dataPath!, "communities", communityAddress);
     let db: Database.Database | undefined;
@@ -352,12 +359,16 @@ function readLocalCommunityIdentity(pkc: PKC, communityAddress: string): Communi
         const publicKey = internalState?.anchor?.publicKey ?? internalState?.signer?.address;
         if (typeof publicKey !== "string") {
             log(`Community DB (${communityAddress}) has no internal state yet, leaving it out of pkc.communities for now`);
-            return undefined;
+            return { identity: undefined, unreadableUntilFileChanges: true };
         }
-        return isStringDomain(communityAddress) ? { name: communityAddress, publicKey } : { publicKey };
+        return { identity: isStringDomain(communityAddress) ? { name: communityAddress, publicKey } : { publicKey } };
     } catch (e) {
         log.error(`Failed to read the identity of community DB (${communityAddress}), leaving it out of pkc.communities for now`, e);
-        return undefined;
+        const code = (e as { code?: unknown }).code;
+        const unreadableUntilFileChanges =
+            e instanceof SyntaxError || // the internal state is not JSON
+            (typeof code === "string" && SQLITE_ERROR_CODES_ABOUT_THE_FILE.some((aboutTheFile) => code.startsWith(aboutTheFile)));
+        return { identity: undefined, unreadableUntilFileChanges };
     } finally {
         db?.close();
     }
@@ -379,13 +390,14 @@ function listCommunitiesEntriesSync(pkc: PKC): PKCCommunitiesEntry[] {
             // changes the signature the next refresh compares against, so it is never missed
             const statSignature = getCommunityDbStatSignature(path.join(pkc.dataPath!, "communities", communityAddress));
             if (statSignature !== undefined && unreadable.get(communityAddress) === statSignature) continue;
-            identity = readLocalCommunityIdentity(pkc, communityAddress);
-            if (!identity) {
-                if (statSignature !== undefined) unreadable.set(communityAddress, statSignature);
+            const read = readLocalCommunityIdentity(pkc, communityAddress);
+            if (!read.identity) {
+                if (statSignature !== undefined && read.unreadableUntilFileChanges) unreadable.set(communityAddress, statSignature);
                 else unreadable.delete(communityAddress);
                 continue;
             }
             unreadable.delete(communityAddress);
+            identity = read.identity;
             identities.set(communityAddress, identity);
         }
         entries.push(
@@ -457,16 +469,19 @@ export function listCommunitiesSync(pkc: PKC) {
         const lastCheck = headerChecks.get(address);
         if (statSignature !== undefined && lastCheck?.statSignature === statSignature) return lastCheck.isSqlite;
         const isSqlite = isSqliteFile(filePath);
-        if (statSignature !== undefined) headerChecks.set(address, { statSignature, isSqlite });
+        // A read that failed says nothing about the file, so it is not remembered: the file is left out of this
+        // listing and read again on the next one
+        if (statSignature !== undefined && isSqlite !== undefined) headerChecks.set(address, { statSignature, isSqlite });
         else headerChecks.delete(address);
-        return isSqlite;
+        return isSqlite === true;
     });
 
     // Combine and sort the results
     const filtered_results = [...communityFilesWeDontNeedToCheck, ...sqliteFiles].sort();
     return filtered_results;
 
-    function isSqliteFile(filePath: string): boolean {
+    // undefined if the header could not be read
+    function isSqliteFile(filePath: string): boolean | undefined {
         try {
             // Simple synchronous check for SQLite files
             // Look for the SQLite file header "SQLite format 3\0"
@@ -485,7 +500,7 @@ export function listCommunitiesSync(pkc: PKC) {
             // Anything else was silently swallowed before #380 and stayed hidden until the daemon ran out of fds.
             if (!(e instanceof Error && "code" in e && e.code === "ENOENT"))
                 log.error(`Failed to check whether ${filePath} is a SQLite file, skipping it`, e);
-            return false;
+            return undefined;
         }
     }
 }
