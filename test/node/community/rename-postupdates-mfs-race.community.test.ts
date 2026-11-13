@@ -591,6 +591,8 @@ for (const code of ["EBUSY", "EPERM"])
 
 // Issue #514: a file that stays busy past the retry window is left behind. Nothing deletes it later on purpose: after a
 // rename that succeeds on another attempt that path holds the community's real DB. The error names the file instead.
+// Skipped under RPC: same as above, the domain resolves only through this PKC's mock resolver and the test stubs
+// functions of the local community and of fs in this process, which an RPC client has no access to.
 describeSkipIfRpc(`edit({ address }) on a started community when renaming the DB fails and the partial file stays busy`, async () => {
     let setup: Awaited<ReturnType<typeof startCommunityWithOnePost>>;
     let editError: unknown;
