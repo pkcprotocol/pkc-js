@@ -89,6 +89,47 @@ describe("a post fetching its CommentUpdate from postUpdates after one fetch fai
         }
     });
 
+    // A file that never arrives (the fetch fails every time, as it also does for a post whose file is not under
+    // postUpdates at all) is retried for as long as the post is updating, with a delay that doubles
+    it("keeps retrying with a delay that doubles for as long as the post is updating", async () => {
+        const fixture = await publishStaticCommunityWithPostInPages({ withPostOnlyInPostUpdates: true });
+        const pkc = await mockPKCNoDataPathWithOnlyKuboClient();
+        try {
+            const updatePath = `${fixture.postUpdatesFolderCid}/${fixture.commentCid}/update`;
+            const prototype = CommentClientsManager.prototype as unknown as FetchCidP2PHolder;
+            const originalFetchCidP2P = prototype._fetchCidP2P;
+            const fetchedAt: number[] = [];
+            vi.spyOn(prototype, "_fetchCidP2P").mockImplementation(async function (this: FetchCidP2PHolder, path: string, opts: unknown) {
+                if (path !== updatePath) return originalFetchCidP2P.call(this, path, opts);
+                fetchedAt.push(Date.now());
+                throw new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { cid: path, simulated: true });
+            });
+
+            const post = await pkc.createComment({ cid: fixture.commentCid });
+            const errors: { code: string; updatingState: string }[] = [];
+            post.on("error", (error) => errors.push({ code: (error as PKCError).code, updatingState: post.updatingState }));
+            await post.update();
+            await vi.waitFor(() => expect(fetchedAt).to.have.length(4), { timeout: waitForPostUpdateMs, interval: 50 });
+
+            expect(post.state).to.equal("updating");
+            expect(errors.slice(0, 3)).to.deep.equal(
+                new Array(3).fill({
+                    code: "ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_ALL_POST_UPDATES_RANGES",
+                    updatingState: "waiting-retry"
+                })
+            );
+            const gaps = fetchedAt.slice(1).map((time, i) => time - fetchedAt[i]);
+            // Timers never fire early, and the lookup itself adds a little on top of each delay
+            expect(gaps[0], `gaps: ${gaps.join(", ")}`).to.be.within(990, 1900);
+            expect(gaps[1], `gaps: ${gaps.join(", ")}`).to.be.within(1990, 3900);
+            expect(gaps[2], `gaps: ${gaps.join(", ")}`).to.be.within(3990, 7900);
+            await post.stop();
+        } finally {
+            await pkc.destroy();
+            await fixture.ipnsObj.pkc.destroy();
+        }
+    });
+
     it("stops retrying once the post is stopped", async () => {
         const fixture = await publishStaticCommunityWithPostInPages({ withPostOnlyInPostUpdates: true });
         const pkc = await mockPKCNoDataPathWithOnlyKuboClient();
