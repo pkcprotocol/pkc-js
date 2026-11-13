@@ -43,6 +43,15 @@ describeSkipIfRpc("createCommunity rejected for invalid settings leaves no commu
         }
     ];
 
+    const openFileDescriptorsOn = (filePath: string) =>
+        fs.readdirSync("/proc/self/fd").filter((fd) => {
+            try {
+                return fs.readlinkSync(`/proc/self/fd/${fd}`) === filePath;
+            } catch {
+                return false; // closed between the listing and the readlink
+            }
+        }).length;
+
     const filesOf = (address: string) =>
         fs
             .readdirSync(path.join(pkc.dataPath!, "communities"))
@@ -99,6 +108,11 @@ describeSkipIfRpc("createCommunity rejected for invalid settings leaves no commu
                 expect(thrown, "createCommunity() should have thrown").to.exist;
                 expect(fs.existsSync(filePath)).to.be.true;
                 expect(fs.readFileSync(filePath).equals(content)).to.be.true;
+                // The connection that failed to open it is closed. Closing used to be skipped when the checkpoint
+                // before it threw, which it does on a file that is not a database. On Windows the handle left open
+                // makes the removal below fail with EBUSY, and on Linux it shows among the process's open files
+                if (process.platform === "linux") expect(openFileDescriptorsOn(filePath)).to.equal(0);
+                fs.rmSync(filePath);
             } finally {
                 for (const filename of filesOf(signer.address))
                     fs.rmSync(path.join(pkc.dataPath!, "communities", filename), { force: true });

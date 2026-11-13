@@ -286,10 +286,15 @@ export class DbHandler {
         const log = Logger("pkc-js:local-community:dbHandler:destroyConnection");
         this._preparedStatements.clear(); // statements belong to the connection
         if (this._db && this._db.open) {
-            if (!this._db.readonly) {
-                this._db.exec("PRAGMA wal_checkpoint"); // write all wal to disk
+            try {
+                if (!this._db.readonly) this._db.exec("PRAGMA wal_checkpoint"); // write all wal to disk
+            } catch (e) {
+                // The checkpoint throws on a file that is not a database. The connection is closed all the same:
+                // an open handle keeps the file locked on Windows (issue #540)
+                log.error("Failed to checkpoint the WAL of community", this._community.address, "before closing its DB", e);
+            } finally {
+                this._db.close();
             }
-            this._db.close();
         }
         if (this._keyv) this._keyv.disconnect();
 
