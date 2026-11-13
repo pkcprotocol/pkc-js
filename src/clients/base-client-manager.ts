@@ -123,6 +123,14 @@ const GATEWAYS_THAT_SUPPORT_SUBDOMAIN_RESOLUTION: Record<string, boolean> = {}; 
 // resolvers that do not batch.
 const MAX_CONCURRENT_AUTHOR_NAME_RESOLUTIONS = 100;
 
+// Whether a path resolve failed because a directory on the way was read and has no entry of that name. Kubo's RPC
+// reports it as an HTTP 500 whose message is `no link named "<name>" under <cid>`, with no code of its own, and helia's
+// unixfs throws DoesNotExistError. A directory that could not be loaded fails differently (a timeout, no providers)
+function isIpfsPathNotInFolderError(error: unknown): boolean {
+    if (!(error instanceof Error)) return false;
+    return error.name === "DoesNotExistError" || (error.name === "HTTPError" && /^no link named /.test(error.message));
+}
+
 export class BaseClientsManager {
     // Class that has all function but without clients field for maximum interopability
 
@@ -823,8 +831,10 @@ export class BaseClientsManager {
     // The cid an /ipfs/ path names, as CIDv1, or undefined when it cannot be told. Files are content-addressed, so a
     // caller comparing it with the cid it last fetched can skip an unchanged file without reading it (issue #312).
     // Kubo and helia walk only the directory blocks on the way, which an unchanged path already has locally. Undefined
-    // with only gateways. Throws only ERR_FETCH_CID_P2P_TIMEOUT: the walk could not reach the path's blocks in time, and
-    // a fetch of the path would walk the same blocks. Any other failure is undefined, and the caller fetches anyway.
+    // with only gateways. Throws ERR_FETCH_CID_P2P_TIMEOUT when the walk could not reach the path's blocks in time: a
+    // fetch of the path would walk the same blocks. Throws ERR_IPFS_PATH_NOT_IN_FOLDER when the walk read the folder and
+    // it has no such entry: the folder is named by its cid, so that answer does not change and a fetch would only
+    // repeat it. Any other failure is undefined, and the caller fetches anyway.
     async _resolveIpfsPathToCid({
         root,
         path,
@@ -864,6 +874,8 @@ export class BaseClientsManager {
             if (e instanceof PKCError && e.code === "ERR_FETCH_CID_P2P_TIMEOUT") throw e; // helia's own timeout
             if (e instanceof Error && e.name === "TimeoutError" && !abortSignal?.aborted)
                 throw new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { ipfsPath: `/ipfs/${root}/${path}`, timeoutMs, error: e });
+            if (isIpfsPathNotInFolderError(e))
+                throw new PKCError("ERR_IPFS_PATH_NOT_IN_FOLDER", { ipfsPath: `/ipfs/${root}/${path}`, error: e });
             log.trace("Could not resolve", `${root}/${path}`, "to a cid, the caller will fetch it", e);
             return undefined;
         }

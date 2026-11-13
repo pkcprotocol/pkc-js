@@ -88,6 +88,12 @@ type NewCommentUpdate =
     | { commentUpdate: CommentUpdateType; commentUpdateIpfsPath: NonNullable<Comment["_commentUpdateIpfsPath"]> }
     | undefined;
 
+// What a postUpdates lookup resolves to when every folder the post could be in was read and none has an entry for it.
+// The folders are named by their cids, so that holds for as long as the community record does: nothing failed to load,
+// and there is nothing to retry against the same record.
+const POST_NOT_IN_POST_UPDATES = "post-not-in-post-updates";
+type PostUpdatesLookupResult = NewCommentUpdate | typeof POST_NOT_IN_POST_UPDATES;
+
 // Re-exported so every caller that has always imported the cap from here keeps working
 export { MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE };
 
@@ -324,10 +330,11 @@ export class CommentClientsManager extends PublicationClientsManager {
         timestampRanges: string[],
         log: Logger,
         abortSignal: AbortSignal | undefined
-    ): Promise<NewCommentUpdate> {
+    ): Promise<PostUpdatesLookupResult> {
         // only get new CommentUpdates
         // not interested in CommentUpdate we already fetched before
         const attemptedPathsToLoadErrors: Record<string, Error> = {};
+        const pathsNotInTheirFolder: string[] = [];
         const kuboRpcOrHelia = this.getDefaultKuboRpcClientOrHelia();
 
         for (const timestampRange of timestampRanges) {
@@ -339,6 +346,13 @@ export class CommentClientsManager extends PublicationClientsManager {
                 judgedLookup = await this._isPostUpdateFileAlreadyJudged(folderCid, path, log, abortSignal);
             } catch (e) {
                 throwIfAbortSignalAborted(abortSignal);
+                if (e instanceof PKCError && e.code === "ERR_IPFS_PATH_NOT_IN_FOLDER") {
+                    // The folder was read and has no entry for the post: not a failure to load, and a fetch would
+                    // only be told the same
+                    log.trace("Post", this._comment.cid, "has no CommentUpdate at", path, "trying the next timestamp range");
+                    pathsNotInTheirFolder.push(path);
+                    continue;
+                }
                 // The resolve timed out walking this folder; a fetch would wait out the same timeout on the same blocks
                 log.trace(`Timed out resolving CommentUpdate path (${path}) with IPFS P2P. Trying the next timestamp range`);
                 attemptedPathsToLoadErrors[path] = <Error>e;
@@ -391,12 +405,30 @@ export class CommentClientsManager extends PublicationClientsManager {
                 throw e;
             }
         }
+        // Only when every folder was read: one that failed to load may be the one that has the post
+        if (pathsNotInTheirFolder.length === timestampRanges.length) return POST_NOT_IN_POST_UPDATES;
         throw new PKCError("ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_ALL_POST_UPDATES_RANGES", {
             timestampRanges,
             attemptedPathsToLoadErrors,
+            pathsNotInTheirFolder,
             postCid: this._comment.cid,
             commentDepth: this._comment.depth
         });
+    }
+
+    // A gateway does not hand over the folder's blocks, so "the folder was read and lacks the post" is taken from the
+    // gateways' word: every configured gateway answered HTTP 404 for the path. One that timed out, failed to connect
+    // or answered anything else has not answered about the folder, and the lookup is then a loading failure
+    private _didEveryGatewayAnswerNotFound(err: unknown): boolean {
+        if (!(err instanceof FailedToFetchCommentUpdateFromGatewaysError)) return false;
+        const gatewayUrls = Object.keys(this._pkc.clients.ipfsGateways);
+        return (
+            gatewayUrls.length > 0 &&
+            gatewayUrls.every((gatewayUrl) => {
+                const gatewayError = err.details.gatewayToError[gatewayUrl];
+                return gatewayError?.code === "ERR_FAILED_TO_FETCH_IPFS_VIA_GATEWAY" && gatewayError.details?.status === 404;
+            })
+        );
     }
 
     _shouldWeFetchCommentUpdateFromNextTimestamp(err: PKCError | Error): boolean {
@@ -452,8 +484,9 @@ export class CommentClientsManager extends PublicationClientsManager {
         timestampRanges: string[],
         log: Logger,
         abortSignal: AbortSignal | undefined
-    ): Promise<NewCommentUpdate> {
+    ): Promise<PostUpdatesLookupResult> {
         const attemptedPathsToLoadErrors: Record<string, Error> = {};
+        const pathsNotInTheirFolder: string[] = [];
 
         let commentUpdate: CommentUpdateType | undefined;
 
@@ -501,6 +534,11 @@ export class CommentClientsManager extends PublicationClientsManager {
                 return undefined;
             } catch (e) {
                 throwIfAbortSignalAborted(abortSignal); // superseded or stopped: not a failure to try the next range for
+                if (this._didEveryGatewayAnswerNotFound(e)) {
+                    log.trace("Post", this._comment.cid, "has no CommentUpdate at", path, "trying the next timestamp range");
+                    pathsNotInTheirFolder.push(path);
+                    continue;
+                }
                 // We need to find out if it's loading error, and if it is we just move on to the next timestamp range
                 // If it's a schema or signature error we should stop and throw
                 if (this._shouldWeFetchCommentUpdateFromNextTimestamp(<PKCError>e)) {
@@ -515,9 +553,12 @@ export class CommentClientsManager extends PublicationClientsManager {
                 }
             }
         }
+        // Only when every folder was read: one that failed to load may be the one that has the post
+        if (pathsNotInTheirFolder.length === timestampRanges.length) return POST_NOT_IN_POST_UPDATES;
         throw new PKCError("ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_ALL_POST_UPDATES_RANGES", {
             timestampRanges,
             attemptedPathsToLoadErrors,
+            pathsNotInTheirFolder,
             commentCid: this._comment.cid,
             commentDepth: this._comment.depth
         });
@@ -558,7 +599,7 @@ export class CommentClientsManager extends PublicationClientsManager {
         // Taken once for the whole lookup: read again later it would be a newer invocation's signal (issue #312)
         const linkedAbortSignal = this._combinedAbortSignalForRetry();
         const abortSignal = linkedAbortSignal.signal;
-        let newCommentUpdate: NewCommentUpdate;
+        let newCommentUpdate: PostUpdatesLookupResult;
         try {
             if (Object.keys(this._pkc.clients.kuboRpcClients).length > 0 || Object.keys(this._pkc.clients.libp2pJsClients).length > 0) {
                 newCommentUpdate = await this._fetchPostCommentUpdateIpfsP2P(subIpfs, timestampRanges, log, abortSignal);
@@ -594,7 +635,11 @@ export class CommentClientsManager extends PublicationClientsManager {
         } finally {
             linkedAbortSignal.dispose();
         }
-        if (newCommentUpdate) {
+        if (newCommentUpdate === POST_NOT_IN_POST_UPDATES) {
+            // Nothing failed to load: the record's postUpdates don't hold the post (yet). The next record is checked again
+            log("Post", this._comment.cid, "is not under the postUpdates of this community record");
+            this._comment._setUpdatingStateWithEmissionIfNewState("waiting-retry");
+        } else if (newCommentUpdate) {
             this._useLoadedCommentUpdateIfNewInfo(newCommentUpdate, subIpfs, log);
         } else if (newCommentUpdate === undefined) {
             log.trace(`Comment`, this._comment.cid, "has no newer CommentUpdate under postUpdates");

@@ -131,6 +131,7 @@ failed for a reason that may pass, or there is nothing new to fetch yet.
 | Post: fetch of its CommentUpdate from `postUpdates` failed while loading | `waiting-retry` | yes, per attempt | retried with a backoff (1s doubling to 30s) until `stop()` or a newer community record |
 | Post: its CommentUpdate is invalid | `failed` | yes | tried again on the next community record |
 | Post: the community record has no `postUpdates` | `waiting-retry` | no | checked again on the next community record |
+| Post: every `postUpdates` folder it could be in was read and none has it | `waiting-retry` | no | checked again on the next community record |
 | Reply: fetch of a parent page failed while loading | `waiting-retry` | yes, per attempt | the search is retried with the same backoff until `stop()` or a newer post update |
 | Reply: a parent page is invalid | `failed` | yes | searched again once the parent lists another first page |
 | Reply: every parent page loaded and none holds the reply | `waiting-retry` | no | searched again once the parent lists another first page |
@@ -140,6 +141,12 @@ The reply cases that emit an error use `ERR_FAILED_TO_FIND_REPLY_COMMENT_UPDATE_
 `details.reason` is `"page-fetch-failed"`, `"page-invalid"`, `"reply-not-in-pages"` or `"sort-not-in-page-cids"`. A reply mirrors the community
 states of its post, so its `updatingState` moves on with the post's next poll of the community: read the state inside
 the `error` or `updatingstatechange` listener, not afterwards.
+
+"Read" means the folder itself answered. With a kubo or libp2p-js client that is the directory block, fetched by its
+cid, having no entry for the post. With gateways only it is every configured gateway answering HTTP 404 for the path.
+A folder that could not be loaded (a timeout, a failed connection, any other status) has not answered, so a lookup
+with even one such folder or gateway is a loading failure and is retried. The folders are named by their cids, which
+is why an answer holds for as long as the community record does.
 
 A parent's pages are immutable behind their first page CID, so a reply walks them once per first page CID. A walk that a
 loading failure cut short is not counted and runs again (issue #515).

@@ -89,8 +89,9 @@ describe("a post fetching its CommentUpdate from postUpdates after one fetch fai
         }
     });
 
-    // A file that never arrives (the fetch fails every time, as it also does for a post whose file is not under
-    // postUpdates at all) is retried for as long as the post is updating, with a delay that doubles
+    // A file whose fetch fails every time is retried for as long as the post is updating, with a delay that doubles.
+    // A post whose file is not under postUpdates at all is another case, in post-not-in-post-updates.test.ts: there the
+    // folder was read, nothing failed to load, and nothing is retried
     it("keeps retrying with a delay that doubles for as long as the post is updating", async () => {
         const fixture = await publishStaticCommunityWithPostInPages({ withPostOnlyInPostUpdates: true });
         const pkc = await mockPKCNoDataPathWithOnlyKuboClient();
