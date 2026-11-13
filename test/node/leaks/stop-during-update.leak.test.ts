@@ -42,7 +42,7 @@ describeSkipIfRpc("leak: stop() during update()", () => {
                 await fixture?.ipnsObj.pkc.destroy();
             });
 
-            it.fails("community.update() then stop() in the same tick", () =>
+            it("community.update() then stop() in the same tick", () =>
                 withPkc(async () => {
                     const community = await pkc.createCommunity({ address: fixture.communityAddress });
                     const updating = community.update();
@@ -53,8 +53,7 @@ describeSkipIfRpc("leak: stop() during update()", () => {
                         state: "stopped",
                         updatingCommunities: 0
                     });
-                })
-            );
+                }));
 
             it.fails("comment.update() then stop() in the same tick", () =>
                 withPkc(async () => {
