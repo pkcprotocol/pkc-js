@@ -18,6 +18,7 @@ type PageBehaviour = (attempt: number) => "fetch" | PKCError | GetPageResult;
 
 interface ReplyClientsManagerInternals {
     _parentFirstPageCidsAlreadyLoaded: Set<string>;
+    _transientFetchRetry: { attempts: number; timer?: unknown };
     handleUpdateEventFromPostToFetchReplyCommentUpdate(post: Comment): Promise<void>;
 }
 
@@ -141,6 +142,29 @@ describe("a reply updating through its parent's pageCids (#515)", () => {
             expect(gaps[0], `gaps: ${gaps.join(", ")}`).to.be.within(990, 1900);
             expect(gaps[1], `gaps: ${gaps.join(", ")}`).to.be.within(1990, 3900);
             expect(gaps[2], `gaps: ${gaps.join(", ")}`).to.be.within(3990, 7900);
+            await reply.stop();
+        }));
+
+    // A post update that arrives while a retry is pending replaces it. When that search succeeds, the failures before it
+    // are forgotten, so a later unrelated failure starts over at the shortest delay instead of where the backoff had got
+    it("starts the backoff over after a search that replaced a pending retry succeeds", () =>
+        withReplyOnSecondPage(async ({ pkc, fixture, pages }) => {
+            const requestedAt = stubGetPageFor(pages.first, (attempt) => (attempt === 1 ? fetchTimeout(pages.first) : "fetch"));
+            const reply = await pkc.createComment({ cid: fixture.replyCid! });
+            const errors = recordErrors(reply);
+            await reply.update();
+            await vi.waitFor(() => expect(errors).to.have.length(1), { timeout: waitForReplyUpdateMs, interval: 20 });
+            const { manager, updatingPost } = updatingInternals(pkc, fixture.replyCid!, fixture.commentCid);
+            expect(manager._transientFetchRetry.attempts).to.equal(1);
+
+            // well inside the 1s the retry waits
+            await manager.handleUpdateEventFromPostToFetchReplyCommentUpdate(updatingPost);
+            expect(reply.updatedAt, "the search that replaced the retry found the reply").to.be.a("number");
+            expect(manager._transientFetchRetry.attempts, "the failed attempt is still counted after a success").to.equal(0);
+            expect(manager._transientFetchRetry.timer, "the replaced retry is still recorded as pending").to.be.undefined;
+
+            await new Promise((resolve) => setTimeout(resolve, noRetryWindowMs));
+            expect(requestedAt, "the replaced retry still ran").to.have.length(2);
             await reply.stop();
         }));
 

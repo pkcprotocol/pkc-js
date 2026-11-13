@@ -145,6 +145,14 @@ export class CommentClientsManager extends PublicationClientsManager {
         this._transientFetchRetry = { attempts: 0 };
     }
 
+    // Drops the pending retry and keeps the count of failed attempts: the lookup that replaces it resets the count if it
+    // settles without a fetch failure, and carries the backoff on if it fails too. The timer is forgotten as well as
+    // cleared, since "no retry pending" is what lets that lookup reset the count.
+    private _dropPendingTransientFetchRetry() {
+        clearTimeout(this._transientFetchRetry.timer);
+        this._transientFetchRetry.timer = undefined;
+    }
+
     // Runs `lookup` again after a backoff that doubles from TRANSIENT_FETCH_RETRY_MIN_DELAY_MS up to
     // TRANSIENT_FETCH_RETRY_MAX_DELAY_MS, for as long as the comment keeps updating. `lookup` is the update handler
     // itself, the same entry a new community record or post update takes, and that entry drops the pending timer: a
@@ -817,7 +825,7 @@ export class CommentClientsManager extends PublicationClientsManager {
     // will handling community states down here
     // this is for posts with depth === 0
     override async handleUpdateEventFromCommunity(community: RemoteCommunity) {
-        clearTimeout(this._transientFetchRetry.timer); // this lookup replaces the pending retry of an older one
+        this._dropPendingTransientFetchRetry(); // this lookup replaces the pending retry of an older one
         const fetchFailed = await this._fetchPostCommentUpdateOnCommunityRecord(community);
         // The record stays the same until the community publishes again, so a failed fetch is retried here (issue #515)
         if (fetchFailed)
@@ -1196,7 +1204,7 @@ export class CommentClientsManager extends PublicationClientsManager {
     }
 
     async handleUpdateEventFromPostToFetchReplyCommentUpdate(postInstance: Comment) {
-        clearTimeout(this._transientFetchRetry.timer); // this search replaces the pending retry of an older one
+        this._dropPendingTransientFetchRetry(); // this search replaces the pending retry of an older one
         const fetchFailed = await this._fetchReplyCommentUpdateOnPostUpdate(postInstance);
         // The post emits no update until its own CommentUpdate changes, so a failed page fetch is retried here (issue #515)
         if (fetchFailed)
