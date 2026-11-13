@@ -75,12 +75,20 @@ export function requireCommunityUpdateIfModQueueChanged(community: LocalCommunit
     if (community._combinedHashOfPendingCommentsCids !== combinedHashOfAllQueuedComments) community._communityUpdateTrigger = true;
 }
 
+// How long the first publish after start() waits for the resolve below. The resolve only logs, and a node that can
+// answer does so from its own datastore or its connected peers within this. Without a short bound the resolve held up
+// the first record after every restart for as long as the node took to give up: 60s on a kubo node with no peers,
+// 120s at most (issue #239). Comments accepted meanwhile were missing from the record and its pages.
+export const OWN_IPNS_RESOLVE_BEFORE_FIRST_PUBLISH_TIMEOUT_MS = 5000;
+
 export async function resolveIpnsAndLogIfPotentialProblematicSequence(community: LocalCommunity) {
     const log = Logger("pkc-js:local-community:_resolveIpnsAndLogIfPotentialProblematicSequence");
     if (!community.signer.ipnsKeyName) throw Error("IPNS key name is not defined");
     if (!community.updateCid) return;
     try {
-        const { cid: ipnsCid } = await community._clientsManager.resolveIpnsToCidP2P(community.signer.ipnsKeyName, { timeoutMs: 120000 });
+        const { cid: ipnsCid } = await community._clientsManager.resolveIpnsToCidP2P(community.signer.ipnsKeyName, {
+            timeoutMs: OWN_IPNS_RESOLVE_BEFORE_FIRST_PUBLISH_TIMEOUT_MS
+        });
         log.trace("Resolved community", community.address, "IPNS key", community.signer.ipnsKeyName, "to", ipnsCid);
 
         if (ipnsCid && community.updateCid && ipnsCid !== community.updateCid) {
