@@ -156,6 +156,39 @@ describe("a reply updating through its parent's pageCids (#515)", () => {
             }));
     }
 
+    // The parent's preloaded pages can hold the reply with the update it already has while the pages of the walked sort
+    // still have to be fetched. Finding it there is no answer for the pages that were not read: when one of them
+    // fails to load, the walk is as incomplete as in the cases above and has to run again.
+    it("retries when a page fetch fails after the parent's preloaded pages gave the update the reply already has", () =>
+        withReplyOnSecondPage(async ({ pkc, fixture, pages }) => {
+            const reply = await pkc.createComment({ cid: fixture.replyCid! });
+            const errors = recordErrors(reply);
+            await reply.update();
+            await waitForUpdate(reply, () => `state ${reply.updatingState}`);
+            const { manager, updatingPost } = updatingInternals(pkc, fixture.replyCid!, fixture.commentCid);
+
+            // The post's next update: its preloaded pages hold the reply with the update it already has, and it lists
+            // a first page the reply has not walked yet
+            const heldRaw = { comment: reply.raw.comment, commentUpdate: reply.raw.commentUpdate };
+            expect(heldRaw.comment, "the reply holds its CommentIpfs").to.exist;
+            expect(heldRaw.commentUpdate, "the reply holds its CommentUpdate").to.exist;
+            const preloadedPage = { comments: [{ cid: fixture.replyCid!, raw: heldRaw }] };
+            // A new object: the one in place is shared with the raw record the community's pages hold
+            updatingPost.replies.pages = { best: preloadedPage } as unknown as typeof updatingPost.replies.pages;
+            manager._parentFirstPageCidsAlreadyLoaded.clear();
+            const requestedAt = stubGetPageFor(pages.second, (attempt) => (attempt === 1 ? fetchTimeout(pages.second) : "fetch"));
+
+            await manager.handleUpdateEventFromPostToFetchReplyCommentUpdate(updatingPost);
+
+            expect(requestedAt, "the walk reached the page that fails").to.have.length(1);
+            expect(errors.map((e) => [e.error.details?.reason, e.updatingState])).to.deep.equal([["page-fetch-failed", "waiting-retry"]]);
+            await vi.waitFor(() => expect(requestedAt, "the failing page is fetched once more, by the retry").to.have.length(2), {
+                timeout: noRetryWindowMs,
+                interval: 50
+            });
+            await reply.stop();
+        }));
+
     it("keeps retrying with a delay that doubles while the page fetch keeps failing", () =>
         withReplyOnSecondPage(async ({ pkc, fixture, pages }) => {
             const requestedAt = stubGetPageFor(pages.first, (attempt) => (attempt <= 3 ? fetchTimeout(pages.first) : "fetch"));
