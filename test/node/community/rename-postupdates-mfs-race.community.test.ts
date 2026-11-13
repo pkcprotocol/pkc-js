@@ -523,6 +523,73 @@ describeSkipIfRpc(`edit({ address }) on a started community when renaming the DB
     });
 });
 
+// The failed move back is reported with an error event, and an error event nobody listens for throws where it is
+// emitted. A community with no listener of its own passes the event on to its PKC, so with no listener there either the
+// emit threw inside edit(), before edit() could reject with the DB rename's error: the caller got the bare move-back
+// error and never saw the rename error or what was undone.
+// Skipped under RPC: same as above, the domain resolves only through this PKC's mock resolver and the test stubs
+// LocalCommunity internals.
+describeSkipIfRpc(`edit({ address }) when the DB rename and the move back both fail and nothing listens for errors`, async () => {
+    let setup: Awaited<ReturnType<typeof startCommunityWithOnePost>>;
+    let editError: unknown;
+
+    beforeAll(async () => {
+        setup = await startCommunityWithOnePost("test-rename-both-fail-no-listener");
+        const { community, pkc, kuboFiles, domainAddress } = setup;
+        // Each listener is removed by itself: the community's own forwarder to its PKC has to stay
+        const [forwardToPkc, ...addedListeners] = community.listeners("error");
+        expect(forwardToPkc).to.be.a("function");
+        for (const listener of addedListeners) community.removeListener("error", listener as (error: Error) => void);
+        for (const listener of pkc.listeners("error")) pkc.removeListener("error", listener as (error: Error) => void);
+        expect(community.listenerCount("error")).to.equal(1);
+        expect(pkc.listenerCount("error")).to.equal(0);
+
+        const dbHandler = community._dbHandler;
+        const originalChangeDbFilename = dbHandler.changeDbFilename;
+        const originalMv = kuboFiles.mv;
+        dbHandler.changeDbFilename = async () => {
+            await dbHandler.destoryConnection();
+            throw new Error("simulated DB rename failure");
+        };
+        kuboFiles.mv = (async (...args: Parameters<typeof originalMv>) => {
+            if (args[0] === `/${domainAddress}`) throw new Error("simulated rollback move failure");
+            return originalMv.apply(kuboFiles, args);
+        }) as typeof originalMv;
+        try {
+            await community.edit({ address: domainAddress });
+        } catch (e) {
+            editError = e;
+        } finally {
+            dbHandler.changeDbFilename = originalChangeDbFilename;
+            kuboFiles.mv = originalMv;
+            pkc.on("error", () => {}); // what follows must not throw on a stray error event
+        }
+    });
+
+    afterAll(async () => {
+        if (setup && (await mfsPathExists(setup.kuboFiles, `/${setup.domainAddress}`)))
+            await setup.kuboFiles.rm(`/${setup.domainAddress}`, { recursive: true });
+        await setup?.community?.delete();
+        await setup?.pkc?.destroy();
+    });
+
+    it(`edit() still rejects with the DB rename's error, which carries the failed move back`, () => {
+        const error = expectDbRenameError(editError, {
+            oldAddress: setup.publicKey,
+            newAddress: setup.domainAddress,
+            dataPath: setup.pkc.dataPath!,
+            originalMessage: "simulated DB rename failure"
+        });
+        expect(error.details.postUpdatesFolderMovedBack).to.be.false;
+        expect((error.details.postUpdatesFolderMoveBackError as Error).message).to.equal("simulated rollback move failure");
+    });
+
+    it(`the community stays stopped under its old address`, () => {
+        expect(setup.community.address).to.equal(setup.publicKey);
+        expect(setup.community.state).to.equal("stopped");
+    });
+});
+
 // Issue #514: on Windows the removal of the partial DB file can fail with EBUSY or EPERM while another handle still has
 // the file open (a reader of the communities directory that opened it a moment earlier). The removal used to be tried
 // once and its failure only logged, which left the partial file at the new address. A busy file is simulated here by

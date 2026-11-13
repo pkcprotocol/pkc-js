@@ -211,6 +211,17 @@ async function movePostUpdatesFolderBack({
 
 // Restarts a started community under its old address after its rename failed (issue #469). edit() rejects with the
 // rename's own error, so a failure here is emitted as an error event instead.
+// Reports an error of a rename's undo with an error event. An error event nobody listens for throws where it is emitted
+// (a community with no listener of its own passes it on to its PKC, which may have none either), and here that throw
+// would replace the error edit() is about to reject with. So a throw of the emit is logged and goes no further
+function emitRenameUndoError({ community, error, log }: { community: LocalCommunity; error: Error; log: Logger }) {
+    try {
+        community.emit("error", error);
+    } catch (emitError) {
+        log.error(`Nothing listens for the errors of community (${community.address}), the error it could not report was`, error);
+    }
+}
+
 async function restartCommunityAfterFailedRename({
     community,
     oldAddress,
@@ -226,7 +237,7 @@ async function restartCommunityAfterFailedRename({
         await community.start();
     } catch (restartError) {
         log.error(`Failed to restart community (${oldAddress}) after its rename to ${newAddress} failed`, restartError);
-        community.emit("error", restartError as Error);
+        emitRenameUndoError({ community, error: restartError as Error, log });
     }
 }
 
@@ -335,7 +346,7 @@ export async function editPropsOnStartedCommunity(
             });
             // A folder that can't be moved back leaves the community stopped, since starting it would publish without
             // its postUpdates
-            if (moveBackError) community.emit("error", moveBackError);
+            if (moveBackError) emitRenameUndoError({ community, error: moveBackError, log });
             else await restartCommunityAfterFailedRename({ community, oldAddress, newAddress, log });
             throw error;
         }
