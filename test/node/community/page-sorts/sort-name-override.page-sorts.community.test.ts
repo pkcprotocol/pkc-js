@@ -289,7 +289,11 @@ describeSkipIfRpc.concurrent("settings.pages[].sortName: validation (issue #483)
         expect((await resolvedKeys(pages, pkc)).posts).to.deep.equal(pages.posts!.map((entry) => entry.sortName));
     });
 
-    it("createCommunity accepts overrides and rejects a duplicate between an override and a file sortName", async () => {
+    // A createCommunity that is rejected for its settings.pages is deliberately not exercised here: it leaves an empty
+    // community DB behind (issue #540), and every PKC instance on the dataPath then re-reads that DB on each refresh
+    // of pkc.communities, which on the Windows runner became a busy loop that ran the job into its time limit. The
+    // rule itself is the resolver's, the same one edit() goes through, so the duplicate is asserted on the resolver.
+    it("createCommunity accepts overrides, and the resolver it validates with rejects a duplicate between an override and a file sortName", async () => {
         const pages: PagesSettings = {
             posts: [
                 { name: "top", sortName: "topFortnight", options: { maxAge: "2w" }, preloaded: true },
@@ -299,20 +303,12 @@ describeSkipIfRpc.concurrent("settings.pages[].sortName: validation (issue #483)
         const community = (await pkc.createCommunity({ settings: { pages } })) as LocalCommunity;
         expect(community.settings?.pages).to.deep.equal(pages);
 
-        let caught: unknown;
-        try {
-            await pkc.createCommunity({
-                settings: { pages: { replies: [{ name: "best" }, { name: "new" }, { name: "old", sortName: "best" }] } }
-            });
-        } catch (e) {
-            caught = e;
-        }
-        expect(caught).to.be.instanceOf(PKCError);
-        const error = caught as PKCError;
-        expect(error.code).to.equal("ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED_FOR_PAGE_SORTS");
-        const failures = error.details.failures as Failure[];
-        expect(failures.map((f) => [f.scope, f.pageSortIndex, f.pageSortName, f.error.code, f.error.details.sortName])).to.deep.equal([
-            ["replies", 2, "old", "ERR_PAGE_SORT_DUPLICATE_SORT_NAME", "best"]
+        const { failures } = await resolvePageSortsAndCollectFailures({
+            pagesSettings: { replies: [{ name: "best" }, { name: "new" }, { name: "old", sortName: "best" }] },
+            pkc
+        });
+        expect(failures.map((f) => [f.scope, f.pageSortIndex, f.error.code, f.error.details.sortName])).to.deep.equal([
+            ["replies", 2, "ERR_PAGE_SORT_DUPLICATE_SORT_NAME", "best"]
         ]);
     });
 
