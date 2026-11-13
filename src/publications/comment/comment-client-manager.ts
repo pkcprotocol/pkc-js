@@ -1153,9 +1153,9 @@ export class CommentClientsManager extends PublicationClientsManager {
 
         if (newCommentUpdate)
             this._useLoadedCommentUpdateIfNewInfo({ commentUpdate: newCommentUpdate.commentUpdate }, communityWithSignature, log);
-        else if (!replyFoundWithoutNewerUpdate || pageFetchFailed) {
+        else if (!replyFoundWithoutNewerUpdate || pageFetchError) {
             // Finding the reply with the update it already holds in pages that were in memory says nothing about a
-            // page that failed to load: the walk is incomplete and is retried like any other
+            // page that failed to load or is invalid: the walk is incomplete, and is retried or reported like any other
             const reason: ReplyPageSearchFailureReason = pageFetchFailed
                 ? "page-fetch-failed"
                 : pageFetchError

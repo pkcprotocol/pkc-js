@@ -189,6 +189,29 @@ describe("a reply updating through its parent's pageCids (#515)", () => {
             await reply.stop();
         }));
 
+    // The same holds for a page that is invalid: the preloaded pages giving the update the reply already has must not
+    // hide it. An invalid page is wrong data, so the reply goes to failed, as it does without the preloaded match.
+    it("goes to failed when a page is invalid after the parent's preloaded pages gave the update the reply already has", () =>
+        withReplyOnSecondPage(async ({ pkc, fixture, pages }) => {
+            const reply = await pkc.createComment({ cid: fixture.replyCid! });
+            const errors = recordErrors(reply);
+            await reply.update();
+            await waitForUpdate(reply, () => `state ${reply.updatingState}`);
+            const { manager, updatingPost } = updatingInternals(pkc, fixture.replyCid!, fixture.commentCid);
+
+            const heldRaw = { comment: reply.raw.comment, commentUpdate: reply.raw.commentUpdate };
+            const preloadedPage = { comments: [{ cid: fixture.replyCid!, raw: heldRaw }] };
+            updatingPost.replies.pages = { best: preloadedPage } as unknown as typeof updatingPost.replies.pages;
+            manager._parentFirstPageCidsAlreadyLoaded.clear();
+            const requestedAt = stubGetPageFor(pages.second, () => new PKCError("ERR_REPLIES_PAGE_IS_INVALID", { simulated: true }));
+
+            await manager.handleUpdateEventFromPostToFetchReplyCommentUpdate(updatingPost);
+
+            expect(requestedAt, "the walk reached the invalid page").to.have.length(1);
+            expect(errors.map((e) => [e.error.details?.reason, e.updatingState])).to.deep.equal([["page-invalid", "failed"]]);
+            await reply.stop();
+        }));
+
     it("keeps retrying with a delay that doubles while the page fetch keeps failing", () =>
         withReplyOnSecondPage(async ({ pkc, fixture, pages }) => {
             const requestedAt = stubGetPageFor(pages.first, (attempt) => (attempt <= 3 ? fetchTimeout(pages.first) : "fetch"));
