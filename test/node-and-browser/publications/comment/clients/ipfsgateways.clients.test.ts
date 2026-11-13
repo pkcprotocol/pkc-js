@@ -37,27 +37,39 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         it.sequential(
             `Correct order of ipfsGateways state when updating a comment that was created with pkc.createComment({cid})`,
             async () => {
-                const community = await pkc.getCommunity({ address: signers[0].address });
+                // A STATIC community and a long updateInterval instead of the shared live signers[0], as in the
+                // getComment sibling below: the asserted prefix ends with the "stopped" that follows the CommentUpdate
+                // fetch, and a fetch cycle started by another suite's publish (or by the poll timer) put its
+                // fetching-community-ipns in front of that "stopped"
+                const dedicatedPKC = await config.pkcInstancePromise({ pkcOptions: { updateInterval: updateIntervalForExactStateTests } });
+                const staticCommunity = await publishStaticCommunityWithPostInPages();
+                try {
+                    const mockPost = await dedicatedPKC.createComment({ cid: staticCommunity.commentCid });
+                    const expectedStates = ["fetching-ipfs", "stopped", "fetching-community-ipns", "fetching-update-ipfs", "stopped"];
 
-                const mockPost = await pkc.createComment({ cid: community.posts.pages.hot.comments[0].cid });
-                const expectedStates = ["fetching-ipfs", "stopped", "fetching-community-ipns", "fetching-update-ipfs", "stopped"];
+                    const actualStates: string[] = [];
 
-                const actualStates: string[] = [];
+                    const gatewayUrl = Object.keys(mockPost.clients.ipfsGateways)[0];
 
-                const gatewayUrl = Object.keys(mockPost.clients.ipfsGateways)[0];
+                    mockPost.clients.ipfsGateways[gatewayUrl].on("statechange", (newState) => actualStates.push(newState));
 
-                mockPost.clients.ipfsGateways[gatewayUrl].on("statechange", (newState) => actualStates.push(newState));
+                    await mockPost.update();
+                    mockCommentToNotUsePagesForUpdates(mockPost);
+                    await resolveWhenConditionIsTrue({
+                        toUpdate: mockPost,
+                        predicate: async () => typeof mockPost.upvoteCount === "number"
+                    });
+                    await mockPost.stop();
 
-                await mockPost.update();
-                mockCommentToNotUsePagesForUpdates(mockPost);
-                await resolveWhenConditionIsTrue({ toUpdate: mockPost, predicate: async () => typeof mockPost.upvoteCount === "number" });
-                await mockPost.stop();
+                    expect(actualStates.slice(0, expectedStates.length)).to.deep.equal(expectedStates);
 
-                expect(actualStates.slice(0, expectedStates.length)).to.deep.equal(expectedStates);
-
-                const remainingStates = actualStates.slice(expectedStates.length);
-                for (const state of remainingStates) {
-                    expect(state).to.be.oneOf(["fetching-community-ipns", "fetching-update-ipfs", "stopped"]);
+                    const remainingStates = actualStates.slice(expectedStates.length);
+                    for (const state of remainingStates) {
+                        expect(state).to.be.oneOf(["fetching-community-ipns", "fetching-update-ipfs", "stopped"]);
+                    }
+                } finally {
+                    await dedicatedPKC.destroy();
+                    await staticCommunity.ipnsObj.pkc.destroy();
                 }
             }
         );

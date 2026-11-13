@@ -4,7 +4,9 @@ import {
     publishRandomReply,
     getAvailablePKCConfigsToTestAgainst,
     publishRandomPost,
-    createStaticCommunityRecordForComment
+    createStaticCommunityRecordForComment,
+    publishStaticCommunityWithPostInPages,
+    updateIntervalForExactStateTests
 } from "../../../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../../../helpers/conditional-tests.js";
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
@@ -133,22 +135,16 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it.sequential(`Updating states is in correct upon updating a reply that's included in preloaded pages of its parent`, async () => {
-            const pkc = await config.pkcInstancePromise();
+            // A STATIC community under its own fresh key rather than the shared live signers[0]: the whole filtered
+            // state sequence is asserted, and a fetch cycle started by another suite's publish could add states the
+            // filter keeps (a page fetch once the reply drops out of the preloaded page). Long updateInterval so the
+            // loop's timer cannot insert a cycle either (see updateIntervalForExactStateTests). The reply is in the
+            // post's preloaded replies page, which is what this case is about. Its author has no domain name, so no
+            // author name resolving shows up in the states.
+            const pkc = await config.pkcInstancePromise({ pkcOptions: { updateInterval: updateIntervalForExactStateTests } });
+            const staticCommunity = await publishStaticCommunityWithPostInPages({ withReplyInPostPages: true });
             try {
-                const community = await pkc.getCommunity({ address: communityAddress });
-                // we don't want domain name in author addrses so its resolving doesn't get included in expected states
-                const postWithMostReplies = community.posts.pages.hot.comments.reduce((current, post) => {
-                    if (!post.replies) {
-                        return current;
-                    }
-                    if (!current || (post.replyCount ?? 0) > (current.replyCount ?? 0)) {
-                        return post;
-                    }
-                    return current;
-                }, undefined);
-                const preloadedReplyCid = postWithMostReplies?.replies.pages.best.comments.find(
-                    (reply) => !reply.author.address.includes(".")
-                )?.cid;
+                const preloadedReplyCid = staticCommunity.replyCid;
                 expect(preloadedReplyCid).to.be.a("string");
                 const mockReply = await pkc.createComment({ cid: preloadedReplyCid });
                 const expectedStates = [
@@ -179,6 +175,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 );
             } finally {
                 await pkc.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
             }
         });
         it(`updating state of reply is set to failed if community has an invalid Community record`, async () => {
@@ -234,13 +231,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gateway"] }).map((config) => {
     describe.concurrent(`reply.updatingState - ${config.name}`, async () => {
         it(`updating state of reply is in correct order upon updating a reply that's included in preloaded pages of its parent`, async () => {
-            const pkc = await config.pkcInstancePromise();
+            // A static community and a long updateInterval, for the same reasons as the IPFS-client case above
+            const pkc = await config.pkcInstancePromise({ pkcOptions: { updateInterval: updateIntervalForExactStateTests } });
+            const staticCommunity = await publishStaticCommunityWithPostInPages({ withReplyInPostPages: true });
             try {
-                const community = await pkc.getCommunity({ address: communityAddress });
-                // we don't want domain name in author addrses so its resolving doesn't get included in expected states
-                const replyCid = community.posts.pages.hot.comments.find((post) => post.replies && !post.author.address.includes("."))
-                    .replies.pages.best.comments[0].cid;
-                const mockReply = await pkc.createComment({ cid: replyCid });
+                const mockReply = await pkc.createComment({ cid: staticCommunity.replyCid });
                 const expectedStates = [
                     "fetching-ipfs", // fetching comment ipfs of reply
                     "succeeded", // succeeded loading comment ipfs of reply
@@ -262,6 +257,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 expect(filteredRecordedStates).to.deep.equal(filteredExpectedStates);
             } finally {
                 await pkc.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
             }
         });
 

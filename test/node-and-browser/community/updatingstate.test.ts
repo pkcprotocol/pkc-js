@@ -2,17 +2,24 @@ import signers from "../../fixtures/signers.js";
 
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import {
-    publishRandomPost,
     publishCommunityRecordWithExtraProp,
     createStaticCommunityRecordForComment,
     createNewIpns,
     resolveWhenConditionIsTrue,
-    getAvailablePKCConfigsToTestAgainst
+    getAvailablePKCConfigsToTestAgainst,
+    publishStaticCommunityWithPostInPages,
+    updateIntervalForExactStateTests
 } from "../../../dist/node/test/test-util.js";
+import { signCommunity } from "../../../dist/node/signer/signatures.js";
+import { timestamp } from "../../../dist/node/util.js";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 
+// The exact-state cases below attach to a STATIC community under its own fresh key, not to the shared live signers[0] or
+// plebbit.eth: every concurrent suite publishes there, and each arrival starts a fetch cycle at a random moment. One
+// landing between the awaited update and stop() put an extra fetching-ipns in the asserted tail. They attach through a
+// PKC with a long updateInterval so the loop's timer cannot insert a cycle either (see updateIntervalForExactStateTests).
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc", "remote-libp2pjs"] }).map((config) => {
     describe.concurrent(`community.updatingState (node/browser - remote community) - ${config.name}`, async () => {
         let pkc: PKCType;
@@ -31,31 +38,53 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             expect(jsonCommunity).to.have.property("updatingState", community.updatingState);
         });
         it(`community.updatingState is in correct order upon updating with IPFS client and pkc.createCommunity() `, async () => {
-            const community = await pkc.createCommunity({ address: signers[0].address });
-            const recordedStates: string[] = [];
-            const expectedStates = ["fetching-ipns", "fetching-ipfs", "succeeded", "stopped"];
-            community.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
+            const dedicatedPKC = await config.pkcInstancePromise({ pkcOptions: { updateInterval: updateIntervalForExactStateTests } });
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
+            try {
+                const community = await dedicatedPKC.createCommunity({ address: staticCommunity.communityAddress });
+                const recordedStates: string[] = [];
+                const expectedStates = ["fetching-ipns", "fetching-ipfs", "succeeded", "stopped"];
+                community.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
 
-            const updatePromise = new Promise((resolve) => community.once("update", resolve));
-            await community.update();
-            await updatePromise;
-            await community.stop();
+                const updatePromise = new Promise((resolve) => community.once("update", resolve));
+                await community.update();
+                await updatePromise;
+                await community.stop();
 
-            expect(recordedStates.slice(recordedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
+                expect(recordedStates.slice(recordedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
+            } finally {
+                await dedicatedPKC.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
+            }
         });
 
         it(`community.updatingState is in correct order upon updating with IPFS client and pkc.getCommunity({address) with community address not an ENS`, async () => {
-            const community = await pkc.getCommunity({ address: signers[0].address });
-            const oldUpdatedAt = Number(community.updatedAt);
-            const recordedStates: string[] = [];
-            const expectedStates = ["fetching-ipns", "fetching-ipfs", "succeeded", "stopped"];
-            community.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
+            const dedicatedPKC = await config.pkcInstancePromise({ pkcOptions: { updateInterval: updateIntervalForExactStateTests } });
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
+            try {
+                const community = await dedicatedPKC.getCommunity({ address: staticCommunity.communityAddress });
+                const oldUpdatedAt = Number(community.updatedAt);
+                const recordedStates: string[] = [];
+                const expectedStates = ["fetching-ipns", "fetching-ipfs", "succeeded", "stopped"];
+                community.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
 
-            await publishRandomPost({ communityAddress: community.address, pkc: pkc });
-            await community.update();
-            await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => Number(community.updatedAt) > oldUpdatedAt });
-            await community.stop();
-            expect(recordedStates.slice(recordedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
+                // The community publishes a newer record, to the fixture's own key, for the update loop to load
+                const newerRecord = JSON.parse(JSON.stringify(staticCommunity.communityRecord)) as typeof staticCommunity.communityRecord;
+                newerRecord.updatedAt = Math.max(staticCommunity.communityRecord.updatedAt + 1, timestamp());
+                newerRecord.signature = await signCommunity({ community: newerRecord, signer: staticCommunity.ipnsObj.signer });
+                await staticCommunity.ipnsObj.publishToIpns(JSON.stringify(newerRecord));
+
+                await community.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: community,
+                    predicate: async () => Number(community.updatedAt) > oldUpdatedAt
+                });
+                await community.stop();
+                expect(recordedStates.slice(recordedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
+            } finally {
+                await dedicatedPKC.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
+            }
         });
 
         it(`community.updatingState should never emit "resolving-name" when community address is not a domain`, async () => {
@@ -74,19 +103,27 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it(`community.updatingState is in correct order upon updating with IPFS client and community address is an ENS`, async () => {
-            const community = await pkc.createCommunity({ address: "plebbit.eth" });
-            const recordedStates: string[] = [];
-            const expectedStates = ["resolving-name", "fetching-ipns", "fetching-ipfs", "succeeded", "stopped"];
-            community.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
+            // A domain name the mock resolver maps back to the fixture's own key, in place of plebbit.eth, which
+            // resolves to a live community of the test server
+            const dedicatedPKC = await config.pkcInstancePromise({ pkcOptions: { updateInterval: updateIntervalForExactStateTests } });
+            const staticCommunity = await publishStaticCommunityWithPostInPages({ withSelfResolvingName: true });
+            try {
+                const community = await dedicatedPKC.createCommunity({ address: staticCommunity.communityName! });
+                const recordedStates: string[] = [];
+                const expectedStates = ["resolving-name", "fetching-ipns", "fetching-ipfs", "succeeded", "stopped"];
+                community.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
 
-            const updatePromise = new Promise((resolve) => community.once("update", resolve));
-            await community.update();
-            expect(community.state).to.equal("updating");
+                const updatePromise = new Promise((resolve) => community.once("update", resolve));
+                await community.update();
+                expect(community.state).to.equal("updating");
 
-            await updatePromise;
-            await updatePromise;
-            await community.stop();
-            expect(recordedStates.slice(recordedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
+                await updatePromise;
+                await community.stop();
+                expect(recordedStates.slice(recordedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
+            } finally {
+                await dedicatedPKC.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
+            }
         });
 
         it("updating states is in correct order upon updating with ipfs p2p, if the community doesn't publish any updates", async () => {
@@ -280,20 +317,29 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
             await pkc.destroy();
         });
         it(`updating states is in correct order upon updating with gateway`, async () => {
-            const community = await pkc.createCommunity({ address: signers[0].address });
+            // A static community and a long updateInterval, for the same reasons as the IPFS-client cases above: a
+            // gateway client polls every updateInterval, and a poll between the update and stop() adds a fetching-ipns
+            const dedicatedPKC = await config.pkcInstancePromise({ pkcOptions: { updateInterval: updateIntervalForExactStateTests } });
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
+            try {
+                const community = await dedicatedPKC.createCommunity({ address: staticCommunity.communityAddress });
 
-            const expectedStates = ["fetching-ipns", "succeeded", "stopped"];
-            const recordedStates: string[] = [];
-            community.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
+                const expectedStates = ["fetching-ipns", "succeeded", "stopped"];
+                const recordedStates: string[] = [];
+                community.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
 
-            const updatePromise = new Promise((resolve) => community.once("update", resolve));
+                const updatePromise = new Promise((resolve) => community.once("update", resolve));
 
-            await community.update();
+                await community.update();
 
-            await updatePromise;
-            await community.stop();
+                await updatePromise;
+                await community.stop();
 
-            expect(recordedStates.slice(recordedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
+                expect(recordedStates.slice(recordedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
+            } finally {
+                await dedicatedPKC.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
+            }
         });
 
         it("updating states is in correct order upon updating with gateway, if the community doesn't publish any updates", async () => {
