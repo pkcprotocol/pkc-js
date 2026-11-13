@@ -320,7 +320,9 @@ describe("a reply updating through its parent's pageCids (#515)", () => {
             updatingPost.replies.pageCids = { best: pages.first };
             await manager.handleUpdateEventFromPostToFetchReplyCommentUpdate(updatingPost);
             expect(errors).to.have.length(1);
-            expect(errors[0].error.message).to.equal("Parent comment does not have any new or old pages");
+            expect(errors[0].error.code).to.equal("ERR_FAILED_TO_FIND_REPLY_COMMENT_UPDATE_WITHIN_PARENT_COMMENT_PAGE_CIDS");
+            expect(errors[0].error.details.reason).to.equal("sort-not-in-page-cids");
+            expect(errors[0].error.details.parentPageCids).to.deep.equal({ best: pages.first });
             expect(errors[0].updatingState, "a later update of the parent may list the pages").to.equal("waiting-retry");
             await reply.stop();
         }));

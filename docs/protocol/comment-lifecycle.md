@@ -137,7 +137,7 @@ failed for a reason that may pass, or there is nothing new to fetch yet.
 | Reply: the parent lists `pageCids` but none for the sort the search walks | `waiting-retry` | yes | searched again on the next post update |
 
 The reply cases that emit an error use `ERR_FAILED_TO_FIND_REPLY_COMMENT_UPDATE_WITHIN_PARENT_COMMENT_PAGE_CIDS`, whose
-`details.reason` is `"page-fetch-failed"`, `"page-invalid"` or `"reply-not-in-pages"`. A reply mirrors the community
+`details.reason` is `"page-fetch-failed"`, `"page-invalid"`, `"reply-not-in-pages"` or `"sort-not-in-page-cids"`. A reply mirrors the community
 states of its post, so its `updatingState` moves on with the post's next poll of the community: read the state inside
 the `error` or `updatingstatechange` listener, not afterwards.
 

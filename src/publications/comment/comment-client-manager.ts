@@ -70,7 +70,7 @@ const PARENT_PAGE_ERROR_CODES_NOT_WORTH_A_RETRY: ReadonlySet<string> = new Set([
 
 // Why a reply's search through its parent's pages ended without its CommentUpdate. Carried as `details.reason` of
 // ERR_FAILED_TO_FIND_REPLY_COMMENT_UPDATE_WITHIN_PARENT_COMMENT_PAGE_CIDS
-export type ReplyPageSearchFailureReason = "page-fetch-failed" | "page-invalid" | "reply-not-in-pages";
+export type ReplyPageSearchFailureReason = "page-fetch-failed" | "page-invalid" | "reply-not-in-pages" | "sort-not-in-page-cids";
 
 export function isParentPageFetchErrorWorthARetry(err: PKCError | Error): boolean {
     if (!(err instanceof PKCError)) return false; // not an error we recognize as a loading problem
@@ -1000,7 +1000,18 @@ export class CommentClientsManager extends PublicationClientsManager {
             // The parent lists pageCids, but none for the sort this search walks. A later update of the parent may list it
             this._comment._changeCommentStateEmitEventEmitStateChangeEvent({
                 newUpdatingState: "waiting-retry",
-                event: { name: "error", args: [Error("Parent comment does not have any new or old pages")] }
+                event: {
+                    name: "error",
+                    args: [
+                        new PKCError("ERR_FAILED_TO_FIND_REPLY_COMMENT_UPDATE_WITHIN_PARENT_COMMENT_PAGE_CIDS", {
+                            replyCid: this._comment.cid,
+                            parentCommentCid: parentCommentInstance.cid,
+                            pageSortName,
+                            reason: <ReplyPageSearchFailureReason>"sort-not-in-page-cids",
+                            parentPageCids: parentCommentInstance.replies.pageCids
+                        })
+                    ]
+                }
             });
             return;
         }
