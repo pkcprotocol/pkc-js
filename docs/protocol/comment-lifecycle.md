@@ -118,6 +118,32 @@ reads `lastReplyTimestamp` (see [page-sorts.md](page-sorts.md)).
 - `PublicationPublishingState`: `"stopped"` → `"publishing-challenge-request"` → `"waiting-challenge"` → `"publishing-challenge-answer"` → `"waiting-challenge-verification"` → `"succeeded"` / `"failed"`
 - `CommentUpdatingState`: `"stopped"` | `"resolving-author-name"` | `"fetching-ipfs"` | `"fetching-update-ipfs"` | `"resolving-community-name"` | `"fetching-community-ipns"` | `"fetching-community-ipfs"` | `"succeeded"` | `"failed"` | `"waiting-retry"`
 
+### `failed` and `waiting-retry` while updating
+
+`failed` means what was received is wrong in itself (an invalid signature or schema, content that does not match its
+CID), or the subscription could not be made. Fetching the same thing again cannot help. `waiting-retry` means a fetch
+failed for a reason that may pass, or there is nothing new to fetch yet.
+
+| Situation | State | `error` event | What happens next |
+|---|---|---|---|
+| CommentIpfs fetch failed while loading | `waiting-retry` | yes, per attempt | retried with a backoff until `stop()` |
+| CommentIpfs is invalid | `failed` | yes | the comment stops |
+| Post: fetch of its CommentUpdate from `postUpdates` failed while loading | `waiting-retry` | yes, per attempt | retried with a backoff (1s doubling to 30s) until `stop()` or a newer community record |
+| Post: its CommentUpdate is invalid | `failed` | yes | tried again on the next community record |
+| Post: the community record has no `postUpdates` | `waiting-retry` | no | checked again on the next community record |
+| Reply: fetch of a parent page failed while loading | `waiting-retry` | yes, per attempt | the search is retried with the same backoff until `stop()` or a newer post update |
+| Reply: a parent page is invalid | `failed` | yes | searched again once the parent lists another first page |
+| Reply: every parent page loaded and none holds the reply | `waiting-retry` | no | searched again once the parent lists another first page |
+| Reply: the parent lists `pageCids` but none for the sort the search walks | `waiting-retry` | yes | searched again on the next post update |
+
+The reply cases that emit an error use `ERR_FAILED_TO_FIND_REPLY_COMMENT_UPDATE_WITHIN_PARENT_COMMENT_PAGE_CIDS`, whose
+`details.reason` is `"page-fetch-failed"`, `"page-invalid"` or `"reply-not-in-pages"`. A reply mirrors the community
+states of its post, so its `updatingState` moves on with the post's next poll of the community: read the state inside
+the `error` or `updatingstatechange` listener, not afterwards.
+
+A parent's pages are immutable behind their first page CID, so a reply walks them once per first page CID. A walk that a
+loading failure cut short is not counted and runs again (issue #515).
+
 ## Key Functions
 
 | Function | File | Purpose |
