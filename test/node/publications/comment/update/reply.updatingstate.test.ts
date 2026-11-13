@@ -220,7 +220,8 @@ function getExpectedStatesForConfig(configCode: string): CommentUpdatingState[] 
 // fetch from the gateway failed to connect on the Windows runner, issue #543), and the reply then looks again after
 // its retry delay and goes through the cycle a second time before it succeeds. That is a correct load, so a cycle
 // repeated right after itself counts once. A reply that needs a second cycle on every load is therefore not caught
-// here. The retry itself is pinned on a static community in reply-parent-page-search-retry.test.ts.
+// here: "walks the parent's pages once when no fetch fails" in reply-parent-page-search-retry.test.ts catches it, on a
+// static community where nothing fails.
 const collapseRepeatedFetchCycles = ({
     states,
     expectedStates

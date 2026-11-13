@@ -102,6 +102,35 @@ describe("a reply updating through its parent's pageCids (#515)", () => {
             await reply.stop();
         }));
 
+    // reply.updatingstate.test.ts runs on a live community and counts a fetch cycle repeated after a failed fetch once
+    // (issue #543), so it would not notice a reply that walks its parent's pages twice on every load. Here nothing
+    // fails and the community is static, so one walk is all there can be: each page is requested exactly once and no
+    // retry is pending when the update arrives.
+    it("walks the parent's pages once when no fetch fails", () =>
+        withReplyOnSecondPage(async ({ pkc, fixture, pages }) => {
+            const originalGetPage = RepliesPages.prototype.getPage;
+            const requestedPageCids: string[] = [];
+            vi.spyOn(RepliesPages.prototype, "getPage").mockImplementation(async function (this: RepliesPages, args: GetPageArgs) {
+                requestedPageCids.push(args.cid);
+                return originalGetPage.call(this, args);
+            });
+            const reply = await pkc.createComment({ cid: fixture.replyCid! });
+            const errors = recordErrors(reply);
+            await reply.update();
+            await waitForUpdate(reply, () => `state ${reply.updatingState}, pages requested: ${requestedPageCids.join(", ")}`);
+
+            expect(requestedPageCids).to.deep.equal([pages.first, pages.second]);
+            expect(errors).to.deep.equal([]);
+            const { manager } = updatingInternals(pkc, fixture.replyCid!, fixture.commentCid);
+            expect(manager._transientFetchRetry.attempts).to.equal(0);
+            expect(manager._transientFetchRetry.timer).to.be.undefined;
+
+            // And no second walk follows the one that found the reply
+            await new Promise((resolve) => setTimeout(resolve, noRetryWindowMs));
+            expect(requestedPageCids).to.deep.equal([pages.first, pages.second]);
+            await reply.stop();
+        }));
+
     for (const failingPage of ["first", "second"] as const) {
         it(`still receives its CommentUpdate when the fetch of the parent's ${failingPage} page fails once`, () =>
             withReplyOnSecondPage(async ({ pkc, fixture, pages }) => {
