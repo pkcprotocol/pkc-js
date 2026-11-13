@@ -929,7 +929,7 @@ export class CommunityClientsManager extends PKCClientsManager {
     }
 
     async fetchNewUpdateForCommunity(communityAddress: string): Promise<ResultOfFetchingCommunity> {
-        return this._withInflightCommunityFetch(communityAddress, async () => {
+        const fetchCommunity = async (): Promise<ResultOfFetchingCommunity> => {
             let ipnsName: string | null;
             const isDomain = isStringDomain(communityAddress);
 
@@ -1047,7 +1047,10 @@ export class CommunityClientsManager extends PKCClientsManager {
                     this._pkc._memCaches.communityForPublishing.set(identityPublicKey, communityForPublishing);
             }
             return subRes;
-        });
+        };
+        // The stop signal is this community's own cancellation: when the fetch we joined belongs to another
+        // community that gets stopped, we fetch on our own instead, unless this community was stopped too
+        return this._withInflightCommunityFetch(communityAddress, fetchCommunity, this._community._getStopAbortSignal());
     }
 
     // True while the libp2p-js resolver's push-channel watchdog vouches for `ipnsName`'s topic
@@ -1196,7 +1199,26 @@ export class CommunityClientsManager extends PKCClientsManager {
         // if all gateways returned the same community.updateCid
         const gatewayFetches: CommunityGatewayFetch = {};
 
-        for (const gatewayUrl of gatewaysSorted) {
+        const stopSignal = this._community._getStopAbortSignal();
+        const onStopAbort = () => cleanUp();
+
+        const cleanUp = () => {
+            queueLimit.clearQueue();
+            Object.values(gatewayFetches).forEach((gateway) => {
+                if (!gateway.communityRecord && !gateway.error) gateway.abortController.abort("Cleaning up requests for community");
+                clearTimeout(gateway.timeoutId);
+            });
+            if (stopSignal) stopSignal.removeEventListener("abort", onStopAbort);
+        };
+
+        // Before any gateway is queued, so a community stopped during the sort above asks no gateway. After a later
+        // stop, the listener's cleanUp() is what keeps a queued gateway from starting its request
+        if (stopSignal) {
+            throwIfAbortSignalAborted(stopSignal);
+            stopSignal.addEventListener("abort", onStopAbort, { once: true });
+        }
+
+        for (const [gatewayIndex, gatewayUrl] of gatewaysSorted.entries()) {
             const abortController = new AbortController();
             const throwIfGatewayRespondsWithInvalidCommunity: OptionsToLoadFromGateway["validateGatewayResponseFunc"] = async (
                 gatewayRes
@@ -1367,44 +1389,35 @@ export class CommunityClientsManager extends PKCClientsManager {
             for (const cid of Array.from(this._updateCidsAlreadyLoaded.values()).slice(-5)) etagsForConditionalRequest.add(`"${cid}"`);
             const requestHeaders =
                 etagsForConditionalRequest.size > 0 ? { "If-None-Match": Array.from(etagsForConditionalRequest).join(", ") } : undefined;
-            gatewayFetches[gatewayUrl] = {
-                abortController,
-                promise: queueLimit(() =>
-                    this._fetchWithGateway(gatewayUrl, {
-                        recordIpfsType: "ipns",
-                        root: ipnsName,
-                        recordPKCType: "community",
-                        validateGatewayResponseFunc: throwIfGatewayRespondsWithInvalidCommunity,
-                        abortRequestErrorBeforeLoadingBodyFunc: checkResponseHeadersIfOldCid,
-                        abortController,
-                        maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS,
-                        timeoutMs: this._pkc._timeouts["community-ipns"],
-                        log,
-                        requestHeaders: requestHeaders
-                    })
-                ),
-                timeoutId: setTimeout(
+            const gatewayFetch = { abortController } as CommunityGatewayFetch[string];
+            gatewayFetches[gatewayUrl] = gatewayFetch;
+            const armTimeout = () =>
+                (gatewayFetch.timeoutId = setTimeout(
                     () => abortController.abort("Aborting community IPNS request because it timed out after " + timeoutMs + "ms"),
                     timeoutMs
-                )
-            };
-        }
-
-        const stopSignal = this._community._getStopAbortSignal();
-        const onStopAbort = () => cleanUp();
-
-        const cleanUp = () => {
-            queueLimit.clearQueue();
-            Object.values(gatewayFetches).forEach((gateway) => {
-                if (!gateway.communityRecord && !gateway.error) gateway.abortController.abort("Cleaning up requests for community");
-                clearTimeout(gateway.timeoutId);
+                ));
+            // The timeout is this gateway's own, so it runs from when the gateway can send its request, as in
+            // fetchFromMultipleGateways: armed now for the first `concurrencyLimit` gateways, which get a slot at once, and
+            // when its request starts for a gateway that waits for a slot. Armed at enqueue, a queued gateway's timeout would
+            // run down while it waits, and a gateway queued behind 3 hanging ones would start aborted. A gateway that
+            // cleanUp() reached first starts aborted anyway, and gets no timer cleanUp() can't clear
+            const startsAtOnce = gatewayIndex < concurrencyLimit;
+            if (startsAtOnce) armTimeout();
+            gatewayFetch.promise = queueLimit(() => {
+                if (!startsAtOnce && !abortController.signal.aborted) armTimeout();
+                return this._fetchWithGateway(gatewayUrl, {
+                    recordIpfsType: "ipns",
+                    root: ipnsName,
+                    recordPKCType: "community",
+                    validateGatewayResponseFunc: throwIfGatewayRespondsWithInvalidCommunity,
+                    abortRequestErrorBeforeLoadingBodyFunc: checkResponseHeadersIfOldCid,
+                    abortController,
+                    maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS,
+                    timeoutMs: this._pkc._timeouts["community-ipns"],
+                    log,
+                    requestHeaders: requestHeaders
+                });
             });
-            if (stopSignal) stopSignal.removeEventListener("abort", onStopAbort);
-        };
-
-        if (stopSignal) {
-            throwIfAbortSignalAborted(stopSignal);
-            stopSignal.addEventListener("abort", onStopAbort, { once: true });
         }
 
         const _findRecentCommunity = (): { community: CommunityIpfsType; cid: string } | undefined => {
