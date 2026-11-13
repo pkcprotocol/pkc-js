@@ -6,7 +6,8 @@ import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
 import { STORAGE_KEYS } from "../../../../constants.js";
 import { parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails } from "../../../../schema/schema-util.js";
-import { closeSync, openSync } from "node:fs";
+import { closeSync, existsSync, openSync } from "node:fs";
+import Database from "better-sqlite3";
 import { deriveDbPosts, resolveDbPostsCidRefs, importSignerIntoKuboNode, removeFileRetryingWhileBusy } from "../../util.js";
 import { SignerWithPublicKeyAddress } from "../../../../signer/index.js";
 import { getIpfsKeyFromPrivateKey, getPublicKeyFromPrivateKey } from "../../../../signer/util.js";
@@ -246,6 +247,33 @@ export async function setChallengesToDefaultIfNotDefined(community: LocalCommuni
     }
 }
 
+// Whether the DB file holds a community's internal state: true, false, or undefined when the file could not be read
+// well enough to tell (locked by another connection, an I/O error). A file that is missing, is not a database or has
+// no keyv table holds none
+function doesDbFileHoldInternalState({
+    dbFilePath,
+    internalStateKey,
+    log
+}: {
+    dbFilePath: string;
+    internalStateKey: string;
+    log: Logger;
+}): boolean | undefined {
+    if (!existsSync(dbFilePath)) return false;
+    let db: Database.Database | undefined;
+    try {
+        db = new Database(dbFilePath, { readonly: true, fileMustExist: true });
+        return db.prepare("SELECT 1 FROM keyv WHERE key = ?").get(`keyv:${internalStateKey}`) !== undefined;
+    } catch (e) {
+        const code = (e as { code?: unknown }).code;
+        if (typeof code === "string" && ["SQLITE_NOTADB", "SQLITE_ERROR"].includes(code)) return false;
+        log.error(`Failed to tell whether ${dbFilePath} holds an internal state, leaving the file in place`, e);
+        return undefined;
+    } finally {
+        db?.close();
+    }
+}
+
 export async function createNewLocalCommunityDb(community: LocalCommunity) {
     // We're creating a totally new community here with a new db
     // This function should be called only once per community
@@ -327,19 +355,15 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
 
         await community._dbHandler.keyvSet(internalStateKey, community.toJSONInternalBeforeFirstUpdate());
     } catch (e) {
-        // Another call may have written its internal state into the file this one created. Then it is a community
-        let hasInternalState = false;
-        try {
-            hasInternalState = community._dbHandler.keyvHas(internalStateKey);
-        } catch {
-            // no connection, or not a database: there is no internal state to keep
-        }
         try {
             community._dbHandler.destoryConnection();
         } catch (closeError) {
             log.error(`Failed to close the DB of community (${community.address}) after its creation failed`, closeError);
         }
-        if (createdDbFile && !hasInternalState)
+        // Another call may have written its internal state into the file this one created. Then it is a community and
+        // stays. The file is read for that, not the connection, which a failed table creation has closed already. The
+        // file is removed only when it is known to hold no internal state
+        if (createdDbFile && doesDbFileHoldInternalState({ dbFilePath, internalStateKey, log }) === false)
             for (const filePath of [dbFilePath, `${dbFilePath}-wal`, `${dbFilePath}-shm`])
                 await removeFileRetryingWhileBusy(filePath, { log }).catch((removeError) =>
                     log.error(`Failed to remove ${filePath} after the creation of community (${community.address}) failed`, removeError)

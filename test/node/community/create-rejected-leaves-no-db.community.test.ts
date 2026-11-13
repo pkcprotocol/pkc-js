@@ -1,5 +1,6 @@
 import { it, expect, beforeAll, afterAll, afterEach, describe, vi } from "vitest";
 import fs from "fs";
+import Database from "better-sqlite3";
 import path from "path";
 import { mockPKC } from "../../../dist/node/test/test-util.js";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
@@ -121,6 +122,43 @@ describeSkipIfRpc("createCommunity rejected for invalid settings leaves no commu
             const community = await pkc.createCommunity({ address: signer.address });
             expect(community.signer?.address).to.equal(signer.address);
             await community.delete();
+        });
+
+        // A failed table creation closes the connection before it throws, so whether the file holds an internal state
+        // can't be asked of that connection any more. The file is read again for the answer: another creator may have
+        // written its state into the file this call created.
+        it("keeps a DB that holds another creator's internal state when creating the tables fails", async () => {
+            const signer = await pkc.createSigner();
+            const filePath = path.join(pkc.dataPath!, "communities", signer.address);
+            const internalStateKey = `keyv:${STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]}`;
+            const realCreateTables = DbHandler.prototype.createOrMigrateTablesIfNeeded;
+            vi.spyOn(DbHandler.prototype, "createOrMigrateTablesIfNeeded").mockImplementation(async function (this: DbHandler) {
+                await realCreateTables.call(this);
+                const otherCreator = new Database(filePath);
+                otherCreator
+                    .prepare("INSERT INTO keyv (key, value) VALUES (?, ?)")
+                    .run(internalStateKey, JSON.stringify({ value: { signer: { address: signer.address } } }));
+                otherCreator.close();
+                this.destoryConnection(); // as the real failure path does before it throws
+                throw new Error("creating the tables failed");
+            });
+
+            let thrown: unknown;
+            try {
+                await pkc.createCommunity({ signer });
+            } catch (e) {
+                thrown = e;
+            }
+            vi.restoreAllMocks();
+            expect((thrown as Error | undefined)?.message).to.equal("creating the tables failed");
+            expect(fs.existsSync(filePath)).to.be.true;
+            const db = new Database(filePath, { readonly: true });
+            try {
+                expect(db.prepare("SELECT 1 FROM keyv WHERE key = ?").get(internalStateKey)).to.exist;
+            } finally {
+                db.close();
+            }
+            for (const filename of filesOf(signer.address)) fs.rmSync(path.join(pkc.dataPath!, "communities", filename), { force: true });
         });
 
         // The cleanup is for a DB that has no internal state. Once the state is written the community exists, and a
