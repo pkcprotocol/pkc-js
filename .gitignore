@@ -137,3 +137,4 @@ src/generated-version.ts
 .tmp/
 pkc-js-rinse*/
 .pkc*/
+/.cursor/
