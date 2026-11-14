@@ -122,6 +122,7 @@ import type {
 import type { CommunityExportRecord } from "../../community/types.js";
 import { findStartedCommunity } from "../../pkc/tracked-instance-registry-util.js";
 import { findLocalCommunityAddress, listCommunitiesSync } from "../../runtime/node/util.js";
+import { isCommunityStartLocked, START_LOCK_STALE_MS } from "../../runtime/node/community/start-lock.js";
 
 // store started communities to be able to stop them
 // store as a singleton because not possible to start the same community twice at the same time
@@ -134,6 +135,14 @@ const DESTROY_CLIENTS_CLOSE_TIMEOUT_MS = 5_000;
 // With factor=2, minTimeout=2s, maxTimeout=15s this spans ~89s of backoff, comfortably covering a
 // ~30-60s embedded-Kubo restart window observed in production (issue #158).
 const AUTO_START_TRANSIENT_RETRIES = 8;
+
+// How long auto-start waits for a start lock it finds held at boot. A process that was killed leaves its start lock
+// behind, and the lock only goes stale START_LOCK_STALE_MS after that process last refreshed it. A server restarted
+// sooner than that (a supervisor with a short restart delay) would otherwise fail the start with
+// ERR_COMMUNITY_ALREADY_STARTED and never host the community again. The margin covers the poll interval and coarse
+// file timestamps. A lock that is still held after this belongs to a live process, and the start fails as before.
+const AUTO_START_LEFTOVER_LOCK_WAIT_MS = START_LOCK_STALE_MS + 2000;
+const AUTO_START_LEFTOVER_LOCK_POLL_MS = 500;
 
 // Transient errors thrown when a request hits a Kubo node that is restarting or briefly unreachable.
 // These are safe to retry; anything else (e.g. a bad signature, a missing community) is not.
@@ -529,6 +538,11 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                 limit(async () => {
                     autoStartLog(`Auto-starting community: ${address}`);
                     try {
+                        await this._waitForLeftoverStartLockToExpire({ address, dataPath: pkc.dataPath });
+                        if (address in this._startedCommunities) {
+                            autoStartLog(`Skipping auto-start for ${address} - started while waiting for its start lock`);
+                            return;
+                        }
                         // Bug 2 (issue #158): a community whose start hits a transient Kubo blip
                         // (e.g. a boot-time restart window) must not be left permanently stopped.
                         // Retry transient network errors with backoff; non-transient errors abort
@@ -555,6 +569,30 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                 })
             )
         );
+    }
+
+    // Nothing in this process holds the start lock of a community that auto-start is about to start, so a held lock
+    // is either left over from a process that died without releasing it, or held by another live process on the same
+    // dataPath. The two look the same until the lock goes stale, so wait for that, and never remove the lock here:
+    // start() takes over a stale lock itself and still fails on one a live process keeps refreshing.
+    private async _waitForLeftoverStartLockToExpire({ address, dataPath }: { address: string; dataPath: PKC["dataPath"] }) {
+        if (!dataPath) return;
+        const autoStartLog = Logger("pkc-js-rpc:pkc-ws-server:auto-start");
+        const deadline = Date.now() + AUTO_START_LEFTOVER_LOCK_WAIT_MS;
+        let logged = false;
+        // Stops early when a client started the community meanwhile: the lock is then held by this process
+        while (!(address in this._startedCommunities) && (await isCommunityStartLocked({ dataPath, communityAddress: address }))) {
+            if (Date.now() >= deadline) {
+                autoStartLog(`The start lock of ${address} is still held after ${AUTO_START_LEFTOVER_LOCK_WAIT_MS}ms, by a live process`);
+                return;
+            }
+            if (!logged)
+                autoStartLog(
+                    `The start lock of ${address} is held, waiting up to ${AUTO_START_LEFTOVER_LOCK_WAIT_MS}ms for it to go stale`
+                );
+            logged = true;
+            await new Promise((resolve) => setTimeout(resolve, AUTO_START_LEFTOVER_LOCK_POLL_MS));
+        }
     }
 
     private async _internalStartCommunity(address: string): Promise<LocalCommunity> {
