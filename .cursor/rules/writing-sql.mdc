@@ -1,6 +1,0 @@
----
-description: 
-globs: 
-alwaysApply: true
----
-If you write a query in db-handler.ts, you should make sure we're processing null to be undefined
