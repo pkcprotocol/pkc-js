@@ -9,7 +9,7 @@
 //   - requireCommunityUpdateIfModQueueChanged (single DB call + state mutation)
 //   - addOldPageCidsToCidsToUnpin (early-return branch)
 
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
     addOldPageCidsToCidsToUnpin,
     calculateLatestUpdateTrigger,
@@ -210,5 +210,56 @@ describe("ipns-publishing: updateCommunityIpnsIfNeeded", () => {
 
         await updateCommunityIpnsIfNeeded(community, []);
         expect(queryCommunityStats).not.toHaveBeenCalled();
+    });
+});
+
+// Issue #239: on the first publish after start() the community resolves its own IPNS name, only to log a record that
+// points somewhere unexpected. publishCommunityRecordToIpns awaits it, so the resolve used to hold up the first record
+// after a restart for as long as the node took to give up (60s on a kubo node with no peers, 120s at most), and
+// comments accepted meanwhile were missing from the record and its pages.
+describe("ipns-publishing: resolveIpnsAndLogIfPotentialProblematicSequence", () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    const createCommunityWithOwnNameResolve = (resolveIpnsToCidP2P: (ipnsName: string, opts: { timeoutMs: number }) => Promise<never>) =>
+        ({
+            address: "community.bso",
+            updateCid: "QmLastPublishedRecord",
+            signer: { ipnsKeyName: "community-key" },
+            _clientsManager: { resolveIpnsToCidP2P }
+        }) as unknown as LocalCommunity;
+
+    it("gives up within 10s on a resolve the node does not answer", async () => {
+        vi.useFakeTimers();
+        // Like the real resolveIpnsToCidP2P on a node that holds the request: nothing comes back until timeoutMs
+        // is up, then it rejects
+        const resolveIpnsToCidP2P = vi.fn(
+            (_ipnsName: string, opts: { timeoutMs: number }) =>
+                new Promise<never>((_resolve, reject) =>
+                    setTimeout(() => reject(new Error("ERR_IPNS_RESOLUTION_P2P_TIMEOUT")), opts.timeoutMs)
+                )
+        );
+        const community = createCommunityWithOwnNameResolve(resolveIpnsToCidP2P);
+
+        let settled = false;
+        const resolving = resolveIpnsAndLogIfPotentialProblematicSequence(community).then(() => {
+            settled = true;
+        });
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(resolveIpnsToCidP2P).toHaveBeenCalledOnce();
+        expect(settled, "the first publish after start would still be waiting for the resolve").to.be.true;
+        await resolving;
+    });
+
+    it("does not throw when the resolve fails", async () => {
+        const resolveIpnsToCidP2P = vi.fn(async (): Promise<never> => {
+            throw new Error("ERR_RESOLVED_IPNS_P2P_TO_UNDEFINED");
+        });
+
+        await resolveIpnsAndLogIfPotentialProblematicSequence(createCommunityWithOwnNameResolve(resolveIpnsToCidP2P));
+
+        expect(resolveIpnsToCidP2P).toHaveBeenCalledOnce();
     });
 });

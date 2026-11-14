@@ -449,9 +449,9 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
             );
         });
         // Starting the rotated community is deliberately NOT in the hook above: the first publish of a
-        // minter whose name has never resolved blocks for a minute inside
-        // resolveIpnsAndLogIfPotentialProblematicSequence, a diagnostic-only resolve with a 120s
-        // timeout, and a hook carrying that plus the rest blew the 160s hook budget.
+        // minter whose name has never resolved used to block for a minute inside
+        // resolveIpnsAndLogIfPotentialProblematicSequence, a diagnostic-only resolve that then had a
+        // 120s timeout (issue #239), and a hook carrying that plus the rest blew the 160s hook budget.
 
         afterAll(async () => {
             await readerAfterRotation?.destroy();
