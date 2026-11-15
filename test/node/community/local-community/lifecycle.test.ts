@@ -134,6 +134,7 @@ describe("lifecycle: stopping a community that lost its start lock", () => {
             updatedAt: Math.round(Date.now() / 1000),
             _startLockLost: true,
             _stopHasBeenCalled: false,
+            _editStoresInFlight: new Set<Promise<unknown>>(),
             _pendingEditProps: [{ editId: "pending-edit" }],
             _cidsToUnPin: new Set(["QmStaleCidQueuedForUnpinning"]),
             _blocksToRm: [],

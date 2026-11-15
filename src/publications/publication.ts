@@ -1015,6 +1015,14 @@ class Publication extends TypedEmitter<PublicationEvents> {
         });
     }
 
+    // True when at least one challenge request reached pubsub without the provider throwing. The
+    // publish timestamp is only recorded after a successful publish call.
+    private _wasAnyChallengeRequestPublished(): boolean {
+        return Object.values(this._challengeExchanges).some(
+            (exchange) => typeof exchange.challengeRequestPublishTimestamp === "number" && !exchange.challengeRequestPublishError
+        );
+    }
+
     // stop() and pkc.destroy() are not cancellation: they unsubscribe and mark us stopped, but a
     // pubsub subscribe that was already in flight still resolves afterwards and the publish loop
     // carries on to publish a challenge request behind a torn-down PKC. Worse, that subscribe
@@ -1418,10 +1426,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     log(`Published a challenge request of publication`, this.getType(), "with provider", providerUrl);
                     this.emit("challengerequest", decryptedRequest);
                     if (currentPubsubProviderIndex !== providers.length)
-                        await sleepUntilTimeoutOrAbort(
-                            this._publishToDifferentProviderThresholdSeconds * 1000,
-                            runSignal
-                        );
+                        await sleepUntilTimeoutOrAbort(this._publishToDifferentProviderThresholdSeconds * 1000, runSignal);
                     if (this._isPublishRunOver(runSignal)) return;
                 }
                 await sleepUntilTimeoutOrAbort(this._setProviderFailureThresholdSeconds * 1000, runSignal);
@@ -1440,12 +1445,26 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     return;
                 }
                 if (this._isAllAttemptsExhausted(providers.length)) {
+                    // Read before the cleanup below, and say what actually happened. A request that
+                    // reached pubsub and was met with silence may still be accepted by a community
+                    // that is slow or busy (issue #362), so that is "no response", never "all
+                    // providers threw". Only when no request could be published at all is the
+                    // publication known not to have reached the community.
+                    const aRequestWasPublished = this._wasAnyChallengeRequestPublished();
                     await this._postSucessOrFailurePublishing();
-                    const allAttemptsFailedError = new PKCError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {
-                        challengeExchanges: this._challengeExchangesFormattedForErrors(),
-                        pubsubTopic: this._community?.pubsubTopic,
-                        providerHeliaContexts: this._libp2pJsClientHeliaContexts()
-                    });
+                    const allAttemptsFailedError = aRequestWasPublished
+                        ? new PKCError("ERR_PUBSUB_DID_NOT_RECEIVE_RESPONSE_AFTER_PUBLISHING_CHALLENGE_REQUEST", {
+                              challengeExchanges: this._challengeExchangesFormattedForErrors(),
+                              pubsubTopic: this._community?.pubsubTopic,
+                              publishToDifferentProviderThresholdSeconds: this._publishToDifferentProviderThresholdSeconds,
+                              setProviderFailureThresholdSeconds: this._setProviderFailureThresholdSeconds,
+                              providerHeliaContexts: this._libp2pJsClientHeliaContexts()
+                          })
+                        : new PKCError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {
+                              challengeExchanges: this._challengeExchangesFormattedForErrors(),
+                              pubsubTopic: this._community?.pubsubTopic,
+                              providerHeliaContexts: this._libp2pJsClientHeliaContexts()
+                          });
                     log.error("All attempts to publish", this.getType(), "has failed", allAttemptsFailedError);
                     this._changePublicationStateEmitEventEmitStateChangeEvent({
                         newPublishingState: "failed",
