@@ -502,8 +502,9 @@ export async function stop(community: LocalCommunity) {
     // for a start() begun while it waited (from a listener during a failed start()'s teardown), so it stops that one too.
     // A stop() that is tearing down is waited for as well: two teardowns at once each released the start lock and closed
     // the DB, also those of a start() that a "stopped" listener began once the first teardown was done.
-    while (community._startOrUpdateInFlight || community._stopInFlight) {
-        await (community._startOrUpdateInFlight ?? community._stopInFlight);
+    // The DB write of an edit() of this started community is waited for too: the teardown closes the connection it uses.
+    while (community._startOrUpdateInFlight || community._stopInFlight || community._editStoresInFlight.size > 0) {
+        await (community._startOrUpdateInFlight ?? community._stopInFlight ?? Promise.allSettled([...community._editStoresInFlight]));
         community._stopHasBeenCalled = true; // a start() begun meanwhile cleared it
     }
     let settle!: () => void;

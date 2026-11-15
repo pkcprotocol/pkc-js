@@ -488,36 +488,125 @@ describeSkipIfRpc("edit() on a started community", () => {
         await community.stop();
     });
 
-    it("stays in the DB when stop() stores the whole record while the edit holds the state lock", async () => {
+    it("stays in the DB when stop() is called while the edit holds the state lock: stop() waits for the edit's write", async () => {
         const { community } = await createOfflineCommunity();
         await community.start();
         const title = `edited ${uuidV4()}`;
 
-        // Hold edit() once it has stored the edit and still holds the state lock, until stop() asks for that lock to store
-        // the whole record. stop() used to build that record before taking the lock, without the edit, and wrote it over the edit.
+        // Hold edit() once it has stored the edit and still holds the state lock, until stop() has been called. stop() used
+        // to build the whole record before taking the lock, without the edit, and wrote it over the edit.
         const dbHandler = community._dbHandler;
-        const lockCommunityState = dbHandler.lockCommunityState.bind(dbHandler);
         const unlockCommunityState = dbHandler.unlockCommunityState.bind(dbHandler);
         const editStored = deferred();
-        const stopWaitsForLock = deferred();
+        const stopCalled = deferred();
         let editHeld = false;
         dbHandler.unlockCommunityState = async () => {
             if (!editHeld) {
                 editHeld = true;
                 editStored.resolve();
-                await stopWaitsForLock.promise;
+                await stopCalled.promise;
             }
             return unlockCommunityState();
-        };
-        dbHandler.lockCommunityState = async () => {
-            if (editHeld) stopWaitsForLock.resolve();
-            return lockCommunityState();
         };
 
         const editPromise = community.edit({ title });
         await editStored.promise;
         const stopPromise = community.stop();
+        stopCalled.resolve();
         await Promise.all([editPromise, stopPromise]);
+        expect(community.state).to.equal("stopped");
+        expect(community.title).to.equal(title);
+
+        // What the next start() would load
+        await dbHandler.initDbIfNeeded();
+        try {
+            expect((await community._getDbInternalState(false)).title).to.equal(title);
+        } finally {
+            dbHandler.destoryConnection();
+        }
+    });
+
+    it("called while stop() is tearing down waits for the teardown, then edits the stopped community", async () => {
+        const { community } = await createOfflineCommunity();
+        await community.start();
+        const title = `edited ${uuidV4()}`;
+
+        // Hold stop() while it stores its record and holds the state lock. An edit() called then used to find the lock
+        // held, and retry a second later on the connection stop() had closed by then: it rejected with a TypeError.
+        const dbHandler = community._dbHandler;
+        const lockCommunityState = dbHandler.lockCommunityState.bind(dbHandler);
+        const unlockCommunityState = dbHandler.unlockCommunityState.bind(dbHandler);
+        const stopHoldsLock = deferred();
+        const releaseStop = deferred();
+        const editAsksForLock = deferred();
+        let stopHeld = false;
+        dbHandler.unlockCommunityState = async () => {
+            if (!stopHeld) {
+                stopHeld = true;
+                stopHoldsLock.resolve();
+                await releaseStop.promise;
+            }
+            return unlockCommunityState();
+        };
+        dbHandler.lockCommunityState = async () => {
+            if (stopHeld) editAsksForLock.resolve();
+            return lockCommunityState();
+        };
+
+        const stopPromise = community.stop();
+        await stopHoldsLock.promise;
+        const editPromise = community.edit({ title });
+        // Released once the edit's attempt at the lock has failed and it waits to retry. An edit() that waits for the
+        // teardown never asks for the lock stop() holds, so this is released on a timer then.
+        await Promise.race([editAsksForLock.promise.then(() => sleep(200)), sleep(500)]);
+        releaseStop.resolve();
+        await stopPromise;
+        await expect(editPromise).resolves.to.equal(community);
+        expect(community.state).to.equal("stopped");
+        expect(community.title).to.equal(title);
+
+        // What the next start() would load
+        await dbHandler.initDbIfNeeded();
+        try {
+            expect((await community._getDbInternalState(false)).title).to.equal(title);
+        } finally {
+            dbHandler.destoryConnection();
+        }
+    });
+
+    it("that is still storing itself when stop() is called is waited for by stop()", async () => {
+        const { community } = await createOfflineCommunity();
+        await community.start();
+        const title = `edited ${uuidV4()}`;
+
+        // Hold edit() before it takes the state lock. A stop() called then used to run its whole teardown and close the
+        // connection, and the edit took the lock on a closed connection: it rejected with a TypeError.
+        const dbHandler = community._dbHandler;
+        const lockCommunityState = dbHandler.lockCommunityState.bind(dbHandler);
+        const editAsksForLock = deferred();
+        const releaseEdit = deferred();
+        let editHeld = false;
+        dbHandler.lockCommunityState = async () => {
+            if (!editHeld) {
+                editHeld = true;
+                editAsksForLock.resolve();
+                await releaseEdit.promise;
+            }
+            return lockCommunityState();
+        };
+
+        const editPromise = community.edit({ title });
+        await editAsksForLock.promise;
+        let stopSettled = false;
+        const stopPromise = community.stop().then(() => {
+            stopSettled = true;
+        });
+        // a stop() that waits for the edit cannot settle before the edit is released, so this is released on a timer then
+        await Promise.race([stopPromise, sleep(500)]);
+        expect(stopSettled).to.equal(false);
+        releaseEdit.resolve();
+        await expect(editPromise).resolves.to.equal(community);
+        await stopPromise;
         expect(community.state).to.equal("stopped");
         expect(community.title).to.equal(title);
 

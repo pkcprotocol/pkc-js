@@ -282,7 +282,17 @@ export async function editPropsOnStartedCommunity(
         // throws on empty props. The props are copied because it sets _internalStateUpdateId on what it gets.
         // Keep the in-memory apply below right after this write, with no I/O between them: the publish cycle and stop() build
         // the whole record from the instance once they hold the state lock, and must find the edit there once it is stored.
-        if (!isEmpty(parsedEditOptions)) await updateDbInternalState(community, { ...parsedEditOptions });
+        // stop() waits for this write before it tears down. It closes the DB connection, and a write that lost the state lock
+        // to it retried a second later on the closed connection and rejected with a TypeError.
+        if (!isEmpty(parsedEditOptions)) {
+            const store = updateDbInternalState(community, { ...parsedEditOptions });
+            community._editStoresInFlight.add(store);
+            try {
+                await store;
+            } finally {
+                community._editStoresInFlight.delete(store);
+            }
+        }
         community._pendingEditProps.push({ ...parsedEditOptions, editId: uniqueEditId });
     }
 
@@ -354,6 +364,11 @@ export async function edit(community: LocalCommunity, newCommunityOptions: Commu
     // 3 - calling edit() on a community that's not started (should load db and edit it)
     // 4 - calling edit() on the community that's started (should edit the started community)
 
+    // A stop() that is tearing this instance down keeps the state "started" until it is done, and closes the DB connection
+    // on the way. Editing it as a started community meanwhile wrote to that connection. Waited for, the edit then finds the
+    // community stopped (sceneario 3), or started again by a "stopped" listener.
+    while (community._stopInFlight) await community._stopInFlight;
+
     const startedCommunity = <LocalCommunity | undefined>(
         (findStartedCommunity(community._pkc, { publicKey: community.publicKey, name: community.name }) ||
             findProcessStartedCommunity(community))
@@ -398,6 +413,9 @@ export async function edit(community: LocalCommunity, newCommunityOptions: Commu
         ...omit(editWithDerivedName, ["roles"]), // we omit here to make tsc shut up
         ...newInternalProps
     };
+
+    // a stop() began tearing down while the awaits above ran: what they found is stale, start over once it is done
+    if (community._stopInFlight) return edit(community, newCommunityOptions);
 
     if (!community.started && !startedCommunity) {
         // sceneario 3

@@ -168,7 +168,8 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _publishLoopPromise?: Promise<void> = undefined;
     _updateLoopPromise?: Promise<void> = undefined;
     _startOrUpdateInFlight?: Promise<void> = undefined; // settles once start() or update() is done setting up, stop() waits for it
-    _stopInFlight?: Promise<void> = undefined; // settles once stop() is done tearing down, a stop() called meanwhile waits for it
+    _stopInFlight?: Promise<void> = undefined; // settles once stop() is done tearing down, a stop() or edit() called meanwhile waits for it
+    _editStoresInFlight = new Set<Promise<unknown>>(); // the DB writes of edit() calls on this started community, stop() waits for them
     _updateLoopAbortController?: AbortController;
     _firstUpdateAfterStart: boolean = true;
     _internalStateUpdateId: InternalCommunityRecordBeforeFirstUpdateType["_internalStateUpdateId"] = "";
