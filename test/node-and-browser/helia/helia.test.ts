@@ -612,10 +612,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
 
             let settled = false;
             // No signal: only the stop can end this wait before its own 10 s timeout
-            const subscribePromise = heliaShape.pubsub.subscribe(unknownTopic, () => {}).then(
-                () => (settled = true),
-                () => (settled = true)
-            );
+            const subscribePromise = heliaShape.pubsub
+                .subscribe(unknownTopic, () => {})
+                .then(
+                    () => (settled = true),
+                    () => (settled = true)
+                );
             // Let the warmup reach its subscriber wait
             await new Promise((resolve) => setTimeout(resolve, 500));
             expect(settled, "the warmup should still be waiting for a subscriber").to.be.false;
