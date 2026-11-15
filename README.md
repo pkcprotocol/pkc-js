@@ -43,9 +43,9 @@ Comment extends Publication /* (IPFS file) */ {
   quotedCids?: string[] // CIDs of comments being quoted/referenced in this reply
   crosspost?: {cid: string, comment: Comment} // this comment IS a repost of the embedded comment, which is stored verbatim so the crossposting community can moderate it independently
   gallery?: GalleryItem[] // several images, videos or audio files, shown after the link card if both are set. Never empty, absent when there is no gallery. A gallery alone counts as content
+  postCid?: string // required on replies, helps faster loading post info for reply direct linking, undefined for posts, a post can't know its own CID
   // below are added by community owner, not author
   previousCid?: string // each comment/post is a linked list of other comments/posts with same comment.depth and comment.parentCid, undefined if first comment in list
-  postCid?: string // helps faster loading post info for reply direct linking, undefined for posts, a post can't know its own CID
   depth: number // 0 = post, 1 = top level reply, 2+ = nested reply
   thumbnailUrl?: string // optionally fetched by community owner, some web pages have thumbnail urls in their meta tags https://moz.com/blog/meta-data-templates-123
   thumbnailUrlWidth?: number // community owner can optionally provide dimensions of thumbails which helps UI clients with infinite scrolling feeds
@@ -122,8 +122,10 @@ CommentUpdate /* (IPFS file) */ {
   lastChildCid?: string // the CID of the most recent direct reply that childCount counts
 }
 Author {
-  address: string
+  address: string // not part of IPFS files, added to `Author` instance as convenience: author.name if there is one, else author.publicKey
+  publicKey: string // not part of IPFS files, added to `Author` instance as convenience, derived from the publication's signature.publicKey
   shortAddress: string // not part of IPFS files, added to `Author` instance as convenience. Copy address, if address is a hash, remove hash prefix and trim to 12 first chars
+  nameResolved?: boolean // not part of IPFS files, whether author.name resolved to the signing key
   name?: string // author chosen username
   previousCommentCid?: string // linked list of the author's comments
   displayName?: string
@@ -168,7 +170,9 @@ Signer {
   ipfsKey?: IpfsKey // a Key object used for importing into IpfsHttpClient https://docs.ipfs.io/reference/cli/#ipfs-key-import
 }
 Community /* (IPNS record, identified by community's public key) */ {
-  address: string // instance-only convenience property, not part of the IPNS record. Validate community address in signature to prevent a crypto domain resolving to an impersonated community
+  address: string // instance-only convenience property, not part of the IPNS record: community.name if there is one, else community.publicKey. Validate community address in signature to prevent a crypto domain resolving to an impersonated community
+  publicKey: string // instance-only convenience property, not part of the IPNS record: the IPNS name derived from the record's signature.publicKey
+  name?: string // optional crypto domain name of the community (e.g. 'memes.bso')
   title?: string
   description?: string
   roles?: {[authorAddress: string]: CommunityRole} // each author address can be mapped to 1 CommunityRole
@@ -176,6 +180,11 @@ Community /* (IPNS record, identified by community's public key) */ {
   lastPostCid?: string // the most recent post in the linked list of posts
   lastCommentCid?: string // the most recent comment (posts and replies included), last comment is often displayed with a list of forums
   posts?: Pages // only preload page 1 sorted by 'hot', might preload more later, comments should include Comment + CommentUpdate data
+  modQueue?: Pages // pageCids only (e.g. community.modQueue.pageCids.pendingApproval), the comments waiting for a mod's approval
+  postUpdates?: {[bucket: string]: string} // CIDs of the folders that hold each post's CommentUpdate, posts are grouped into time-based buckets, see docs/protocol/comment-lifecycle.md
+  challenges: CommunityChallenge[] // public description of the challenges an author has to pass, without the private settings.challenges options
+  pageSorts?: CommunityPageSorts // present when settings.pages is set, the public config of each page sort, see docs/protocol/page-sorts.md
+  anchor?: {publicKey: string} // present exactly when the community is delegated, see docs/protocol/delegated-ipns.md
   statsCid?: string
   createdAt: number
   updatedAt: number
@@ -243,7 +252,7 @@ CommunityEncryption {
   publicKey: string // 32 bytes base64 string
 }
 CommunityRole {
-  role: 'owner' | 'admin' | 'moderator'
+  role: 'owner' | 'admin' | 'moderator' // any other non-empty string is accepted as a custom role, with no built-in permissions
   // TODO: custom roles with other props
 }
 Flair {
@@ -253,15 +262,15 @@ Flair {
   expiresAt?: number // timestamp in seconds, a flair assigned to an author by a mod will follow the author in future comments, unless it expires
 }
 Pages {
-  pages: {[key: PostsSortType | RepliesSortType]: Page} // e.g. community.posts.pages.hot.comments[0].cid = '12D3KooW...'
-  pageCids: {[key: PostsSortType | RepliesSortType]: pageCid} // e.g. community.posts.pageCids.topAll = '12D3KooW...'
+  pages: {[key: PostsSortType | RepliesSortType]: Page} // e.g. community.posts.pages.hot.comments[0].cid = 'Qm...'
+  pageCids?: {[key: PostsSortType | RepliesSortType]: pageCid} // e.g. community.posts.pageCids.topAll = 'Qm...', absent when everything fits in the preloaded page
 }
 Page {
-  nextCid: string // get next page (sorted by the same sort type)
+  nextCid?: string // get next page (sorted by the same sort type), undefined on the last page
   comments: Comment[] // Comments should include merged Comment and CommentUpdate
 }
 PageIpfs /* (IPFS file) */ {
-  nextCid: string // get next page (sorted by the same sort type)
+  nextCid?: string // get next page (sorted by the same sort type), undefined on the last page
   comments: PageIpfsComment[] // PageIpfs is fetched from IPFS, then Comments and CommentUpdates are merged to create the Page instance
 }
 PageIpfsComment {
@@ -327,7 +336,7 @@ PubsubMessage: {
   userAgent: `/pkc-js:${require('./package.json').version}/` // client name and version using this standard https://en.bitcoin.it/wiki/BIP_0014#Proposal
 }
 ChallengeRequestMessage extends PubsubMessage /* (sent by post author) */ {
-  acceptedChallengeTypes: string[] // list of challenge types the client can do, for example cli clients or old clients won't do all types
+  acceptedChallengeTypes?: string[] // list of challenge types the client can do, for example cli clients or old clients won't do all types
   encrypted: Encrypted
   /* ChallengeRequestMessage.encrypted.ciphertext decrypts to JSON {
     comment?: Comment
@@ -338,7 +347,7 @@ ChallengeRequestMessage extends PubsubMessage /* (sent by post author) */ {
     challengeAnswers?: string[] // some challenges might be included in community.challenges and can be pre-answered
     challengeCommentCids?: string[] // some challenges could require including comment cids in other communities, like friendly community karma challenges
   }
-  pkc-js should decrypt the encrypted fields when possible, and add `ChallengeRequestMessage.publication` property for convenience (not part of the broadcasted pubsub message) */
+  pkc-js should decrypt the encrypted fields when possible, and add them to the message for convenience, e.g. `ChallengeRequestMessage.comment` or `ChallengeRequestMessage.vote` (not part of the broadcasted pubsub message) */
 }
 ChallengeMessage extends PubsubMessage /* (sent by community owner) */ {
   encrypted: Encrypted
@@ -358,12 +367,12 @@ ChallengeVerificationMessage extends PubsubMessage /* (sent by community owner) 
   challengeSuccess: bool // true if the challenge was successfully completed by the requester
   challengeErrors?: {[challengeIndex: string]: string} // challenge index => challenge error, tell the user which challenge failed and why
   reason?: string // reason for failed verification, for example post content is too long. could also be used for successful verification that bypass the challenge, for example because an author has good history
-  encrypted: Encrypted
+  encrypted?: Encrypted // only when a comment was published successfully
   /* ChallengeVerificationMessage.encrypted.ciphertext decrypts to JSON {
-    comment?: Comment // must contain missing props from comment publication, like depth, postCid, etc
-    commentUpdate?: CommentUpdate // must contain commentUpdate.cid and commentUpdate.signature when publication is comment
+    comment: Comment // must contain missing props from comment publication, like depth, previousCid, etc
+    commentUpdate: CommentUpdate // only cid, signature, protocolVersion, author, number, postNumber and pendingApproval
   }
-  pkc-js should decrypt the encrypted fields when possible, and add `ChallengeVerificationMessage.publication` property for convenience (not part of the broadcasted pubsub message) */
+  pkc-js should decrypt the encrypted fields when possible, and add `ChallengeVerificationMessage.comment` and `ChallengeVerificationMessage.commentUpdate` properties for convenience (not part of the broadcasted pubsub message) */
 }
 Challenge {
   type: 'image/png' | 'text/plain' | 'chain/<chainTicker>' // tells the client how to display the challenge, start with implementing image and text only first
@@ -410,12 +419,15 @@ PubsubSignature {
   - `pkc.clients`
   - [`pkc.getDefaults()`](#pkcgetdefaults) *(not yet implemented)*
   - `pkc.fetchCid({cid})`
-  - `pkc.resolveAuthorAddress({address})`
-  - `PKC.getShortAddress({address})`
+  - `pkc.resolveAuthorName({name})`
+  - `pkc.destroy()`
+  - `PKC.getShortAddress({name})`
   - `PKC.getShortCid({cid})`
   - `PKC.setNativeFunctions(nativeFunctions)`
   - `PKC.nativeFunctions`
   - `PKC.challenges`
+  - `PKC.pageSorts`
+  - `PKC.createAnchorIpnsRecord({anchorSigner, minterIpnsName, sequence})`
 - [PKC Events](#pkc-events)
   - [`communitieschange`](#communitieschange)
   - `error`
@@ -489,7 +501,6 @@ PubsubSignature {
   - `comment.shortCid`
   - `(only available after first update event)`
   - `comment.edit`
-  - `comment.original`
   - `comment.upvoteCount`
   - `comment.downvoteCount`
   - `comment.updatedAt`
@@ -519,8 +530,8 @@ PubsubSignature {
   - `client.settings`
   - `client.setSettings(pkcRpcSettings)`
   - `client.rpcCall(method, params)`
-  - `client.getPeers()`
-  - `client.getStats()`
+  - `client.getPeers()` *(not yet implemented)*
+  - `client.getStats()` *(not yet implemented)*
 - [Client Events](#client-events)
   - [`statechange`](#statechange-2)
   - [`settingschange`](#settingschange)
@@ -567,13 +578,20 @@ An object which may have the following keys:
 #### Example
 
 ```js
-const PKC = require('@pkcprotocol/pkc-js')
+import PKC from '@pkcprotocol/pkc-js'
 const options = {
   kuboRpcClientsOptions: ['http://localhost:5001/api/v0'], // optional, must run an IPFS node to use localhost:5001/api/v0
-  dataPath: __dirname
+  dataPath: import.meta.dirname
 }
 const pkc = await PKC(options) // should be independent instance, not singleton
 pkc.on('error', console.log)
+```
+
+`pkc-js` is an ES module. From CommonJS, `require()` returns the module namespace, so the factory is on `.default` (calling the namespace itself throws `TypeError: PKC is not a function`):
+
+```js
+const PKC = require('@pkcprotocol/pkc-js').default
+const { getShortAddress, getShortCid } = require('@pkcprotocol/pkc-js') // the named exports are on the namespace
 ```
 
 ### Error handling
@@ -672,7 +690,9 @@ console.log(communityList.communities.map(entry => entry.address))
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| address | `string` | The `Address` of the community |
+| address | `string` or `undefined` | The `Address` of the community. At least one of `address`, `name` or `publicKey` is required |
+| name | `string` or `undefined` | Domain name of the community, e.g. `'memes.bso'` |
+| publicKey | `string` or `undefined` | IPNS public key of the community. Passing it with `name` loads without waiting on a name resolver |
 | abortSignal | `AbortSignal` | Optional. Cancels the fetch instead of waiting out the `community-ipns` timeout. Rejects with `ERR_GET_COMMUNITY_ABORTED`. |
 
 #### Returns
@@ -829,7 +849,9 @@ An object which may have the following keys:
 
 | Name | Type | Default | Description |
 | ---- | ---- | ------- | ----------- |
-| address | `string` or `undefined` | `undefined` | `Address` of the community |
+| address | `string` or `undefined` | `undefined` | `Address` of an existing community, either its domain name or its public key |
+| name | `string` or `undefined` | `undefined` | Domain name of an existing community, e.g. `'memes.bso'`, or the name to give a new one |
+| publicKey | `string` or `undefined` | `undefined` | IPNS public key of an existing community |
 | signer | `Signer` or `undefined` | `undefined` | (Community owners only) Optional `Signer` of the community to create a community with a specific private key |
 | anchor | `{publicKey: string}` or `undefined` | `undefined` | (Community owners only) Create a **delegated** community: the community's identity is this anchor IPNS name, whose private key you keep, and the node generates its own signing (minter) key. Mutually exclusive with `signer`. Every record the community publishes advertises this anchor in a signed `anchor` field, so readers who reach the record through the minter recover the identity. See [docs/protocol/delegated-ipns.md](docs/protocol/delegated-ipns.md) |
 | ...community | `any` | `undefined` | `CreateCommunityOptions` can also initialize any property on the `Community` instance |
@@ -843,10 +865,10 @@ An object which may have the following keys:
 #### Example
 
 ```js
-const PKC = require('@pkcprotocol/pkc-js')
+import PKC from '@pkcprotocol/pkc-js'
 const pkcOptions = {
   kuboRpcClientsOptions: ['http://localhost:5001/api/v0'], // optional, must run an IPFS node to use localhost:5001/api/v0
-  dataPath: __dirname
+  dataPath: import.meta.dirname
 }
 const pkc = await PKC(pkcOptions)
 pkc.on('error', console.log)
@@ -886,7 +908,7 @@ await community.edit({
   pubsubTopic: '12D3KooW...'
 })
 
-// start publishing updates every 5 minutes
+// start publishing updates
 await community.start()
 
 // instantiate an already existing community instance and initialize any property on it
@@ -973,11 +995,14 @@ An object which may have the following keys:
 | author | `Author` | Author of the comment |
 | signer | `Signer` | Signer of the comment |
 | parentCid | `string` or `undefined` | The parent comment CID, undefined if comment is a post, same as postCid if comment is top level |
+| postCid | `string` or `undefined` | The CID of the post the reply is under, required when `parentCid` is set, undefined if comment is a post |
 | content | `string` or `undefined` | Content of the comment, link posts have no content |
 | title | `string` or `undefined` | If comment is a post, it needs a title |
 | link | `string` or `undefined` | If comment is a post, it might be a link post |
 | spoiler | `boolean` or `undefined` | Hide the comment thumbnail behind spoiler warning |
+| nsfw | `boolean` or `undefined` | Mark the comment as not safe for work |
 | flairs | `Flair[]` or `undefined` | Author or mod chosen colored labels for the comment |
+| linkWidth, linkHeight, linkHtmlTagName, quotedCids, crosspost, gallery | | See `Comment` in the [schema](#schema) |
 | challengeRequest | `ChallengeRequest` or `undefined` | Optional properties to pass to `ChallengeRequestPubsubMessage` |
 | cid | `string` or `undefined` | (Not for publishing) Gives access to `Comment.on('update')` for a comment already fetched |
 | ...comment | `any` | `CreateCommentOptions` can also initialize any property on the `Comment` instance |
@@ -1057,6 +1082,7 @@ An object which may have the following keys:
 | deleted | `boolean` or `undefined` | Edited deleted status of the comment |
 | flairs | `Flair[]` or `undefined` | Edited flairs of the comment |
 | spoiler | `boolean` or `undefined` | Edited spoiler of the comment |
+| nsfw | `boolean` or `undefined` | Edited nsfw status of the comment |
 | reason | `string` or `undefined` | Reason of the edit |
 | challengeRequest | `ChallengeRequest` or `undefined` | Optional properties to pass to `ChallengeRequestPubsubMessage` |
 
@@ -1292,13 +1318,13 @@ The PKC events.
 
 ### `communitieschange`
 
-> `PKC.communities` property changed: a community was created, deleted, renamed, started or stopped.
+> `pkc.communities` property changed: a community was created, deleted, renamed, started or stopped.
 
 #### Emits
 
 | Type | Description |
 | -------- | -------- |
-| `{ communities: { name?: string, publicKey: string, address: string, started: boolean }[] }` | The new `PKC.communities` property |
+| `{ communities: { name?: string, publicKey: string, address: string, started: boolean }[] }` | The new `pkc.communities` property |
 
 ## Community API
 The community API for getting community updates, or creating, editing, running a community as an owner.
@@ -1345,19 +1371,17 @@ An object which may have the following keys:
 | ---- | ---- | ----------- |
 | name | `string` or `undefined` | Crypto domain of the community, e.g. `'memes.bso'`. Changing it renames the community (its address, DB and start lock move to the new name) and hides the comments signed with the old name; `undefined` drops the name and the address becomes the public key, see [Changing a community's name](docs/protocol/names-and-addresses.md#changing-a-communitys-name). Owner-only over pubsub, see [Community roles and permissions](#community-roles-and-permissions) |
 | address | `string` or `undefined` | Legacy alias of `name`, kept for backward compatibility: a domain passed here is applied as `name`, the community's public key drops the name. Passing both `name` and `address` with different values throws `ERR_COMMUNITY_EDIT_NAME_AND_ADDRESS_MISMATCH`, see [Changing a community's name](docs/protocol/names-and-addresses.md#changing-a-communitys-name) |
-| signer | `Signer` or `undefined` | Signer of the community, useful to change the private if the owner gets hacked, but still has his crypto domain
 | title | `string` or `undefined` | Title of the community |
 | description | `string` or `undefined` | Description of the community |
 | rules | `string[]` or `undefined` | Rules of the community |
 | roles | `{[authorAddress: string]: CommunityRole}` or `undefined` | Author identities assigned `owner`, `admin`, or `moderator`; see [Community roles and permissions](#community-roles-and-permissions) |
-| lastPostCid | `string` or `undefined` | The most recent post in the linked list of posts |
-| posts | `Pages` or `undefined` | Only preload page 1 sorted by 'hot', might preload more later, should include some child comments and vote counts for each post |
 | pubsubTopic | `string` or `undefined` | The string to publish to in the pubsub, a public key of the community owner's choice |
 | features | `CommunityFeatures` or `undefined` | The features of the community |
 | suggested | `CommunitySuggested` or `undefined` | The suggested client settings for the community |
 | flairs | `{[key: 'post' or 'author']: Flair[]}` or `undefined` | The list of flairs (colored labels for comments or authors) authors or mods can choose from |
 | settings | `CommunitySettings` or `undefined` | The private community.settings property of the community, not shared in the community IPNS |
-| pageSorts | `CommunityPageSorts` or `undefined` | What the community publishes about its configured page sorts (`settings.pages`), keyed by sort name per scope: `{ posts?: {[sortName]: { name?, description?, publicOptions? }}, replies?: ... }`. `publicOptions` is the full option set the sort runs with (reserved options included) minus `privateOptions`, so a client that installed the same package can re-sort a page locally with its `score` (see "Client side" in [docs/protocol/page-sorts.md](docs/protocol/page-sorts.md)). Absent when `settings.pages` is unset |
+
+`community.pageSorts` is read-only and cannot be passed to `community.edit()`: it is what the community publishes about its configured page sorts (`settings.pages`), keyed by sort name per scope: `{ posts?: {[sortName]: { name?, description?, publicOptions? }}, replies?: ... }`. `publicOptions` is the full option set the sort runs with (reserved options included) minus `privateOptions`, so a client that installed the same package can re-sort a page locally with its `score` (see "Client side" in [docs/protocol/page-sorts.md](docs/protocol/page-sorts.md)). Absent when `settings.pages` is unset.
 
 ##### CommunitySettings
 
@@ -1367,6 +1391,9 @@ An object which may have the following keys:
 | ---- | ---- | ----------- |
 | fetchThumbnailUrls | `boolean` or `undefined` | Fetch the thumbnail URLs of comments `comment.link` property, could reveal the IP address of the community node |
 | fetchThumbnailUrlsProxyUrl | `string` or `undefined` | The HTTP proxy URL used to fetch thumbnail URLs |
+| challenges | `CommunityChallengeSetting[]` or `undefined` | The challenges an author has to pass to publish, an empty array removes all challenges. See [docs/protocol/challenge-settings.md](docs/protocol/challenge-settings.md) |
+| maxPendingApprovalCount | `number` or `undefined` | Most comments kept waiting for a mod's approval, the oldest is dropped once the count is hit. Defaults to `500` |
+| purgeDisapprovedCommentsOlderThan | `number` or `undefined` | Seconds after which a disapproved comment is purged from the community |
 | disablePubsubChallengeExchange | `boolean` or `undefined` | Make the community read-only over the network. The node stops subscribing to the challenge/publication pubsub topic and the published record omits `pubsubTopic`, so clients know not to attempt a challenge exchange and fail fast with `ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED`. The owner can still publish through the local shortcut (same process or through the RPC server running the community). The configured `community.pubsubTopic` is kept while the setting is on, including across a restart, and is published again as-is when the setting is turned off |
 | pages | `CommunityPagesSettings` or `undefined` | Which page sorts to generate and which to embed in the record, per scope: `{ posts?: CommunityPageSortSetting[], replies?: CommunityPageSortSetting[] }`. Unset generates today's default sorts. Any change regenerates every CommentUpdate. See [docs/protocol/page-sorts.md](docs/protocol/page-sorts.md) |
 
@@ -1391,7 +1418,7 @@ One entry of `settings.pages.posts` / `settings.pages.replies`, mirroring `Commu
 
 ### `community.start()`
 
-> Start listening for new posts on the pubsub, and publishing them every 5 minutes. Only usable if the community database corresponding to `community.address` exists locally  (ie. you are the community owner).
+> Start listening for new posts on the pubsub, and publishing them in the community's IPNS record. Only usable if the community database corresponding to `community.address` exists locally  (ie. you are the community owner).
 
 #### Example
 
@@ -1412,7 +1439,7 @@ await community.start()
 
 ### `community.stop()`
 
-> Stop polling the network for new community updates started by community.update(). Also stop listening for new posts on the pubsub started by community.start(), and stop publishing them every 5 minutes.
+> Stop polling the network for new community updates started by community.update(). Also stop listening for new posts on the pubsub started by community.start(), and stop publishing them.
 
 ### `community.update()`
 
@@ -1503,7 +1530,7 @@ community.on('update', (updatedCommunity) => console.log(updatedCommunity))
 community.update()
 
 // stop updating in 10 minutes
-setTimeout(() => community.stop(), 60000)
+setTimeout(() => community.stop(), 600000)
 ```
 
 ### `challengerequest`
@@ -1530,7 +1557,7 @@ Object is of the form:
 
 ### `challengeanswer`
 
-> After receiving a `Challenge`, the user owner will send back a `challengeanswer`.
+> After receiving a `Challenge`, the user will send back a `challengeanswer`.
 
 #### Emits
 
@@ -1562,7 +1589,7 @@ Object is of the form:
 
 | Type | Description |
 | -------- | -------- |
-| `'stopped' \| 'resolving-address' \| 'fetching-ipns' \| 'fetching-ipfs' \| 'failed' \| 'succeeded'` | The `Community.updatingState` property |
+| `'stopped' \| 'resolving-name' \| 'fetching-ipns' \| 'fetching-ipfs' \| 'publishing-ipns' \| 'waiting-retry' \| 'failed' \| 'succeeded'` | The `Community.updatingState` property |
 
 ### `startedstatechange`
 
@@ -1572,10 +1599,10 @@ Object is of the form:
 
 | Type | Description |
 | -------- | -------- |
-| `'stopped' \| 'fetching-ipns' \| 'publishing-ipns' \| 'failed' \| 'succeeded'` | The `Community.startedState` property |
+| `'stopped' \| 'publishing-ipns' \| 'failed' \| 'succeeded'` | The `Community.startedState` property |
 
 ## Comment API
-The comment API for publishing a comment as an author, or getting comment updates. `Comment`, `Vote` and `CommentEdit` inherit `Publication` class and all have a similar API. A `Comment` updates itselfs on update events after `Comment.update()` is called if `Comment.cid` exists.
+The comment API for publishing a comment as an author, or getting comment updates. `Comment`, `Vote` and `CommentEdit` inherit `Publication` class and all have a similar API. A `Comment` updates itself on update events after `Comment.update()` is called if `Comment.cid` exists.
 
 ### `comment.publish()`
 
@@ -1617,7 +1644,7 @@ await comment.publish()
 
 ### `comment.update()`
 
-> Start polling the network for comment updates (replies, upvotes, edits, etc), update itself and emit the update event. Only usable if comment.cid or exists.
+> Start polling the network for comment updates (replies, upvotes, edits, etc), update itself and emit the update event. Only usable if comment.cid exists.
 
 #### Example
 
@@ -1674,7 +1701,7 @@ comment.on('update', (updatedComment) => {
 comment.update()
 
 // stop looking for updates after 10 minutes
-setTimeout(() => comment.stop(), 60000)
+setTimeout(() => comment.stop(), 600000)
 ```
 
 ### `challenge`
@@ -1731,7 +1758,7 @@ comment.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
   comment.publishChallengeAnswers({ challengeAnswers })
 })
-comment.on('challengeverification', (challengeVerification) => console.log('published post cid is', challengeVerification?.publication?.cid))
+comment.on('challengeverification', (challengeVerification) => console.log('published post cid is', challengeVerification.commentUpdate?.cid))
 await comment.publish()
 ```
 
@@ -1753,7 +1780,7 @@ await comment.publish()
 
 | Type | Description |
 | -------- | -------- |
-| `'stopped' \| 'resolving-author-address' \| 'fetching-ipfs' \| 'fetching-update-ipns' \| 'fetching-update-ipfs' \| 'failed' \| 'succeeded'` | The `Comment.updatingState` property |
+| `'stopped' \| 'resolving-author-name' \| 'fetching-ipfs' \| 'fetching-update-ipfs' \| 'resolving-community-name' \| 'fetching-community-ipns' \| 'fetching-community-ipfs' \| 'waiting-retry' \| 'failed' \| 'succeeded'` | The `Comment.updatingState` property |
 
 ### `publishingstatechange`
 
@@ -1763,7 +1790,7 @@ await comment.publish()
 
 | Type | Description |
 | -------- | -------- |
-| `'stopped' \| 'resolving-community-address' \| 'fetching-community-ipns' \| 'fetching-community-ipfs' \| 'publishing-challenge-request' \| 'waiting-challenge' \| 'waiting-challenge-answers' \| 'publishing-challenge-answer' \| 'waiting-challenge-verification' \| 'failed' \| 'succeeded'` | The `Comment.publishingState` property |
+| `'stopped' \| 'resolving-community-name' \| 'fetching-community-ipns' \| 'fetching-community-ipfs' \| 'publishing-challenge-request' \| 'waiting-challenge' \| 'waiting-challenge-answers' \| 'publishing-challenge-answer' \| 'waiting-challenge-verification' \| 'failed' \| 'succeeded'` | The `Comment.publishingState` property |
 
 ## Pages API
 The pages API for scrolling pages of a community or replies to a post/comment. `Community.posts` and `Comment.replies` are `Pages` instances. `Community.posts.pages.hot` is a `Page` instance.
@@ -1823,25 +1850,30 @@ The client events.
 
 | Type | Description |
 | -------- | -------- |
-| `'stopped' \| 'resolving-author-address' \| 'fetching-ipfs' \| 'fetching-update-ipns' \| 'fetching-update-ipfs' \| 'resolving-community-address' \| 'fetching-community-ipns' \| 'fetching-community-ipfs' \| 'subscribing-pubsub' \| 'publishing-challenge-request' \| 'waiting-challenge' \| 'waiting-challenge-answers' \| 'publishing-challenge-answer' \| 'waiting-challenge-verification' \| 'connecting' \| 'connected'` | The `Client.state` property |
+| `'stopped' \| 'resolving-author-name' \| 'fetching-ipfs' \| 'fetching-update-ipfs' \| 'resolving-community-name' \| 'fetching-community-ipns' \| 'fetching-community-ipfs' \| 'fetching-ipns' \| 'publishing-ipns' \| 'subscribing-pubsub' \| 'publishing-challenge-request' \| 'waiting-challenge' \| 'waiting-challenge-answers' \| 'publishing-challenge-answer' \| 'waiting-challenge-verification' \| 'waiting-challenge-requests' \| 'publishing-challenge' \| 'publishing-challenge-verification' \| 'connecting' \| 'connected' \| 'failed'` | The `Client.state` property. Which states a client goes through depends on its kind and on whether it belongs to a comment, a community or the pkc instance |
 
 #### Example
 
 ```js
 const onStateChange = (state) => console.log('client state changed:', state)
-for (const clientUrl in clients?.ipfsGateways) {
-  comment.clients?.ipfsGateways?.[clientUrl].on('statechange', onStateChange)
+const { clients } = comment
+for (const clientUrl in clients.ipfsGateways) {
+  clients.ipfsGateways[clientUrl].on('statechange', onStateChange)
 }
-for (const clientUrl in clients?.ipfsClients) {
-  comment.clients?.ipfsClients?.[clientUrl].on('statechange', onStateChange)
+for (const clientUrl in clients.kuboRpcClients) {
+  clients.kuboRpcClients[clientUrl].on('statechange', onStateChange)
 }
-for (const clientUrl in clients?.pubsubClients) {
-  comment.clients?.pubsubClients?.[clientUrl].on('statechange', onStateChange)
+for (const clientUrl in clients.pubsubKuboRpcClients) {
+  clients.pubsubKuboRpcClients[clientUrl].on('statechange', onStateChange)
 }
-for (const chainTicker in clients?.chainProviders) {
-  for (const clientUrl in clients?.chainProviders?.[chainTicker]) {
-    comment.clients?.chainProviders?.[chainTicker]?.[clientUrl].on('statechange', onStateChange)
-  }
+for (const clientKey in clients.libp2pJsClients) {
+  clients.libp2pJsClients[clientKey].on('statechange', onStateChange)
+}
+for (const clientUrl in clients.pkcRpcClients) {
+  clients.pkcRpcClients[clientUrl].on('statechange', onStateChange)
+}
+for (const resolverKey in clients.nameResolvers) {
+  clients.nameResolvers[resolverKey].on('statechange', onStateChange)
 }
 ```
 
