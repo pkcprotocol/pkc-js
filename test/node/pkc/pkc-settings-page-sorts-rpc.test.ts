@@ -192,6 +192,106 @@ describe("pkc.settings.pageSorts over RPC", () => {
         }
     });
 
+    // Issue #483: the owner-facing UI sets the wire key of an entry over RPC
+    it("a sortName override round-trips over RPC and keys community.pageSorts", async () => {
+        const { clientPKC } = await connectClient();
+        const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+        try {
+            const pages = {
+                posts: [
+                    { name: "top", sortName: "topFortnight", options: { maxAge: "2w" }, preloaded: true },
+                    { name: "top", sortName: "topYearly", options: { maxAge: "1y" } },
+                    { name: "custom-newest", sortName: "latest" }
+                ],
+                replies: [{ name: "old", sortName: "chronological", preloaded: true }]
+            };
+            await community.edit({ settings: { ...community.settings, pages } });
+            expect(community.settings?.pages).to.deep.equal(pages);
+            expect(Object.keys(community.pageSorts?.posts ?? {})).to.deep.equal(["topFortnight", "topYearly", "latest"]);
+            expect(community.pageSorts?.posts?.topFortnight).to.include({ name: "top" });
+            expect(community.pageSorts?.posts?.topFortnight?.publicOptions?.maxAge).to.equal("2w");
+            expect(community.pageSorts?.posts?.topYearly?.publicOptions?.maxAge).to.equal("1y");
+            expect(community.pageSorts?.posts?.latest).to.include({
+                name: "custom-newest",
+                description: "Newest first, registered through pkc.settings.pageSorts on the server"
+            });
+            expect(Object.keys(community.pageSorts?.replies ?? {})).to.deep.equal(["chronological"]);
+            expect(community.pageSorts?.replies?.chronological?.name).to.equal("old");
+
+            // a fresh instance of the same community reads the stored settings back from the server
+            const reloaded = (await clientPKC.createCommunity({ address: community.address })) as RpcLocalCommunity;
+            expect(reloaded.settings?.pages).to.deep.equal(pages);
+        } finally {
+            await community.delete();
+            await clientPKC.destroy();
+        }
+    });
+
+    it("a duplicate between a sortName override and another entry's key is rejected over RPC with the resolved key", async () => {
+        const { clientPKC } = await connectClient();
+        const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+        try {
+            let thrown: unknown;
+            try {
+                await community.edit({
+                    settings: {
+                        ...community.settings,
+                        pages: {
+                            posts: [
+                                { name: "hot", preloaded: true },
+                                { name: "custom-newest", sortName: "hot" }, // collides with the built-in's own key
+                                { name: "new", sortName: "latest" },
+                                { name: "old", sortName: "latest" } // collides with the override above
+                            ]
+                        }
+                    }
+                });
+            } catch (e) {
+                thrown = e;
+            }
+            expect(thrown, "edit() over RPC should have thrown").to.exist;
+            expect((thrown as PKCError).code).to.equal("ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED_FOR_PAGE_SORTS");
+            const failures = (thrown as PKCError).details.failures as {
+                scope: string;
+                pageSortIndex: number;
+                pageSortName: string;
+                error: PKCError;
+            }[];
+            expect(failures.map((f) => [f.scope, f.pageSortIndex, f.pageSortName, f.error.code, f.error.details.sortName])).to.deep.equal([
+                ["posts", 1, "custom-newest", "ERR_PAGE_SORT_DUPLICATE_SORT_NAME", "hot"],
+                ["posts", 3, "old", "ERR_PAGE_SORT_DUPLICATE_SORT_NAME", "latest"]
+            ]);
+            expect(community.settings?.pages).to.be.undefined; // nothing persisted
+        } finally {
+            await community.delete();
+            await clientPKC.destroy();
+        }
+    });
+
+    it("a reserved object key as a sortName override is rejected over RPC and nothing is persisted", async () => {
+        const { clientPKC } = await connectClient();
+        const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;
+        try {
+            for (const reserved of ["__proto__", "constructor", "prototype", "toString"]) {
+                let thrown: unknown;
+                try {
+                    await community.edit({ settings: { ...community.settings, pages: { posts: [{ name: "hot", sortName: reserved }] } } });
+                } catch (e) {
+                    thrown = e;
+                }
+                // the RPC client parses the edit params before sending them, so this is its zod error, not a server reply
+                const issues = (thrown as { issues?: { path: (string | number)[]; message: string }[] } | undefined)?.issues;
+                expect(issues, `${reserved} should have been rejected`).to.have.length(1);
+                expect(issues![0].path.slice(-4), reserved).to.deep.equal(["pages", "posts", 0, "sortName"]);
+                expect(issues![0].message).to.include("__proto__, constructor or prototype");
+            }
+            expect(community.settings?.pages).to.be.undefined;
+        } finally {
+            await community.delete();
+            await clientPKC.destroy();
+        }
+    });
+
     it("the aggregated edit failure arrives intact on an RpcLocalCommunity", async () => {
         const { clientPKC } = await connectClient();
         const community = (await clientPKC.createCommunity({})) as RpcLocalCommunity;

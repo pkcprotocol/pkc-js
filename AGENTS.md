@@ -96,6 +96,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 
 ### Schema & Database
 
+- When writing a query in `db-handler.ts`, normalize database `null` values to `undefined`.
 - If you're editing schema, check for docs relevant to the local zod version by checking `package.json`.
 - When modifying a schema (e.g. adding, removing, or renaming fields), check if `README.md` references that schema and update it accordingly.
 - When adding a new JSON column to the database, add a test in `test/node/community/parsing.db.community.test.ts` for parsing it, and if it's on a comment, add an integration test for `dbHandler.queryComment` returning the proper JSON value (not a string).
