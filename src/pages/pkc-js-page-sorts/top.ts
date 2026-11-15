@@ -3,7 +3,8 @@ import { perCommentScore } from "./util.js";
 import type { PageSortFileFactory } from "../../community/types.js";
 
 // The generic top: pair it with options.maxAge for any window the six legacy top* files do not cover
-// (`{ name: "top", options: { maxAge: "2w" } }` produces the key `top`).
+// (`{ name: "top", options: { maxAge: "2w" } }` produces the key `top`). Several windows on one board each need
+// their own key: `{ name: "top", sortName: "topFortnight", options: { maxAge: "2w" } }` (issue #483).
 const top: PageSortFileFactory = () => ({
     sortName: "top",
     description: "Highest vote score first; set maxAge to window it",
