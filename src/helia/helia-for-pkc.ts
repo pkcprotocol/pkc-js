@@ -1145,9 +1145,12 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     }
                 },
                 unsubscribe: async (topic, handler, options) => {
-                    throwIfHeliaIsStoppingOrStopped();
                     //@ts-expect-error
                     pubsubEventHandler.removeListener(topic, handler);
+                    // Dropping the handler is all a stopping or stopped node needs, since its stop() unsubscribes
+                    // every gossipsub topic. Like kubo-rpc-client's local unsubscribe, don't throw: a publication
+                    // that ends during teardown would otherwise get its routine cleanup emitted as an error.
+                    if (helia.libp2p.status === "stopping" || helia.libp2p.status === "stopped") return;
                     if (pubsubEventHandler.listenerCount(topic) === 0) helia.libp2p.services.pubsub.unsubscribe(topic);
                 }
             },

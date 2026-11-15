@@ -3,6 +3,7 @@ import retry from "retry";
 import Logger from "../../logger.js";
 import { PKCError } from "../../pkc-error.js";
 import { isDeepEqual } from "remeda";
+import { extractNetworkErrorDetails, type NetworkErrorDetails } from "../../util.js";
 
 type KuboRouterEntry = {
     Type: string;
@@ -73,10 +74,23 @@ async function _setProvideDhtSweepEnabledOnKuboNode(
     log.trace("Succeeded in setting config key", configKey, "on node", kuboClient._clientOptions.url, "to be", sweepEnabled);
 }
 
+// kubo cannot have received the request when the DNS lookup or connect() failed (any error from those syscalls:
+// ENOTFOUND, EAI_AGAIN, ECONNREFUSED, EHOSTUNREACH, ENETUNREACH...) or undici timed out connecting (its
+// UND_ERR_CONNECT_TIMEOUT carries no syscall). undici nests the error at different depths of the cause chain,
+// hence the walk over extractNetworkErrorDetails' tree.
+const CONNECTION_NOT_ESTABLISHED_SYSCALLS: ReadonlySet<string> = new Set(["getaddrinfo", "connect"]);
+function _hasConnectionNotEstablishedCode(details: NetworkErrorDetails | undefined): boolean {
+    if (!details) return false;
+    if (details.code === "UND_ERR_CONNECT_TIMEOUT") return true;
+    if (details.syscall && CONNECTION_NOT_ESTABLISHED_SYSCALLS.has(details.syscall)) return true;
+    return details.causes?.some(_hasConnectionNotEstablishedCode) ?? false;
+}
+
 async function _setHttpRouterOptionsOnKuboNode(
     kuboClient: PKC["clients"]["kuboRpcClients"][string],
     routingValue: KuboRoutingConfig,
-    signal: AbortSignal
+    signal: AbortSignal,
+    kuboClientsPendingRestart: Set<PKC["clients"]["kuboRpcClients"][string]>
 ) {
     const log = Logger("pkc-js:pkc:_init:retrySettingHttpRoutersOnIpfsNodes:setHttpRouterOptionsOnIpfsNode");
     const routingKey = "Routing";
@@ -96,6 +110,16 @@ async function _setHttpRouterOptionsOnKuboNode(
 
     const mergedRoutingValue = _mergeRouterConfigs(routingConfigBeforeChanging, routingValue);
 
+    const endpointsBefore: string[] = Object.values(routingConfigBeforeChanging?.Routers || {})
+        .map((router) => router.Parameters?.Endpoint)
+        .filter((endpoint): endpoint is string => endpoint !== undefined);
+    const endpointsAfter: string[] = Object.values(mergedRoutingValue.Routers)
+        .map((router) => router.Parameters?.Endpoint)
+        .filter((endpoint): endpoint is string => endpoint !== undefined);
+    // Marked before the write and kept across retries: once the write lands, a retry reads the merged
+    // config back and its diff is empty, so it can no longer tell that kubo still runs the old routers.
+    if (!isDeepEqual(endpointsBefore.sort(), endpointsAfter.sort())) kuboClientsPendingRestart.add(kuboClient);
+
     const url = `${kuboClient._clientOptions.url}/config?arg=${routingKey}&arg=${JSON.stringify(mergedRoutingValue)}&json=true`;
     try {
         await fetch(url, { method: "POST", headers: kuboClient._clientOptions.headers, signal });
@@ -114,13 +138,7 @@ async function _setHttpRouterOptionsOnKuboNode(
 
     await _setProvideDhtSweepEnabledOnKuboNode(kuboClient, false, signal);
 
-    const endpointsBefore: string[] = Object.values(routingConfigBeforeChanging?.Routers || {})
-        .map((router) => router.Parameters?.Endpoint)
-        .filter((endpoint): endpoint is string => endpoint !== undefined);
-    const endpointsAfter: string[] = Object.values(mergedRoutingValue.Routers)
-        .map((router) => router.Parameters?.Endpoint)
-        .filter((endpoint): endpoint is string => endpoint !== undefined);
-    if (!isDeepEqual(endpointsBefore.sort(), endpointsAfter.sort())) {
+    if (kuboClientsPendingRestart.has(kuboClient)) {
         log(
             "Config on kubo node has been changed. PKC-js will send shutdown command to node",
             kuboClient._clientOptions.url,
@@ -129,7 +147,14 @@ async function _setHttpRouterOptionsOnKuboNode(
         const shutdownUrl = `${kuboClient._clientOptions.url}/shutdown`;
         try {
             await fetch(shutdownUrl, { method: "POST", headers: kuboClient._clientOptions.headers, signal });
+            kuboClientsPendingRestart.delete(kuboClient);
         } catch (e) {
+            // kubo can drop the connection while it shuts down, so an error on a connection it accepted counts
+            // as delivered and a retry must not restart it a second time. An abort, or a connection that was
+            // never established (kubo not listening, its API too busy to accept, its host unreachable or not
+            // resolving), means kubo never got the request: keep it pending so the retry sends it.
+            if (!signal.aborted && !_hasConnectionNotEstablishedCode(extractNetworkErrorDetails(e)))
+                kuboClientsPendingRestart.delete(kuboClient);
             const error = new PKCError("ERR_FAILED_TO_SHUTDOWN_KUBO_NODE", {
                 actualError: e,
                 kuboEndpoint: kuboClient._clientOptions.url,
@@ -202,6 +227,9 @@ export async function setupKuboHttpRouters(pkc: PKC): Promise<void> {
     // signal for both the in-flight requests below and the retry schedule.
     const destroySignal = pkc._getDestroyAbortSignal();
     let removeDestroyListener: (() => void) | undefined;
+    // Kubo nodes whose Routing this setup changed and that have not been shut down yet. It outlives a
+    // failed attempt, since the retry can't recompute it from the config it reads back.
+    const kuboClientsPendingRestart = new Set<PKC["clients"]["kuboRpcClients"][string]>();
 
     const setHttpRouterOnAllNodes = new Promise<void>((resolve) => {
         // The `pkc.destroyed` check below only runs at the top of an attempt, so a destroy landing
@@ -229,7 +257,7 @@ export async function setupKuboHttpRouters(pkc: PKC): Promise<void> {
             }
             for (const kuboClient of Object.values(kuboClients)) {
                 try {
-                    await _setHttpRouterOptionsOnKuboNode(kuboClient, routingValue, destroySignal);
+                    await _setHttpRouterOptionsOnKuboNode(kuboClient, routingValue, destroySignal, kuboClientsPendingRestart);
                 } catch (e) {
                     settingOptionRetryOption.retry(<Error>e);
                     return;
