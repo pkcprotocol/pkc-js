@@ -1,5 +1,6 @@
 import {
     existsSync,
+    statSync,
     readdirSync,
     openSync,
     readSync,
@@ -177,6 +178,32 @@ export const setNativeFunctions = (newNativeFunctions: Partial<NativeFunctions>)
 // The codes Windows returns while a file is still held, e.g. for a moment after its DB connection closed
 const WINDOWS_FILE_BUSY_ERROR_CODES = ["EBUSY", "EPERM"];
 
+// Removes a file, at once when nothing holds it, and retried with a growing delay only while Windows reports it busy.
+// Rejects with the last error when the file is still busy at the deadline or the removal failed for another reason.
+// `keepIf` is asked before every attempt and ends the removal when it returns true: a file can stay busy for seconds,
+// and what made it removable when the first attempt started may no longer hold by the time a later one runs.
+export async function removeFileRetryingWhileBusy(
+    filePath: string,
+    { timeoutMs = 10000, log, keepIf }: { timeoutMs?: number; log: Logger; keepIf?: () => boolean }
+) {
+    const deadline = Date.now() + timeoutMs;
+    for (let retryDelayMs = 50; ; retryDelayMs = Math.min(retryDelayMs * 2, 1000)) {
+        if (keepIf?.()) {
+            log(`${filePath} is not to be removed any more, leaving it in place`);
+            return;
+        }
+        try {
+            await fsPromises.rm(filePath, { force: true });
+            return;
+        } catch (e) {
+            const code = (e as NodeJS.ErrnoException).code;
+            if (!code || !WINDOWS_FILE_BUSY_ERROR_CODES.includes(code) || Date.now() + retryDelayMs >= deadline) throw e;
+            log(`${filePath} is still busy (${code}), retrying its removal in ${retryDelayMs}ms`);
+            await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        }
+    }
+}
+
 // Removes a community's old DB file after a delete or a rename. It is tried at once and retried with a growing delay
 // only while Windows reports the file busy, so nothing waits when the file is free (it used to sleep 10s every time)
 export const deleteOldCommunityInWindows = async (
@@ -186,21 +213,11 @@ export const deleteOldCommunityInWindows = async (
 ) => {
     const log = Logger("pkc-js:community:deleteStaleCommunityInWindows");
     const communityAddress = path.basename(subPath);
-    const deadline = Date.now() + timeoutMs;
-    for (let retryDelayMs = 50; ; retryDelayMs = Math.min(retryDelayMs * 2, 1000)) {
-        try {
-            await fsPromises.rm(subPath, { force: true });
-            log(`Succeeded in deleting old community (${communityAddress})`);
-            return;
-        } catch (e) {
-            const code = (e as NodeJS.ErrnoException).code;
-            if (!code || !WINDOWS_FILE_BUSY_ERROR_CODES.includes(code) || Date.now() + retryDelayMs >= deadline) {
-                await recordCommunityThatFailedToBeDeleted({ communityAddress, pkc, error: e, log });
-                return;
-            }
-            log(`Old community (${communityAddress}) is still busy (${code}), retrying in ${retryDelayMs}ms`);
-            await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-        }
+    try {
+        await removeFileRetryingWhileBusy(subPath, { timeoutMs, log });
+        log(`Succeeded in deleting old community (${communityAddress})`);
+    } catch (e) {
+        await recordCommunityThatFailedToBeDeleted({ communityAddress, pkc, error: e, log });
     }
 };
 
@@ -281,13 +298,64 @@ function getLocalCommunityIdentities(pkc: PKC): Map<string, CommunitiesEntryIden
     return identities;
 }
 
+// The community DBs whose identity couldn't be read (no internal state, not a database, mid-migration), by filename,
+// each with the stat signature of the file as it was just before that read. Such a DB is not opened again until its
+// signature changes (issues #540 and #514). Without this every refresh opened every one of them again, and a refresh
+// runs on every filesystem event in dataPath/communities, in every PKC instance of every process on the dataPath:
+// synchronous SQLite work each time, and on Windows a file can't be unlinked while any handle on it is open.
+const unreadableLocalCommunityDbs = new WeakMap<PKC, Map<string, string>>();
+
+function getUnreadableLocalCommunityDbs(pkc: PKC): Map<string, string> {
+    let unreadable = unreadableLocalCommunityDbs.get(pkc);
+    if (!unreadable) unreadableLocalCommunityDbs.set(pkc, (unreadable = new Map()));
+    return unreadable;
+}
+
+// Whether each file in dataPath/communities that is not a known community starts with the SQLite header, by filename,
+// with the stat signature of the file as it was just before the header was read
+const sqliteHeaderChecks = new WeakMap<PKC, Map<string, { statSignature: string; isSqlite: boolean }>>();
+
+function getSqliteHeaderChecks(pkc: PKC): Map<string, { statSignature: string; isSqlite: boolean }> {
+    let checks = sqliteHeaderChecks.get(pkc);
+    if (!checks) sqliteHeaderChecks.set(pkc, (checks = new Map()));
+    return checks;
+}
+
+// What a read of the DB's identity depends on, without opening it: the DB file and its write-ahead log, where a
+// connection in WAL mode puts its writes before they reach the DB file. Access times are left out on purpose, since
+// reading the file moves them. An empty or missing WAL counts as the same thing, because a read-only open of a DB
+// nobody else has open creates an empty one. A writer that finishes closes its connection, which checkpoints and
+// removes the WAL, so the signature changes at the latest then even on a filesystem with coarse timestamps.
+// Returns undefined if the DB file can't be statted (removed since it was listed)
+function getCommunityDbStatSignature(dbPath: string): string | undefined {
+    const statOrUndefined = (filePath: string) => {
+        try {
+            return statSync(filePath, { bigint: true });
+        } catch {
+            return undefined;
+        }
+    };
+    const dbStat = statOrUndefined(dbPath);
+    if (!dbStat) return undefined;
+    const walStat = statOrUndefined(`${dbPath}-wal`);
+    const walSignature = walStat && walStat.size > 0n ? `${walStat.size}:${walStat.mtimeNs}` : "empty";
+    return `${dbStat.ino}:${dbStat.size}:${dbStat.mtimeNs}:${dbStat.ctimeNs}:${walSignature}`;
+}
+
 // Reads the identity key from the DB's internal record. A delegated community is identified by its anchor, not by the
 // minter it signs with. The name is not read from the DB but taken from the filename, which is the community's address,
 // i.e. its name when it has one (issue #430): a rename moves the file before it writes the new name into the DB (a
 // started community only on its next update), so any reader of the moved file in between, such as another PKC instance
-// on the same dataPath, would otherwise get the old name and cache it under the new filename. Returns undefined, without caching, if the DB can't be read yet (mid-creation, mid-migration,
-// corrupt), so the next refresh tries again
-function readLocalCommunityIdentity(pkc: PKC, communityAddress: string): CommunitiesEntryIdentity | undefined {
+// on the same dataPath, would otherwise get the old name and cache it under the new filename. Returns undefined if the DB can't be read yet (mid-creation, mid-migration,
+// corrupt). `unreadableUntilFileChanges` says whether that is a statement about the file (no internal state, not a
+// database, no keyv table), which the caller remembers against the file's stat signature, or a failure of the moment
+// (the DB is locked, the process is out of file descriptors), which it reads again on the next refresh
+const SQLITE_ERROR_CODES_ABOUT_THE_FILE = ["SQLITE_NOTADB", "SQLITE_CORRUPT", "SQLITE_ERROR"];
+
+function readLocalCommunityIdentity(
+    pkc: PKC,
+    communityAddress: string
+): { identity: CommunitiesEntryIdentity } | { identity: undefined; unreadableUntilFileChanges: boolean } {
     const log = Logger("pkc-js:readLocalCommunityIdentity");
     const dbPath = path.join(pkc.dataPath!, "communities", communityAddress);
     let db: Database.Database | undefined;
@@ -300,12 +368,16 @@ function readLocalCommunityIdentity(pkc: PKC, communityAddress: string): Communi
         const publicKey = internalState?.anchor?.publicKey ?? internalState?.signer?.address;
         if (typeof publicKey !== "string") {
             log(`Community DB (${communityAddress}) has no internal state yet, leaving it out of pkc.communities for now`);
-            return undefined;
+            return { identity: undefined, unreadableUntilFileChanges: true };
         }
-        return isStringDomain(communityAddress) ? { name: communityAddress, publicKey } : { publicKey };
+        return { identity: isStringDomain(communityAddress) ? { name: communityAddress, publicKey } : { publicKey } };
     } catch (e) {
         log.error(`Failed to read the identity of community DB (${communityAddress}), leaving it out of pkc.communities for now`, e);
-        return undefined;
+        const code = (e as { code?: unknown }).code;
+        const unreadableUntilFileChanges =
+            e instanceof SyntaxError || // the internal state is not JSON
+            (typeof code === "string" && SQLITE_ERROR_CODES_ABOUT_THE_FILE.some((aboutTheFile) => code.startsWith(aboutTheFile)));
+        return { identity: undefined, unreadableUntilFileChanges };
     } finally {
         db?.close();
     }
@@ -315,13 +387,26 @@ function listCommunitiesEntriesSync(pkc: PKC): PKCCommunitiesEntry[] {
     const communityAddresses = listCommunitiesSync(pkc);
     const identities = getLocalCommunityIdentities(pkc);
     for (const cachedAddress of identities.keys()) if (!communityAddresses.includes(cachedAddress)) identities.delete(cachedAddress);
+    const unreadable = getUnreadableLocalCommunityDbs(pkc);
+    for (const unreadableAddress of unreadable.keys())
+        if (!communityAddresses.includes(unreadableAddress)) unreadable.delete(unreadableAddress);
 
     const entries: PKCCommunitiesEntry[] = [];
     for (const communityAddress of communityAddresses) {
         let identity = identities.get(communityAddress);
         if (!identity) {
-            identity = readLocalCommunityIdentity(pkc, communityAddress);
-            if (!identity) continue;
+            // The signature is taken before the read: a write that lands in between is either seen by the read or
+            // changes the signature the next refresh compares against, so it is never missed
+            const statSignature = getCommunityDbStatSignature(path.join(pkc.dataPath!, "communities", communityAddress));
+            if (statSignature !== undefined && unreadable.get(communityAddress) === statSignature) continue;
+            const read = readLocalCommunityIdentity(pkc, communityAddress);
+            if (!read.identity) {
+                if (statSignature !== undefined && read.unreadableUntilFileChanges) unreadable.set(communityAddress, statSignature);
+                else unreadable.delete(communityAddress);
+                continue;
+            }
+            unreadable.delete(communityAddress);
+            identity = read.identity;
             identities.set(communityAddress, identity);
         }
         entries.push(
@@ -380,11 +465,32 @@ export function listCommunitiesSync(pkc: PKC) {
 
     const knownCommunities = getLocalCommunityIdentities(pkc);
     const communityFilesWeDontNeedToCheck = files.filter((address) => knownCommunities.has(address));
+    const headerChecks = getSqliteHeaderChecks(pkc);
+    for (const checkedFile of headerChecks.keys()) if (!files.includes(checkedFile)) headerChecks.delete(checkedFile);
 
     // For the remaining files, check if they're SQLite files synchronously
     const filesToCheckIfSqlite = files.filter((address) => !communityFilesWeDontNeedToCheck.includes(address));
     const sqliteFiles = filesToCheckIfSqlite.filter((address) => {
         const filePath = path.join(communitiesPath, address);
+        // A file that is not a known community is listed on every refresh, for as long as it exists. Its header is
+        // read once per stat signature, not once per refresh, for the reasons given at unreadableLocalCommunityDbs
+        const statSignature = getCommunityDbStatSignature(filePath);
+        const lastCheck = headerChecks.get(address);
+        if (statSignature !== undefined && lastCheck?.statSignature === statSignature) return lastCheck.isSqlite;
+        const isSqlite = isSqliteFile(filePath);
+        // A read that failed says nothing about the file, so it is not remembered: the file is left out of this
+        // listing and read again on the next one
+        if (statSignature !== undefined && isSqlite !== undefined) headerChecks.set(address, { statSignature, isSqlite });
+        else headerChecks.delete(address);
+        return isSqlite === true;
+    });
+
+    // Combine and sort the results
+    const filtered_results = [...communityFilesWeDontNeedToCheck, ...sqliteFiles].sort();
+    return filtered_results;
+
+    // undefined if the header could not be read
+    function isSqliteFile(filePath: string): boolean | undefined {
         try {
             // Simple synchronous check for SQLite files
             // Look for the SQLite file header "SQLite format 3\0"
@@ -403,13 +509,9 @@ export function listCommunitiesSync(pkc: PKC) {
             // Anything else was silently swallowed before #380 and stayed hidden until the daemon ran out of fds.
             if (!(e instanceof Error && "code" in e && e.code === "ENOENT"))
                 log.error(`Failed to check whether ${filePath} is a SQLite file, skipping it`, e);
-            return false;
+            return undefined;
         }
-    });
-
-    // Combine and sort the results
-    const filtered_results = [...communityFilesWeDontNeedToCheck, ...sqliteFiles].sort();
-    return filtered_results;
+    }
 }
 
 export async function importSignerIntoKuboNode(

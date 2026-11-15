@@ -12,7 +12,12 @@ import assert from "assert";
 import fs from "fs";
 import os from "os";
 import Logger from "../../../logger.js";
-import { deleteOldCommunityInWindows, deriveCommentIpfsFromCommentTableRow, getDefaultCommunityDbConfig } from "../util.js";
+import {
+    deleteOldCommunityInWindows,
+    deriveCommentIpfsFromCommentTableRow,
+    getDefaultCommunityDbConfig,
+    removeFileRetryingWhileBusy
+} from "../util.js";
 import env from "../../../version.js";
 import Database, { type Database as BetterSqlite3Database, type Statement } from "better-sqlite3";
 import { sha256 } from "js-sha256";
@@ -281,10 +286,15 @@ export class DbHandler {
         const log = Logger("pkc-js:local-community:dbHandler:destroyConnection");
         this._preparedStatements.clear(); // statements belong to the connection
         if (this._db && this._db.open) {
-            if (!this._db.readonly) {
-                this._db.exec("PRAGMA wal_checkpoint"); // write all wal to disk
+            try {
+                if (!this._db.readonly) this._db.exec("PRAGMA wal_checkpoint"); // write all wal to disk
+            } catch (e) {
+                // The checkpoint throws on a file that is not a database. The connection is closed all the same:
+                // an open handle keeps the file locked on Windows (issue #540)
+                log.error("Failed to checkpoint the WAL of community", this._community.address, "before closing its DB", e);
+            } finally {
+                this._db.close();
             }
-            this._db.close();
         }
         if (this._keyv) this._keyv.disconnect();
 
@@ -714,7 +724,15 @@ export class DbHandler {
         this._preparedStatements.clear();
         if (needToMigrate)
             log(`Created/migrated the tables to the latest (${newDbVersion}) version and saved to path`, this._dbConfig.filename);
-        if (backupDbPath) await fs.promises.rm(backupDbPath);
+        if (backupDbPath) {
+            // The migration is done, so a backup that can't be removed must not fail it: on Windows the file can be
+            // busy for a moment, and a leftover backup is harmless while a community that won't start is not
+            try {
+                await removeFileRetryingWhileBusy(backupDbPath, { log });
+            } catch (e) {
+                log.error(`Failed to remove the pre-migration backup ${backupDbPath}. It is no longer needed and can be deleted`, e);
+            }
+        }
     }
 
     private _tableExists(tableName: string): boolean {
