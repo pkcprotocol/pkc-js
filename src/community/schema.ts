@@ -276,12 +276,16 @@ export const ChallengeFileFactorySchema = z.function({ input: [ChallengeFileFact
 // Local community page sorts here (settings.pages, issue #73)
 
 // One entry of settings.pages.posts / settings.pages.replies. Mirrors CommunityChallengeSettingSchema: the file
-// (by registry name or path) supplies the wire key (its sortName); options are strings only, like challenge
-// options, so a config UI can reuse the same renderer and lists are comma-separated by package convention.
+// (by registry name or path) supplies the default wire key (its sortName), which the entry may replace with its own
+// `sortName`; options are strings only, like challenge options, so a config UI can reuse the same renderer and lists
+// are comma-separated by package convention.
 export const CommunityPageSortSettingSchema = z
     .object({
         path: z.string().optional(), // (only if name is undefined) the path to the page sort js file
         name: z.string().optional(), // (only if path is undefined) the key in PKC.pageSorts (built-ins plus installed packages)
+        // The key this entry publishes under (posts.pages / posts.pageCids / community.pageSorts, or replies.*), replacing
+        // the file's own sortName. Lets one file be listed more than once per scope, e.g. two windowed `top` (issue #483)
+        sortName: SortNameStringSchema.optional(),
         options: z.record(z.string(), z.string()).optional(), // passed to the file unstripped; maxAge, pinnedFirst and exclude* are reserved keys pkc-js also reads
         preloaded: z.boolean().optional(), // embed this sort's first page in the record (community.posts.pages / commentUpdate.replies.pages). Default false
         privateOptions: z.string().array().optional() // option names withheld from community.pageSorts; everything else set in `options` is published
@@ -304,7 +308,7 @@ export const PageSortScopeSchema = z.enum(["posts", "replies"]);
 
 export const PageSortFileSchema = z.looseObject({
     // the result of the function exported by the page sort file
-    sortName: SortNameStringSchema, // the key under posts.pages / posts.pageCids (or replies.*); public API of the package
+    sortName: SortNameStringSchema, // the default key under posts.pages / posts.pageCids (or replies.*); an entry's own sortName overrides it
     description: z.string().optional(), // describe what the sort does, published in community.pageSorts
     optionInputs: ChallengeOptionInputSchema.array().optional(), // same shape as challenges: string options only
     scope: PageSortScopeSchema.optional(), // undefined = usable under both posts and replies
