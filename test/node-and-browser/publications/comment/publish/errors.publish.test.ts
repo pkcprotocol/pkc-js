@@ -273,7 +273,9 @@ describeSkipIfRpc.concurrent(`Publishing resilience and errors of gateways and p
         );
 
         expect(errors.length).to.equal(1);
-        expect(errors[0].code).to.equal("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS");
+        // Provider 1 published the request and heard nothing, so the community may still have
+        // received it: that is "no response", not "all providers threw" (issue #362).
+        expect(errors[0].code).to.equal("ERR_PUBSUB_DID_NOT_RECEIVE_RESPONSE_AFTER_PUBLISHING_CHALLENGE_REQUEST");
 
         expect(mockPost.publishingState).to.equal("failed");
         expect(actualStates).to.deep.equal(expectedStates);
