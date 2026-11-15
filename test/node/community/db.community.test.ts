@@ -17,7 +17,8 @@ import {
     expectCommunityNotListed
 } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
-import * as cborg from "cborg";
+import { marshalIPNSRecord } from "ipns";
+import { getIpnsRecordInLocalKuboNode } from "../../../dist/node/util.js";
 
 import pkcVersion from "../../../dist/node/version.js";
 
@@ -137,59 +138,54 @@ describeSkipIfRpc.sequential(`DB importing`, async () => {
         await regularPKC.destroy();
     });
 
-    // skip until kubo fixes the bug
-    it.skip(`A community IPNS' sequence number is up to date even after migrating to new ipfs repo`, async () => {
-        const regularPKC: PKCType = await mockPKC();
-        const randomSub = await generateRandomSub();
-        await randomSub.start();
-        await resolveWhenConditionIsTrue({ toUpdate: randomSub, predicate: async () => Boolean(randomSub.updatedAt) });
+    // Issue #553: a community is moved by copying its DB, which carries the last published IPNS record and its
+    // sequence. The kubo node behind getTemporaryPKCOptions() has no peers and has never published this key, so
+    // left to itself it starts the sequence at 0 and every reader that holds the old node's record ignores the
+    // new one as older. Only the sequence stored in the DB can continue it here.
+    it(`A community's IPNS sequence continues after its DB is moved to a PKC on another kubo node`, async () => {
+        const oldPKC: PKCType = await mockPKC();
+        const oldKubo = Object.values(oldPKC.clients.kuboRpcClients)[0];
+        const original = (await createSubWithNoChallenge({}, oldPKC)) as LocalCommunity;
+        await original.start();
+        await resolveWhenConditionIsTrue({ toUpdate: original, predicate: async () => Boolean(original.updatedAt) });
+        // A few more records, so that continuing the sequence cannot be mistaken for starting over
+        for (let i = 0; i < 3; i++) {
+            const cidBefore = original.updateCid;
+            original._communityUpdateTrigger = true;
+            await resolveWhenConditionIsTrue({ toUpdate: original, predicate: async () => original.updateCid !== cidBefore });
+        }
+        const ipnsName = original.signer.address;
+        const oldRecord = await getIpnsRecordInLocalKuboNode(oldKubo, ipnsName);
+        expect(oldRecord.sequence >= 3n, `old node should be at sequence 3 or above, is at ${oldRecord.sequence}`).to.be.true;
+        const oldUpdatedAt = original.updatedAt!;
+        await original.stop();
 
-        const localRandomSub = randomSub as LocalCommunity;
-        const ipnsRecord = await localRandomSub._dbHandler.keyvGet("LAST_IPNS_RECORD");
-
-        expect(ipnsRecord).to.exist;
-
-        const ipnsRecordDecoded = cborg.decode(new Uint8Array(Object.values(ipnsRecord as object)), { allowBigInt: true });
-        expect(ipnsRecordDecoded.sequence).to.equal(1);
-
-        await randomSub.stop();
-        const tempPKC: PKCType = await mockPKC(getTemporaryPKCOptions()); // different kubo, should use sequence in keyv
-        const srcDbPath = path.join(regularPKC.dataPath!, "communities", randomSub.address);
-        await fs.promises.cp(srcDbPath, path.join(tempPKC.dataPath!, "communities", randomSub.address));
-        await waitUntilPKCCommunitiesIncludeCommunityAddress(tempPKC, randomSub.address);
-        // Should be included in tempPKC.communities now
-        const community = (await tempPKC.createCommunity({ address: randomSub.address })) as LocalCommunity | RpcLocalCommunity;
-        await community.start();
-        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => community.updatedAt! > randomSub.updatedAt! });
-
-        const localCommunity = community as LocalCommunity;
-        const ipnsRecordOfSubInDifferentKubo = await localCommunity._dbHandler.keyvGet("LAST_IPNS_RECORD");
-
-        expect(ipnsRecordOfSubInDifferentKubo).to.exist;
-
-        const ipnsRecordOfSubInDifferentKuboDecoded = cborg.decode(
-            new Uint8Array(Object.values(ipnsRecordOfSubInDifferentKubo as object)),
-            {
-                allowBigInt: true
-            }
+        const newPKC: PKCType = await mockPKC(getTemporaryPKCOptions());
+        const newKubo = Object.values(newPKC.clients.kuboRpcClients)[0];
+        await fs.promises.cp(
+            path.join(oldPKC.dataPath!, "communities", original.address),
+            path.join(newPKC.dataPath!, "communities", original.address)
         );
-        expect(ipnsRecordOfSubInDifferentKuboDecoded.sequence).to.equal(3);
+        await waitUntilPKCCommunitiesIncludeCommunityAddress(newPKC, original.address);
+        const migrated = (await newPKC.createCommunity({ address: original.address })) as LocalCommunity;
+        await migrated.start();
+        await resolveWhenConditionIsTrue({ toUpdate: migrated, predicate: async () => (migrated.updatedAt ?? 0) > oldUpdatedAt });
 
-        await community.stop();
+        const newRecord = await getIpnsRecordInLocalKuboNode(newKubo, ipnsName);
+        expect(newRecord.value).to.equal("/ipfs/" + migrated.updateCid);
+        expect(
+            newRecord.sequence > oldRecord.sequence,
+            `new node published sequence ${newRecord.sequence}, old node was at ${oldRecord.sequence}`
+        ).to.be.true;
 
-        await regularPKC.destroy();
-        await tempPKC.destroy();
+        // The reader side: a node that holds the old record is handed the new node's record and has to prefer it
+        for await (const _event of oldKubo._client.routing.put(`/ipns/${ipnsName}`, marshalIPNSRecord(newRecord), { allowOffline: true }));
+        const recordOnOldNode = await getIpnsRecordInLocalKuboNode(oldKubo, ipnsName);
+        expect(recordOnOldNode.value, "the node that held the old record kept it over the new one").to.equal(newRecord.value);
 
-        // const mockPost = await generateMockPost({ communityAddress: community.address, pkc: tempPKC });
-        // mockPost.once("challenge", async (challengeMsg) => {
-        //     await mockPost.publishChallengeAnswers({ challengeAnswers: ["2"] }); // hardcode answer here
-        // });
-
-        // await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
-
-        // await community.delete();
-        // await tempPKC.destroy();
-        // await regularPKC.destroy();
+        await migrated.stop();
+        await newPKC.destroy();
+        await oldPKC.destroy();
     });
 });
 

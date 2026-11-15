@@ -82,7 +82,6 @@ import {
     addOldPageCidsToCidsToUnpin,
     calculateLatestUpdateTrigger,
     calculateNewPostUpdates,
-    resolveIpnsAndLogIfPotentialProblematicSequence,
     shouldResolveDomainForVerification,
     updateCommunityIpnsIfNeeded
 } from "./local-community/ipns-publishing.js";
@@ -168,7 +167,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _publishLoopPromise?: Promise<void> = undefined;
     _updateLoopPromise?: Promise<void> = undefined;
     _updateLoopAbortController?: AbortController;
-    _firstUpdateAfterStart: boolean = true;
     _internalStateUpdateId: InternalCommunityRecordBeforeFirstUpdateType["_internalStateUpdateId"] = "";
     _lastPubsubTopicRoutingProvideAt?: number = undefined;
     // The challenge exchange topic we last subscribed to. pubsubTopic can change while the community is
@@ -593,10 +591,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     _calculateLatestUpdateTrigger() {
         return calculateLatestUpdateTrigger(this);
-    }
-
-    async _resolveIpnsAndLogIfPotentialProblematicSequence() {
-        return resolveIpnsAndLogIfPotentialProblematicSequence(this);
     }
 
     async _updateDbInternalState(props: Parameters<typeof updateDbInternalState>[1]) {

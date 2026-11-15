@@ -155,7 +155,6 @@ export async function start(community: LocalCommunity) {
     if (community.state === "updating")
         throw new PKCError("ERR_NEED_TO_STOP_UPDATING_COMMUNITY_BEFORE_STARTING", { address: community.address });
     community._stopHasBeenCalled = false;
-    community._firstUpdateAfterStart = true;
     // Re-baseline address-change re-provide for this run (start() provides everything fresh below).
     community._lastProvidedBrowserDialableSelfAddrs = undefined;
     community._lastAddressReprovideCheckAt = undefined;
