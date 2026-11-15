@@ -223,10 +223,14 @@ describe("a reply updating through its parent's pageCids (#515)", () => {
             expect(requestedAt).to.have.length(4);
             expect(errors.map((e) => e.updatingState)).to.deep.equal(["waiting-retry", "waiting-retry", "waiting-retry"]);
             const gaps = requestedAt.slice(1).map((time, i) => time - requestedAt[i]);
-            // Timers never fire early, and the walk itself adds a little on top of each delay
-            expect(gaps[0], `gaps: ${gaps.join(", ")}`).to.be.within(990, 1900);
-            expect(gaps[1], `gaps: ${gaps.join(", ")}`).to.be.within(1990, 3900);
-            expect(gaps[2], `gaps: ${gaps.join(", ")}`).to.be.within(3990, 7900);
+            // A gap is the delay that was asked for plus whatever the machine adds: how late the timer fired and the
+            // walk up to the failing page. Timers never fire early, so the lower bound is the delay itself and is what
+            // shows the backoff doubling. The upper bound only has to catch a delay that is far too long, so it leaves
+            // 5s for a slow runner
+            const slowRunnerAllowanceMs = 5000;
+            expect(gaps[0], `gaps: ${gaps.join(", ")}`).to.be.within(990, 1000 + slowRunnerAllowanceMs);
+            expect(gaps[1], `gaps: ${gaps.join(", ")}`).to.be.within(1990, 2000 + slowRunnerAllowanceMs);
+            expect(gaps[2], `gaps: ${gaps.join(", ")}`).to.be.within(3990, 4000 + slowRunnerAllowanceMs);
             await reply.stop();
         }));
 

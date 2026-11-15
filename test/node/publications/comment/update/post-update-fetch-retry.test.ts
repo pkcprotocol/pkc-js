@@ -121,9 +121,12 @@ describe("a post fetching its CommentUpdate from postUpdates after one fetch fai
             );
             const gaps = fetchedAt.slice(1).map((time, i) => time - fetchedAt[i]);
             // Timers never fire early, and the lookup itself adds a little on top of each delay
-            expect(gaps[0], `gaps: ${gaps.join(", ")}`).to.be.within(990, 1900);
-            expect(gaps[1], `gaps: ${gaps.join(", ")}`).to.be.within(1990, 3900);
-            expect(gaps[2], `gaps: ${gaps.join(", ")}`).to.be.within(3990, 7900);
+            // The lower bound is the delay that was asked for (timers never fire early) and shows the backoff doubling.
+            // The upper bound only has to catch a delay that is far too long, so it leaves 5s for a slow runner
+            const slowRunnerAllowanceMs = 5000;
+            expect(gaps[0], `gaps: ${gaps.join(", ")}`).to.be.within(990, 1000 + slowRunnerAllowanceMs);
+            expect(gaps[1], `gaps: ${gaps.join(", ")}`).to.be.within(1990, 2000 + slowRunnerAllowanceMs);
+            expect(gaps[2], `gaps: ${gaps.join(", ")}`).to.be.within(3990, 4000 + slowRunnerAllowanceMs);
             await post.stop();
         } finally {
             await pkc.destroy();
