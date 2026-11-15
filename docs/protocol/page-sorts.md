@@ -40,6 +40,7 @@ await community.edit({
 |---|---|
 | `name` | Key in `PKC.pageSorts`: the built-ins below, plus anything registered through the `pageSorts` PKC option (which shadows built-ins by name) |
 | `path` | Path to a page sort file on the filesystem of the process running the community (the RPC server under RPC), like a challenge `path` |
+| `sortName` | The wire key this entry publishes under, replacing the file's own `sortName`. Optional; see [Choosing the wire key](#choosing-the-wire-key) |
 | `options` | `Record<string, string>`, passed to the file unstripped. Lists are comma-separated by package convention |
 | `preloaded` | Embed this sort's first page in the record. Default `false` |
 | `privateOptions` | Option names withheld from the public `community.pageSorts`. Package options only: a reserved option describes what the page contains and is always published (`ERR_PAGE_SORT_RESERVED_OPTION_CANNOT_BE_PRIVATE`) |
@@ -50,10 +51,12 @@ Rules:
   community always has: `hot, new, active, topHour, topDay, topWeek, topMonth, topYear, topAll` with `hot`
   preloaded, and `new, best, old, newFlat, oldFlat` with `best` preloaded.
 - `posts: []` and `replies: []` are legal (a feed-only profile takes no replies).
-- The wire key is the file's `sortName`, so `{ name: "top", options: { maxAge: "2w" } }` publishes `top`.
-  Two entries resolving to the same `sortName` are rejected. A `sortName` of `__proto__`, `constructor` or
-  `prototype` is rejected everywhere it appears (the file, `community.pageSorts`, `pages`/`pageCids` keys):
-  clients index plain objects by sort name, and a client skips such a key if a record carries one anyway.
+- The wire key is the entry's `sortName` when it has one, else the file's `sortName`, so
+  `{ name: "top", options: { maxAge: "2w" } }` publishes `top`. Two entries of a scope resolving to the same
+  key are rejected. A `sortName` of `__proto__`, `constructor` or `prototype`, or any other key a plain
+  object inherits (`toString`, `hasOwnProperty`, `valueOf`, ...), is rejected everywhere it appears (the
+  entry, the file, `community.pageSorts`, `pages`/`pageCids` keys): clients index plain objects by sort name,
+  and a client skips such a key if a record carries one anyway.
 - No entry `preloaded` means nothing is embedded: `pages: {}` and every sort in `pageCids`. Several
   preloaded entries share the preload size budget equally, and one whose first page does not fit its share
   degrades to `pageCids` while the others still embed. The first preloaded entry in list order is the
@@ -76,6 +79,42 @@ Rules:
 - **Any change to `settings.pages` regenerates every CommentUpdate** on the next pass. Reply pages are
   only rebuilt for flagged comments, so without this an untouched comment would keep its old reply sorts
   indefinitely. One full regeneration is the cost of the edit.
+
+### Choosing the wire key
+
+The key a sort is published under (`posts.pages[key]`, `posts.pageCids[key]`, `community.pageSorts.posts[key]`,
+and the same under `replies`) is the community owner's decision. A file declares a default, its `sortName`,
+and an entry replaces it by setting its own:
+
+```ts
+pages: {
+    posts: [
+        { name: "hot", preloaded: true },                                             // key: hot
+        { name: "top", sortName: "topFortnight", options: { maxAge: "2w" } },         // key: topFortnight
+        { name: "top", sortName: "topYearly", options: { maxAge: "1y" } },            // key: topYearly
+        { name: "@pkcprotocol/flair-page-sort", sortName: "announcements", options: { flairs: "Announcement" } }
+    ]
+}
+```
+
+- One rule for every entry kind: built-ins, registered packages and `path:` files alike.
+- It is what makes listing one file more than once under a scope possible. Without it both `top` entries
+  above resolve to `top` and the second is rejected.
+- The duplicate check runs on the resolved key, so `{ name: "hot" }` next to
+  `{ name: "new", sortName: "hot" }` is rejected with `ERR_PAGE_SORT_DUPLICATE_SORT_NAME`, on the later
+  entry, with the resolved key as `sortName` in the error details. The check is per scope: `posts` and
+  `replies` may use the same key.
+- The value follows the same rule as a file's `sortName`: any non-empty string except `__proto__`,
+  `constructor`, `prototype` and the other keys a plain object inherits (`toString`, `valueOf`, ...). There
+  is no character set or length limit, so pick something a client can put in a URL and a label. The only
+  bound on length is the 1 MiB cap on the community record, which holds every key several times.
+- Nothing else about the sort changes. `community.pageSorts[scope][key].name` still names the file, so a
+  client finds the package through `name`, never through the key.
+- An override equal to the file's own `sortName` is accepted and changes nothing. One file listed twice with
+  identical options under two keys is accepted too, and publishes the same pages under both.
+- Renaming a key is a `settings.pages` edit like any other: every CommentUpdate is regenerated, the new
+  key appears and the old one is gone from `pages`, `pageCids` and `community.pageSorts`. There is no alias
+  for the old key, so a client that remembered it falls back to the community's default sort.
 
 ### Reserved options
 
@@ -119,7 +158,8 @@ Configuring `newFlat` under `posts` or `active` under `replies` is a validation 
 
 ### What is published
 
-When `settings.pages` is set the record carries `community.pageSorts`, keyed by `sortName` per scope, so a
+When `settings.pages` is set the record carries `community.pageSorts`, keyed by wire key per scope (the
+entry's `sortName`, else the file's; the file's own `sortName` is not published when an entry overrides it), so a
 client can tell the built-in `active` from a package that reuses the name and re-sort locally with the
 same package (see [Client side](#client-side)):
 
@@ -159,7 +199,8 @@ with one `failures[]` entry per bad sort; a file that does not load at all
 
 | Check | Error code |
 |---|---|
-| Two entries with the same `sortName` | `ERR_PAGE_SORT_DUPLICATE_SORT_NAME` |
+| An entry `sortName` that is empty, not a string, `__proto__` / `constructor` / `prototype`, or another key an object inherits (`toString`, ...) | `ERR_COMMUNITY_EDIT_OPTIONS_SCHEMA` (a schema error, not part of the aggregate) |
+| Two entries of a scope resolving to the same key (the entry's `sortName`, else the file's) | `ERR_PAGE_SORT_DUPLICATE_SORT_NAME` |
 | A sort with a declared `scope` under the other scope | `ERR_PAGE_SORT_SCOPE_MISMATCH` |
 | An `options` key that is neither reserved nor declared in `optionInputs` | `ERR_PAGE_SORT_OPTION_NOT_DECLARED_IN_OPTION_INPUTS` |
 | A missing option whose `optionInputs` entry is `required` | `ERR_PAGE_SORT_REQUIRED_OPTION_MISSING` |
@@ -170,7 +211,7 @@ with one `failures[]` entry per bad sort; a file that does not load at all
 
 At generation time a sort whose file throws is skipped: the remaining sorts publish, and every cycle that
 generates pages emits `ERR_PAGE_SORT_FAILED_TO_GENERATE` on the community's `error` event for each such
-sort (with `sortName` and `scope` in `details`). A throwing preloaded sort drops out of `pages`; if none
+sort (with `sortName`, the resolved wire key, and `scope` in `details`). A throwing preloaded sort drops out of `pages`; if none
 survive the record ships `pages: {}`. If every configured sort throws there is nothing left to publish for
 that scope, and a sort file's bug is no verdict on the feed, so the cycle aborts instead of shipping the
 scope empty: the per-sort events fire, `ERR_ALL_PAGE_SORTS_FAILED_TO_GENERATE` follows (`scope`,
@@ -188,7 +229,7 @@ The returned object is cached and reused by every generation.
 export default function ({ pageSortSettings }) {
     const keywords = (pageSortSettings.options?.noBumpKeywords ?? "").split(",").map((k) => k.trim()).filter(Boolean);
     return {
-        sortName: "active",                    // the wire key; public API of your package, changing it breaks every board using it
+        sortName: "active",                    // the default wire key; changing it renames the sort on every board that does not set its own
         description: "Bump order where replies carrying a configured keyword do not bump",
         scope: "posts",                        // "posts" | "replies" | omitted for either
         flat: false,                           // reply sorts only: score the flattened subtree
@@ -218,6 +259,11 @@ The contract:
   [Client side](#client-side)), which is how a client reproduces the community's order. Higher scores sort first. The CommentUpdate arrives with
   its nested `replies` stripped: a file never sees the preloaded reply slice, so it cannot mistake it for
   the reply set.
+- **The entry's `sortName` is the owner's, not the file's.** The factory and `validatePageSortSettings`
+  receive the entry as stored, so `pageSortSettings.sortName` is there when the owner set one (use it in a
+  log line or a validation message). `score` must not depend on it: a client re-sorting a page builds its
+  own `pageSortSettings` from `name` and `publicOptions` and never passes it, so a score that read it would
+  not reproduce the community's order. Declare an option for anything that changes the ranking.
 - **Ties keep the community's order.** Equal scores keep the order the comments were loaded in, which is the
   community's insertion order at generation and the page's order on a client. There is no comparator and
   no secondary key; a file that needs a tie-break folds it into the score.
@@ -333,7 +379,8 @@ integrates with configurable sorts. Nothing here needs a community database; eve
 
 - The sorts a community offers are the keys of `posts.pages` and `posts.pageCids` (and `replies.*` on a
   comment). Any string is a legal key now, not only the built-in names: a package publishes under its own
-  `sortName`, and a community may publish `controversial` for posts or a windowed `top`. The client state
+  `sortName` or under the key the community chose for it (an entry's `sortName`), and a community may publish
+  `controversial` for posts or several windowed `top` sorts under keys like `topFortnight`. The client state
   objects (`community.posts.clients.*`) are created for every key found in `pageCids`, on every transport.
 - The first key of `pages` is the community's default sort. A key in `pages` is embedded (no fetch); a key
   only in `pageCids` is fetched with `getPage`, as before.
@@ -341,6 +388,10 @@ integrates with configurable sorts. Nothing here needs a community database; eve
   in `settings.pages` (absent for a file loaded by `path`), `description` is the file's, `publicOptions`
   is the full option set the sort ran with. A community without `settings.pages` has no `pageSorts`;
   treat its keys as the built-ins they have always been.
+- The key is a label, not an identity. On a community that publishes `pageSorts`, a key named `hot` may be
+  any file the owner put there, so read `pageSorts[scope][key].name` to learn which sort it is and never
+  infer it from the key. An entry with no `name` is a file the community loaded by `path`: a client cannot
+  know its scorer and cannot re-sort it.
 - `pinnedFirst: "false"` and multiple preloaded sorts are opt-in; a client that hoists pinned comments by
   sort-name recognition, or assumes one preloaded sort, only misbehaves on boards that opted in. Read
   `publicOptions.pinnedFirst` instead of guessing.
@@ -356,12 +407,17 @@ itself. What that takes, in full:
 import PKC from "@pkcprotocol/pkc-js";
 import activePageSort from "@pkcprotocol/active-page-sort"; // installed by the UI, looked up by the published name
 
-const sortName = Object.keys(community.posts.pages)[0]; // the community's default
-const published = community.pageSorts?.posts?.[sortName]; // undefined on an unconfigured community
+const sortName = Object.keys(community.posts.pages)[0]; // the community's default; a wire key, not a package name
+const published = community.pageSorts?.posts?.[sortName]; // undefined when settings.pages.posts is unset
 const registry = { "@pkcprotocol/active-page-sort": activePageSort, ...PKC.pageSorts };
-const factory = registry[published?.name ?? sortName];
+// Only an unconfigured scope (no pageSorts.posts: settings.pages may configure replies alone) guarantees its keys
+// are the built-ins of the same name. A configured one names the file in `name`; the key may be anything the owner
+// chose, `hot` included.
+const packageName = community.pageSorts?.posts ? published?.name : sortName;
+const factory = packageName ? registry[packageName] : undefined;
+if (!factory) throw Error(`cannot re-sort ${sortName}: its package is not installed, or it was loaded by path`);
 const options = published?.publicOptions ?? {}; // the option set the sort ran with, reserved options included
-const file = factory({ pageSortSettings: { name: published?.name ?? sortName, options } });
+const file = factory({ pageSortSettings: { name: packageName, options } });
 const baseTimestamp = Math.round(Date.now() / 1000);
 
 // `score` gets the CommentUpdate without its nested `replies`; null declines the comment; ties keep the page's order
@@ -431,7 +487,9 @@ const ordered =
 `description`, `scope`, `flat` and `defaultOptions` are there to render a form), and an entry naming a sort
 the server does not have is rejected client-side with `ERR_RPC_CLIENT_PAGE_SORT_NAME_NOT_AVAILABLE_ON_SERVER`
 before the round trip. Send the reserved options like any other option; withhold package secrets with
-`privateOptions`, never a reserved option.
+`privateOptions`, never a reserved option. The listing's `sortName` is each file's default key: offer it as
+the placeholder of a key field and send the owner's value as the entry's `sortName` only when it differs,
+which a second entry of the same file always needs.
 
 ## Not in scope
 
