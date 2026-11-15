@@ -4,7 +4,8 @@ import type { RpcRemoteCommunityType, CommunityEvents, CommunityRpcErrorToTransm
 import { keys } from "remeda";
 import { PKCError } from "../pkc-error.js";
 import { parseRpcRemoteCommunityUpdateEventWithPKCErrorIfItFails } from "../schema/schema-util.js";
-import { areEquivalentCommunityAddresses, deepMergeRuntimeFields } from "../util.js";
+import { areEquivalentCommunityAddresses, deepMergeRuntimeFields, hideClassPrivateProps } from "../util.js";
+import type { PKC } from "../pkc/pkc.js";
 import { RpcLocalCommunity } from "./rpc-local-community.js";
 import {
     findStartedCommunity,
@@ -15,6 +16,9 @@ import {
 
 export class RpcRemoteCommunity extends RemoteCommunity {
     private _updateRpcSubscriptionId?: number = undefined;
+    // Bumped by every stop(), so an update() still creating its updating entry, or a communityUpdate subscribe answered
+    // after it, can tell its run was cancelled
+    private _stopCount = 0;
     private _updatingRpcCommunityInstanceWithListeners?: { community: RpcRemoteCommunity | RpcLocalCommunity } & Pick<
         CommunityEvents,
         | "error"
@@ -27,6 +31,13 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         | "challengeanswer"
         | "challenge"
     > = undefined; // The pkc._updatingCommunities we're subscribed to
+
+    constructor(pkc: PKC) {
+        super(pkc);
+        // RemoteCommunity's constructor hid its private fields before the ones above existed, and an enumerable
+        // _stopCount would show up in JSON.stringify(community)
+        hideClassPrivateProps(this);
+    }
 
     protected _setRpcClientStateWithoutEmission(newState: RemoteCommunity["clients"]["pkcRpcClients"][""]["state"]) {
         const currentRpcUrl = keys(this.clients.pkcRpcClients)[0];
@@ -249,6 +260,10 @@ export class RpcRemoteCommunity extends RemoteCommunity {
     async _initRpcUpdateSubscription() {
         const log = Logger("pkc-js:rpc-remote-community:_initRpcUpdateSubscription");
         this._setState("updating");
+        // stop() has no subscription id to unsubscribe until the response arrives, so a stop() in the meantime
+        // only bumps this count, and the response below is the run's to end
+        const stopCountAtSubscribe = this._stopCount;
+        const stoppedWhileSubscribing = () => this._stopCount !== stopCountAtSubscribe;
         let subscriptionId: number;
         try {
             // The identity this instance was asked for, not the name its last record claimed: a loader by
@@ -257,13 +272,24 @@ export class RpcRemoteCommunity extends RemoteCommunity {
                 name: this._requestedName(),
                 publicKey: this.publicKey
             }));
-            this._updateRpcSubscriptionId = subscriptionId;
         } catch (e) {
             log.error("Failed to receive communityUpdate from RPC due to error", e);
+            // stop() already set the states of the cancelled run, and the instance may be on a new run by now
+            if (stoppedWhileSubscribing()) return;
             this._setState("stopped");
             this._setUpdatingStateWithEventEmissionIfNewState("failed");
             throw e;
         }
+        if (stoppedWhileSubscribing()) {
+            // Otherwise the server keeps the subscription, the client re-issues it on every reconnect, and a stopped
+            // instance that no later stop() reaches receives its updates
+            log("stop() was called while subscribing, unsubscribing the new subscription", subscriptionId);
+            await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId).catch((e) => {
+                log.error("Failed to unsubscribe a communityUpdate subscription answered after stop()", e);
+            });
+            return;
+        }
+        this._updateRpcSubscriptionId = subscriptionId;
         // Deferred so a listener attached synchronously after `await update()` resolves still
         // receives events the server emitted at subscribe time (#299); see
         // attachSubscriptionHandlersDeferred for the mechanism
@@ -289,12 +315,19 @@ export class RpcRemoteCommunity extends RemoteCommunity {
 
     async _createAndSubscribeToNewUpdatingCommunity(updatingCommunity?: RpcRemoteCommunity) {
         const log = Logger("pkc-js:rpc-remote-community:_createNewUpdatingCommunity");
+        const stopCountBeforeCreate = this._stopCount;
         const updatingSub =
             updatingCommunity ||
             ((await this._pkc.createCommunity({
                 name: this._requestedName(),
                 publicKey: this.publicKey
             })) as RpcRemoteCommunity);
+        // A stop() while the entry was being created had nothing to undo yet. Tracking, mirroring and subscribing now
+        // would leave a server subscription and a mirroring instance that no later stop() reaches
+        if (this._stopCount !== stopCountBeforeCreate) {
+            log("stop() was called while creating the updating entry, not subscribing", this.address);
+            return;
+        }
         trackUpdatingCommunity(this._pkc, updatingSub);
         log("Creating a new entry for this._pkc._updatingCommunities", this.address);
 
@@ -407,6 +440,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
     override async stop() {
         const log = Logger("pkc-js:rpc-remote-community:stop");
         if (this.state === "stopped") return;
+        this._stopCount++;
         // The next update() is a new run whose listeners have not been told about any refused record
         this._lastRefusedRecordUpdatedAt = undefined;
 
