@@ -306,8 +306,8 @@ const POST_UPDATE_MFS_READ_BACK_TIMEOUT_MS = 60_000;
 // Reads back the post CommentUpdate files a batch has just written and flushed, and returns the rows whose
 // file does not hold what was written.
 //
-// Kubo loses an MFS write that is still open when a directory above the file is flushed (issues #551 and
-// #456). boxo's Directory.Flush() empties the directory's cache of open children, so the write's descriptor
+// Kubo loses an MFS write that is still open when a directory above the file is flushed (ipfs/kubo#11494,
+// tracked in issue #556, seen as #551 and #456). This check can go once the daemon is fixed. boxo's Directory.Flush() empties the directory's cache of open children, so the write's descriptor
 // is left on an inode nothing references any more. With flush:false its close never tells the parent, and
 // with flush:true the update is overwritten by the first lookup that reloaded the directory in between.
 // files.write and the files.flush after it both succeed, and the folder keeps the previous file. Flushes of
