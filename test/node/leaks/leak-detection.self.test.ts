@@ -35,7 +35,12 @@ describe("leak-detection self-test", () => {
             iterations: ITERATIONS,
             iteration: async () => ({ instance: { payload: new Array(1000).fill(0) } })
         });
-        expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [], abortSignalAnyOnLongLivedSources: [] });
+        expect(result).toEqual({
+            instancesStillAlive: [],
+            containerGrowth: [],
+            processResourceGrowth: [],
+            abortSignalAnyOnLongLivedSources: []
+        });
     });
 
     // The AbortSignal.any() counting must not itself retain what it counts: an instance whose own
@@ -54,7 +59,33 @@ describe("leak-detection self-test", () => {
                 return { instance };
             }
         });
-        expect(result).toEqual({ instancesStillAlive: [], containerGrowth: [], processResourceGrowth: [], abortSignalAnyOnLongLivedSources: [] });
+        expect(result).toEqual({
+            instancesStillAlive: [],
+            containerGrowth: [],
+            processResourceGrowth: [],
+            abortSignalAnyOnLongLivedSources: []
+        });
+    });
+
+    // A stopped libp2p-js node leaves its gossipsub heartbeat timer armed for up to a second, and a worker's
+    // queued stdout writes drain a little after the loop. Neither stays, so neither is a leak, however slow
+    // the machine is: a fast one never sees them, a slow one has several in flight when the loop ends
+    it("does not report a resource that goes away by itself within a second", async () => {
+        const owner = new FakeRegistryOwner();
+        const result = await measureRepeatedOperation({
+            roots: () => ({ owner }),
+            iterations: ITERATIONS,
+            iteration: async () => {
+                setTimeout(() => {}, 1000);
+                return { instance: {} };
+            }
+        });
+        expect(result).toEqual({
+            instancesStillAlive: [],
+            containerGrowth: [],
+            processResourceGrowth: [],
+            abortSignalAnyOnLongLivedSources: []
+        });
     });
 
     it("catches every planted leak class", async () => {
