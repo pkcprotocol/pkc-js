@@ -408,10 +408,13 @@ describeSkipIfRpc.concurrent("Verify community", async () => {
 
     // Unknown record props are assigned onto the RemoteCommunity instance, so a signed record carrying one
     // of its runtime-only markers would plant it: _pendingWarmStartKeyMigration a migration announcement,
-    // _lastRefusedRecordUpdatedAt the silencing of a later record's name-mismatch refusal
+    // _lastRefusedRecordUpdatedAt the silencing of a later record's name-mismatch refusal, _updateRunId and
+    // _stoppingPromise the update()/stop() bookkeeping
     for (const [runtimeField, value] of [
         ["_pendingWarmStartKeyMigration", { previousPublicKey: signers[1].address, newPublicKey: signers[2].address }],
-        ["_lastRefusedRecordUpdatedAt", 9999999999]
+        ["_lastRefusedRecordUpdatedAt", 9999999999],
+        ["_updateRunId", 1],
+        ["_stoppingPromise", true]
     ] as const) {
         it(`A community record is rejected if it includes the runtime-only ${runtimeField} even when signed`, async () => {
             const tempPKC: PKCType = await mockRemotePKC();
