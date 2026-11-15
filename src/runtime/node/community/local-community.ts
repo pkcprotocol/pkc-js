@@ -51,7 +51,7 @@ import { CommunityIpfsSchema } from "../../../community/schema.js";
 import { MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS } from "../../../community/community-client-manager.js";
 import { sha256 } from "js-sha256";
 import { AllPageCids } from "../../../pages/types.js";
-import { CHALLENGE_EXCHANGE_TTL_MS, generateDefaultChallenges } from "./local-community/defaults.js";
+import { CHALLENGE_EXCHANGE_TTL_MS, SLOW_GET_CHALLENGE_WARNING_MS, generateDefaultChallenges } from "./local-community/defaults.js";
 import {
     createNewLocalCommunityDb,
     getDbInternalState,
@@ -137,6 +137,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // Lifetime of one challenge exchange (see CHALLENGE_EXCHANGE_TTL_MS). Read when the caches
     // above are created at start; an instance field so a test can lower it.
     _challengeExchangeTtlMs: number = CHALLENGE_EXCHANGE_TTL_MS;
+    // How long a getChallenge() call may run before the community logs it as slow (issue #362).
+    // A field rather than the bare constant so tests can shorten it.
+    _slowGetChallengeWarningMs: number = SLOW_GET_CHALLENGE_WARNING_MS;
 
     _cidsToUnPin: Set<string> = new Set<string>();
     _mfsPathsToRemove: Set<string> = new Set<string>();

@@ -182,5 +182,5 @@ looks like a new bug to whoever sees it first.
 | `src/community/schema.ts` | `ChallengeFileSchema` (where `validateChallengeSettings` is declared), `ChallengeOptionInputSchema`, `CommunityChallengeSettingSchema` |
 | `src/runtime/node/community/challenges/validate-challenge-settings.ts` | Both layers, and the aggregation used by the edit and creation paths |
 | `src/runtime/node/community/challenges/pkc-js-challenges/` | Built-in challenges and their hooks |
-| `src/runtime/node/community/challenges/index.ts` | Runs `getChallenge` and logs the slow-challenge warning (`SLOW_GET_CHALLENGE_WARNING_MS`) |
+| `src/runtime/node/community/challenges/index.ts` | Runs `getChallenge` and logs the slow-challenge warning (`SLOW_GET_CHALLENGE_WARNING_MS` in `local-community/defaults.ts`) |
 | `src/errors.ts` | The `ERR_CHALLENGE_*` codes listed above |
