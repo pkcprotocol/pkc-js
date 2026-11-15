@@ -204,7 +204,8 @@ jobs:
 
     test-pkc-js-browser-remote-configs:
         name: test-pkc-js-${{ matrix.environment }}-${{ matrix.config }}
-        runs-on: ubuntu-24.04 # Playwright 1.56.1 does not support the Ubuntu 26.04 image ubuntu-latest is moving to
+        # pinned: ubuntu-latest is now 26.04, where playwright 1.56.1 refuses to install browsers
+        runs-on: ubuntu-24.04
         timeout-minutes: 30
         strategy:
             fail-fast: false
