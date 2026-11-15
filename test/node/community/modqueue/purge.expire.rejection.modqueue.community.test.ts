@@ -415,7 +415,8 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
             postUpdatesPath = `/${ctx.community.address}/postUpdates/${postUpdatesBucket}/${disapprovedPost.cid}/update`;
             console.log("[debug] pre-purge postUpdates path", postUpdatesPath);
 
-            // The row is stored before its file is written to MFS later in the same cycle, so the file is waited for
+            // The row is stored before its file is written to MFS later in the same cycle, and the file is created
+            // before its content is written, so the wait is for a file that has content, not for one that exists
             const kuboClientBefore = (ctx.community as LocalCommunity)._clientsManager.getDefaultKuboRpcClient()._client;
             const statPostUpdatesFile = async (): Promise<{ size: number } | undefined> => {
                 try {
@@ -427,10 +428,8 @@ describeSkipIfRpc("purgeDisapprovedCommentsOlderThan expirations", function () {
             };
             await resolveWhenConditionIsTrue({
                 toUpdate: ctx.community,
-                predicate: async () => (await statPostUpdatesFile()) !== undefined
+                predicate: async () => ((await statPostUpdatesFile())?.size ?? 0) > 0
             });
-            const statBefore = await statPostUpdatesFile();
-            expect(statBefore?.size).to.be.greaterThan(0);
 
             backdateAllDisapprovals(ctx, disapprovedPost.cid!, retentionSeconds + 10);
             await (ctx.community as LocalCommunity)._purgeDisapprovedCommentsOlderThan();
