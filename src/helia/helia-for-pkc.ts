@@ -44,7 +44,7 @@ import {
 import type { IpnsPubsubLocalStore, ProviderReachability } from "./util.js";
 import { createDefaultDialTransportGater } from "./dial-transport-filter.js";
 import { pkcDialAddressSorter } from "./dial-address-sorter.js";
-import { binaryKeyToPubsubTopic, ipnsNameToIpnsOverPubsubTopic } from "../util.js";
+import { binaryKeyToPubsubTopic, ipnsNameToIpnsOverPubsubTopic, linkAbortSignals } from "../util.js";
 
 const log = Logger("pkc-js:libp2p-js");
 
@@ -635,21 +635,28 @@ export async function createLibp2pJsClientOrUseExistingOne(
         // callers that expect the sync contract. Instead, we expose `warmupForTopic(topic)` and
         // dedupe in-flight warmups via a per-topic Map, so concurrent callers share a single
         // findProviders/dial cycle.
+        // Aborted by the final stop(): ends every warmup and every cat() still in flight
+        const stopController = new AbortController();
         const WARMUP_MAX_PEERS = 4;
         const warmupPromisesByTopic = new Map<string, Promise<void>>();
         const warmupForTopic = (topic: string, options?: { signal?: AbortSignal }): Promise<void> => {
             if (helia.libp2p.services.pubsub.getSubscribers(topic).length > 0) return Promise.resolve();
             const existing = warmupPromisesByTopic.get(topic);
             if (existing) return existing;
+            // The final stop() ends a warmup that is still running (issue #541). A warmup started without a
+            // caller signal (the IPNS resolver's, for a name nobody is subscribed to) otherwise waits out its
+            // 10 s subscriber timeout on a stopped node, with its timer, poll interval and findProviders query.
+            const linked = linkAbortSignals([options?.signal, stopController.signal]);
             const p = connectToPubsubPeers({
                 helia,
                 pubsubTopic: topic,
                 maxPeers: WARMUP_MAX_PEERS,
-                options,
+                options: { ...options, signal: linked.signal },
                 log: Logger("pkc-js:helia:pubsub:warmup")
             })
                 .then(() => undefined)
                 .finally(() => {
+                    linked.dispose();
                     warmupPromisesByTopic.delete(topic);
                 });
             warmupPromisesByTopic.set(topic, p);
@@ -665,13 +672,12 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 });
         };
 
-        // Issue #345: every in-flight cat() also listens on this controller, and registers a promise
+        // Issue #345: every in-flight cat() also listens on stopController, and registers a promise
         // that settles once its generator has unwound. The final stop() aborts the controller and
         // waits for those promises before stopping helia, so no fetch (with or without a caller
         // signal) keeps creating bitswap sessions, querying routers, and logging after stop()
         // resolved. Under --per-test-logs such a late debug line lands while vitest is closing the
         // worker and fails an all-green run (EnvironmentTeardownError, CI run 34019332586).
-        const catStopController = new AbortController();
         const inFlightCats = new Set<Promise<void>>();
         // Bound on waiting for in-flight cats to unwind. They only need to observe the abort and
         // run their finally blocks, so this is never expected to be reached; it just keeps stop()
@@ -1006,7 +1012,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     const abortFromCallerSignal = () => controller.abort(callerSignal?.reason);
                     if (callerSignal?.aborted) abortFromCallerSignal();
                     else callerSignal?.addEventListener("abort", abortFromCallerSignal, { once: true });
-                    // The final stop() aborts this one (issue #345), see catStopController above.
+                    // The final stop() aborts this one (issue #345), see stopController above.
                     const abortFromStop = () =>
                         controller.abort(
                             new PKCError("ERR_HELIAS_STOPPING_OR_STOPPED", {
@@ -1015,8 +1021,8 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                 ...getHeliaDebugContext(helia)
                             })
                         );
-                    if (catStopController.signal.aborted) abortFromStop();
-                    else catStopController.signal.addEventListener("abort", abortFromStop, { once: true });
+                    if (stopController.signal.aborted) abortFromStop();
+                    else stopController.signal.addEventListener("abort", abortFromStop, { once: true });
                     let markUnwound!: () => void;
                     const unwound = new Promise<void>((resolve) => (markUnwound = resolve));
                     inFlightCats.add(unwound);
@@ -1077,7 +1083,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     } finally {
                         if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
                         callerSignal?.removeEventListener("abort", abortFromCallerSignal);
-                        catStopController.signal.removeEventListener("abort", abortFromStop);
+                        stopController.signal.removeEventListener("abort", abortFromStop);
                         inFlightCats.delete(unwound);
                         markUnwound();
                     }
@@ -1166,8 +1172,8 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     controller.abort(new PKCError("ERR_HELIAS_STOPPING_OR_STOPPED", { heliaKey: pkcOptions.key, ipfsPath }));
                 if (callerSignal?.aborted) abortFromCaller();
                 else callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
-                if (catStopController.signal.aborted) abortFromStop();
-                else catStopController.signal.addEventListener("abort", abortFromStop, { once: true });
+                if (stopController.signal.aborted) abortFromStop();
+                else stopController.signal.addEventListener("abort", abortFromStop, { once: true });
                 const timeoutTimer =
                     timeoutMs !== undefined
                         ? setTimeout(() => controller.abort(new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { ipfsPath, timeoutMs })), timeoutMs)
@@ -1200,7 +1206,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 } finally {
                     if (timeoutTimer) clearTimeout(timeoutTimer);
                     callerSignal?.removeEventListener("abort", abortFromCaller);
-                    catStopController.signal.removeEventListener("abort", abortFromStop);
+                    stopController.signal.removeEventListener("abort", abortFromStop);
                 }
             },
             async add(
@@ -1259,7 +1265,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     // End every in-flight cat() and let it unwind (close its bitswap session, run
                     // its finally) before helia goes down, so nothing fetch-related runs or logs
                     // after stop() resolves (issue #345).
-                    catStopController.abort();
+                    stopController.abort();
                     if (inFlightCats.size > 0) {
                         const unwindTimeout = new AbortController();
                         const allUnwound = Promise.all([...inFlightCats]).then(() => "unwound" as const);

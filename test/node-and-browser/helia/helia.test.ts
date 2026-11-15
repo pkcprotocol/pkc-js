@@ -600,6 +600,33 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
         }, 15000);
     });
 
+    // Issue #541: a warmup still waiting for a topic subscriber when the PKC is destroyed kept its 10 s
+    // timeout timer, its 1 s poll interval and its findProviders query until the wait timed out by itself.
+    // A warmup started without a caller signal (the IPNS resolver's, for a name nobody is subscribed to)
+    // had nothing else to end it, so the destroyed node's timers kept the process alive for up to 10 s.
+    describe(`Helia stop() ends warmups that are still waiting - ${config.name}`, () => {
+        it("destroy() settles a subscribe() that is waiting for a subscriber of a topic nobody subscribes to", async () => {
+            const pkc = await config.pkcInstancePromise({ forceMockPubsub: false });
+            const heliaShape = Object.values(pkc.clients.libp2pJsClients)[0].heliaWithKuboRpcClientFunctions;
+            const unknownTopic = `stop-ends-warmup-test-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+
+            let settled = false;
+            // No signal: only the stop can end this wait before its own 10 s timeout
+            const subscribePromise = heliaShape.pubsub.subscribe(unknownTopic, () => {}).then(
+                () => (settled = true),
+                () => (settled = true)
+            );
+            // Let the warmup reach its subscriber wait
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            expect(settled, "the warmup should still be waiting for a subscriber").to.be.false;
+
+            await pkc.destroy();
+            await new Promise((resolve) => setImmediate(resolve));
+            expect(settled, "destroy() resolved while the warmup was still waiting for a subscriber").to.be.true;
+            await subscribePromise;
+        }, 20000);
+    });
+
     // Issue #189: every block fetched over the helia transport used to go through
     // @helia/bitswap's want(), which fires network.findAndConnect(cid) — a routing
     // findProviders query against ALL configured HTTP routers — once PER BLOCK (aborted when
