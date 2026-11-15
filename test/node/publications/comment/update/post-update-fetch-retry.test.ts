@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { mockPKCNoDataPathWithOnlyKuboClient, publishStaticCommunityWithPostInPages } from "../../../../../dist/node/test/test-util.js";
 import { CommentClientsManager } from "../../../../../dist/node/publications/comment/comment-client-manager.js";
 import { PKCError } from "../../../../../dist/node/pkc-error.js";
+import { findUpdatingComment } from "../../../../../dist/node/pkc/tracked-instance-registry-util.js";
 import type { CommunityIpfsType } from "../../../../../dist/node/community/types.js";
 
 // The post counterpart of issue #515: a post whose CommentUpdate is only under the community's postUpdates, on a static
@@ -11,6 +12,12 @@ import type { CommunityIpfsType } from "../../../../../dist/node/community/types
 
 interface FetchCidP2PHolder {
     _fetchCidP2P(path: string, opts: unknown): Promise<string>;
+}
+
+interface PostRetryInternals {
+    _transientFetchRetry: { attempts: number; timer?: unknown };
+    _communityForUpdating?: { community: unknown };
+    handleUpdateEventFromCommunity(community: unknown): Promise<void>;
 }
 
 interface PostLookupHolder {
@@ -162,6 +169,62 @@ describe("a post fetching its CommentUpdate from postUpdates after one fetch fai
             expect(errors).to.deep.equal([{ code: "ERR_OVER_DOWNLOAD_LIMIT", updatingState: "failed" }]);
             expect(fetches, "the same path holds the same oversized file, fetching it again cannot help").to.equal(1);
             expect(post.updatedAt).to.be.undefined;
+            await post.stop();
+        } finally {
+            await pkc.destroy();
+            await fixture.ipnsObj.pkc.destroy();
+        }
+    });
+
+    // A lookup that a newer community record replaces is aborted, and returns without having failed to fetch. It used to
+    // count as a success whenever no retry was pending, which is always the case then, since the newer lookup dropped
+    // the pending retry on its way in: the count of failed attempts went back to 0, and on a community that publishes
+    // often while the file keeps failing to load the delay never grew past 1 to 2s.
+    it("keeps the backoff when a lookup is replaced by a newer one while it is still fetching", async () => {
+        const fixture = await publishStaticCommunityWithPostInPages({ withPostOnlyInPostUpdates: true });
+        const pkc = await mockPKCNoDataPathWithOnlyKuboClient();
+        try {
+            const updatePath = `${fixture.postUpdatesFolderCid}/${fixture.commentCid}/update`;
+            const prototype = CommentClientsManager.prototype as unknown as FetchCidP2PHolder;
+            const originalFetchCidP2P = prototype._fetchCidP2P;
+            // Every fetch of the update file fails. The second belongs to the lookup that gets replaced, and the third
+            // to the newer one: each is held until the test lets it end
+            const held: Record<number, () => void> = {};
+            let fetches = 0;
+            vi.spyOn(prototype, "_fetchCidP2P").mockImplementation(async function (this: FetchCidP2PHolder, path: string, opts: unknown) {
+                if (path !== updatePath) return originalFetchCidP2P.call(this, path, opts);
+                const fetch = ++fetches;
+                if (fetch > 1) await new Promise<void>((resolve) => (held[fetch] = resolve));
+                if (fetch === 2) throw Object.assign(new Error("superseded by a newer community record"), { name: "AbortError" });
+                throw new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { cid: path, simulated: true });
+            });
+
+            const post = await pkc.createComment({ cid: fixture.commentCid });
+            const errors: Error[] = [];
+            post.on("error", (error) => errors.push(error as Error));
+            await post.update();
+            const manager = await vi.waitFor(
+                () => {
+                    const updatingPost = findUpdatingComment(pkc, { cid: fixture.commentCid });
+                    const internals = updatingPost?._clientsManager as unknown as PostRetryInternals | undefined;
+                    expect(internals?._transientFetchRetry.attempts).to.equal(1);
+                    return internals!;
+                },
+                { timeout: waitForPostUpdateMs, interval: 20 }
+            );
+            const community = manager._communityForUpdating!.community;
+
+            // well inside the 1s the retry waits: one lookup starts fetching, and a newer one replaces it
+            const replacedLookup = manager.handleUpdateEventFromCommunity(community);
+            await vi.waitFor(() => expect(held[2]).to.be.a("function"), { timeout: 5000, interval: 10 });
+            const newerLookup = manager.handleUpdateEventFromCommunity(community);
+            await vi.waitFor(() => expect(held[3]).to.be.a("function"), { timeout: 5000, interval: 10 });
+            held[2]();
+            await replacedLookup;
+            held[3]();
+            await newerLookup;
+
+            expect(manager._transientFetchRetry.attempts, "two fetches failed in a row, the replaced lookup is not a success").to.equal(2);
             await post.stop();
         } finally {
             await pkc.destroy();

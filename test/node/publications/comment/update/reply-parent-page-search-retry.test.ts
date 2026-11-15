@@ -257,6 +257,47 @@ describe("a reply updating through its parent's pageCids (#515)", () => {
             await reply.stop();
         }));
 
+    // A search that a newer post update replaces is aborted, and returns without having failed to fetch. That is not a
+    // success: it learned nothing. It used to count as one whenever no retry was pending, which is always the case
+    // then, since the newer search dropped the pending retry on its way in. The count of failed attempts went back
+    // to 0, so on a post that updates often while a page keeps failing the delay never grew past 1 to 2s.
+    it("keeps the backoff when a search is replaced by a newer one while it is still fetching", () =>
+        withReplyOnSecondPage(async ({ pkc, fixture, pages }) => {
+            let releaseReplacedSearch: () => void;
+            const replacedSearchHeld = new Promise<void>((resolve) => (releaseReplacedSearch = resolve));
+            // Every fetch of the first page fails. The second one belongs to the search that gets replaced: it is held
+            // until the newer search has started, then ends the way an aborted fetch does
+            const originalGetPage = RepliesPages.prototype.getPage;
+            const requestedAt: number[] = [];
+            vi.spyOn(RepliesPages.prototype, "getPage").mockImplementation(async function (this: RepliesPages, args: GetPageArgs) {
+                if (args.cid !== pages.first) return originalGetPage.call(this, args);
+                requestedAt.push(Date.now());
+                if (requestedAt.length !== 2) throw fetchTimeout(pages.first);
+                await replacedSearchHeld;
+                throw Object.assign(new Error("superseded by a newer post update"), { name: "AbortError" });
+            });
+
+            const reply = await pkc.createComment({ cid: fixture.replyCid! });
+            const errors = recordErrors(reply);
+            await reply.update();
+            await vi.waitFor(() => expect(errors).to.have.length(1), { timeout: waitForReplyUpdateMs, interval: 20 });
+            const { manager, updatingPost } = updatingInternals(pkc, fixture.replyCid!, fixture.commentCid);
+            // the retry is scheduled right after the error is emitted
+            await vi.waitFor(() => expect(manager._transientFetchRetry.attempts).to.equal(1), { timeout: 5000, interval: 10 });
+
+            // well inside the 1s the retry waits: one search starts fetching, and a newer one replaces it
+            const replacedSearch = manager.handleUpdateEventFromPostToFetchReplyCommentUpdate(updatingPost);
+            await vi.waitFor(() => expect(requestedAt).to.have.length(2), { timeout: 5000, interval: 10 });
+            const newerSearch = manager.handleUpdateEventFromPostToFetchReplyCommentUpdate(updatingPost);
+            releaseReplacedSearch!();
+            await replacedSearch;
+            await newerSearch;
+
+            expect(requestedAt, "the newer search fetched the page, and failed too").to.have.length(3);
+            expect(manager._transientFetchRetry.attempts, "two fetches failed in a row, the replaced search is not a success").to.equal(2);
+            await reply.stop();
+        }));
+
     it("stops retrying once the reply is stopped", () =>
         withReplyOnSecondPage(async ({ pkc, fixture, pages }) => {
             const requestedAt = stubGetPageFor(pages.first, () => fetchTimeout(pages.first));

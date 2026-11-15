@@ -127,6 +127,9 @@ export class CommentClientsManager extends PublicationClientsManager {
     // by an update event of the community or the post unless one of them changes, so without a retry of its own the
     // comment would wait for that change, on a quiet community for good.
     private _transientFetchRetry: { attempts: number; timer?: ReturnType<typeof setTimeout> } = { attempts: 0 };
+    // Counts the CommentUpdate lookups started by the update handlers. A lookup that finds a newer one started while it
+    // was running was replaced by it, and leaves the retry and its backoff to that one
+    private _commentUpdateLookupsStarted = 0;
 
     constructor(comment: Comment) {
         super(comment);
@@ -886,7 +889,11 @@ export class CommentClientsManager extends PublicationClientsManager {
     // this is for posts with depth === 0
     override async handleUpdateEventFromCommunity(community: RemoteCommunity) {
         this._dropPendingTransientFetchRetry(); // this lookup replaces the pending retry of an older one
+        const lookup = ++this._commentUpdateLookupsStarted;
         const fetchFailed = await this._fetchPostCommentUpdateOnCommunityRecord(community);
+        // Replaced by a newer lookup while it ran (which aborted it): it has no result of its own. Counting it as a
+        // success would start the backoff over although nothing was loaded
+        if (lookup !== this._commentUpdateLookupsStarted) return;
         // The record stays the same until the community publishes again, so a failed fetch is retried here (issue #515)
         if (fetchFailed)
             this._scheduleTransientFetchRetry(() => this.handleUpdateEventFromCommunity(community), Logger("pkc-js:comment:update"));
@@ -1278,7 +1285,10 @@ export class CommentClientsManager extends PublicationClientsManager {
 
     async handleUpdateEventFromPostToFetchReplyCommentUpdate(postInstance: Comment) {
         this._dropPendingTransientFetchRetry(); // this search replaces the pending retry of an older one
+        const lookup = ++this._commentUpdateLookupsStarted;
         const fetchFailed = await this._fetchReplyCommentUpdateOnPostUpdate(postInstance);
+        // Replaced by a newer search while it ran (which aborted it): see handleUpdateEventFromCommunity
+        if (lookup !== this._commentUpdateLookupsStarted) return;
         // The post emits no update until its own CommentUpdate changes, so a failed page fetch is retried here (issue #515)
         if (fetchFailed)
             this._scheduleTransientFetchRetry(
