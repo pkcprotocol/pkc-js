@@ -316,11 +316,14 @@ export class Comment
 
         if (ownAuthor.length === 0 && replyAuthors.length === 0 && crosspostAuthors.length === 0) return;
 
-        const previousNameResolved = this.author.nameResolved;
         const onResolved = () => {
             const crosspostChanged = this.crosspost
                 ? applyNameResolvedCacheToCrosspost({ crosspost: this.crosspost, cache: this._pkc._memCaches.nameResolvedCache })
                 : false;
+            // Read now, not when this call asked: the verdict may already be on the author through a path that
+            // emitted update for it (a mirror copying it from the updating instance that heard it first, a
+            // CommentUpdate, this comment's other batch), and that update is the one for this verdict.
+            const previousNameResolved = this.author.nameResolved;
             this._setAuthorNameResolvedFromCache();
             if (this.replies?.pages) {
                 for (const page of Object.values(this.replies.pages)) {
