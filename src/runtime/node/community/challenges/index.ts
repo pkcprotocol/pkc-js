@@ -34,6 +34,7 @@ import { ChallengeFileFactorySchema, ChallengeFileSchema, CommunityChallengeSett
 import { PKCError } from "../../../../pkc-error.js";
 import { pathToFileURL } from "node:url";
 import { validateChallengeResultExtras } from "./validate-challenge-result.js";
+import Logger from "../../../../logger.js";
 
 type PendingChallenge = Challenge & { index: number };
 
@@ -253,6 +254,12 @@ const loadChallengeFile = async ({
     return { challengeFile };
 };
 
+// A publisher that has heard neither a challenge nor a verification gives up 120 s after its last
+// request (it re-sends once, 10 s after the first). A getChallenge() still running after this long is
+// eating most of that window, and the time the request waited before getChallenge() started is not
+// even counted here (issue #362). See "Time budget" in docs/protocol/challenge-authoring.md.
+export const SLOW_GET_CHALLENGE_WARNING_MS = 60 * 1000;
+
 // invoke getChallenge() with shared error handling and result validation
 const callGetChallenge = async ({
     challengeFile,
@@ -270,6 +277,18 @@ const callGetChallenge = async ({
     authorIdentityMatcher: AuthorIdentityMatcher;
 }): Promise<{ challengeOrChallengeResult: Challenge | ChallengeResult }> => {
     let challengeOrChallengeResult: Challenge | ChallengeResult;
+    const challengeName = communityChallengeSettings.name || communityChallengeSettings.path;
+    const startedAtMs = Date.now();
+    // Warn while the call is still running, so a challenge that never returns is reported too.
+    const slowWarningTimer = setTimeout(() => {
+        Logger("pkc-js:local-community:challenges:callGetChallenge").error(
+            `getChallenge() of challenge ${challengeIndex + 1} (${challengeName}) in community ${community.address} is still running after ${SLOW_GET_CHALLENGE_WARNING_MS / 1000}s.`,
+            "A publisher that receives no challenge or verification gives up after about two minutes and the publication looks failed to its author.",
+            "Slow work belongs behind pendingApproval. challengeRequestId:",
+            challengeRequestMessage.challengeRequestId.toString()
+        );
+    }, SLOW_GET_CHALLENGE_WARNING_MS);
+    slowWarningTimer.unref?.();
     try {
         challengeOrChallengeResult = await challengeFile.getChallenge({
             challengeSettings: communityChallengeSettings,
@@ -278,6 +297,11 @@ const callGetChallenge = async ({
             community,
             authorIdentityMatcher
         });
+        const elapsedMs = Date.now() - startedAtMs;
+        if (elapsedMs >= SLOW_GET_CHALLENGE_WARNING_MS)
+            Logger("pkc-js:local-community:challenges:callGetChallenge").error(
+                `getChallenge() of challenge ${challengeIndex + 1} (${challengeName}) in community ${community.address} took ${Math.round(elapsedMs / 1000)}s`
+            );
         validateChallengeOrChallengeResult({ challengeOrChallengeResult, challengeIndex, community });
     } catch (e) {
         throw new PKCError("ERR_INVALID_RESULT_FROM_GET_CHALLENGE_FUNCTION", {
@@ -287,6 +311,8 @@ const callGetChallenge = async ({
             challengeIndex: challengeIndex + 1,
             error: e
         });
+    } finally {
+        clearTimeout(slowWarningTimer);
     }
     return { challengeOrChallengeResult };
 };
