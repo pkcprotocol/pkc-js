@@ -381,6 +381,13 @@ export class CommentClientsManager extends PublicationClientsManager {
                 );
             } catch (e) {
                 throwIfAbortSignalAborted(abortSignal); // superseded or stopped: not a failure to try the next range for
+                if (e instanceof PKCError && !this._shouldWeFetchCommentUpdateFromNextTimestamp(e)) {
+                    // Not a failure to load: the file was fetched and is wrong in itself (over the download limit). The
+                    // same path holds the same bytes, so it ends the lookup, as it does when a gateway reports it
+                    this._comment._invalidCommentUpdateMfsPaths.add(path);
+                    e.details = { ...e.details, commentUpdatePath: path, postCid: this._comment.cid };
+                    throw e;
+                }
                 // failed to load the record, maybe our node is offline or the content is unreachable
                 log.trace(`Failed to fetch CommentUpdate from path (${path}) with IPFS P2P. Trying the next timestamp range`);
                 attemptedPathsToLoadErrors[path] = <Error>e;

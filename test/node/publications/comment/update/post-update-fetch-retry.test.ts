@@ -131,6 +131,41 @@ describe("a post fetching its CommentUpdate from postUpdates after one fetch fai
         }
     });
 
+    // A file over the download limit is not a failure to load: the file is there and is wrong in itself, and the same
+    // path holds the same bytes however often it is fetched. It used to be counted among the loading failures of the
+    // lookup, so the retry downloaded the oversized file again every 1 to 30s.
+    it("goes to failed and does not retry when its update file is over the download limit", async () => {
+        const fixture = await publishStaticCommunityWithPostInPages({ withPostOnlyInPostUpdates: true });
+        const pkc = await mockPKCNoDataPathWithOnlyKuboClient();
+        try {
+            const updatePath = `${fixture.postUpdatesFolderCid}/${fixture.commentCid}/update`;
+            const prototype = CommentClientsManager.prototype as unknown as FetchCidP2PHolder;
+            const originalFetchCidP2P = prototype._fetchCidP2P;
+            let fetches = 0;
+            vi.spyOn(prototype, "_fetchCidP2P").mockImplementation(async function (this: FetchCidP2PHolder, path: string, opts: unknown) {
+                if (path !== updatePath) return originalFetchCidP2P.call(this, path, opts);
+                fetches++;
+                throw new PKCError("ERR_OVER_DOWNLOAD_LIMIT", { cid: path, simulated: true });
+            });
+
+            const post = await pkc.createComment({ cid: fixture.commentCid });
+            // The state is read inside the emission: the community's next poll moves it on
+            const errors: { code: string; updatingState: string }[] = [];
+            post.on("error", (error) => errors.push({ code: (error as PKCError).code, updatingState: post.updatingState }));
+            await post.update();
+            await vi.waitFor(() => expect(errors).to.have.length(1), { timeout: waitForPostUpdateMs, interval: 50 });
+
+            await new Promise((resolve) => setTimeout(resolve, noRetryWindowMs));
+            expect(errors).to.deep.equal([{ code: "ERR_OVER_DOWNLOAD_LIMIT", updatingState: "failed" }]);
+            expect(fetches, "the same path holds the same oversized file, fetching it again cannot help").to.equal(1);
+            expect(post.updatedAt).to.be.undefined;
+            await post.stop();
+        } finally {
+            await pkc.destroy();
+            await fixture.ipnsObj.pkc.destroy();
+        }
+    });
+
     it("stops retrying once the post is stopped", async () => {
         const fixture = await publishStaticCommunityWithPostInPages({ withPostOnlyInPostUpdates: true });
         const pkc = await mockPKCNoDataPathWithOnlyKuboClient();
