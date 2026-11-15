@@ -50,6 +50,7 @@ Comment extends Publication /* (IPFS file) */ {
   thumbnailUrl?: string // optionally fetched by community owner, some web pages have thumbnail urls in their meta tags https://moz.com/blog/meta-data-templates-123
   thumbnailUrlWidth?: number // community owner can optionally provide dimensions of thumbails which helps UI clients with infinite scrolling feeds
   thumbnailUrlHeight?: number
+  pseudonymityMode?: 'per-post' | 'per-reply' | 'per-author' // the community.features.pseudonymityMode this comment was pseudonymized under, undefined if the community had none when it was published
 }
 GalleryItem { // other props are kept as signed, since a later protocol version may add some
   url: string // 1-2000 chars. The community requires an https url whose path ends in an image, video or audio extension
