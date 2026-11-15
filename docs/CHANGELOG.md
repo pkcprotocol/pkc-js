@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.146](https://github.com/pkcprotocol/pkc-js/compare/v0.0.145...v0.0.146) (2026-11-15)
+
+### Bug Fixes
+
+* **community:** order overlapping start(), stop() and update() calls, store edits at once ([#527](https://github.com/pkcprotocol/pkc-js/issues/527)) ([7971c56](https://github.com/pkcprotocol/pkc-js/commit/7971c56109ac9f474634eb4c3176c8bb8b34bd39)), closes [#516](https://github.com/pkcprotocol/pkc-js/issues/516)
+* **publication:** report a silent challenge deadline as a missing response, not provider errors ([#552](https://github.com/pkcprotocol/pkc-js/issues/552)) ([7b090d3](https://github.com/pkcprotocol/pkc-js/commit/7b090d321be9287f802779546e29e58b56ca3646)), closes [#362](https://github.com/pkcprotocol/pkc-js/issues/362)
+
 ## [0.0.145](https://github.com/pkcprotocol/pkc-js/compare/v0.0.144...v0.0.145) (2026-11-15)
 
 ## [0.0.144](https://github.com/pkcprotocol/pkc-js/compare/v0.0.143...v0.0.144) (2026-11-13)
