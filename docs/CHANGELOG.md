@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.147](https://github.com/pkcprotocol/pkc-js/compare/v0.0.146...v0.0.147) (2026-11-16)
+
+### Bug Fixes
+
+* **community:** stop on a lost start lock, atomic table migration, no deferred delete of a live DB ([#521](https://github.com/pkcprotocol/pkc-js/issues/521)) ([3b01e27](https://github.com/pkcprotocol/pkc-js/commit/3b01e27640cb9444913d72fd1ff50a6b291cb9d8))
+* retry failed CommentUpdate lookups, undo failed renames, fix flaky state and modqueue tests ([#544](https://github.com/pkcprotocol/pkc-js/issues/544)) ([2cc042c](https://github.com/pkcprotocol/pkc-js/commit/2cc042cb7b3a9c0a61a7800299bf172a888e0e02)), closes [#515](https://github.com/pkcprotocol/pkc-js/issues/515) [#514](https://github.com/pkcprotocol/pkc-js/issues/514) [#513](https://github.com/pkcprotocol/pkc-js/issues/513) [#497](https://github.com/pkcprotocol/pkc-js/issues/497) [#540](https://github.com/pkcprotocol/pkc-js/issues/540) [#540](https://github.com/pkcprotocol/pkc-js/issues/540) [#514](https://github.com/pkcprotocol/pkc-js/issues/514) [#514](https://github.com/pkcprotocol/pkc-js/issues/514) [#543](https://github.com/pkcprotocol/pkc-js/issues/543) [#540](https://github.com/pkcprotocol/pkc-js/issues/540) [#543](https://github.com/pkcprotocol/pkc-js/issues/543) [#543](https://github.com/pkcprotocol/pkc-js/issues/543)
+
 ## [0.0.146](https://github.com/pkcprotocol/pkc-js/compare/v0.0.145...v0.0.146) (2026-11-15)
 
 ### Bug Fixes
