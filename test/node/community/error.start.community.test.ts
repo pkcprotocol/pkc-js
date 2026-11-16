@@ -58,8 +58,8 @@ describeSkipIfRpc(`Local community emits errors properly in the publish loop`, a
 
         const ipfsClient = community._clientsManager.getDefaultKuboRpcClient()!._client;
 
-        const originalCp = ipfsClient.files.write.bind(ipfsClient.files);
-        ipfsClient.files.write = () => {
+        const originalCp = ipfsClient.files.cp.bind(ipfsClient.files);
+        ipfsClient.files.cp = () => {
             throw Error("Failed to copy a file");
         };
         await publishRandomPost({ communityAddress: community.address, pkc: pkc });
@@ -67,7 +67,7 @@ describeSkipIfRpc(`Local community emits errors properly in the publish loop`, a
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => errors.length === 3, eventName: "error" });
 
         await community.delete();
-        ipfsClient.files.write = originalCp;
+        ipfsClient.files.cp = originalCp;
         expect(errors.length).to.be.greaterThan(0);
 
         for (const error of errors) {

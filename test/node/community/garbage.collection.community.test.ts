@@ -58,6 +58,7 @@ interface TestLocalCommunity {
     address: string;
     _cidsToUnPin: Set<string>;
     _mfsPathsToRemove: Set<string>;
+    _mfsPathRemovalWatchers: Set<Set<string>>;
     _blocksToRm: string[];
     _communityUpdateTrigger: boolean;
     updateCid?: string;
@@ -130,6 +131,7 @@ function createTestCommunity(overrides: { address?: string } = {}): { community:
         address: overrides.address || "test-address",
         _cidsToUnPin: new Set<string>(),
         _mfsPathsToRemove: new Set<string>(),
+        _mfsPathRemovalWatchers: new Set<Set<string>>(),
         _blocksToRm: [] as string[],
         _pendingEditProps: [],
         _communityUpdateTrigger: true,
@@ -395,6 +397,7 @@ describe("local community garbage collection", () => {
             _clientsManager: { getDefaultKuboRpcClient: vi.fn(() => kuboClient) },
             _cidsToUnPin: new Set<string>(),
             _mfsPathsToRemove: new Set<string>(),
+            _mfsPathRemovalWatchers: new Set<Set<string>>(),
             _blocksToRm: [] as string[],
             raw: { communityIpfs: { posts: { pageCids: { hot: "QmPostsPage" }, pages: {} } } },
             statsCid: "QmStatsCid",

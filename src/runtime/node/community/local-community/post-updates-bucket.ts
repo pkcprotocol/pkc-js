@@ -1,33 +1,37 @@
 import { CID } from "multiformats/cid";
 import Logger from "../../../../logger.js";
+import { PKCError } from "../../../../pkc-error.js";
 import { statMfsPathSafely } from "../../../../util.js";
 import type { LocalCommunity } from "../local-community.js";
+import { patchUnixFsDirectory, type UnixFsBlock, type UnixFsDirectoryEntry } from "./unixfs-directory-patch.js";
 
-// Rebuilding a postUpdates bucket in node instead of rewriting its files one by one (issue #471).
+// How a post's CommentUpdate reaches the postUpdates folder in MFS. This is the only way: nothing in
+// pkc-js writes a file through `files write`.
 //
 // A bucket is one MFS directory, `/<address>/postUpdates/<bucket>`, with one `<postCid>/update` file
-// per post. Above about 3,000 posts kubo turns it into a HAMT, and from then on every `files write`
-// into it costs the daemon a walk of ~256 KiB of the bucket's links (ipfs/boxo#1226: the replacement
-// looks like a shrink, so the daemon checks whether the HAMT should fold back into a basic directory)
-// plus, with flush:true, a re-serialization of every loaded shard. Rewriting 17,857 posts that way
-// took 164 s and 1,000 s of daemon CPU per cycle; a one-author board (every post re-signed every
-// cycle) pays it on every publication.
+// per post. The posts' new files are built here, the bucket's directory is patched here to link them
+// (patchUnixFsDirectory: only the nodes on the changed posts' paths are read and rebuilt, the rest of
+// the bucket is carried over by cid), the new blocks go to the daemon as one CAR, and the new bucket
+// is swapped in with a cp and a mv.
 //
-// Instead, when a slice carries enough posts for one bucket, the bucket is built here: the posts'
-// new `update` files, the other entries linked exactly as the live bucket has them, laid out the way
-// kubo's MFS lays it out (CIDv0, dag-pb leaves, 256 KiB link threshold for sharding), imported into
-// the daemon as one CAR, and swapped in with a cp and a mv. The same 17,857 posts take about 2 s.
+// Why not `files write`, which is what MFS is for:
+//  - Kubo loses a write that is still open when a directory above the file is flushed (ipfs/kubo#11494,
+//    tracked in issue #556, seen as #551 and #456): the write and the flush after it both succeed and
+//    the folder keeps the previous file. Deleting any community on the daemon flushes the MFS root.
+//    cp, rm and mv hold nothing open across the request.
+//  - Above about 3,000 posts kubo turns the bucket into a HAMT, and from then on every write into it
+//    costs the daemon a walk of ~256 KiB of the bucket's links (ipfs/boxo#1226). Rewriting 17,857
+//    posts that way took 164 s and 1,000 s of daemon CPU per cycle (issue #471).
+//  - The bucket's cid is known before the daemon sees it, so what MFS ends up holding can be checked
+//    with one stat instead of reading every file back.
 //
 // The swap goes through `<bucket>.next` with every step persisted, so a crash can never lose the
 // bucket: cp (flush:true) lands the new directory beside the live one, rm takes the live one down,
 // mv puts the new one in its place. recoverInterruptedBucketSwap finishes or discards a swap the
-// previous process left behind. The new root is pinned from the import until it hangs off the MFS
-// root, so a concurrent repo gc (another community's cycle, or the daemon's own) cannot take its
-// blocks in between.
+// previous process left behind. The blocks a swap adds are pinned until the bucket hangs off the MFS
+// root, so a concurrent repo gc cannot take them in between (buildSwapPinManifests).
 
 export type PostUpdatesBucketRow = { postCid: string; updateFileBytes: Uint8Array };
-
-type DirectoryLink = { name: string; cid: CID; size: bigint };
 
 // Time budget for each MFS and import call: a repo gc holds MFS writes off for its whole run (kubo
 // 0.43), and on a large repo that is minutes, not seconds.
@@ -39,13 +43,8 @@ const MFS_SHARD_SPLIT_THRESHOLD_BYTES = 256 * 1024;
 
 export const POST_UPDATES_BUCKET_NEXT_SUFFIX = ".next";
 
-// A bucket is rebuilt when a slice has at least this many posts in it; below that the files are
-// written one by one. The rebuild's fixed cost is reading the bucket's links and building its
-// directory (about 2 s for 17,857 posts, less for a basic directory), the per-file write costs about
-// 20 ms of daemon CPU on a sharded bucket (ipfs/boxo#1226) and well under 1 ms on a basic one, so
-// the two meet at a couple of hundred posts; the 1M-comment bench (17,857 posts, 2,000-row slices)
-// ran with this value. An instance field on LocalCommunity so a test can lower it.
-export const POST_UPDATES_NODE_BUILT_BUCKET_MIN_POSTS = 200;
+// How many times a bucket is swapped in before giving up on MFS holding what was swapped
+const MAX_ATTEMPTS_TO_SWAP_POST_UPDATES_BUCKET = 4;
 
 type KuboRpcClient = ReturnType<LocalCommunity["_clientsManager"]["getDefaultKuboRpcClient"]>;
 
@@ -60,113 +59,38 @@ async function statMfsPathOrUndefined(kuboRpcClient: KuboRpcClient, path: string
     }
 }
 
-// The entries of a UnixFS directory as its dag-pb links (name, cid and the link's Tsize), walking the
-// shards of a HAMT. `ipfs ls` reports a size of 0 for a directory entry whether or not it resolves
-// the children, and the entries here are the posts' directories, so the links are read from the
-// blocks themselves to carry their Tsize over unchanged.
-async function listUnixFsDirectoryLinks(kubo: KuboRpcClient["_client"], directoryCid: CID): Promise<DirectoryLink[]> {
-    const { UnixFS } = await import("ipfs-unixfs");
-    const links: DirectoryLink[] = [];
-    const walk = async (cid: CID) => {
-        const node = (await kubo.dag.get(cid, { timeout: MFS_OP_TIMEOUT_MS })).value;
-        if (!isPbNode(node)) throw Error(`Expected a dag-pb directory node at ${cid.toString()}`);
-        const unixfs = UnixFS.unmarshal(node.Data);
-        if (unixfs.type === "hamt-sharded-directory") {
-            // A shard names its links <2 hex chars of the bucket index><entry name>; a bare index is a sub-shard
-            const prefixLength = Math.max(1, Math.ceil(Math.log2(Number(unixfs.fanout ?? 256)) / 4));
-            for (const link of node.Links) {
-                if (link.Name.length === prefixLength) await walk(link.Hash);
-                else links.push({ name: link.Name.slice(prefixLength), cid: link.Hash, size: BigInt(link.Tsize ?? 0) });
-            }
-        } else if (unixfs.type === "directory") {
-            for (const link of node.Links) links.push({ name: link.Name, cid: link.Hash, size: BigInt(link.Tsize ?? 0) });
-        } else throw Error(`Expected a UnixFS directory at ${cid.toString()}, got ${unixfs.type}`);
-    };
-    await walk(directoryCid);
-    return links;
-}
-
-type PbNode = { Data: Uint8Array; Links: { Name: string; Hash: CID; Tsize?: number }[] };
-function isPbNode(value: unknown): value is PbNode {
-    if (typeof value !== "object" || value === null) return false;
-    const node = value as Partial<PbNode>;
-    return (
-        node.Data instanceof Uint8Array &&
-        Array.isArray(node.Links) &&
-        node.Links.every(
-            (link) =>
-                typeof link?.Name === "string" && (link.Tsize === undefined || typeof link.Tsize === "number") && link.Hash instanceof CID
-        )
-    );
-}
-
-// Builds the bucket directory: a `<postCid>/update` file per changed post, and every other entry linked
-// as the live bucket links it. Returns the bucket's root and every block that does not exist yet (the
-// changed posts' files and directories, and the bucket's own node or shards).
-async function buildPostUpdatesBucketDag({
-    existingLinks,
-    changedPosts
-}: {
-    existingLinks: DirectoryLink[];
-    changedPosts: PostUpdatesBucketRow[];
-}): Promise<{ root: CID; blocks: { cid: CID; bytes: Uint8Array }[] }> {
+// The posts' `<postCid>/update` files, as the bucket's entries for them (each a `<postCid>` directory
+// holding the file) and the blocks those are made of
+async function buildPostUpdateFiles(posts: PostUpdatesBucketRow[]): Promise<{ entries: UnixFsDirectoryEntry[]; blocks: UnixFsBlock[] }> {
     const { importer } = await import("ipfs-unixfs-importer");
-    const blocks = new Map<string, { cid: CID; bytes: Uint8Array }>();
+    const blocks = new Map<string, UnixFsBlock>();
     const blockstore = {
         put: async (cid: CID, bytes: Uint8Array) => {
             blocks.set(cid.toString(), { cid, bytes });
             return cid;
         }
     };
+    const entries: UnixFsDirectoryEntry[] = [];
     // The same layout kubo's MFS gives files written into it: CIDv0, dag-pb leaves of 256 KiB, 174 links per node
-    const layoutOptions = {
-        profile: "unixfs-v0-2015",
-        cidVersion: 0,
-        rawLeaves: false,
-        reduceSingleLeafToSelf: true,
-        shardSplitThresholdBytes: MFS_SHARD_SPLIT_THRESHOLD_BYTES
-    } as const;
-
-    // The changed posts' `<postCid>/update` files and their `<postCid>` directories
-    const postDirectoryLinks = new Map<string, DirectoryLink>();
     for await (const entry of importer(
-        changedPosts.map((post) => ({ path: `${post.postCid}/update`, content: post.updateFileBytes })),
-        blockstore,
-        { ...layoutOptions, wrapWithDirectory: false }
-    ))
-        if (entry.path && !entry.path.includes("/"))
-            postDirectoryLinks.set(entry.path, { name: entry.path, cid: entry.cid, size: entry.size });
-    if (postDirectoryLinks.size !== changedPosts.length)
-        throw Error(`Built ${postDirectoryLinks.size} post directories for ${changedPosts.length} changed posts`);
-
-    // The bucket itself: every entry is a known link, so the file builder just hands the link back instead
-    // of building anything. The importer only looks at the links' names and cids to decide on sharding.
-    const bucketName = "bucket";
-    const knownLinks = new Map<string, DirectoryLink>();
-    for (const link of existingLinks) knownLinks.set(`${bucketName}/${link.name}`, link);
-    for (const link of postDirectoryLinks.values()) knownLinks.set(`${bucketName}/${link.name}`, link);
-    let root: CID | undefined;
-    for await (const entry of importer(
-        [...knownLinks.keys()].map((path) => ({ path, content: new Uint8Array(0) })),
+        posts.map((post) => ({ path: `${post.postCid}/update`, content: post.updateFileBytes })),
         blockstore,
         {
-            ...layoutOptions,
-            wrapWithDirectory: false,
-            fileBuilder: async (file) => {
-                for await (const chunk of file.content) void chunk;
-                const link = file.path ? knownLinks.get(file.path) : undefined;
-                if (!link) throw Error(`No known link for bucket entry ${file.path}`);
-                return { cid: link.cid, size: link.size, path: file.path };
-            }
+            profile: "unixfs-v0-2015",
+            cidVersion: 0,
+            rawLeaves: false,
+            reduceSingleLeafToSelf: true,
+            shardSplitThresholdBytes: MFS_SHARD_SPLIT_THRESHOLD_BYTES,
+            wrapWithDirectory: false
         }
     ))
-        if (entry.path === bucketName) root = entry.cid;
-    if (!root) throw Error("The rebuilt postUpdates bucket has no root");
-    return { root, blocks: [...blocks.values()] };
+        if (entry.path && !entry.path.includes("/")) entries.push({ name: entry.path, cid: entry.cid, size: Number(entry.size) });
+    if (entries.length !== posts.length) throw Error(`Built ${entries.length} post directories for ${posts.length} posts`);
+    return { entries, blocks: [...blocks.values()] };
 }
 
-// A CARv1: a dag-cbor header naming the root, then each block as varint(length) + cid bytes + block bytes
-async function encodeCarV1(root: CID, blocks: { cid: CID; bytes: Uint8Array }[]): Promise<Uint8Array> {
+// A CARv1: a dag-cbor header naming the roots, then each block as varint(length) + cid bytes + block bytes
+export async function encodeCarV1(roots: CID[], blocks: { cid: CID; bytes: Uint8Array }[]): Promise<Uint8Array> {
     const dagCbor = await import("@ipld/dag-cbor");
     const varint = (value: number): Uint8Array => {
         const out: number[] = [];
@@ -177,7 +101,7 @@ async function encodeCarV1(root: CID, blocks: { cid: CID; bytes: Uint8Array }[])
         out.push(value);
         return Uint8Array.from(out);
     };
-    const header = dagCbor.encode({ roots: [root], version: 1 });
+    const header = dagCbor.encode({ roots, version: 1 });
     const parts: Uint8Array[] = [varint(header.length), header];
     for (const { cid, bytes } of blocks) parts.push(varint(cid.bytes.length + bytes.length), cid.bytes, bytes);
     const car = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
@@ -187,6 +111,43 @@ async function encodeCarV1(root: CID, blocks: { cid: CID; bytes: Uint8Array }[])
         offset += part.length;
     }
     return car;
+}
+
+// What the import pins while a bucket is being swapped in: one or more manifest nodes that link the blocks
+// the swap adds, and nothing else.
+//
+// Pinning the new bucket's root instead, which is what a CAR import offers, makes the daemon walk the whole
+// bucket to pin it: 195 ms of a 213 ms write of one post into a bucket of 18,000. And the root cannot be
+// pinned before its blocks are there (`block put --pin` does that without a walk): a pin whose blocks are
+// missing makes every repo gc on the daemon abort and `pin ls` hang, for as long as it exists, and a cycle
+// cut off mid-import leaves it behind.
+//
+// A manifest links each changed post's directory, which the pin follows down to the post's file, and each
+// rebuilt node of the bucket's own directory as a raw block. The same bytes under the raw codec are a leaf
+// to the pinner, so it does not follow them into the rest of the bucket, and they are the same block to
+// the daemon, whose blockstore and gc go by multihash. The pin is complete the moment the import returns,
+// and one left behind by a process that died holds this swap's new blocks and no more.
+const SWAP_PIN_MANIFEST_MAX_LINKS = 4000; // about 160 KiB a manifest
+const RAW_CODEC = 0x55;
+
+async function buildSwapPinManifests({
+    postEntries,
+    directoryNodes
+}: {
+    postEntries: UnixFsDirectoryEntry[];
+    directoryNodes: UnixFsBlock[];
+}): Promise<UnixFsBlock[]> {
+    const dagPb = await import("@ipld/dag-pb");
+    const { sha256 } = await import("multiformats/hashes/sha2");
+    const pinned = [...postEntries.map((entry) => entry.cid), ...directoryNodes.map((node) => CID.createV1(RAW_CODEC, node.cid.multihash))];
+    const manifests: UnixFsBlock[] = [];
+    for (let index = 0; index < pinned.length; index += SWAP_PIN_MANIFEST_MAX_LINKS) {
+        const bytes = dagPb.encode(
+            dagPb.prepare({ Links: pinned.slice(index, index + SWAP_PIN_MANIFEST_MAX_LINKS).map((cid) => ({ Name: "", Hash: cid })) })
+        );
+        manifests.push({ cid: CID.createV1(dagPb.code, await sha256.digest(bytes)), bytes });
+    }
+    return manifests;
 }
 
 // Finishes or discards a swap that an earlier process left half done. Returns the live bucket's stat,
@@ -205,17 +166,19 @@ async function recoverInterruptedBucketSwap(kuboRpcClient: KuboRpcClient, bucket
             // The swap stopped between taking the live bucket down and moving the new one in
             log(`Finishing the interrupted swap of ${nextPath} into ${bucketPath}`);
             await kubo.files.mv(nextPath, bucketPath, { flush: true, timeout: MFS_OP_TIMEOUT_MS });
-            live = next;
+            // Read back like any other swap: the caller takes what this returns for what MFS holds
+            live = await statMfsPathOrUndefined(kuboRpcClient, bucketPath, log);
+            if (!live?.cid.equals(next.cid))
+                throw Error(
+                    `MFS holds ${live?.cid.toString()} at ${bucketPath} after the interrupted swap of ${next.cid.toString()} was finished`
+                );
         }
-        // Its root was pinned for the swap and never unpinned
-        await kubo.pin.rm(next.cid, { timeout: MFS_OP_TIMEOUT_MS }).catch(() => undefined);
     }
     return live;
 }
 
-// Writes one slice's posts into one bucket by rebuilding the bucket. Returns the posts the bucket kept
-// from before, so the caller can re-check them against the DB the way it re-checks the slice's own posts.
-export async function rebuildPostUpdatesBucket({
+// Writes the given posts' CommentUpdate files into one bucket, and returns once MFS holds them.
+export async function writePostUpdatesToBucket({
     community,
     bucketPath,
     posts
@@ -223,40 +186,88 @@ export async function rebuildPostUpdatesBucket({
     community: LocalCommunity;
     bucketPath: string;
     posts: PostUpdatesBucketRow[];
-}): Promise<{ keptPostCids: string[] }> {
-    const log = Logger("pkc-js:local-community:sync:rebuildPostUpdatesBucket");
+}): Promise<void> {
+    const log = Logger("pkc-js:local-community:sync:writePostUpdatesToBucket");
     const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
     const kubo = kuboRpcClient._client;
     const nextPath = bucketPath + POST_UPDATES_BUCKET_NEXT_SUFFIX;
 
-    const live = await recoverInterruptedBucketSwap(kuboRpcClient, bucketPath, log);
-    const changedPostCids = new Set(posts.map((post) => post.postCid));
-    // A post purged since the live bucket was written is gone from the DB, and its entry is being removed
-    // by the purge (or sits in _mfsPathsToRemove): it must not be carried into the new bucket
-    const existingLinks = live
-        ? (await listUnixFsDirectoryLinks(kubo, live.cid)).filter(
-              (link) => !changedPostCids.has(link.name) && community._dbHandler.commentExistsInDb(link.name)
-          )
-        : [];
+    const { entries, blocks: fileBlocks } = await buildPostUpdateFiles(posts);
+    // The bucket's nodes read from the daemon and the ones built here, so a later attempt reads nothing twice
+    const bucketBlocks = new Map<string, Uint8Array>();
+    const getBlock = async (cid: CID): Promise<Uint8Array> => {
+        const key = cid.toString();
+        let bytes = bucketBlocks.get(key);
+        if (!bytes) {
+            bytes = await kubo.block.get(cid, { timeout: MFS_OP_TIMEOUT_MS });
+            bucketBlocks.set(key, bytes);
+        }
+        return bytes;
+    };
 
-    const { root, blocks } = await buildPostUpdatesBucketDag({ existingLinks, changedPosts: posts });
-    const car = await encodeCarV1(root, blocks);
-    for await (const result of kubo.dag.import([car], { pinRoots: true, timeout: MFS_OP_TIMEOUT_MS }))
-        if (result.root.pinErrorMsg) throw Error(`Failed to pin the rebuilt bucket ${root.toString()}: ${result.root.pinErrorMsg}`);
-    log(
-        `Built bucket ${bucketPath} in node: ${posts.length} posts written, ${existingLinks.length} kept, ${blocks.length} new blocks (${car.length} bytes), root ${root.toString()}`
-    );
+    let live = await recoverInterruptedBucketSwap(kuboRpcClient, bucketPath, log);
+    let bucketExisted = false;
+    for (let attempt = 1; ; attempt++) {
+        if (live) bucketExisted = true;
+        // A bucket that existed and is gone must not be answered by building one that holds these posts only
+        else if (bucketExisted)
+            throw new PKCError("ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST", { communityAddress: community.address, bucketPath, attempt });
 
-    try {
-        // Every step flushes: the new bucket must be on disk under the MFS root before the live one goes
-        await kubo.files.cp(`/ipfs/${root.toString()}`, nextPath, { parents: true, flush: true, timeout: MFS_OP_TIMEOUT_MS });
-        if (live) await kubo.files.rm(bucketPath, { recursive: true, timeout: MFS_OP_TIMEOUT_MS });
-        await kubo.files.mv(nextPath, bucketPath, { flush: true, timeout: MFS_OP_TIMEOUT_MS });
-    } finally {
-        // Referenced from the MFS root now (or abandoned beside it, where the next write cleans it up)
-        await kubo.pin
-            .rm(root, { timeout: MFS_OP_TIMEOUT_MS })
-            .catch((error) => log.error(`Failed to unpin the rebuilt bucket root ${root.toString()}`, error));
+        const { cid: root, newBlocks } = await patchUnixFsDirectory({
+            directoryCid: live?.cid,
+            entriesToPut: entries,
+            getBlock,
+            shardSplitThresholdBytes: MFS_SHARD_SPLIT_THRESHOLD_BYTES
+        });
+        // The bucket in MFS links every post's new file already: nothing to write, or a swap whose result
+        // differs from what was swapped in only by what somebody else changed since (a purge removing its post)
+        if (live && root.equals(live.cid)) return;
+        if (attempt > MAX_ATTEMPTS_TO_SWAP_POST_UPDATES_BUCKET)
+            throw new PKCError("ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST", {
+                communityAddress: community.address,
+                bucketPath,
+                attempts: attempt - 1,
+                bucketCidInMfs: live?.cid.toString(),
+                bucketCidWithThePosts: root.toString()
+            });
+        for (const block of newBlocks) bucketBlocks.set(block.cid.toString(), block.bytes);
+
+        // The new blocks must survive a repo gc (another community's cycle, or the daemon's own) until the
+        // bucket hangs off the MFS root, so the import pins them. See buildSwapPinManifests for what is pinned.
+        const manifests = await buildSwapPinManifests({ postEntries: entries, directoryNodes: newBlocks });
+        const car = await encodeCarV1(
+            manifests.map((manifest) => manifest.cid),
+            [...manifests, ...fileBlocks, ...newBlocks]
+        );
+        try {
+            for await (const result of kubo.dag.import([car], { pinRoots: true, timeout: MFS_OP_TIMEOUT_MS }))
+                if (result.root.pinErrorMsg)
+                    throw Error(
+                        `Failed to pin the new blocks of bucket ${bucketPath} (${result.root.cid.toString()}): ${result.root.pinErrorMsg}`
+                    );
+            log(
+                `Bucket ${bucketPath}: ${posts.length} posts written, ${newBlocks.length} of the bucket's nodes rebuilt (${car.length} bytes imported), root ${root.toString()}`
+            );
+            // Every step flushes: the new bucket must be on disk under the MFS root before the live one goes
+            await kubo.files.cp(`/ipfs/${root.toString()}`, nextPath, { parents: true, flush: true, timeout: MFS_OP_TIMEOUT_MS });
+            if (live) await kubo.files.rm(bucketPath, { recursive: true, timeout: MFS_OP_TIMEOUT_MS });
+            await kubo.files.mv(nextPath, bucketPath, { flush: true, timeout: MFS_OP_TIMEOUT_MS });
+        } finally {
+            // Referenced from the MFS root now, or abandoned. "not pinned" is the import itself having failed.
+            for (const manifest of manifests)
+                await kubo.pin.rm(manifest.cid, { timeout: MFS_OP_TIMEOUT_MS }).catch((error) => {
+                    if (!(error instanceof Error && error.message.includes("not pinned")))
+                        log.error(`Failed to unpin ${manifest.cid.toString()}, which pinned the new blocks of bucket ${bucketPath}`, error);
+                });
+        }
+
+        // The daemon reported every step as done. Kubo has reported MFS changes as done that MFS then did
+        // not hold (ipfs/kubo#11494), so the bucket is read back by its cid, which is known exactly.
+        const swapped = await statMfsPathOrUndefined(kuboRpcClient, bucketPath, log);
+        if (swapped?.cid.equals(root)) return;
+        log.error(
+            `Bucket ${bucketPath} is ${swapped?.cid.toString()} in MFS after ${root.toString()} was swapped in (attempt ${attempt}), checking it for the posts' files`
+        );
+        live = await recoverInterruptedBucketSwap(kuboRpcClient, bucketPath, log);
     }
-    return { keptPostCids: existingLinks.map((link) => link.name) };
 }

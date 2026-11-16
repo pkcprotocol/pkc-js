@@ -9,7 +9,7 @@ import type { IPNSRecord } from "ipns";
 import { equals as uint8ArrayEquals } from "uint8arrays/equals";
 import Logger from "../logger.js";
 import { PKCError } from "../pkc-error.js";
-import { pubsubTopicToDhtKeyCid } from "../util.js";
+import { linkAbortSignals, pubsubTopicToDhtKeyCid } from "../util.js";
 import { isLoopback, isPrivate } from "@libp2p/utils";
 
 const TOPIC_SUBSCRIBER_WAIT_TIMEOUT_MS = 10_000;
@@ -275,19 +275,45 @@ function waitForMeshPeer({
 // topic peers itself; that is the application's responsibility (same pattern Helia and
 // js-ipfs use): hash the topic to a CID, contentRouting.findProviders(), then dial.
 // See https://github.com/libp2p/js-libp2p/blob/main/doc/CONFIGURATION.md ("ambient peer discovery").
-export async function connectToPubsubPeers({
-    helia,
-    pubsubTopic,
-    maxPeers,
-    options,
-    log
-}: {
+export async function connectToPubsubPeers(params: {
     helia: HeliaWithLibp2pPubsub;
     pubsubTopic: string;
     maxPeers: number; // how many peers to dial before we stop
     log: Logger;
     options?: { signal?: AbortSignal };
+    // The node's own stop signal. It ends what this function waits for, and is checked by the dials that
+    // keep running after it returned. It is not linked into options.signal: a link has to be taken down
+    // when the wait settles (a listener left on a long-lived signal is the #144 leak), and the dials
+    // outlive the wait, so they hold the caller's signal itself and read this one directly.
+    stopSignal?: AbortSignal;
+}): Promise<Awaited<ReturnType<HeliaWithLibp2pPubsub["libp2p"]["dial"]>>[]> {
+    const waitLink = linkAbortSignals([params.options?.signal, params.stopSignal]);
+    try {
+        return await connectToPubsubPeersUntilSubscriber({ ...params, waitSignal: waitLink.signal });
+    } finally {
+        waitLink.dispose();
+    }
+}
+
+async function connectToPubsubPeersUntilSubscriber({
+    helia,
+    pubsubTopic,
+    maxPeers,
+    options,
+    stopSignal,
+    waitSignal,
+    log
+}: {
+    helia: HeliaWithLibp2pPubsub;
+    pubsubTopic: string;
+    maxPeers: number;
+    log: Logger;
+    options?: { signal?: AbortSignal };
+    stopSignal?: AbortSignal;
+    // options.signal and stopSignal as one signal, valid until this function returns
+    waitSignal?: AbortSignal;
 }): Promise<Awaited<ReturnType<typeof helia.libp2p.dial>>[]> {
+    const isAborted = () => Boolean(options?.signal?.aborted || stopSignal?.aborted);
     const contentCid = pubsubTopicToDhtKeyCid(pubsubTopic);
     const peersWithContent: PeerInfo[] = [];
     const connectedPeersWithContent: Awaited<ReturnType<typeof helia.libp2p.dial>>[] = [];
@@ -301,7 +327,7 @@ export async function connectToPubsubPeers({
     //     themselves to bitswap's peer set via the peer:connected event, giving the
     //     subsequent bitswap fetch more peers to wantBlock from.
     const findProvidersAbort = new AbortController();
-    const findProvidersSignal = options?.signal ? AbortSignal.any([options.signal, findProvidersAbort.signal]) : findProvidersAbort.signal;
+    const findProvidersSignal = waitSignal ? AbortSignal.any([waitSignal, findProvidersAbort.signal]) : findProvidersAbort.signal;
 
     // Event-based watcher for a peer subscribing to our topic on gossipsub.
     // Started immediately so we don't miss subscription-change events that fire during the dial loop.
@@ -349,7 +375,7 @@ export async function connectToPubsubPeers({
     const retryScheduler = createAddrMergeRetryScheduler({
         helia,
         runRetry: async (peerId) => {
-            if (options?.signal?.aborted) return "done";
+            if (isAborted()) return "done";
             try {
                 const conn = await helia.libp2p.dial(peerId, dialOptions);
                 connectedPeersWithContent.push(conn);
@@ -374,7 +400,7 @@ export async function connectToPubsubPeers({
         privateOnlyReleased = true;
         clearTimeout(privateOnlyTimer);
         for (const peer of privateOnlyPeers.splice(0)) {
-            if (options?.signal?.aborted || connectedPeersWithContent.length >= maxPeers) break;
+            if (isAborted() || connectedPeersWithContent.length >= maxPeers) break;
             startDial(peer);
         }
     };
@@ -507,7 +533,7 @@ export async function connectToPubsubPeers({
     const pubsub = helia.libp2p.services.pubsub;
     if (!graftError && pubsub.getTopics().includes(pubsubTopic)) {
         const meshWaitStart = Date.now();
-        await waitForMeshPeer({ helia, topic: pubsubTopic, timeoutMs: MESH_PEER_WAIT_TIMEOUT_MS, abortSignal: options?.signal });
+        await waitForMeshPeer({ helia, topic: pubsubTopic, timeoutMs: MESH_PEER_WAIT_TIMEOUT_MS, abortSignal: waitSignal });
         const meshPeerCount = pubsub.getMeshPeers(pubsubTopic).length;
         const waitMs = Date.now() - meshWaitStart;
         if (meshPeerCount === 0) log.trace("Timed out waiting for mesh peers for topic", pubsubTopic, "after", waitMs, "ms");
@@ -518,7 +544,7 @@ export async function connectToPubsubPeers({
     // abort rather than reporting success. We may have happened to connect to some peers
     // via findProviders before the abort hit, but the caller asked us to stop — best-effort
     // semantics apply to timeouts, not to explicit aborts.
-    if (graftError && options?.signal?.aborted) {
+    if (graftError && isAborted()) {
         throw graftError;
     }
 

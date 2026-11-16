@@ -43,7 +43,8 @@ describe("cleanup: addAllCidsUnderPurgedCommentToBeRemoved", () => {
             address: "community.bso",
             _cidsToUnPin: cidsToUnPin,
             _blocksToRm: blocksToRm,
-            _mfsPathsToRemove: mfsPathsToRemove
+            _mfsPathsToRemove: mfsPathsToRemove,
+            _mfsPathRemovalWatchers: new Set<Set<string>>()
         } as unknown as LocalCommunity;
 
         const purged = {
@@ -65,7 +66,8 @@ describe("cleanup: addAllCidsUnderPurgedCommentToBeRemoved", () => {
             address: "community.bso",
             _cidsToUnPin: cidsToUnPin,
             _blocksToRm: blocksToRm,
-            _mfsPathsToRemove: mfsPathsToRemove
+            _mfsPathsToRemove: mfsPathsToRemove,
+            _mfsPathRemovalWatchers: new Set<Set<string>>()
         } as unknown as LocalCommunity;
 
         const purged = {
@@ -87,7 +89,8 @@ describe("cleanup: addAllCidsUnderPurgedCommentToBeRemoved", () => {
             address: "community.bso",
             _cidsToUnPin: cidsToUnPin,
             _blocksToRm: blocksToRm,
-            _mfsPathsToRemove: new Set<string>()
+            _mfsPathsToRemove: new Set<string>(),
+            _mfsPathRemovalWatchers: new Set<Set<string>>()
         } as unknown as LocalCommunity;
 
         const purged = {
@@ -133,6 +136,7 @@ describe("cleanup: purgeDisapprovedCommentsOlderThan", () => {
             address: "community.bso",
             settings: { purgeDisapprovedCommentsOlderThan: 60 },
             _mfsPathsToRemove: new Set<string>(),
+            _mfsPathRemovalWatchers: new Set<Set<string>>(),
             _blocksToRm: [] as string[],
             _cidsToUnPin: new Set<string>(),
             updateCid: undefined,
@@ -526,6 +530,7 @@ describe("cleanup: rmUnneededMfsPaths", () => {
         const community = {
             address: "community.bso",
             _mfsPathsToRemove: new Set<string>(),
+            _mfsPathRemovalWatchers: new Set<Set<string>>(),
             _clientsManager: { getDefaultKuboRpcClient: vi.fn() }
         } as unknown as LocalCommunity;
 
