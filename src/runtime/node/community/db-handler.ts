@@ -12,7 +12,13 @@ import assert from "assert";
 import fs from "fs";
 import os from "os";
 import Logger from "../../../logger.js";
-import { deleteOldCommunityInWindows, deriveCommentIpfsFromCommentTableRow, getDefaultCommunityDbConfig } from "../util.js";
+import {
+    deleteOldCommunityInWindows,
+    deriveCommentIpfsFromCommentTableRow,
+    forgetCommunityThatFailedToBeDeleted,
+    getDefaultCommunityDbConfig,
+    removeFileRetryingWhileBusy
+} from "../util.js";
 import env from "../../../version.js";
 import Database, { type Database as BetterSqlite3Database, type Statement } from "better-sqlite3";
 import { sha256 } from "js-sha256";
@@ -136,6 +142,8 @@ export class DbHandler {
     // update cycle's author memo (CommunityAuthorMemo) is only reused while it stays the same.
     private _publicationWriteGeneration = 0;
     private _preparedStatements: Map<string, Statement>;
+    // Identifies the start lock this handler holds, from lockCommunityStart until unlockCommunityStart or its loss
+    private _heldStartLock: object | undefined = undefined;
 
     constructor(community: DbHandler["_community"]) {
         this._community = community;
@@ -281,10 +289,15 @@ export class DbHandler {
         const log = Logger("pkc-js:local-community:dbHandler:destroyConnection");
         this._preparedStatements.clear(); // statements belong to the connection
         if (this._db && this._db.open) {
-            if (!this._db.readonly) {
-                this._db.exec("PRAGMA wal_checkpoint"); // write all wal to disk
+            try {
+                if (!this._db.readonly) this._db.exec("PRAGMA wal_checkpoint"); // write all wal to disk
+            } catch (e) {
+                // The checkpoint throws on a file that is not a database. The connection is closed all the same:
+                // an open handle keeps the file locked on Windows (issue #540)
+                log.error("Failed to checkpoint the WAL of community", this._community.address, "before closing its DB", e);
+            } finally {
+                this._db.close();
             }
-            this._db.close();
         }
         if (this._keyv) this._keyv.disconnect();
 
@@ -636,17 +649,27 @@ export class DbHandler {
         for (let i = 0; i < tables.length; i++) {
             const tableName = tables[i];
             const tableExists = this._tableExists(tableName);
-            if (!tableExists) {
+            const tempTableName = `${tableName}_${env.DB_VERSION}_new`;
+            if (!tableExists && needToMigrate && this._tableExists(tempTableName)) {
+                // An earlier run of this migration was killed between dropping the table and renaming its migrated copy,
+                // when the two were separate commits. The copy is complete (the drop only ran after it), so it becomes the
+                // table; creating an empty one here would lose every row
+                log(`Table ${tableName} is missing but its migrated copy ${tempTableName} exists. Will restore the table from it`);
+                this._db.exec(`ALTER TABLE ${tempTableName} RENAME TO ${tableName}`);
+            } else if (!tableExists) {
                 log(`Table ${tableName} does not exist. Will create schema`);
                 createTableFunctions[i](tableName);
             } else if (tableExists && needToMigrate) {
                 log(`Migrating table ${tableName} to new schema`);
-                const tempTableName = `${tableName}_${env.DB_VERSION}_new`;
                 this._db.exec(`DROP TABLE IF EXISTS ${tempTableName}`);
                 createTableFunctions[i](tempTableName);
                 await this._copyTable(tableName, tempTableName, currentDbVersion);
-                this._db.exec(`DROP TABLE ${tableName}`);
-                this._db.exec(`ALTER TABLE ${tempTableName} RENAME TO ${tableName}`);
+                // One commit, so a crash leaves either the old table or its migrated copy under the table's name, never
+                // neither (user_version is only bumped after every table, so the next start migrates again)
+                this._db.transaction(() => {
+                    this._db.exec(`DROP TABLE ${tableName}`);
+                    this._db.exec(`ALTER TABLE ${tempTableName} RENAME TO ${tableName}`);
+                })();
             }
         }
 
@@ -714,7 +737,21 @@ export class DbHandler {
         this._preparedStatements.clear();
         if (needToMigrate)
             log(`Created/migrated the tables to the latest (${newDbVersion}) version and saved to path`, this._dbConfig.filename);
-        if (backupDbPath) await fs.promises.rm(backupDbPath);
+        if (backupDbPath) {
+            // The migration is done, so a backup that can't be removed must not fail it: on Windows the file can be
+            // busy for a moment, and a leftover backup is harmless while a community that won't start is not
+            try {
+                await removeFileRetryingWhileBusy(backupDbPath, { log });
+            } catch (e) {
+                log.error(`Failed to remove the pre-migration backup ${backupDbPath}. It is no longer needed and can be deleted`, e);
+            }
+        }
+    }
+
+    // False for a DB a migration was killed in: it drops commentUpdates first and rebuilds every table after that, so until
+    // the next start() finishes the migration either table can be missing
+    hasCommentsAndCommentUpdatesTables(): boolean {
+        return this._tableExists(TABLES.COMMENTS) && this._tableExists(TABLES.COMMENT_UPDATES);
     }
 
     private _tableExists(tableName: string): boolean {
@@ -3558,6 +3595,8 @@ export class DbHandler {
                 const sourceDb = new Database(oldPathString, { fileMustExist: true });
                 await sourceDb.backup(newPathString); // backup is synchronous in better-sqlite3 v8+
                 sourceDb.close();
+                // The live DB is at the new path now. Before the old file is removed, so a failure here leaves it intact
+                await forgetCommunityThatFailedToBeDeleted({ communityAddress: newDbName, pkc: this._community._pkc });
                 if (os.type() === "Windows_NT") await deleteOldCommunityInWindows(oldPathString, this._community._pkc);
                 else await fs.promises.rm(oldPathString, { force: true });
             }
@@ -3569,17 +3608,31 @@ export class DbHandler {
         log(`Changed db path from (${oldPathString}) to (${newPathString})`);
     }
 
-    async lockCommunityStart(communityAddress = this._community.address) {
+    // The lock library keeps the lock fresh from a timer. When this event loop is blocked past the lock's 10s stale
+    // threshold (a VACUUM or migration of a large DB, a suspended process), another process on the same dataPath sees it
+    // as stale and takes it over; the library then reports it compromised and onCompromised is called. The library also
+    // reports a lock directory that disappeared (ENOENT), even one whose taker released it again. Either way this process
+    // no longer holds the lock from that point on, so it must stop running the community.
+    async lockCommunityStart({ onCompromised }: { onCompromised: (error: Error) => void }) {
         const log = Logger("pkc-js:local-community:db-handler:lock:start");
+        const communityAddress = this._community.address;
 
         const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${communityAddress}.start.lock`);
         const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", communityAddress);
 
+        const startLock = {};
         try {
             await lockfile.lock(communityDbPath, {
                 lockfilePath,
-                onCompromised: () => {} // Temporary bandaid for the moment. Should be deleted later
+                onCompromised: (error) => {
+                    // The library can still report a lock after it was released, which is not a lock this process lost
+                    if (this._heldStartLock !== startLock) return;
+                    this._heldStartLock = undefined;
+                    log.error(`Lost the start lock of community (${communityAddress}), taken over or removed`, error);
+                    onCompromised(error);
+                }
             });
+            this._heldStartLock = startLock;
             log(`Locked the start of community (${communityAddress}) successfully`);
         } catch (e: unknown) {
             if (e instanceof Error && e.message === "Lock file is already being held")
@@ -3594,6 +3647,7 @@ export class DbHandler {
     async unlockCommunityStart(communityAddress = this._community.address) {
         const log = Logger("pkc-js:local-community:db-handler:unlock:start");
         log.trace(`Attempting to unlock the start of community (${communityAddress})`);
+        this._heldStartLock = undefined;
 
         const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${communityAddress}.start.lock`);
         const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", communityAddress);

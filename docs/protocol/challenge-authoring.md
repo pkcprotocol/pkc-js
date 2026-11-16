@@ -96,6 +96,37 @@ choice, because a hook throw is a veto the owner cannot override.
 Because the hook is optional, these are obligations on you as a package author, not guarantees core can
 enforce.
 
+## Time budget
+
+A publisher waits a bounded time for the community to answer. If it has received neither a challenge nor a
+verification, it re-sends its request once after 10 seconds and gives up 120 seconds after that. It then
+unsubscribes and reports `ERR_PUBSUB_DID_NOT_RECEIVE_RESPONSE_AFTER_PUBLISHING_CHALLENGE_REQUEST`. Pubsub
+does not store messages, so a verification published after that point reaches nobody: the community has
+accepted the publication and its author believes it failed (issue #362).
+
+An interactive challenge is safe, because sending the challenge itself counts as a response and keeps the
+exchange alive while the user answers. An **automatic** challenge is the exposed case. It returns its
+result from `getChallenge` and sends nothing until the final verification, so every second it spends is
+silence to the publisher.
+
+-   **Finish `getChallenge` in seconds.** The 130 seconds are not yours alone. They also cover pubsub
+    delivery, every other challenge in `settings.challenges`, storing the publication, and whatever the
+    process is busy with before it reaches the request. A community whose process is under load can spend
+    tens of seconds before your code runs.
+-   **Put your own deadline on slow work.** If you call a model or a remote service, bound the total time
+    inside your challenge and decide what happens on overrun, rather than relying on the publisher's
+    patience.
+-   **Move slow decisions behind `pendingApproval`.** Accept the comment into the mod queue at once, so the
+    author gets a verification and a cid, and let a moderator or a bot approve or remove it at its own
+    pace. Edits have no pending state, so they need a verdict inside the budget.
+
+The community logs an error when a `getChallenge` call is still running after 60 seconds
+(`SLOW_GET_CHALLENGE_WARNING_MS`). That log is a symptom report, not a limit: the call is not aborted.
+
+An author who hit the deadline can still learn the outcome. Publishing the same signed publication again
+is answered with the stored result and its cid instead of a duplicate error, once per signature within a
+10-minute window. See "Duplicate and Overlapping Requests" in [challenge-flow.md](challenge-flow.md).
+
 ## Deciding who the author is
 
 `getChallenge({ challengeSettings, challengeRequestMessage, challengeIndex, community, authorIdentityMatcher })`.
@@ -151,4 +182,5 @@ looks like a new bug to whoever sees it first.
 | `src/community/schema.ts` | `ChallengeFileSchema` (where `validateChallengeSettings` is declared), `ChallengeOptionInputSchema`, `CommunityChallengeSettingSchema` |
 | `src/runtime/node/community/challenges/validate-challenge-settings.ts` | Both layers, and the aggregation used by the edit and creation paths |
 | `src/runtime/node/community/challenges/pkc-js-challenges/` | Built-in challenges and their hooks |
+| `src/runtime/node/community/challenges/index.ts` | Runs `getChallenge` and logs the slow-challenge warning (`SLOW_GET_CHALLENGE_WARNING_MS` in `local-community/defaults.ts`) |
 | `src/errors.ts` | The `ERR_CHALLENGE_*` codes listed above |

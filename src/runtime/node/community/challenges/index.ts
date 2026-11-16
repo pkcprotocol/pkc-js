@@ -34,6 +34,7 @@ import { ChallengeFileFactorySchema, ChallengeFileSchema, CommunityChallengeSett
 import { PKCError } from "../../../../pkc-error.js";
 import { pathToFileURL } from "node:url";
 import { validateChallengeResultExtras } from "./validate-challenge-result.js";
+import Logger from "../../../../logger.js";
 
 type PendingChallenge = Challenge & { index: number };
 
@@ -270,6 +271,18 @@ const callGetChallenge = async ({
     authorIdentityMatcher: AuthorIdentityMatcher;
 }): Promise<{ challengeOrChallengeResult: Challenge | ChallengeResult }> => {
     let challengeOrChallengeResult: Challenge | ChallengeResult;
+    const challengeName = communityChallengeSettings.name || communityChallengeSettings.path;
+    const startedAtMs = Date.now();
+    // Warn while the call is still running, so a challenge that never returns is reported too.
+    const slowWarningTimer = setTimeout(() => {
+        Logger("pkc-js:local-community:challenges:callGetChallenge").error(
+            `getChallenge() of challenge ${challengeIndex + 1} (${challengeName}) in community ${community.address} is still running after ${community._slowGetChallengeWarningMs / 1000}s.`,
+            "A publisher that receives no challenge or verification gives up after about two minutes and the publication looks failed to its author.",
+            "Slow work belongs behind pendingApproval. challengeRequestId:",
+            challengeRequestMessage.challengeRequestId.toString()
+        );
+    }, community._slowGetChallengeWarningMs);
+    slowWarningTimer.unref?.();
     try {
         challengeOrChallengeResult = await challengeFile.getChallenge({
             challengeSettings: communityChallengeSettings,
@@ -278,6 +291,11 @@ const callGetChallenge = async ({
             community,
             authorIdentityMatcher
         });
+        const elapsedMs = Date.now() - startedAtMs;
+        if (elapsedMs >= community._slowGetChallengeWarningMs)
+            Logger("pkc-js:local-community:challenges:callGetChallenge").error(
+                `getChallenge() of challenge ${challengeIndex + 1} (${challengeName}) in community ${community.address} took ${Math.round(elapsedMs / 1000)}s`
+            );
         validateChallengeOrChallengeResult({ challengeOrChallengeResult, challengeIndex, community });
     } catch (e) {
         throw new PKCError("ERR_INVALID_RESULT_FROM_GET_CHALLENGE_FUNCTION", {
@@ -287,6 +305,8 @@ const callGetChallenge = async ({
             challengeIndex: challengeIndex + 1,
             error: e
         });
+    } finally {
+        clearTimeout(slowWarningTimer);
     }
     return { challengeOrChallengeResult };
 };

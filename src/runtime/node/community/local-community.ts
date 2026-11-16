@@ -51,7 +51,7 @@ import { CommunityIpfsSchema } from "../../../community/schema.js";
 import { MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS } from "../../../community/community-client-manager.js";
 import { sha256 } from "js-sha256";
 import { AllPageCids } from "../../../pages/types.js";
-import { CHALLENGE_EXCHANGE_TTL_MS, generateDefaultChallenges } from "./local-community/defaults.js";
+import { CHALLENGE_EXCHANGE_TTL_MS, SLOW_GET_CHALLENGE_WARNING_MS, generateDefaultChallenges } from "./local-community/defaults.js";
 import {
     createNewLocalCommunityDb,
     getDbInternalState,
@@ -137,6 +137,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // Lifetime of one challenge exchange (see CHALLENGE_EXCHANGE_TTL_MS). Read when the caches
     // above are created at start; an instance field so a test can lower it.
     _challengeExchangeTtlMs: number = CHALLENGE_EXCHANGE_TTL_MS;
+    // How long a getChallenge() call may run before the community logs it as slow (issue #362).
+    // A field rather than the bare constant so tests can shorten it.
+    _slowGetChallengeWarningMs: number = SLOW_GET_CHALLENGE_WARNING_MS;
 
     _cidsToUnPin: Set<string> = new Set<string>();
     _mfsPathsToRemove: Set<string> = new Set<string>();
@@ -165,8 +168,14 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _reportedChallengeLoadFailures: string | undefined = undefined;
     _dbHandler!: DbHandler;
     _stopHasBeenCalled: boolean; // we use this to track if community.stop() has been called after community.start() or community.update()
+    // This process lost the start lock of this run (see lockCommunityStart), so another process may be running the community.
+    // The publish loop and stop() then skip every write: no more cycles, no internal state write, no unpinning.
+    _startLockLost: boolean = false;
     _publishLoopPromise?: Promise<void> = undefined;
     _updateLoopPromise?: Promise<void> = undefined;
+    _startOrUpdateInFlight?: Promise<void> = undefined; // settles once start() or update() is done setting up, stop() waits for it
+    _stopInFlight?: Promise<void> = undefined; // settles once stop() is done tearing down, a stop() or edit() called meanwhile waits for it
+    _editStoresInFlight = new Set<Promise<unknown>>(); // the DB writes of edit() calls on this started community, stop() waits for them
     _updateLoopAbortController?: AbortController;
     _firstUpdateAfterStart: boolean = true;
     _internalStateUpdateId: InternalCommunityRecordBeforeFirstUpdateType["_internalStateUpdateId"] = "";
