@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.150](https://github.com/pkcprotocol/pkc-js/compare/v0.0.149...v0.0.150) (2026-11-16)
+
+### Bug Fixes
+
+* write post updates by bucket swap only, end pubsub warmups on stop ([#555](https://github.com/pkcprotocol/pkc-js/issues/555)) ([3450989](https://github.com/pkcprotocol/pkc-js/commit/3450989ef22bf7efe231cb4ec3abff04549f4a35)), closes [#541](https://github.com/pkcprotocol/pkc-js/issues/541) [#551](https://github.com/pkcprotocol/pkc-js/issues/551) [#456](https://github.com/pkcprotocol/pkc-js/issues/456) [ipfs/kubo#11494](https://github.com/ipfs/kubo/issues/11494) [#556](https://github.com/pkcprotocol/pkc-js/issues/556) [#551](https://github.com/pkcprotocol/pkc-js/issues/551) [ipfs/kubo#11494](https://github.com/ipfs/kubo/issues/11494) [#556](https://github.com/pkcprotocol/pkc-js/issues/556)
+
 ## [0.0.149](https://github.com/pkcprotocol/pkc-js/compare/v0.0.148...v0.0.149) (2026-11-16)
 
 ### Bug Fixes
