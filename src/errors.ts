@@ -29,7 +29,7 @@ export enum messages {
     ERR_PUBSUB_TOPIC_PEER_WAIT_ABORTED = "Aborted while waiting for a peer to subscribe to a pubsub topic",
     ERR_IPNS_DIRECT_FETCH_ABORTED = "Aborted while fetching an IPNS record directly from subscribers/providers",
     ERR_TIMED_OUT_RM_MFS_FILE = "Timed out removing MFS paths",
-    ERR_POST_UPDATES_MFS_WRITE_WAS_LOST = "Kubo reported the post CommentUpdate files as written to MFS, but reading them back does not return what was written",
+    ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST = "Kubo reported the postUpdates bucket as swapped into MFS, but the bucket MFS holds does not link the posts' new CommentUpdate files",
     ERR_ABORTED_RESOLVING_TEXT_RECORD = "Aborted resolving text record on domain",
     // PKC errors
     ERR_CALLED_COMMUNITY_STOP_WITHOUT_UPDATE = "community.stop() called without calling update() first",

@@ -76,7 +76,6 @@ import {
 import { loadPageSortsForStartedCommunity, type ResolvedPageSorts } from "./page-sorts/index.js";
 import { checkPublicationValidity } from "./local-community/publication-validation.js";
 import { calculateLocalMfsPathForCommentUpdate, updateCommentsThatNeedToBeUpdated } from "./local-community/comment-updates.js";
-import { POST_UPDATES_NODE_BUILT_BUCKET_MIN_POSTS } from "./local-community/post-updates-bucket.js";
 import { purgeDisapprovedCommentsOlderThan } from "./local-community/cleanup.js";
 import {
     addOldPageCidsToCidsToUnpin,
@@ -109,10 +108,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     override signer!: SignerWithPublicKeyAddress;
     override raw: RpcLocalCommunity["raw"] = {};
     _postUpdatesBuckets = [86400, 604800, 2592000, 3153600000]; // 1 day, 1 week, 1 month, 100 years. Expecting to be sorted from smallest to largest
-    // A postUpdates bucket that gets at least this many of a slice's posts is rebuilt in node and swapped
-    // into MFS whole instead of having its files written one by one (issue #471). A test can lower it.
-    _postUpdatesNodeBuiltBucketMinPosts: number = POST_UPDATES_NODE_BUILT_BUCKET_MIN_POSTS;
-
     _defaultCommunityChallenges: CommunityChallengeSetting[] = generateDefaultChallenges();
 
     // These caches below will be used to facilitate challenges exchange with authors, they will expire after 10 minutes
@@ -143,6 +138,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     _cidsToUnPin: Set<string> = new Set<string>();
     _mfsPathsToRemove: Set<string> = new Set<string>();
+    // Each set here is handed every MFS path whose removal starts while it is registered: a postUpdates bucket
+    // swap in progress repeats those removals on the bucket it swaps in (see writePostUpdatesToMfs)
+    _mfsPathRemovalWatchers: Set<Set<string>> = new Set();
     _communityUpdateTriggerValue: boolean = false;
     // Counts every request for a new record (each time the trigger is set to true), so the publish loop can tell a new
     // request from the trigger a failed cycle left set (issue #430)

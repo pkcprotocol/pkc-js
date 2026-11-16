@@ -37,6 +37,7 @@ import { providePubsubTopicRoutingCidsIfNeeded } from "../../dist/node/runtime/n
 import { calculateStringSizeSameAsIpfsAddCidV0 } from "../../dist/node/util.js";
 import { CommunityIpfsSchema } from "../../dist/node/community/schema.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
+import { CID } from "multiformats/cid";
 
 if (!process.env.BENCH_POSTS) process.env.BENCH_POSTS = "300";
 process.env.BENCH_PIPELINE = "1"; // seedBoard: comment rows only, so every comment needs a CommentUpdate
@@ -80,8 +81,11 @@ const KUBO_METHODS = [
     "cat",
     "block.rm",
     "block.stat",
+    "block.get",
     "dag.get",
+    "dag.import",
     "files.write",
+    "files.mv",
     "files.flush",
     "files.rm",
     "files.stat",
@@ -143,6 +147,8 @@ const timedKuboMethod = (fn, label) =>
 const stubKuboClient = () => {
     let added = 0;
     const noop = async () => {};
+    const stubBlocks = new Map();
+    const stubMfs = new Map();
     return {
         add: async (content) => {
             await new Promise((resolve) => setImmediate(resolve)); // yield like the real I/O does, so the heap sampler runs
@@ -152,17 +158,56 @@ const stubKuboClient = () => {
                 size: content.length
             };
         },
+        // The postUpdates buckets are built in node and swapped into MFS, and the next cycle patches the bucket
+        // the previous one left: the stub keeps the imported blocks and which cid sits at which MFS path.
+        dag: {
+            import: async function* (cars) {
+                for (const car of cars) {
+                    const readVarint = (offset) => {
+                        let value = 0;
+                        for (let shift = 0; ; shift += 7) {
+                            const byte = car[offset++];
+                            value += (byte & 0x7f) * 2 ** shift;
+                            if (byte < 0x80) return [value, offset];
+                        }
+                    };
+                    let [headerLength, offset] = readVarint(0);
+                    offset += headerLength;
+                    while (offset < car.length) {
+                        const [blockLength, blockStart] = readVarint(offset);
+                        const [cid, bytes] = CID.decodeFirst(car.subarray(blockStart, blockStart + blockLength));
+                        stubBlocks.set(cid.toString(), bytes);
+                        offset = blockStart + blockLength;
+                    }
+                    yield { root: {} };
+                }
+            }
+        },
         pin: { rm: noop, add: noop },
         files: {
             write: noop,
-            rm: noop,
+            rm: async (paths) => {
+                for (const mfsPath of [paths].flat()) stubMfs.delete(mfsPath);
+            },
+            cp: async (from, to) => void stubMfs.set(to, CID.parse(from.replace("/ipfs/", ""))),
+            mv: async (from, to) => {
+                stubMfs.set(to, stubMfs.get(from));
+                stubMfs.delete(from);
+            },
             flush: async () => "QmstubFlush",
-            stat: async () => ({ cid: "QmstubStat", blocks: 1 }),
+            stat: async (mfsPath) => {
+                if (stubMfs.has(mfsPath)) return { cid: stubMfs.get(mfsPath), blocks: 1 };
+                if (/\/postUpdates\/\d+(\.next)?$/.test(mfsPath)) throw Error("file does not exist");
+                return { cid: "QmstubStat", blocks: 1 };
+            },
             mkdir: noop
         },
         key: { rm: noop, list: async () => [] },
         name: { publish: async () => ({ name: "stub", value: "stub" }) },
-        block: { rm: async function* () {} },
+        block: {
+            rm: async function* () {},
+            get: async (cid) => stubBlocks.get(cid.toString())
+        },
         repo: { gc: async function* () {} },
         routing: { provide: async function* () {} }
     };

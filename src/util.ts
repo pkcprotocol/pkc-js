@@ -18,7 +18,6 @@ import type {
     FilesRmOptions,
     FilesStatOptions,
     FilesStatResult,
-    FilesWriteOptions,
     RoutingProvideOptions
 } from "kubo-rpc-client";
 import type {
@@ -1063,81 +1062,6 @@ export async function retryKuboIpfsAdd({
                 resolve(addRes);
             } catch (error) {
                 log.error(`Failed attempt ${currentAttempt}/${numOfRetries + 1} to add content to IPFS:`, error);
-
-                if (operation.retry(error as Error)) return;
-
-                reject(operation.mainError() || error);
-            }
-        });
-    });
-}
-
-type KuboFilesWriteParameters = Parameters<PKC["clients"]["kuboRpcClients"][string]["_client"]["files"]["write"]>;
-
-// The error kubo returns for a flush:false MFS operation once its global unflushed-operation counter
-// (Internal.MFSNoFlushLimit, 256 by default) is full: "reached limit of N unflushed MFS operations"
-export function isMfsUnflushedLimitError(error: unknown): boolean {
-    return error instanceof Error && error.message.includes("unflushed MFS operations");
-}
-
-export async function writeKuboFilesWithTimeout({
-    ipfsClient: kuboRpcClient,
-    log,
-    path,
-    content,
-    inputNumOfRetries,
-    options,
-    timeoutMs
-}: {
-    ipfsClient: Pick<PKC["clients"]["kuboRpcClients"][string]["_client"], "files">;
-    log: Logger;
-    path: KuboFilesWriteParameters[0];
-    content: KuboFilesWriteParameters[1];
-    inputNumOfRetries?: number;
-    options?: FilesWriteOptions;
-    timeoutMs?: number;
-}): Promise<void> {
-    const numOfRetries = inputNumOfRetries ?? 3;
-    // 60s, not the 15s this used to be. Since kubo 0.43.0 a repo GC and in-flight MFS writes hold
-    // each other off, so a write can legitimately pause for the length of a GC and then succeed —
-    // the changelog calls this out explicitly. A 15s budget turns that ordinary contention into a
-    // failed sync.
-    const timeoutMilliseconds = timeoutMs ?? 60_000;
-
-    // kubo 0.43.0 honors `timeout` on files.write, so hand the daemon the same budget: it aborts the
-    // op server-side and releases the MFS lock, where a bare client-side abort would leave the write
-    // running under the lock. pTimeout stays as the backstop for a daemon that never answers at all,
-    // with enough slack that the server's own (more informative) error normally wins the race.
-    let writeOptions: FilesWriteOptions = { timeout: timeoutMilliseconds, ...options };
-    const write = () =>
-        pTimeout(kuboRpcClient.files.write(path, content, writeOptions), {
-            milliseconds: timeoutMilliseconds + 5_000,
-            message: `Timed out writing to MFS path ${path} after ${timeoutMilliseconds + 5_000}ms`
-        });
-
-    return new Promise((resolve, reject) => {
-        const operation = retry.operation({
-            retries: numOfRetries,
-            factor: 2,
-            minTimeout: 2000
-        });
-
-        operation.attempt(async (currentAttempt) => {
-            try {
-                try {
-                    await write();
-                } catch (error) {
-                    // Kubo counts flush:false operations globally (Internal.MFSNoFlushLimit) and refuses
-                    // the next one past the limit instead of flushing. Any flushing operation resets the
-                    // counter, so the write the daemon just refused goes through as a self-flushing one.
-                    if (writeOptions.flush !== false || !isMfsUnflushedLimitError(error)) throw error;
-                    log(`Kubo reached its unflushed MFS operation limit, writing ${path} with flush:true instead`);
-                    writeOptions = { ...writeOptions, flush: true };
-                    await write();
-                }
-                resolve();
-            } catch (error) {
-                log.error(`Failed attempt ${currentAttempt}/${numOfRetries + 1} to write content to MFS path ${path}:`, error);
 
                 if (operation.retry(error as Error)) return;
 
