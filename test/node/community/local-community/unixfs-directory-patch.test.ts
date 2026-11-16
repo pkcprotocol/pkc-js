@@ -269,18 +269,32 @@ describeSkipIfRpc("patchUnixFsDirectory against a kubo daemon", () => {
     const kubo = () => Object.values(pkc.clients.kuboRpcClients)[0]._client;
     const getBlock = async (cid: CID) => kubo().block.get(cid);
 
+    // Everything this test stores is pinned until it ends: other suites' communities run a repo gc on the
+    // shared daemon, and reading a directory whose blocks a gc took hangs on a network fetch (and holds
+    // every other MFS user off meanwhile).
+    const pinned: CID[] = [];
+
     // A real file per entry, so the daemon holds every block the directory links
     const addEntries = async (count: number, firstIndex: number, generation = 0): Promise<UnixFsDirectoryEntry[]> => {
         const entries: UnixFsDirectoryEntry[] = [];
         const names = await Promise.all(Array.from({ length: count }, (_, i) => postCidLikeName(firstIndex + i)));
+        // Wrapped in one directory, so that one pin covers every file
         for await (const added of kubo().addAll(
             names.map((name) => ({ path: name, content: new TextEncoder().encode(`${name}#${generation}`) })),
-            { pin: false, wrapWithDirectory: false, cidVersion: 0 }
-        ))
-            entries.push({ name: added.path, cid: added.cid, size: Number(added.size) });
+            { pin: true, wrapWithDirectory: true, cidVersion: 0 }
+        )) {
+            if (added.path === "") pinned.push(added.cid);
+            else entries.push({ name: added.path, cid: added.cid, size: Number(added.size) });
+        }
+        expect(entries).to.have.lengthOf(count);
         return entries;
     };
+    // The root goes in pinned before the rest, the way writePostUpdatesToBucket stores a bucket
     const importIntoDaemon = async (root: CID, blocks: { cid: CID; bytes: Uint8Array }[]) => {
+        const rootBlock = blocks.find((block) => block.cid.equals(root))!;
+        const stored = await kubo().block.put(rootBlock.bytes, { pin: true, format: "v0", mhtype: "sha2-256" });
+        expect(stored.toString()).to.equal(root.toString());
+        pinned.push(root);
         for await (const result of kubo().dag.import([await encodeCarV1(root, blocks)], { pinRoots: false })) void result;
     };
     const readFile = async (path: string) => {
@@ -297,6 +311,10 @@ describeSkipIfRpc("patchUnixFsDirectory against a kubo daemon", () => {
         await kubo()
             .files.rm(mfsDirectory, { recursive: true })
             .catch((): undefined => undefined);
+        for (const cid of pinned)
+            await kubo()
+                .pin.rm(cid)
+                .catch((): undefined => undefined);
         await pkc.destroy();
     });
 
