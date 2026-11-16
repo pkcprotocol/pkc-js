@@ -7,8 +7,7 @@ import {
     isAbortError,
     isIpns,
     retryKuboIpfsAdd,
-    shortifyCid,
-    sleepUntilTimeoutOrAbort
+    shortifyCid
 } from "../../util.js";
 import Publication from "../publication.js";
 import { getCommunityAddressFromRecord, getCommunityPublicKeyFromWire, getCommunityNameFromWire } from "../publication-community.js";
@@ -743,28 +742,36 @@ export class Comment
         });
     }
 
-    // Kicked off in parallel with the in-flight CommentIpfs fetch. After a short delay,
-    // if raw.comment still hasn't loaded, call pkc.getCommunity. Subscribing to the
-    // community's IPNS pubsub topic connects us to peers that likely have the comment
-    // block, and bitswap will then automatically fetch it from them. Without this, on
-    // libp2pjs with no provider record for the comment CID, we'd wait the full ~60s
-    // cat() timeout before any retry path tried to connect to community peers.
-    private _scheduleParallelCommunityConnect(log: Logger) {
-        if (!this.communityName && !this.communityPublicKey) return;
-        const stopSignal = this._getStopAbortSignal();
-        // Fire-and-forget: wait 5s (or until stopped), then connect. sleepUntilTimeoutOrAbort detaches its
-        // abort listener on both outcomes so it never leaks on the long-lived stop signal (see issue #147).
-        void (async () => {
-            await sleepUntilTimeoutOrAbort(5_000, stopSignal);
-            if (this.raw.comment) return;
-            if (this._isStopAbortRequested() || this._pkc.destroyed) return;
-            log("Starting parallel pkc.getCommunity for", this.cid, "so bitswap can fetch the comment block from community peers");
-            try {
-                await this._pkc.getCommunity({ name: this.communityName, publicKey: this.communityPublicKey });
-            } catch (err) {
-                if (!isAbortError(err as Error)) log.error("Parallel pkc.getCommunity failed for", this.cid, err);
-            }
-        })();
+    // Started at the same moment as the CommentIpfs fetch, by both update() and pkc.getComment()
+    // (issue #562). A fresh comment CID is often not listed on the HTTP routers yet, while the
+    // community always is: pkc.getCommunity connects us to the community's peers, and the pending
+    // want for the comment block is then served by one of them (see createNoProvidersRetryWaiter in
+    // helia-for-pkc.ts for how an in-flight fetch picks up a peer that connects late).
+    //
+    // Not started when it cannot help: no community identity on the comment, the community already
+    // updating on this pkc (its peers are connected), or no P2P client (a gateway cannot serve
+    // bitswap, and under a PKC RPC client the server runs this instead).
+    //
+    // Resolves with the error the community load failed with, if any, and never rejects. An abort is
+    // not a failure. `abortSignal` cancels the community load; update() passes its stop signal.
+    async _startParallelCommunityConnect({ abortSignal }: { abortSignal?: AbortSignal }): Promise<Error | undefined> {
+        const log = Logger("pkc-js:comment:_startParallelCommunityConnect");
+        if (!this.communityName && !this.communityPublicKey) return undefined;
+        if (this.raw.comment) return undefined;
+        if (abortSignal?.aborted || this._pkc.destroyed) return undefined;
+        const hasP2PClient =
+            Object.keys(this._pkc.clients.libp2pJsClients).length > 0 || Object.keys(this._pkc.clients.kuboRpcClients).length > 0;
+        if (!hasP2PClient) return undefined;
+        if (findUpdatingCommunity(this._pkc, { publicKey: this.communityPublicKey, name: this.communityName })) return undefined;
+        log("Starting parallel pkc.getCommunity for", this.cid, "so bitswap can fetch the comment block from community peers");
+        try {
+            await this._pkc.getCommunity({ name: this.communityName, publicKey: this.communityPublicKey, abortSignal });
+            return undefined;
+        } catch (err) {
+            if (abortSignal?.aborted || isAbortError(err as Error)) return undefined;
+            log.error("Parallel pkc.getCommunity failed for", this.cid, err);
+            return err as Error;
+        }
     }
 
     async _attemptToFetchCommentIpfsIfNeeded(log: Logger) {
@@ -835,7 +842,7 @@ export class Comment
     async loadCommentIpfsAndStartCommentUpdateSubscription() {
         const log = Logger("pkc-js:update:loadCommentIpfsAndStartCommentUpdateSubscription");
         this._createStopAbortController();
-        this._scheduleParallelCommunityConnect(log);
+        void this._startParallelCommunityConnect({ abortSignal: this._getStopAbortSignal() });
         await this._attemptInfintelyToLoadCommentIpfs();
         if (!this.raw.comment) {
             if (this.state === "stopped" || this._isStopAbortRequested()) return;

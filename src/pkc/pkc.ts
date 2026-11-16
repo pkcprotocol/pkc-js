@@ -580,6 +580,15 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         // ends without the comment (abort, timeout, failure), its own fetch is cancelled, and a fetch it joined
         // is not fetched again on its behalf once that fetch's owner is stopped.
         comment._createStopAbortController();
+        // Look for the community's peers at the same moment as the comment CID (issue #562). The
+        // community load is only a way to reach those peers, so it is cancelled on every outcome, and
+        // its failure never decides this call's result: it is only reported next to the real error.
+        const communityConnectAbortController = new AbortController();
+        let communityLoadError: Error | undefined;
+        void comment
+            ._startParallelCommunityConnect({ abortSignal: communityConnectAbortController.signal })
+            .then((error) => (communityLoadError = error));
+
         const commentTimeout = this._timeouts["comment-ipfs"];
         try {
             await pTimeout(Promise.race([comment._attemptInfintelyToLoadCommentIpfs(), abortPromise]), {
@@ -598,9 +607,16 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             // Abort wins over whatever else the comment happened to emit: the caller cancelled on
             // purpose, so reporting a stale retriable error instead would be misleading.
             if (abortError) throw abortError;
-            if (lastUpdateError) throw lastUpdateError;
-            throw e;
+            const errorToThrow = lastUpdateError ?? e;
+            if (communityLoadError) {
+                // A PKCError already has details; the plain TimeoutError gets the same shape, so a
+                // caller reads error.details.communityLoadError either way.
+                if (errorToThrow instanceof PKCError) errorToThrow.details = { ...errorToThrow.details, communityLoadError };
+                else if (errorToThrow instanceof Error) Object.assign(errorToThrow, { details: { communityLoadError } });
+            }
+            throw errorToThrow;
         } finally {
+            communityConnectAbortController.abort();
             abortSignal?.removeEventListener("abort", abortListener);
             comment.removeListener("error", errorListener);
             await comment.stop();
