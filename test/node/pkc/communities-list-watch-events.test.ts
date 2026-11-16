@@ -1,9 +1,15 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import lockfile from "@pkcprotocol/proper-lock-file";
+import Database from "better-sqlite3";
 import { isCommunitiesListChangeEvent } from "../../../dist/node/runtime/node/util.js";
+import {
+    getStartLockPath,
+    isCommunityStartLockedSync,
+    releaseStartLock,
+    takeStartLock
+} from "../../../dist/node/runtime/node/community/start-lock.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { PKCCommunitiesEntry } from "../../../dist/node/clients/rpc-client/types.js";
 
@@ -11,17 +17,16 @@ import type { PKCCommunitiesEntry } from "../../../dist/node/clients/rpc-client/
 // pkc.dataPath and pkc.communities the filter reads, so it runs under every config.
 //
 // pkc.communities is refreshed on filesystem events in dataPath/communities, and `started` comes from each community's
-// start lock (issue #455). proper-lockfile creates the lock on lock(), removes it on unlock(), and touches its mtime every
-// few seconds while held, and the watcher reports the touch with the same event type as the other two ("rename" on
-// Linux). A refresh stats every community's lock, so refreshing on each touch cost O(started × communities) sync work
-// every few seconds per PKC instance, which on the Windows CI runner blocked the event loop long enough to time out
-// gateway fetches. Only an event that flips the community's `started` may trigger a refresh.
+// start lock (issue #455). The lock is a file lock on the community's sidecar (issue #561): taking it writes the sidecar
+// and releasing it touches the sidecar's mtime, and nothing touches it in between. The lock this replaced refreshed its
+// mtime every few seconds while held, and a refresh on each of those touches cost O(started × communities) sync work
+// per PKC instance. Only an event that flips the community's `started` may trigger a refresh.
 describe("isCommunitiesListChangeEvent with a held start lock", () => {
     const dataPath = path.join(process.cwd(), ".tmp", `communities-watch-events-${uuidv4()}`);
     const communitiesPath = path.join(dataPath, "communities");
     const communityAddress = "watch-events.bso";
     const dbPath = path.join(communitiesPath, communityAddress);
-    const lockfilePath = `${dbPath}.start.lock`;
+    const lockfilePath = getStartLockPath({ dataPath, communityAddress });
     const filenames: (string | null)[] = [];
     const listed: PKCCommunitiesEntry = {
         name: communityAddress,
@@ -34,7 +39,7 @@ describe("isCommunitiesListChangeEvent with a held start lock", () => {
 
     beforeAll(() => {
         fs.mkdirSync(communitiesPath, { recursive: true });
-        fs.writeFileSync(dbPath, "");
+        new Database(dbPath).close();
         watcher = fs.watch(communitiesPath, (_eventType, filename) => filenames.push(filename));
     });
 
@@ -43,7 +48,7 @@ describe("isCommunitiesListChangeEvent with a held start lock", () => {
         fs.rmSync(dataPath, { recursive: true, force: true });
     });
 
-    it("counts the lock being taken and released, not the lock's periodic touches", async () => {
+    it("counts the lock being taken and released, and a held lock sends no events in between", async () => {
         // Collects the start lock's events until `count` have arrived, not for a fixed time, so a slow watcher on a busy
         // runner only makes the test wait longer. The bound only turns a missing event into a failed assertion below
         const takeStartLockEvents = async ({ count, timeoutMs }: { count: number; timeoutMs: number }) => {
@@ -57,18 +62,23 @@ describe("isCommunitiesListChangeEvent with a held start lock", () => {
         };
         const countsAsChange = (events: (string | null)[]) => events.map((filename) => isCommunitiesListChangeEvent({ pkc, filename }));
 
-        const release = await lockfile.lock(dbPath, { lockfilePath, update: 1000, stale: 2000, onCompromised: () => {} });
-        const takenEvents = await takeStartLockEvents({ count: 1, timeoutMs: 10_000 });
-        expect(takenEvents.length).to.be.greaterThan(0);
-        expect(countsAsChange(takenEvents)).to.include(true);
-        listed.started = true; // what the refresh it triggers lists
+        const db = new Database(dbPath);
+        try {
+            expect(takeStartLock({ db, dataPath, communityAddress })).to.equal(true);
+            const takenEvents = await takeStartLockEvents({ count: 1, timeoutMs: 10_000 });
+            expect(takenEvents.length).to.be.greaterThan(0);
+            expect(countsAsChange(takenEvents)).to.include(true);
+            listed.started = true; // what the refresh it triggers lists
 
-        // update is clamped to at least 1000ms, so two touches arrive about 2s after the lock is taken
-        const touchEvents = await takeStartLockEvents({ count: 2, timeoutMs: 10_000 });
-        expect(touchEvents.length).to.be.greaterThan(0); // the touches do reach the watcher
-        expect(countsAsChange(touchEvents)).to.not.include(true);
+            // Whatever is left of the events of taking the lock no longer counts, and a held lock sends none of its own
+            await new Promise((resolve) => setTimeout(resolve, 2500));
+            const heldEvents = await takeStartLockEvents({ count: 1, timeoutMs: 0 });
+            expect(countsAsChange(heldEvents)).to.not.include(true);
 
-        await release();
+            releaseStartLock({ db, dataPath, communityAddress });
+        } finally {
+            db.close();
+        }
         const releasedEvents = await takeStartLockEvents({ count: 1, timeoutMs: 10_000 });
         expect(releasedEvents.length).to.be.greaterThan(0);
         expect(countsAsChange(releasedEvents)).to.include(true);
@@ -76,27 +86,26 @@ describe("isCommunitiesListChangeEvent with a held start lock", () => {
 });
 
 // The filter runs inside the watcher callback, where a throw is an uncaught exception that can end the process. A start
-// lock check that fails with anything but ENOENT (EACCES, EIO) must not escape it. The failure is stubbed rather than
-// produced on disk: a path under a regular file fails with ENOTDIR on Linux and macOS but with ENOENT on Windows, which
-// checkSync reports as unlocked
+// lock check that fails must not escape it. The failure here is a sidecar that is not a database, which the check
+// cannot read.
 describe("isCommunitiesListChangeEvent when the start lock check fails", () => {
     const dataPath = path.join(process.cwd(), ".tmp", `communities-watch-events-check-fails-${uuidv4()}`);
 
     it("does not throw, and counts the event as a change so the refresh decides", () => {
-        const checkSync = vi.spyOn(lockfile, "checkSync").mockImplementation(() => {
-            throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
-        });
         const communityAddress = "lock-check-fails.bso";
         const pkc = {
             dataPath,
             communities: [{ name: communityAddress, publicKey: "12D3KooWLockCheckFails", address: communityAddress, started: false }]
         } as unknown as PKC;
+        const startLockPath = getStartLockPath({ dataPath, communityAddress });
+        fs.mkdirSync(path.dirname(startLockPath), { recursive: true });
+        fs.writeFileSync(startLockPath, "not a database ".repeat(100));
         let result: boolean | undefined;
         try {
-            expect(() => (result = isCommunitiesListChangeEvent({ pkc, filename: `${communityAddress}.start.lock` }))).to.not.throw();
-            expect(checkSync).toHaveBeenCalled(); // the stub is the check the filter ran
+            expect(() => isCommunityStartLockedSync({ dataPath, communityAddress })).to.throw(); // the check does fail
+            expect(() => (result = isCommunitiesListChangeEvent({ pkc, filename: path.basename(startLockPath) }))).to.not.throw();
         } finally {
-            checkSync.mockRestore();
+            fs.rmSync(dataPath, { recursive: true, force: true });
         }
         expect(result).to.equal(true);
     });

@@ -15,6 +15,7 @@ import {
 import { itSkipIfRpc, itIfRpc } from "../../helpers/conditional-tests.js";
 import path from "path";
 import fs from "fs";
+import { isCommunityStartLockedSync } from "../../../dist/node/runtime/node/community/start-lock.js";
 import signers from "../../fixtures/signers.js";
 import { v4 as uuidV4 } from "uuid";
 
@@ -237,11 +238,13 @@ describe(`Start lock`, async () => {
 
     itSkipIfRpc(`Fail to start community if start lock is present`, async () => {
         const communitySigner = await pkc.createSigner();
-        const lockPath = path.join(dataPath, "communities", `${communitySigner.address}.start.lock`);
         const community = await pkc.createCommunity({ signer: communitySigner });
         const sameCommunity = await pkc.createCommunity({ address: community.address });
         community.start();
-        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => fs.existsSync(lockPath) });
+        await resolveWhenConditionIsTrue({
+            toUpdate: community,
+            predicate: async () => isCommunityStartLockedSync({ dataPath, communityAddress: community.address })
+        });
 
         try {
             await sameCommunity.start();
@@ -254,18 +257,13 @@ describe(`Start lock`, async () => {
 
     it(`Can start community as soon as start lock is unlocked`, async () => {
         const communitySigner = await pkc.createSigner();
-        const lockPath = path.join(dataPath, "communities", `${communitySigner.address}.start.lock`);
-        expect(fs.existsSync(lockPath)).to.be.false;
+        const isLocked = () => isCommunityStartLockedSync({ dataPath, communityAddress: communitySigner.address });
+        expect(isLocked()).to.be.false;
         const community = await pkc.createCommunity({ signer: communitySigner });
         await community.start();
-        expect(fs.existsSync(lockPath)).to.be.true;
-        const lockFileRemovedPromise = new Promise<void>((resolve) =>
-            fs.watchFile(lockPath, () => {
-                if (!fs.existsSync(lockPath)) resolve();
-            })
-        );
-        await Promise.all([community.stop(), lockFileRemovedPromise]);
-        expect(fs.existsSync(lockPath)).to.be.false;
+        expect(isLocked()).to.be.true;
+        await community.stop();
+        expect(isLocked()).to.be.false;
 
         await community.start();
         await community.delete();
@@ -288,24 +286,16 @@ describe(`Start lock`, async () => {
         }
     );
 
-    it(`Can start community if start lock is stale (10s)`, async () => {
-        // Lock is considered stale if lock has not been updated in 10000 ms (10s)
+    it(`Can start community next to a lock directory left by the mtime lock of an older version, and removes it`, async () => {
+        // The start lock used to be a directory whose mtime its holder refreshed, held for 10s after the last refresh.
+        // The lock is held in the kernel now (issue #561) and that directory decides nothing.
         const community = await createSubWithNoChallenge({}, pkc);
 
         const lockPath = path.join(dataPath, "communities", `${community.address}.start.lock`);
-        await fs.promises.mkdir(lockPath); // Artifically create a start lock
+        await fs.promises.mkdir(lockPath); // Artifically create a start lock of the old kind
 
-        try {
-            await community.start();
-            expect.fail("Should have thrown");
-        } catch (e) {
-            expect((e as PKCError).code).to.be.oneOf([
-                "ERR_COMMUNITY_ALREADY_STARTED",
-                "ERR_CAN_NOT_LOAD_DB_IF_LOCAL_COMMUNITY_ALREADY_STARTED_IN_ANOTHER_PROCESS"
-            ]);
-        }
-        await new Promise((resolve) => setTimeout(resolve, 11000)); // Wait for 11s for lock to be considered stale
         await community.start();
+        expect(fs.existsSync(lockPath)).to.be.false;
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         const post = await publishRandomPost({ communityAddress: community.address, pkc: pkc });
         await waitTillPostInCommunityPages(post as Comment & { cid: string }, pkc);

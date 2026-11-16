@@ -1,88 +1,80 @@
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { v4 as uuidV4 } from "uuid";
 import Database from "better-sqlite3";
-import lockfile from "@pkcprotocol/proper-lock-file";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { isCommunityStartLocked } from "../../../dist/node/runtime/node/community/start-lock.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
-import { takeOverStartLockFromAnotherProcess } from "../../helpers/start-lock-takeover.js";
+import { holdStartLockInAnotherProcess } from "../../helpers/start-lock-holder.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { PKCError } from "../../../dist/node/pkc-error.js";
 
-// The start lock decides which process runs a community. Its holder keeps it fresh from a timer; another process that
-// finds it stale (the holder's event loop blocked past 10s by a VACUUM or a migration) takes it over, and the lock
-// library reports the loss to the holder through onCompromised. That report used to go to a no-op, so the holder kept
-// running the community next to the process that took it over. lockCommunityStart now passes it on, once, and only for
-// the lock it still holds. What the community does with it is covered by start-lock-takeover.community.test.ts.
-
-type OnCompromised = (error: Error) => void;
+// The start lock decides which process runs a community. It used to be a file its holder kept fresh from a timer, and
+// another process that found it stale (the holder's event loop blocked past 10s by a VACUUM or a migration) took it
+// over: two processes then ran one community until the first noticed and stopped. The lock is held in the kernel now
+// (issue #561), for as long as its holder lives, so a holder that goes quiet for any length of time keeps it and there
+// is no takeover to report. What a started community does about another process is covered by
+// start-lock-takeover.community.test.ts.
 
 function createDbHandler({ dataPath, address }: { dataPath: string; address: string }): DbHandler {
     const fakeCommunity = { address, _pkc: { dataPath } };
     return new DbHandler(fakeCommunity as unknown as LocalCommunity);
 }
 
-// Uses DbHandler and a lock directory in a local dataPath (Node-only), not reachable over RPC
-describeSkipIfRpc("DbHandler.lockCommunityStart when the start lock is lost", () => {
+// Uses DbHandler and a second OS process on a local dataPath (Node-only), not reachable over RPC
+describeSkipIfRpc("DbHandler.lockCommunityStart against a holder that cannot lose its lock", () => {
     let dataPath: string;
     let address: string;
     let dbHandler: DbHandler;
-    let otherProcess: { kill: () => void } | undefined;
+    let holder: Awaited<ReturnType<typeof holdStartLockInAnotherProcess>> | undefined;
 
-    beforeEach(() => {
+    beforeEach(async () => {
         dataPath = path.join(process.cwd(), ".tmp", "start-lock-takeover", uuidV4());
         address = `12D3KooWStartLockTakeover${uuidV4().slice(0, 8)}`;
         fs.mkdirSync(path.join(dataPath, "communities"), { recursive: true });
-        new Database(path.join(dataPath, "communities", address)).close(); // the lock resolves the DB file's real path
+        new Database(path.join(dataPath, "communities", address)).close();
         dbHandler = createDbHandler({ dataPath, address });
+        await dbHandler.initDbIfNeeded();
     });
 
     afterEach(async () => {
-        vi.restoreAllMocks();
-        otherProcess?.kill();
-        otherProcess = undefined;
+        await holder?.kill();
+        holder = undefined;
         await dbHandler.unlockCommunityStart().catch(() => {});
+        dbHandler.destoryConnection();
         await fs.promises.rm(dataPath, { recursive: true, force: true });
     });
 
-    it("reports a takeover by another process once, and leaves that process's lock alone", async () => {
-        const onCompromised = vi.fn<OnCompromised>();
-        await dbHandler.lockCommunityStart({ onCompromised });
+    it("refuses a takeover of a holder whose event loop has been blocked for longer than the old 10s stale threshold", async () => {
+        holder = await holdStartLockInAnotherProcess({ dataPath, communityAddress: address, blockEventLoopForMs: 14_000 });
 
-        otherProcess = await takeOverStartLockFromAnotherProcess({ dataPath, communityAddress: address });
-        // the holder notices at its next refresh, at most 5s after the takeover
-        await vi.waitFor(() => expect(onCompromised).toHaveBeenCalled(), { timeout: 15000, interval: 100 });
+        await new Promise((resolve) => setTimeout(resolve, 11_500)); // the holder has run no timer for 11.5s by now
 
-        expect(onCompromised).toHaveBeenCalledTimes(1);
-        expect((onCompromised.mock.calls[0][0] as Error & { code?: string }).code).to.equal("ECOMPROMISED");
-
-        // Stopping afterwards must not release the lock the other process holds now
-        await dbHandler.unlockCommunityStart().catch(() => {});
+        const error = await dbHandler.lockCommunityStart().then(
+            (): PKCError | undefined => undefined,
+            (e: PKCError) => e
+        );
+        expect(error?.code, "took over the lock of a live process").to.equal("ERR_COMMUNITY_ALREADY_STARTED");
+        expect(holder.process.exitCode).to.be.null;
         expect(await isCommunityStartLocked({ dataPath, communityAddress: address })).to.be.true;
-        expect(onCompromised).toHaveBeenCalledTimes(1);
     });
 
-    it("does not pass on a report for a lock it already released, even after taking the lock again", async () => {
-        const lockOnCompromisedByAcquisition: OnCompromised[] = [];
-        const realLock = lockfile.lock;
-        vi.spyOn(lockfile, "lock").mockImplementation(async (file, options) => {
-            if (options.onCompromised) lockOnCompromisedByAcquisition.push(options.onCompromised);
-            return realLock(file, options);
-        });
-
-        const firstOnCompromised = vi.fn<OnCompromised>();
-        await dbHandler.lockCommunityStart({ onCompromised: firstOnCompromised });
+    it("can be released and taken again by the same handler, and each release frees it for another process", async () => {
+        await dbHandler.lockCommunityStart();
+        expect(await isCommunityStartLocked({ dataPath, communityAddress: address })).to.be.true;
         await dbHandler.unlockCommunityStart();
-        const secondOnCompromised = vi.fn<OnCompromised>();
-        await dbHandler.lockCommunityStart({ onCompromised: secondOnCompromised });
+        expect(await isCommunityStartLocked({ dataPath, communityAddress: address })).to.be.false;
 
-        // The library calls a lock's onCompromised when a refresh that was in flight during unlock() finds the lock
-        // directory gone or replaced. That lock was released on purpose, so it was not lost.
-        expect(lockOnCompromisedByAcquisition).to.have.length(2);
-        lockOnCompromisedByAcquisition[0](Object.assign(new Error("late report"), { code: "ECOMPROMISED" }));
+        await dbHandler.lockCommunityStart();
+        const refused = await holdStartLockInAnotherProcess({ dataPath, communityAddress: address }).then(
+            (): Error | undefined => undefined,
+            (e: Error) => e
+        );
+        expect(refused?.message).to.equal("failed ERR_COMMUNITY_ALREADY_STARTED");
 
-        expect(firstOnCompromised).not.toHaveBeenCalled();
-        expect(secondOnCompromised).not.toHaveBeenCalled();
+        await dbHandler.unlockCommunityStart();
+        holder = await holdStartLockInAnotherProcess({ dataPath, communityAddress: address });
+        expect(await isCommunityStartLocked({ dataPath, communityAddress: address })).to.be.true;
     });
 });
