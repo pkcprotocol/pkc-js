@@ -58,7 +58,9 @@ describeSkipIfRpc("leak: db handle after a start() that fails early", () => {
             startsThatThrew,
             states: [...new Set(held.map((instance) => instance.state))],
             openAfterFailedStart,
-            fdGrowth: fdsBefore === undefined ? 0 : countOpenFds()! - fdsBefore
+            // The count is the whole process's. Something else closing a descriptor meanwhile (a keep-alive
+            // socket to kubo timing out) takes it below where it started, which is not a leak.
+            fdGrowth: fdsBefore === undefined ? 0 : Math.max(0, countOpenFds()! - fdsBefore)
         };
         for (const instance of held) (instance._dbHandler as unknown as { destoryConnection: () => void }).destoryConnection();
         expect(result).toEqual({

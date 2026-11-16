@@ -623,7 +623,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             expect(settled, "the warmup should still be waiting for a subscriber").to.be.false;
 
             await pkc.destroy();
-            await new Promise((resolve) => setImmediate(resolve));
+            await new Promise((resolve) => setTimeout(resolve, 0)); // setImmediate does not exist in browsers
             expect(settled, "destroy() resolved while the warmup was still waiting for a subscriber").to.be.true;
             await subscribePromise;
         }, 20000);
