@@ -93,7 +93,7 @@ describe(`community.start`, async () => {
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         const originalFunc = community._getDbInternalState.bind(community);
-        community._getDbInternalState = async () => {
+        community._getDbInternalState = () => {
             throw Error("Mocking a failure in getting db internal state in tests");
         };
         publishRandomPost({ communityAddress: community.address, pkc: pkc });

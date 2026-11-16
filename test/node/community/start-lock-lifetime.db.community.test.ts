@@ -106,6 +106,7 @@ describeSkipIfRpc("how long a start lock stays held", () => {
         db.exec("VACUUM");
         db.pragma("wal_checkpoint(TRUNCATE)");
         await db.backup(path.join(dataPath, "backup"));
+        expect(dbHandler.runInWriteTransaction(() => db.prepare("SELECT count(*) AS n FROM work").get())).to.deep.equal({ n: 1 });
 
         expect(await anotherProcessIsRefused()).to.be.true;
     });

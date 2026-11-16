@@ -59,36 +59,32 @@ export async function importCommunitySignerIntoIpfsIfNeeded(community: LocalComm
     });
 }
 
-export async function getDbInternalState(
-    community: LocalCommunity,
-    lock: boolean
-): Promise<InternalCommunityRecordAfterFirstUpdateType | InternalCommunityRecordBeforeFirstUpdateType> {
+export function getDbInternalState(
+    community: LocalCommunity
+): InternalCommunityRecordAfterFirstUpdateType | InternalCommunityRecordBeforeFirstUpdateType {
     const log = Logger("pkc-js:local-community:_getDbInternalState");
     if (!community._dbHandler.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]))
         throw new PKCError("ERR_COMMUNITY_HAS_NO_INTERNAL_STATE", { address: community.address, dataPath: community._pkc.dataPath });
-    let lockedIt = false;
     try {
-        if (lock) {
-            await community._dbHandler.lockCommunityState();
-            lockedIt = true;
-        }
-        const internalState = await community._dbHandler.keyvGet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]);
+        const internalState = community._dbHandler.keyvGet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]);
         if (!internalState)
             throw new PKCError("ERR_COMMUNITY_HAS_NO_INTERNAL_STATE", { address: community.address, dataPath: community._pkc.dataPath });
         return internalState as InternalCommunityRecordAfterFirstUpdateType | InternalCommunityRecordBeforeFirstUpdateType;
     } catch (e) {
         log.error("Failed to get community", community.address, "internal state from db", e);
         throw e;
-    } finally {
-        if (lockedIt) await community._dbHandler.unlockCommunityState();
     }
 }
 
 type InternalStateProps = Partial<InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType>;
 
-// A writer of the whole record (the publish cycle, stop()) passes a function that builds it, called once the state lock is
-// taken. A record built before the lock lacked an edit of a started community that stored itself in the meantime, and was
-// written over it. That edit applies itself to the instance right after its write, before another writer can take the lock.
+// The read of the stored record, the merge and the write run as one synchronous write transaction on the community DB
+// (see DbHandler.runInWriteTransaction), so no other writer, in this process or another, gets between them. A lock file
+// guarded them before, which a killed process left behind (issue #561).
+// A writer of the whole record (the publish cycle, stop()) passes a function that builds it, called inside that
+// transaction. A record built before it lacked an edit of a started community that stored itself in the meantime, and was
+// written over it. That edit applies itself to the instance right after its write, in the same synchronous run, so before
+// another writer can build its record.
 export async function updateDbInternalState(
     community: LocalCommunity,
     propsOrBuildProps: InternalStateProps | (() => InternalStateProps)
@@ -99,27 +95,28 @@ export async function updateDbInternalState(
     await community._dbHandler.initDbIfNeeded();
 
     let props: InternalStateProps = typeof propsOrBuildProps === "function" ? {} : propsOrBuildProps;
-    let lockedIt = false;
     try {
-        await community._dbHandler.lockCommunityState();
-        lockedIt = true;
-        if (typeof propsOrBuildProps === "function") props = propsOrBuildProps();
-        props._internalStateUpdateId = uuidV4();
-        const internalStateBefore = await community._getDbInternalState(false);
-        // Convert posts to CID-ref format for compact DB storage (strip preloaded page data)
-        const propsToStore =
-            "posts" in props && props.posts
-                ? {
-                      ...props,
-                      posts: deriveDbPosts({
-                          posts: props.posts as CommunityIpfsType["posts"],
-                          allPageCids: community._postsAllPageCids
-                      }) as typeof props.posts
-                  }
-                : props;
-        const mergedInternalState = { ...internalStateBefore, ...propsToStore };
-        await community._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY], mergedInternalState);
-        community._internalStateUpdateId = props._internalStateUpdateId;
+        const internalStateUpdateId = uuidV4();
+        const mergedInternalState = community._dbHandler.runInWriteTransaction(() => {
+            if (typeof propsOrBuildProps === "function") props = propsOrBuildProps();
+            props._internalStateUpdateId = internalStateUpdateId;
+            const internalStateBefore = community._getDbInternalState(); // through the method, which tests patch
+            // Convert posts to CID-ref format for compact DB storage (strip preloaded page data)
+            const propsToStore =
+                "posts" in props && props.posts
+                    ? {
+                          ...props,
+                          posts: deriveDbPosts({
+                              posts: props.posts as CommunityIpfsType["posts"],
+                              allPageCids: community._postsAllPageCids
+                          }) as typeof props.posts
+                      }
+                    : props;
+            const merged = { ...internalStateBefore, ...propsToStore };
+            community._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY], merged);
+            return merged;
+        });
+        community._internalStateUpdateId = internalStateUpdateId;
         log.trace("Updated community", community.address, "internal state in db with new props", Object.keys(props));
         if (community.updateCid && community.raw.communityIpfs) {
             community.raw.localCommunity = community.toJSONInternalRpcAfterFirstUpdate();
@@ -130,13 +127,11 @@ export async function updateDbInternalState(
     } catch (e) {
         log.error("Failed to update community", community.address, "internal state in db with new props", Object.keys(props), e);
         throw e;
-    } finally {
-        if (lockedIt) await community._dbHandler.unlockCommunityState();
     }
 }
 
 export async function updateInstanceStateWithDbState(community: LocalCommunity) {
-    const currentDbState = await community._getDbInternalState(false);
+    const currentDbState = community._getDbInternalState();
 
     if ("updatedAt" in currentDbState) {
         // Resolve CID-ref posts from DB back to full wire format with preloaded pages.

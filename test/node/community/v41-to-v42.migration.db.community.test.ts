@@ -61,8 +61,6 @@ interface DbHandlerPrivate {
     _purgeCommentsWithInvalidSchemaOrSignature: () => Promise<void>;
     _purgeCommentEditsWithInvalidSchemaOrSignature: () => Promise<void>;
     _purgePublicationTablesWithDuplicateSignatures: () => Promise<void>;
-    lockCommunityState: () => Promise<void>;
-    unlockCommunityState: () => Promise<void>;
 }
 
 function getPrivate(handler: DbHandler): DbHandlerPrivate {
@@ -136,9 +134,6 @@ describeSkipIfRpc("v41 -> v42 DB migration (exclude.address split into publicKey
         priv._purgeCommentsWithInvalidSchemaOrSignature = async () => {};
         priv._purgeCommentEditsWithInvalidSchemaOrSignature = async () => {};
         priv._purgePublicationTablesWithDuplicateSignatures = async () => {};
-        // updateDbInternalState takes a file lock under dataPath; an in-memory DB has none.
-        priv.lockCommunityState = async () => {};
-        priv.unlockCommunityState = async () => {};
 
         const legacyInternalState: Omit<InternalCommunityRecordBeforeFirstUpdateType, "settings" | "challenges"> & {
             settings: { challenges: typeof legacyChallenges };

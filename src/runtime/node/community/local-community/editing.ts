@@ -363,9 +363,9 @@ export async function editPropsOnStartedCommunity(
         // An empty edit (edit({}), or edit({ roles: undefined }) once parsed) has nothing to store, and updateDbInternalState()
         // throws on empty props. The props are copied because it sets _internalStateUpdateId on what it gets.
         // Keep the in-memory apply below right after this write, with no I/O between them: the publish cycle and stop() build
-        // the whole record from the instance once they hold the state lock, and must find the edit there once it is stored.
-        // stop() waits for this write before it tears down. It closes the DB connection, and a write that lost the state lock
-        // to it retried a second later on the closed connection and rejected with a TypeError.
+        // the whole record from the instance inside their write transaction, and must find the edit there once it is stored.
+        // stop() waits for this write before it tears down. It closes the DB connection, and a write that came after it
+        // ran on the closed connection and rejected with a TypeError.
         if (!isEmpty(parsedEditOptions)) {
             const store = updateDbInternalState(community, { ...parsedEditOptions });
             community._editStoresInFlight.add(store);

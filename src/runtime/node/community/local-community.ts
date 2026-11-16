@@ -545,8 +545,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // community._xxx = async () => { throw ... } to inject failures into the start/publish
     // loops. Production callers in lifecycle.ts/db-state.ts/etc. go through these methods
     // (not the bare imports) so the patches still take effect.
-    async _getDbInternalState(includeMutable: boolean = false) {
-        return getDbInternalState(this, includeMutable);
+    // Synchronous: updateDbInternalState() reads through it inside its write transaction
+    _getDbInternalState() {
+        return getDbInternalState(this);
     }
 
     async _listenToIncomingRequests() {

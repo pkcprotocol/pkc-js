@@ -23,7 +23,6 @@ import env from "../../../version.js";
 import Database, { type Database as BetterSqlite3Database, type Statement } from "better-sqlite3";
 import { sha256 } from "js-sha256";
 
-import lockfile from "@pkcprotocol/proper-lock-file";
 import { getStartLockPath, isCommunityStartLocked, releaseStartLock, takeStartLock } from "./start-lock.js";
 import type { PageOptions } from "./page-generator.js";
 import type {
@@ -3650,37 +3649,27 @@ export class DbHandler {
         return isCommunityStartLocked({ dataPath: this._community._pkc.dataPath!, communityAddress });
     }
 
-    // Community state lock
-
-    async lockCommunityState() {
-        const log = Logger("pkc-js:local-community:db-handler:lock:lockCommunityState");
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${this._community.address}.state.lock`);
-        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
+    // Runs `write` as one write transaction on the community DB: SQLite lets one connection write at a time, across
+    // processes too, and the lock is the kernel's, so a killed writer leaves nothing behind. `write` must be synchronous
+    // (issue #417). A transaction that is already open on this connection is joined. Used for a read-modify-write of
+    // the community's internal state, which a lock file guarded before (issue #561).
+    runInWriteTransaction<T>(write: () => T): T {
+        if (this._db.inTransaction) return write();
         try {
-            await lockfile.lock(communityDbPath, {
-                lockfilePath,
-                retries: 5,
-                onCompromised: () => {}
-            });
-        } catch (e: unknown) {
-            log.error(`Error when attempting to lock community state`, this._community.address, e);
-            if (e instanceof Error && e.message === "Lock file is already being held")
+            this._db.exec("BEGIN IMMEDIATE");
+        } catch (e) {
+            // another connection kept writing for longer than this connection's busy timeout
+            if (typeof (e as { code?: unknown }).code === "string" && (e as { code: string }).code.startsWith("SQLITE_BUSY"))
                 throw new PKCError("ERR_COMMUNITY_STATE_LOCKED", { communityAddress: this._community.address, error: e });
-            // Not sure, do we need to throw error here
+            throw e;
         }
-    }
-
-    async unlockCommunityState() {
-        const log = Logger("pkc-js:local-community:db-handler:lock:unlockCommunityState");
-
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${this._community.address}.state.lock`);
-        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
-        if (!fs.existsSync(lockfilePath)) return;
         try {
-            await lockfile.unlock(communityDbPath, { lockfilePath });
-        } catch (e: unknown) {
-            log.error(`Error when attempting to unlock community state`, this._community.address, e);
-            if (e instanceof Error && "code" in e && e.code !== "ENOTACQUIRED") throw e;
+            const result = write();
+            this._db.exec("COMMIT");
+            return result;
+        } catch (e) {
+            if (this._db.inTransaction) this._db.exec("ROLLBACK");
+            throw e;
         }
     }
 

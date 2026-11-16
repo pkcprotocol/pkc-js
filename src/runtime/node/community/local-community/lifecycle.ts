@@ -561,7 +561,7 @@ async function stopCommunity(community: LocalCommunity) {
         }
 
         try {
-            // built under the state lock, so it keeps an edit stored meanwhile (see updateDbInternalState)
+            // built inside the write transaction, so it keeps an edit stored meanwhile (see updateDbInternalState)
             await updateDbInternalState(community, () =>
                 community.updateCid ? community.toJSONInternalAfterFirstUpdate() : community.toJSONInternalBeforeFirstUpdate()
             );
@@ -582,7 +582,6 @@ async function stopCommunity(community: LocalCommunity) {
         community._duplicatePublicationAttempts?.clear();
         community._inFlightPublicationExchanges.clear();
         await community._dbHandler.rollbackAllTransactions();
-        await community._dbHandler.unlockCommunityState();
         await community._updateStartedValue();
         community._clientsManager.updateKuboRpcState("stopped", kuboRpcClient.url);
         community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("stopped");
