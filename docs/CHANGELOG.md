@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.148](https://github.com/pkcprotocol/pkc-js/compare/v0.0.147...v0.0.148) (2026-11-16)
+
+### Bug Fixes
+
+* **community:** ignore forged challenge messages, rate-limit per community, unpin raced approvals ([#523](https://github.com/pkcprotocol/pkc-js/issues/523)) ([8ef97a1](https://github.com/pkcprotocol/pkc-js/commit/8ef97a15ef4937024c158de68645b75d7df3fb16))
+
 ## [0.0.147](https://github.com/pkcprotocol/pkc-js/compare/v0.0.146...v0.0.147) (2026-11-16)
 
 ### Bug Fixes
