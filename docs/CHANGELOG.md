@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.149](https://github.com/pkcprotocol/pkc-js/compare/v0.0.148...v0.0.149) (2026-11-16)
+
+### Bug Fixes
+
+* **community:** drop the own-name IPNS resolve, publish with the stored sequence ([#548](https://github.com/pkcprotocol/pkc-js/issues/548)) ([3448445](https://github.com/pkcprotocol/pkc-js/commit/344844581a0f436db77d675277b55651f1c50d9c)), closes [#239](https://github.com/pkcprotocol/pkc-js/issues/239) [#553](https://github.com/pkcprotocol/pkc-js/issues/553) [#239](https://github.com/pkcprotocol/pkc-js/issues/239) [#553](https://github.com/pkcprotocol/pkc-js/issues/553)
+
 ## [0.0.148](https://github.com/pkcprotocol/pkc-js/compare/v0.0.147...v0.0.148) (2026-11-16)
 
 ### Bug Fixes

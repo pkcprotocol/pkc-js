@@ -207,6 +207,7 @@ export async function rmUnneededMfsPaths(community: LocalCommunity, opts?: { num
     if (community._mfsPathsToRemove.size > 0) {
         const toDeleteMfsPaths = Array.from(community._mfsPathsToRemove.values());
         const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
+        for (const watcher of community._mfsPathRemovalWatchers) for (const path of toDeleteMfsPaths) watcher.add(path);
         try {
             await removeMfsFilesSafely({
                 kuboRpcClient: kuboRpc,
