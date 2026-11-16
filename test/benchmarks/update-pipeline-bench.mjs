@@ -38,6 +38,7 @@ import { calculateStringSizeSameAsIpfsAddCidV0 } from "../../dist/node/util.js";
 import { CommunityIpfsSchema } from "../../dist/node/community/schema.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { CID } from "multiformats/cid";
+import { sha256 } from "multiformats/hashes/sha2";
 
 if (!process.env.BENCH_POSTS) process.env.BENCH_POSTS = "300";
 process.env.BENCH_PIPELINE = "1"; // seedBoard: comment rows only, so every comment needs a CommentUpdate
@@ -206,7 +207,14 @@ const stubKuboClient = () => {
         name: { publish: async () => ({ name: "stub", value: "stub" }) },
         block: {
             rm: async function* () {},
-            get: async (cid) => stubBlocks.get(cid.toString())
+            get: async (cid) => stubBlocks.get(cid.toString()),
+            // The bucket's new root arrives through block put (pinned) before the rest is imported
+            put: async (bytes, options) => {
+                const digest = await sha256.digest(bytes);
+                const cid = options?.format === "v0" ? CID.createV0(digest) : CID.createV1(0x70, digest);
+                stubBlocks.set(cid.toString(), bytes);
+                return cid;
+            }
         },
         repo: { gc: async function* () {} },
         routing: { provide: async function* () {} }

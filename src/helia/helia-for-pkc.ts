@@ -44,7 +44,7 @@ import {
 import type { IpnsPubsubLocalStore, ProviderReachability } from "./util.js";
 import { createDefaultDialTransportGater } from "./dial-transport-filter.js";
 import { pkcDialAddressSorter } from "./dial-address-sorter.js";
-import { binaryKeyToPubsubTopic, ipnsNameToIpnsOverPubsubTopic, linkAbortSignals } from "../util.js";
+import { binaryKeyToPubsubTopic, ipnsNameToIpnsOverPubsubTopic } from "../util.js";
 
 const log = Logger("pkc-js:libp2p-js");
 
@@ -646,17 +646,16 @@ export async function createLibp2pJsClientOrUseExistingOne(
             // The final stop() ends a warmup that is still running (issue #541). A warmup started without a
             // caller signal (the IPNS resolver's, for a name nobody is subscribed to) otherwise waits out its
             // 10 s subscriber timeout on a stopped node, with its timer, poll interval and findProviders query.
-            const linked = linkAbortSignals([options?.signal, stopController.signal]);
             const p = connectToPubsubPeers({
                 helia,
                 pubsubTopic: topic,
                 maxPeers: WARMUP_MAX_PEERS,
-                options: { ...options, signal: linked.signal },
+                options,
+                stopSignal: stopController.signal,
                 log: Logger("pkc-js:helia:pubsub:warmup")
             })
                 .then(() => undefined)
                 .finally(() => {
-                    linked.dispose();
                     warmupPromisesByTopic.delete(topic);
                 });
             warmupPromisesByTopic.set(topic, p);

@@ -146,6 +146,25 @@ describeSkipIfRpc("postUpdates sync vs MFS changes that Kubo reports as done and
         expect(swapsOfBucket, "one swap that was undone and one that held").to.have.lengthOf(2);
     });
 
+    it("unpins the new bucket's root when the import of the bucket fails", async () => {
+        const row = await calculateNextUpdateOfPost();
+        const putSpy = vi.spyOn(kubo().block, "put");
+        vi.spyOn(kubo().dag, "import").mockImplementation(() => {
+            throw Error("the import failed");
+        });
+
+        await expect(syncPostUpdatesWithIpfs(community, [row])).rejects.toThrow("the import failed");
+
+        expect(putSpy).toHaveBeenCalledTimes(1);
+        const root = await putSpy.mock.results[0].value;
+        await expect(
+            (async () => {
+                for await (const pin of kubo().pin.ls({ paths: [root] })) void pin;
+            })(),
+            "the root that was pinned for the swap is still pinned"
+        ).rejects.toThrow("not pinned");
+    });
+
     it("fails the sync, instead of marking the post as published, when MFS never holds the swapped bucket", async () => {
         const row = await calculateNextUpdateOfPost();
         const updatedAtBefore = await updatedAtInMfs();

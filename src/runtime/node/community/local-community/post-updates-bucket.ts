@@ -129,7 +129,12 @@ async function recoverInterruptedBucketSwap(kuboRpcClient: KuboRpcClient, bucket
             // The swap stopped between taking the live bucket down and moving the new one in
             log(`Finishing the interrupted swap of ${nextPath} into ${bucketPath}`);
             await kubo.files.mv(nextPath, bucketPath, { flush: true, timeout: MFS_OP_TIMEOUT_MS });
-            live = next;
+            // Read back like any other swap: the caller takes what this returns for what MFS holds
+            live = await statMfsPathOrUndefined(kuboRpcClient, bucketPath, log);
+            if (!live?.cid.equals(next.cid))
+                throw Error(
+                    `MFS holds ${live?.cid.toString()} at ${bucketPath} after the interrupted swap of ${next.cid.toString()} was finished`
+                );
         }
         // Its root was pinned for the swap and never unpinned
         await kubo.pin.rm(next.cid, { timeout: MFS_OP_TIMEOUT_MS }).catch(() => undefined);
@@ -200,29 +205,32 @@ export async function writePostUpdatesToBucket({
         // removing anything.
         const rootBlock = newBlocks.find((block) => block.cid.equals(root));
         if (!rootBlock) throw Error(`The new root ${root.toString()} of bucket ${bucketPath} is not among the nodes that were built`);
-        const pinnedRoot = await kubo.block.put(rootBlock.bytes, {
-            pin: true,
-            format: root.version === 0 ? "v0" : "dag-pb",
-            mhtype: "sha2-256",
-            timeout: MFS_OP_TIMEOUT_MS
-        });
-        if (pinnedRoot.toString() !== root.toString())
-            throw Error(`The daemon stored the root of bucket ${bucketPath} as ${pinnedRoot.toString()}, not ${root.toString()}`);
-        const car = await encodeCarV1(root, [...fileBlocks, ...newBlocks]);
-        for await (const result of kubo.dag.import([car], { pinRoots: false, timeout: MFS_OP_TIMEOUT_MS })) void result;
-        log(
-            `Bucket ${bucketPath}: ${posts.length} posts written, ${newBlocks.length} of the bucket's nodes rebuilt (${car.length} bytes imported), root ${root.toString()}`
-        );
         try {
+            // From here the root is pinned, whatever fails below
+            const pinnedRoot = await kubo.block.put(rootBlock.bytes, {
+                pin: true,
+                format: root.version === 0 ? "v0" : "dag-pb",
+                mhtype: "sha2-256",
+                timeout: MFS_OP_TIMEOUT_MS
+            });
+            if (pinnedRoot.toString() !== root.toString())
+                throw Error(`The daemon stored the root of bucket ${bucketPath} as ${pinnedRoot.toString()}, not ${root.toString()}`);
+            const car = await encodeCarV1(root, [...fileBlocks, ...newBlocks]);
+            for await (const result of kubo.dag.import([car], { pinRoots: false, timeout: MFS_OP_TIMEOUT_MS })) void result;
+            log(
+                `Bucket ${bucketPath}: ${posts.length} posts written, ${newBlocks.length} of the bucket's nodes rebuilt (${car.length} bytes imported), root ${root.toString()}`
+            );
             // Every step flushes: the new bucket must be on disk under the MFS root before the live one goes
             await kubo.files.cp(`/ipfs/${root.toString()}`, nextPath, { parents: true, flush: true, timeout: MFS_OP_TIMEOUT_MS });
             if (live) await kubo.files.rm(bucketPath, { recursive: true, timeout: MFS_OP_TIMEOUT_MS });
             await kubo.files.mv(nextPath, bucketPath, { flush: true, timeout: MFS_OP_TIMEOUT_MS });
         } finally {
-            // Referenced from the MFS root now (or abandoned beside it, where the next write cleans it up)
-            await kubo.pin
-                .rm(root, { timeout: MFS_OP_TIMEOUT_MS })
-                .catch((error) => log.error(`Failed to unpin the new bucket root ${root.toString()}`, error));
+            // Referenced from the MFS root now, or abandoned: beside it, where the next write cleans it up, or
+            // nowhere when the import failed. "not pinned" is the block put itself having failed.
+            await kubo.pin.rm(root, { timeout: MFS_OP_TIMEOUT_MS }).catch((error) => {
+                if (!(error instanceof Error && error.message.includes("not pinned")))
+                    log.error(`Failed to unpin the new bucket root ${root.toString()}`, error);
+            });
         }
 
         // The daemon reported every step as done. Kubo has reported MFS changes as done that MFS then did
