@@ -325,10 +325,13 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
 // This process lost the community's start lock, and another process may be running the community now. Two processes
 // running one community both publish and write its DB, so this one stops, and emits why. The stop starts first:
 // emit("error") throws when nobody listens for it (on the community or on its PKC), and the stop must not depend on that.
+// A community that is stopping already is not stopped a second time, but the error is still emitted: that stop now skips
+// its writes and the publish of a pending edit (see stop()), which the owner would otherwise never hear of.
 export function stopAfterLosingStartLock(community: LocalCommunity, error: PKCError) {
     const log = Logger("pkc-js:local-community:stopAfterLosingStartLock");
-    if (community.state !== "started" || community._stopHasBeenCalled) return; // already stopping
-    community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after losing its start lock`, e));
+    if (community.state !== "started") return;
+    if (!community._stopHasBeenCalled)
+        community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after losing its start lock`, e));
     community.emit("error", error);
 }
 

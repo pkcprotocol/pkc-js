@@ -6,7 +6,15 @@ import Database from "better-sqlite3";
 import env from "../../../dist/node/version.js";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
+import {
+    createSubWithNoChallenge,
+    mockPKC,
+    publishRandomPost,
+    resolveWhenConditionIsTrue,
+    waitTillPostInCommunityPages
+} from "../../../dist/node/test/test-util.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
 
 // A migration rebuilds each table as <table>_<DB_VERSION>_new, copies the rows over, drops the old table and renames
 // the new one in its place. user_version is only bumped once every table is done. When the process died between the
@@ -250,5 +258,56 @@ describeSkipIfRpc("DB migration interrupted between dropping a table and renamin
         expect(afterRestart.userVersion).to.equal(env.DB_VERSION);
         expect(afterRestart.commentCids).to.deep.equal([...POST_CIDS].sort());
         expect(afterRestart.tables).to.not.include(TEMP_COMMENTS_TABLE);
+    });
+});
+
+// The restore above runs in start(). An owner reaches start() through pkc.createCommunity({ address }), which loads the
+// community from its DB first, and a community with posts reads them from the comments table while loading. So the load
+// has to work on a DB whose comments table is missing, or the owner never gets an instance to start.
+// Rewrites the DB file of a local community (Node-only); over RPC the DB lives in the server's dataPath
+describeSkipIfRpc("a community with posts whose DB an interrupted migration left without its comments table", () => {
+    let pkc: PKC;
+
+    beforeEach(async () => {
+        pkc = await mockPKC();
+    });
+
+    afterEach(async () => {
+        await pkc.destroy();
+    });
+
+    it("still loads with createCommunity(), and start() restores its comments", async () => {
+        const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        const post = await publishRandomPost({ communityAddress: community.address, pkc });
+        await waitTillPostInCommunityPages(post as typeof post & { cid: string }, pkc);
+        await community.stop();
+
+        // The state the old migration left when it was killed between its DROP and its RENAME: commentUpdates is dropped
+        // before any table is rebuilt and comments is the first one rebuilt. The comments table is in the latest schema
+        // already, which is what the migrated copy held
+        const dbPath = path.join(pkc.dataPath!, "communities", community.address);
+        const db = new Database(dbPath);
+        try {
+            db.pragma("foreign_keys = OFF"); // as the migration runs
+            db.exec("DROP TABLE commentUpdates");
+            db.exec(`ALTER TABLE comments RENAME TO ${TEMP_COMMENTS_TABLE}`);
+            db.pragma(`user_version = ${OLD_DB_VERSION}`);
+        } finally {
+            db.close();
+        }
+        expect(readTables(dbPath).tables).to.not.include("comments");
+
+        const loaded = (await pkc.createCommunity({ address: community.address })) as LocalCommunity;
+        expect(loaded.address).to.equal(community.address);
+
+        await loaded.start();
+        await loaded.stop();
+
+        const afterStart = readTables(dbPath);
+        expect(afterStart.userVersion).to.equal(env.DB_VERSION);
+        expect(afterStart.commentCids).to.deep.equal([post.cid]);
+        expect(afterStart.tables).to.not.include(TEMP_COMMENTS_TABLE);
     });
 });

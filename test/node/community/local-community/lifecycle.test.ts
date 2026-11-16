@@ -89,11 +89,26 @@ describe("lifecycle: stopAfterLosingStartLock", () => {
         expect(stopMock).toHaveBeenCalledTimes(1);
     });
 
-    it("does nothing for a community that is already stopping", () => {
+    // A stop() the owner called keeps the publish loop running until a pending edit is published. A lock lost in that
+    // window ends the loop with the edit unpublished, and the owner has to hear of it
+    it("does not stop a community that is already stopping a second time, and still raises the error", () => {
         const { community, stopMock, error } = createStartedCommunity();
         const errorListener = vi.fn();
         community.on("error", errorListener);
         community._stopHasBeenCalled = true;
+
+        stopAfterLosingStartLock(community, error);
+
+        expect(stopMock).not.toHaveBeenCalled();
+        expect(errorListener).toHaveBeenCalledTimes(1);
+        expect(errorListener).toHaveBeenCalledWith(error);
+    });
+
+    it("does nothing for a community that is no longer started", () => {
+        const { community, stopMock, error } = createStartedCommunity();
+        const errorListener = vi.fn();
+        community.on("error", errorListener);
+        (community as { state: string }).state = "stopped";
 
         stopAfterLosingStartLock(community, error);
 

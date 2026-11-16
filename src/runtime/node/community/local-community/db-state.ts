@@ -143,8 +143,19 @@ export async function updateInstanceStateWithDbState(community: LocalCommunity) 
         // DB stores posts in compact CID-ref format (no preloaded page data).
         // _dbHandler is guaranteed to be initialized here since we're loading from DB.
         if (currentDbState.posts && !("pages" in currentDbState.posts)) {
-            const dbPosts = currentDbState.posts as unknown as DbPostsFormat;
-            currentDbState.posts = resolveDbPostsCidRefs({ dbPosts, dbHandler: community._dbHandler }) as typeof currentDbState.posts;
+            if (community._dbHandler.hasCommentsAndCommentUpdatesTables()) {
+                const dbPosts = currentDbState.posts as unknown as DbPostsFormat;
+                currentDbState.posts = resolveDbPostsCidRefs({ dbPosts, dbHandler: community._dbHandler }) as typeof currentDbState.posts;
+            } else {
+                // A killed migration left the DB without a table the posts are read from. Throwing here would fail
+                // pkc.createCommunity({ address }), and with it the only way to the start() that finishes the migration
+                // and restores the table. So the community loads without its posts, and start() loads them again once
+                // the tables are back.
+                Logger("pkc-js:local-community:updateInstanceStateWithDbState").error(
+                    `The DB of community (${community.address}) is missing its comments or commentUpdates table, most likely after an interrupted migration. Loading it without posts, start() will restore them`
+                );
+                delete currentDbState.posts;
+            }
         }
         await community.initInternalCommunityAfterFirstUpdateNoMerge(currentDbState);
     } else await community.initInternalCommunityBeforeFirstUpdateNoMerge(currentDbState);

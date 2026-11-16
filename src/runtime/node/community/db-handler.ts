@@ -748,6 +748,12 @@ export class DbHandler {
         }
     }
 
+    // False for a DB a migration was killed in: it drops commentUpdates first and rebuilds every table after that, so until
+    // the next start() finishes the migration either table can be missing
+    hasCommentsAndCommentUpdatesTables(): boolean {
+        return this._tableExists(TABLES.COMMENTS) && this._tableExists(TABLES.COMMENT_UPDATES);
+    }
+
     private _tableExists(tableName: string): boolean {
         const stmt = this._db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?");
         return !!stmt.get(tableName);
