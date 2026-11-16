@@ -133,7 +133,6 @@ function createTestCommunity(overrides: { address?: string } = {}): { community:
         _blocksToRm: [] as string[],
         _pendingEditProps: [],
         _communityUpdateTrigger: true,
-        _firstUpdateAfterStart: false,
         _pkc: {
             publishInterval: 20,
             _timeouts: { "page-ipfs": 1000 },
@@ -192,7 +191,6 @@ function createTestCommunity(overrides: { address?: string } = {}): { community:
         _updateIpnsPubsubPropsIfNeeded: vi.fn(),
         _validateCommunitySizeSchemaAndSignatureBeforePublishing: vi.fn(),
         initCommunityIpfsPropsNoMerge: vi.fn(),
-        _resolveIpnsAndLogIfPotentialProblematicSequence: vi.fn(),
         _calculateNewPostUpdates: vi.fn().mockResolvedValue(undefined),
         _changeStateEmitEventEmitStateChangeEvent: vi.fn()
     }) as TestLocalCommunity;

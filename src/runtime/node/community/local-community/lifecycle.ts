@@ -195,7 +195,6 @@ export async function start(community: LocalCommunity) {
 async function startCommunity({ community, releaseMark }: { community: LocalCommunity; releaseMark: () => void }) {
     const log = Logger("pkc-js:local-community:start");
     community._stopHasBeenCalled = false;
-    community._firstUpdateAfterStart = true;
     // Re-baseline address-change re-provide for this run (start() provides everything fresh below).
     community._lastProvidedBrowserDialableSelfAddrs = undefined;
     community._lastAddressReprovideCheckAt = undefined;

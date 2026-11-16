@@ -21,6 +21,7 @@ import { MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS } from "../../../../community/co
 import type { CommunityIpfsType } from "../../../../community/types.js";
 import type { CommentUpdateType } from "../../../../publications/comment/types.js";
 import type { LocalCommunity } from "../local-community.js";
+import type { KuboRpcClient } from "../../../../types.js";
 import type { CommentUpdateToWriteToDbAndPublishToIpfs } from "./defaults.js";
 import {
     NO_POST_UPDATES_TO_PUBLISH_ERROR,
@@ -73,32 +74,6 @@ export function requireCommunityUpdateIfModQueueChanged(community: LocalCommunit
     const combinedHashOfAllQueuedComments = community._dbHandler.queryCombinedHashOfPendingComments();
 
     if (community._combinedHashOfPendingCommentsCids !== combinedHashOfAllQueuedComments) community._communityUpdateTrigger = true;
-}
-
-export async function resolveIpnsAndLogIfPotentialProblematicSequence(community: LocalCommunity) {
-    const log = Logger("pkc-js:local-community:_resolveIpnsAndLogIfPotentialProblematicSequence");
-    if (!community.signer.ipnsKeyName) throw Error("IPNS key name is not defined");
-    if (!community.updateCid) return;
-    try {
-        const { cid: ipnsCid } = await community._clientsManager.resolveIpnsToCidP2P(community.signer.ipnsKeyName, { timeoutMs: 120000 });
-        log.trace("Resolved community", community.address, "IPNS key", community.signer.ipnsKeyName, "to", ipnsCid);
-
-        if (ipnsCid && community.updateCid && ipnsCid !== community.updateCid) {
-            log.error(
-                "community",
-                community.address,
-                "IPNS key",
-                community.signer.ipnsKeyName,
-                "points to",
-                ipnsCid,
-                "but we expected it to point to",
-                community.updateCid,
-                "This could result an IPNS record with invalid sequence number"
-            );
-        }
-    } catch (e) {
-        log.trace("Failed to resolve community before publishing", community.address, "IPNS key", community.signer.ipnsKeyName, e);
-    }
 }
 
 export async function addOldPageCidsToCidsToUnpin(
@@ -272,6 +247,63 @@ async function validateAndSignCommunityRecord(community: LocalCommunity, build: 
     return newCommunityRecord;
 }
 
+// The sequence of the last IPNS record this community published, read from its DB rather than from kubo. The DB is
+// what moves when a community is moved to another machine, and the kubo node there has never published this key:
+// left to itself it starts the sequence at 0 if it cannot fetch the old record, and every reader that holds the old
+// node's record then ignores the new one as older (issue #553).
+function readStoredIpnsSequence(community: LocalCommunity): bigint | undefined {
+    const storedRecord = community._dbHandler.keyvGet<Record<string, number>>(STORAGE_KEYS[STORAGE_KEYS.LAST_IPNS_RECORD]);
+    if (!storedRecord) return undefined;
+    const decodedRecord: { sequence?: number | bigint } = cborg.decode(new Uint8Array(Object.values(storedRecord)), { allowBigInt: true });
+    if (typeof decodedRecord.sequence !== "bigint" && typeof decodedRecord.sequence !== "number") return undefined;
+    return BigInt(decodedRecord.sequence);
+}
+
+// What kubo answers (HTTP 500, boxo's ErrInvalidSequence) when asked to publish a sequence that is not above the one
+// of the record it holds for the key. Matched on the text because the response carries nothing else to tell it by.
+const KUBO_SEQUENCE_NOT_GREATER_ERROR_MESSAGE = "sequence number must be greater than the current record sequence";
+
+// Publishes with the stored sequence plus one, so the sequence survives a move to a kubo node that has no record
+// for this key. A community with no stored record leaves the choice to kubo.
+//
+// Kubo refuses the stored sequence when its own record is already at or past it, which happens when the refresh
+// of the stored record after an earlier publish failed. Its own sequence is the higher of the two then, so the
+// publish is repeated without one and kubo continues from its own. Either way the record goes out at
+// max(stored, kubo's) + 1. Kubo cannot simply be asked for its sequence up front: after a daemon restart it does
+// not serve its own record until it has published again.
+export async function publishIpnsRecordContinuingStoredSequence({
+    community,
+    kuboRpcClient,
+    path,
+    ttl
+}: {
+    community: LocalCommunity;
+    kuboRpcClient: KuboRpcClient;
+    path: string;
+    ttl: string;
+}) {
+    const log = Logger("pkc-js:local-community:publishIpnsRecordContinuingStoredSequence");
+    if (!community.signer.ipnsKeyName) throw Error("IPNS key name is not defined");
+    const publishOptions = { key: community.signer.ipnsKeyName, allowOffline: true, resolve: true, ttl };
+    const storedSequence = readStoredIpnsSequence(community);
+    if (storedSequence === undefined) return kuboRpcClient._client.name.publish(path, publishOptions);
+    // kubo-rpc-client does not declare `sequence`, but it sends every option it is given as a query parameter
+    const publishOptionsWithSequence = { ...publishOptions, sequence: (storedSequence + 1n).toString() };
+    try {
+        return await kuboRpcClient._client.name.publish(path, publishOptionsWithSequence);
+    } catch (e) {
+        if (!(e instanceof Error) || !e.message.includes(KUBO_SEQUENCE_NOT_GREATER_ERROR_MESSAGE)) throw e;
+        log(
+            "Kubo holds an IPNS record for community",
+            community.address,
+            "at or past the stored sequence",
+            storedSequence,
+            "so it is left to continue its own sequence"
+        );
+        return kuboRpcClient._client.name.publish(path, publishOptions);
+    }
+}
+
 // Phase 3: upload to IPFS, publish IPNS, perform post-publish cleanup, and update in-memory + DB state.
 async function publishCommunityRecordToIpns(
     community: LocalCommunity,
@@ -301,8 +333,6 @@ async function publishCommunityRecordToIpns(
     }
 
     if (!community.signer.ipnsKeyName) throw Error("IPNS key name is not defined");
-    // after kubo 0.40 implements fetching IPNS record from local blockstore, we don't need line below anymore
-    if (community._firstUpdateAfterStart) await community._resolveIpnsAndLogIfPotentialProblematicSequence();
     // ttl = one publish cadence (20s at the default publishInterval). The record's ttl is the
     // staleness every cache in the world is entitled to serve — kubo gateways cache resolves
     // for exactly this long (default Ipns.MaxCacheTTL is unbounded) — so declaring 3x our own
@@ -310,19 +340,7 @@ async function publishCommunityRecordToIpns(
     // behind (issue #328). One cadence bounds cache staleness at roughly one generation while
     // costing caches at most one extra resolve per publish.
     const ttl = `${community._pkc.publishInterval * 1}ms`;
-    const lastPublishedIpnsRecordData = <any | undefined>await community._dbHandler.keyvGet(STORAGE_KEYS[STORAGE_KEYS.LAST_IPNS_RECORD]);
-    const decodedIpnsRecord: any | undefined = lastPublishedIpnsRecordData
-        ? cborg.decode(new Uint8Array(Object.values(lastPublishedIpnsRecordData)))
-        : undefined;
-    const ipnsSequence: BigInt | undefined = decodedIpnsRecord ? BigInt(decodedIpnsRecord.sequence) + 1n : undefined;
-    const publishRes = await kuboRpcClient._client.name.publish(file.path, {
-        key: community.signer.ipnsKeyName,
-        allowOffline: true,
-        resolve: true,
-        ttl
-        // enable below line after kubo fixes their problems with fetching IPNS records from local blockstore
-        // ...(ipnsSequence ? { sequence: ipnsSequence } : undefined)
-    });
+    const publishRes = await publishIpnsRecordContinuingStoredSequence({ community, kuboRpcClient, path: file.path, ttl });
     log(
         `Published a new IPNS record for community(${community.address}) on IPNS (${publishRes.name}) that points to file (${publishRes.value}) with updatedAt (${newCommunityRecord.updatedAt}) and TTL (${ttl})`
     );
@@ -384,15 +402,15 @@ async function publishCommunityRecordToIpns(
 
     // The update trigger was consumed at the start of this cycle in updateCommunityIpnsIfNeeded, so a
     // write that landed during the publish keeps it set for the next cycle.
-    community._firstUpdateAfterStart = false;
-
     try {
-        // this call will fail if we have http routers + kubo 0.38 and earlier
         const ipnsRecord = await getIpnsRecordInLocalKuboNode(kuboRpcClient, community.signer.address);
 
         await community._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.LAST_IPNS_RECORD], cborg.encode(ipnsRecord));
     } catch (e) {
-        log.trace("Failed to update IPNS record in sqlite record, not a critical error and will most likely be fixed by kubo past 0.38", e);
+        // Not fatal: the next publish still goes out (see publishIpnsRecordContinuingStoredSequence). But until a
+        // later refresh succeeds the DB holds an older sequence than kubo, and that is the sequence a move to
+        // another kubo node would continue from (issue #553).
+        log.error("Failed to store the published IPNS record in the community DB, its stored sequence is now behind", e);
     }
 
     community._combinedHashOfPendingCommentsCids = newModQueue?.combinedHashOfCids || sha256("");
