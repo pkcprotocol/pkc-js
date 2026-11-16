@@ -165,7 +165,7 @@ export const PublicationBaseBeforeSigning = z.object({
 export const CommunityAuthorSchema = z.looseObject({
     postScore: z.number(), // total post karma in the community
     replyScore: z.number(), // total reply karma in the community
-    banExpiresAt: PKCTimestampSchema.optional(), // timestamp in second, if defined the author was banned for this comment
+    banExpiresAt: PKCTimestampSchema.optional(), // timestamp in seconds: the author's latest ban in this community, an author aggregate that lands on the author's comments (which ones depends on the pseudonymity mode), not a mark of which comment the ban was published on. A value in the past means the ban ran out or was lifted. For the comment a mod banned the author from, see commentUpdate.authorBanExpiresAt
     flairs: FlairSchema.array().optional(), // not part of the signature, mod can edit it after comment is published
     firstCommentTimestamp: PKCTimestampSchema, // timestamp of the first comment by the author in the community, used for account age based challenges
     lastCommentCid: CidStringSchema // last comment by the author in the community, can be used with author.previousCommentCid to get a recent author comment history in all communities
@@ -189,6 +189,15 @@ export const CommunityAuthorChallengeReservedFieldNames = [
 ] as const satisfies readonly (keyof z.infer<typeof CommunityAuthorSchema>)[];
 
 export const CommentAuthorSchema = CommunityAuthorSchema.pick({ banExpiresAt: true, flairs: true });
+
+// What a mod can set on the author through commentModeration.author. `banExpiresAt` takes three kinds of value
+// (issue #363): a future timestamp bans the author and marks the comment (commentUpdate.authorBanExpiresAt), a past
+// timestamp lifts the ban and leaves the mark, and 0 revokes: it removes the mark from this comment and, while it is
+// the author's newest ban row, the ban itself. 0 is an input only, no published field ever carries it. null cannot
+// stand in for it because signing strips null values.
+export const CommentModerationAuthorSchema = CommentAuthorSchema.extend({
+    banExpiresAt: z.number().nonnegative().int().optional()
+});
 
 export const AuthorWithOptionalCommentUpdateSchema = AuthorPubsubSchema.extend({
     community: CommunityAuthorSchema.optional() // (added by CommentUpdate) up to date author properties specific to the community it's in
