@@ -28,8 +28,8 @@ import { patchUnixFsDirectory, type UnixFsBlock, type UnixFsDirectoryEntry } fro
 // The swap goes through `<bucket>.next` with every step persisted, so a crash can never lose the
 // bucket: cp (flush:true) lands the new directory beside the live one, rm takes the live one down,
 // mv puts the new one in its place. recoverInterruptedBucketSwap finishes or discards a swap the
-// previous process left behind. The new root is pinned until it hangs off the MFS root, so a concurrent
-// repo gc cannot take its blocks in between.
+// previous process left behind. The blocks a swap adds are pinned until the bucket hangs off the MFS
+// root, so a concurrent repo gc cannot take them in between (buildSwapPinManifests).
 
 export type PostUpdatesBucketRow = { postCid: string; updateFileBytes: Uint8Array };
 
@@ -89,8 +89,8 @@ async function buildPostUpdateFiles(posts: PostUpdatesBucketRow[]): Promise<{ en
     return { entries, blocks: [...blocks.values()] };
 }
 
-// A CARv1: a dag-cbor header naming the root, then each block as varint(length) + cid bytes + block bytes
-export async function encodeCarV1(root: CID, blocks: { cid: CID; bytes: Uint8Array }[]): Promise<Uint8Array> {
+// A CARv1: a dag-cbor header naming the roots, then each block as varint(length) + cid bytes + block bytes
+export async function encodeCarV1(roots: CID[], blocks: { cid: CID; bytes: Uint8Array }[]): Promise<Uint8Array> {
     const dagCbor = await import("@ipld/dag-cbor");
     const varint = (value: number): Uint8Array => {
         const out: number[] = [];
@@ -101,7 +101,7 @@ export async function encodeCarV1(root: CID, blocks: { cid: CID; bytes: Uint8Arr
         out.push(value);
         return Uint8Array.from(out);
     };
-    const header = dagCbor.encode({ roots: [root], version: 1 });
+    const header = dagCbor.encode({ roots, version: 1 });
     const parts: Uint8Array[] = [varint(header.length), header];
     for (const { cid, bytes } of blocks) parts.push(varint(cid.bytes.length + bytes.length), cid.bytes, bytes);
     const car = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
@@ -111,6 +111,43 @@ export async function encodeCarV1(root: CID, blocks: { cid: CID; bytes: Uint8Arr
         offset += part.length;
     }
     return car;
+}
+
+// What the import pins while a bucket is being swapped in: one or more manifest nodes that link the blocks
+// the swap adds, and nothing else.
+//
+// Pinning the new bucket's root instead, which is what a CAR import offers, makes the daemon walk the whole
+// bucket to pin it: 195 ms of a 213 ms write of one post into a bucket of 18,000. And the root cannot be
+// pinned before its blocks are there (`block put --pin` does that without a walk): a pin whose blocks are
+// missing makes every repo gc on the daemon abort and `pin ls` hang, for as long as it exists, and a cycle
+// cut off mid-import leaves it behind.
+//
+// A manifest links each changed post's directory, which the pin follows down to the post's file, and each
+// rebuilt node of the bucket's own directory as a raw block. The same bytes under the raw codec are a leaf
+// to the pinner, so it does not follow them into the rest of the bucket, and they are the same block to
+// the daemon, whose blockstore and gc go by multihash. The pin is complete the moment the import returns,
+// and one left behind by a process that died holds this swap's new blocks and no more.
+const SWAP_PIN_MANIFEST_MAX_LINKS = 4000; // about 160 KiB a manifest
+const RAW_CODEC = 0x55;
+
+async function buildSwapPinManifests({
+    postEntries,
+    directoryNodes
+}: {
+    postEntries: UnixFsDirectoryEntry[];
+    directoryNodes: UnixFsBlock[];
+}): Promise<UnixFsBlock[]> {
+    const dagPb = await import("@ipld/dag-pb");
+    const { sha256 } = await import("multiformats/hashes/sha2");
+    const pinned = [...postEntries.map((entry) => entry.cid), ...directoryNodes.map((node) => CID.createV1(RAW_CODEC, node.cid.multihash))];
+    const manifests: UnixFsBlock[] = [];
+    for (let index = 0; index < pinned.length; index += SWAP_PIN_MANIFEST_MAX_LINKS) {
+        const bytes = dagPb.encode(
+            dagPb.prepare({ Links: pinned.slice(index, index + SWAP_PIN_MANIFEST_MAX_LINKS).map((cid) => ({ Name: "", Hash: cid })) })
+        );
+        manifests.push({ cid: CID.createV1(dagPb.code, await sha256.digest(bytes)), bytes });
+    }
+    return manifests;
 }
 
 // Finishes or discards a swap that an earlier process left half done. Returns the live bucket's stat,
@@ -136,8 +173,6 @@ async function recoverInterruptedBucketSwap(kuboRpcClient: KuboRpcClient, bucket
                     `MFS holds ${live?.cid.toString()} at ${bucketPath} after the interrupted swap of ${next.cid.toString()} was finished`
                 );
         }
-        // Its root was pinned for the swap and never unpinned
-        await kubo.pin.rm(next.cid, { timeout: MFS_OP_TIMEOUT_MS }).catch(() => undefined);
     }
     return live;
 }
@@ -197,26 +232,19 @@ export async function writePostUpdatesToBucket({
             });
         for (const block of newBlocks) bucketBlocks.set(block.cid.toString(), block.bytes);
 
-        // The new bucket must survive a repo gc (another community's cycle, or the daemon's own) until it
-        // hangs off the MFS root. Its root goes in first, through `block put --pin`: that records a recursive
-        // pin without walking what the root links, where pinning the root of the import would have the
-        // daemon walk the whole bucket (195 ms of a 213 ms write into a bucket of 18,000 posts). A gc that
-        // runs before the rest is imported finds the pinned root's links missing and aborts without
-        // removing anything.
-        const rootBlock = newBlocks.find((block) => block.cid.equals(root));
-        if (!rootBlock) throw Error(`The new root ${root.toString()} of bucket ${bucketPath} is not among the nodes that were built`);
+        // The new blocks must survive a repo gc (another community's cycle, or the daemon's own) until the
+        // bucket hangs off the MFS root, so the import pins them. See buildSwapPinManifests for what is pinned.
+        const manifests = await buildSwapPinManifests({ postEntries: entries, directoryNodes: newBlocks });
+        const car = await encodeCarV1(
+            manifests.map((manifest) => manifest.cid),
+            [...manifests, ...fileBlocks, ...newBlocks]
+        );
         try {
-            // From here the root is pinned, whatever fails below
-            const pinnedRoot = await kubo.block.put(rootBlock.bytes, {
-                pin: true,
-                format: root.version === 0 ? "v0" : "dag-pb",
-                mhtype: "sha2-256",
-                timeout: MFS_OP_TIMEOUT_MS
-            });
-            if (pinnedRoot.toString() !== root.toString())
-                throw Error(`The daemon stored the root of bucket ${bucketPath} as ${pinnedRoot.toString()}, not ${root.toString()}`);
-            const car = await encodeCarV1(root, [...fileBlocks, ...newBlocks]);
-            for await (const result of kubo.dag.import([car], { pinRoots: false, timeout: MFS_OP_TIMEOUT_MS })) void result;
+            for await (const result of kubo.dag.import([car], { pinRoots: true, timeout: MFS_OP_TIMEOUT_MS }))
+                if (result.root.pinErrorMsg)
+                    throw Error(
+                        `Failed to pin the new blocks of bucket ${bucketPath} (${result.root.cid.toString()}): ${result.root.pinErrorMsg}`
+                    );
             log(
                 `Bucket ${bucketPath}: ${posts.length} posts written, ${newBlocks.length} of the bucket's nodes rebuilt (${car.length} bytes imported), root ${root.toString()}`
             );
@@ -225,12 +253,12 @@ export async function writePostUpdatesToBucket({
             if (live) await kubo.files.rm(bucketPath, { recursive: true, timeout: MFS_OP_TIMEOUT_MS });
             await kubo.files.mv(nextPath, bucketPath, { flush: true, timeout: MFS_OP_TIMEOUT_MS });
         } finally {
-            // Referenced from the MFS root now, or abandoned: beside it, where the next write cleans it up, or
-            // nowhere when the import failed. "not pinned" is the block put itself having failed.
-            await kubo.pin.rm(root, { timeout: MFS_OP_TIMEOUT_MS }).catch((error) => {
-                if (!(error instanceof Error && error.message.includes("not pinned")))
-                    log.error(`Failed to unpin the new bucket root ${root.toString()}`, error);
-            });
+            // Referenced from the MFS root now, or abandoned. "not pinned" is the import itself having failed.
+            for (const manifest of manifests)
+                await kubo.pin.rm(manifest.cid, { timeout: MFS_OP_TIMEOUT_MS }).catch((error) => {
+                    if (!(error instanceof Error && error.message.includes("not pinned")))
+                        log.error(`Failed to unpin ${manifest.cid.toString()}, which pinned the new blocks of bucket ${bucketPath}`, error);
+                });
         }
 
         // The daemon reported every step as done. Kubo has reported MFS changes as done that MFS then did

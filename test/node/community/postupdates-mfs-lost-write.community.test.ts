@@ -2,6 +2,7 @@ import { mockPKC, publishRandomPost, createSubWithNoChallenge, resolveWhenCondit
 import { timestamp } from "../../../dist/node/util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { beforeAll, afterAll, afterEach, it, expect, vi } from "vitest";
+import { CID } from "multiformats/cid";
 import {
     calculateNewCommentUpdate,
     syncPostUpdatesWithIpfs
@@ -146,23 +147,54 @@ describeSkipIfRpc("postUpdates sync vs MFS changes that Kubo reports as done and
         expect(swapsOfBucket, "one swap that was undone and one that held").to.have.lengthOf(2);
     });
 
-    it("unpins the new bucket's root when the import of the bucket fails", async () => {
+    it("leaves nothing pinned when the swap fails after the import", async () => {
         const row = await calculateNextUpdateOfPost();
-        const putSpy = vi.spyOn(kubo().block, "put");
-        vi.spyOn(kubo().dag, "import").mockImplementation(() => {
-            throw Error("the import failed");
+        const originalImport = kubo().dag.import.bind(kubo().dag);
+        const pinnedByImport: string[] = [];
+        vi.spyOn(kubo().dag, "import").mockImplementation(async function* (...args: Parameters<typeof originalImport>) {
+            for await (const result of originalImport(...args)) {
+                pinnedByImport.push(result.root.cid.toString());
+                yield result;
+            }
+        });
+        vi.spyOn(kubo().files, "cp").mockImplementation(async () => {
+            throw Error("the cp failed");
         });
 
-        await expect(syncPostUpdatesWithIpfs(community, [row])).rejects.toThrow("the import failed");
+        await expect(syncPostUpdatesWithIpfs(community, [row])).rejects.toThrow("the cp failed");
 
-        expect(putSpy).toHaveBeenCalledTimes(1);
-        const root = await putSpy.mock.results[0].value;
-        await expect(
-            (async () => {
-                for await (const pin of kubo().pin.ls({ paths: [root] })) void pin;
-            })(),
-            "the root that was pinned for the swap is still pinned"
-        ).rejects.toThrow("not pinned");
+        expect(pinnedByImport.length, "the import pins the swap's new blocks").to.be.greaterThan(0);
+        for (const cid of pinnedByImport)
+            await expect(
+                (async () => {
+                    for await (const pin of kubo().pin.ls({ paths: [cid] })) void pin;
+                })(),
+                `${cid} was pinned for the swap and is still pinned`
+            ).rejects.toThrow("not pinned");
+    });
+
+    it("pins every block a swap adds, and nothing that makes a pin listing or a gc walk the bucket", async () => {
+        const row = await calculateNextUpdateOfPost();
+        const originalRm = kubo().pin.rm.bind(kubo().pin);
+        let listedWhilePinned: { type: string; cid: string }[] | undefined;
+        // Looks at the pins at the moment the swap is done and about to drop them
+        vi.spyOn(kubo().pin, "rm").mockImplementation(async (...args: Parameters<typeof originalRm>) => {
+            if (!listedWhilePinned) {
+                listedWhilePinned = [];
+                const manifestCid = CID.parse(String(args[0]));
+                for await (const pin of kubo().pin.ls({ paths: [manifestCid], type: "recursive" }))
+                    listedWhilePinned.push({ type: pin.type, cid: pin.cid.toString() });
+                // The pinned manifest links the post's new directory and the bucket's new node, and no more
+                const manifest = (await kubo().dag.get(manifestCid)).value as { Links: unknown[] };
+                expect(manifest.Links).to.have.lengthOf(2);
+            }
+            return originalRm(...args);
+        });
+
+        await syncPostUpdatesWithIpfs(community, [row]);
+
+        expect(listedWhilePinned).to.have.lengthOf(1);
+        expect(await updatedAtInMfs()).to.equal(row.newCommentUpdate.updatedAt);
     });
 
     it("fails the sync, instead of marking the post as published, when MFS never holds the swapped bucket", async () => {

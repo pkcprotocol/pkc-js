@@ -295,7 +295,7 @@ describeSkipIfRpc("patchUnixFsDirectory against a kubo daemon", () => {
         const stored = await kubo().block.put(rootBlock.bytes, { pin: true, format: "v0", mhtype: "sha2-256" });
         expect(stored.toString()).to.equal(root.toString());
         pinned.push(root);
-        for await (const result of kubo().dag.import([await encodeCarV1(root, blocks)], { pinRoots: false })) void result;
+        for await (const result of kubo().dag.import([await encodeCarV1([root], blocks)], { pinRoots: false })) void result;
     };
     const readFile = async (path: string) => {
         const chunks: Uint8Array[] = [];
