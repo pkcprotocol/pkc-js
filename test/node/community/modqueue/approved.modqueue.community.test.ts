@@ -3,7 +3,6 @@ import {
     mockPKC,
     publishWithExpectedResult,
     resolveWhenConditionIsTrue,
-    getCommentWithCommentUpdateProps,
     publishToModQueueWithDepth,
     mockPKCNoDataPathWithOnlyKuboClient,
     createPendingApprovalChallenge
@@ -132,21 +131,28 @@ for (const batch of depthBatches) {
                 });
 
                 if (pendingCommentDepth > 0) {
+                    // The parent's counts change in a later publish cycle than the one that moved lastCommentCid, so
+                    // the parent is updated until it counts the reply. Its first CommentUpdate to arrive can still be
+                    // the one from before the approval.
+                    let parentComment: Comment;
                     it(`Approved reply show up in parentComment.replyCount`, async () => {
-                        expect((await getCommentWithCommentUpdateProps({ cid: approvedComment.parentCid!, pkc })).replyCount).to.equal(1);
+                        parentComment = await pkc.createComment({ cid: approvedComment.parentCid! });
+                        await parentComment.update();
+                        await resolveWhenConditionIsTrue({
+                            toUpdate: parentComment,
+                            predicate: async () => parentComment.replyCount === 1
+                        });
+                        expect(parentComment.replyCount).to.equal(1);
                     });
                     it(`Approved reply show up in parentComment.childCount`, async () => {
-                        expect((await getCommentWithCommentUpdateProps({ cid: approvedComment.parentCid!, pkc })).childCount).to.equal(1);
+                        expect(parentComment.childCount).to.equal(1);
                     });
                     it(`Approved reply show up in parentComment.lastChildCid`, async () => {
-                        expect((await getCommentWithCommentUpdateProps({ cid: approvedComment.parentCid!, pkc })).lastChildCid).to.equal(
-                            approvedComment.cid
-                        );
+                        expect(parentComment.lastChildCid).to.equal(approvedComment.cid);
                     });
                     it(`Approved reply show up in parentComment.lastReplyTimestamp`, async () => {
-                        expect(
-                            (await getCommentWithCommentUpdateProps({ cid: approvedComment.parentCid!, pkc })).lastReplyTimestamp
-                        ).to.equal(approvedComment.timestamp);
+                        expect(parentComment.lastReplyTimestamp).to.equal(approvedComment.timestamp);
+                        await parentComment.stop();
                     });
                 }
 

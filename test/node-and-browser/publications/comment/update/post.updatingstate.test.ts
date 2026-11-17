@@ -1,8 +1,6 @@
 import signers from "../../../../fixtures/signers.js";
 import {
-    publishRandomPost,
     mockPostToReturnSpecificCommentUpdate,
-    createCommentUpdateWithInvalidSignature,
     mockCommentToNotUsePagesForUpdates,
     resolveWhenConditionIsTrue,
     getAvailablePKCConfigsToTestAgainst,
@@ -95,31 +93,40 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         it.sequential(`Updating states is in correct upon updating a post that's included in preloaded pages of community`, async () => {
-            const community = await pkc.getCommunity({ address: communityAddress });
-            const postCid = community.posts.pages.hot.comments.find(
-                (comment: { author: { address: string } }) => !comment.author.address.includes(".")
-            ).cid;
-            const mockPost = await pkc.createComment({ cid: postCid });
-            const recordedStates: string[] = [];
-            mockPost.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
+            // A STATIC community under its own fresh key rather than the shared live signers[0] (issue #513): every
+            // concurrent suite publishes to signers[0], and each arrival starts a community fetch cycle at a random
+            // moment. One landing between the first updatedAt and stop() put an extra fetching-community-ipns in the
+            // tail asserted below. Long updateInterval so the loop's timer cannot insert a cycle either (see
+            // updateIntervalForExactStateTests). The post is in the record's preloaded hot page, which is what this
+            // case is about: the CommentUpdate comes from the record itself, with no fetch from postUpdates.
+            const dedicatedPKC = await config.pkcInstancePromise({ pkcOptions: { updateInterval: updateIntervalForExactStateTests } });
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
+            try {
+                const mockPost = await dedicatedPKC.createComment({ cid: staticCommunity.commentCid });
+                const recordedStates: string[] = [];
+                mockPost.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
 
-            await mockPost.update();
-            const expectedStates = [
-                "fetching-ipfs",
-                "succeeded",
-                "fetching-community-ipns",
-                "fetching-community-ipfs", // found CommentUpdate of post here
-                "succeeded",
-                "stopped"
-            ];
+                await mockPost.update();
+                const expectedStates = [
+                    "fetching-ipfs",
+                    "succeeded",
+                    "fetching-community-ipns",
+                    "fetching-community-ipfs", // found CommentUpdate of post here
+                    "succeeded",
+                    "stopped"
+                ];
 
-            await mockPost.update();
-            await resolveWhenConditionIsTrue({ toUpdate: mockPost, predicate: async () => typeof mockPost.updatedAt === "number" });
-            await mockPost.stop();
+                await mockPost.update();
+                await resolveWhenConditionIsTrue({ toUpdate: mockPost, predicate: async () => typeof mockPost.updatedAt === "number" });
+                await mockPost.stop();
 
-            expect(mockPost._commentUpdateIpfsPath).to.not.exist;
-            const cleanedStates = cleanupStateArray(recordedStates);
-            expect(cleanedStates.slice(cleanedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
+                expect(mockPost._commentUpdateIpfsPath).to.not.exist;
+                const cleanedStates = cleanupStateArray(recordedStates);
+                expect(cleanedStates.slice(cleanedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
+            } finally {
+                await dedicatedPKC.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
+            }
         });
 
         it(`updating states is in correct order upon updating a post with IPFS client using postUpdates`, async () => {
@@ -330,15 +337,18 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
         });
 
         it(`updating state is set to failed if we load an invalid CommentUpdate record from postUpdates`, async () => {
+            // A STATIC community under its own fresh key rather than the shared live signers[0], like the IPFS-client
+            // sibling above: the records of concurrent suites started fetch cycles of their own, each of which could
+            // end without fetching the post's CommentUpdate. The second record this case needs is published to the
+            // fixture's own key, so the only records are the fixture's and this one. The default updateInterval is
+            // kept: a gateway client only learns of the second record by polling, and the assertions below read the
+            // states cycle by cycle, so a poll that finds nothing new does not disturb them.
             const dedicatedPKC = await config.pkcInstancePromise();
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
             try {
-                const community = await dedicatedPKC.getCommunity({ address: communityAddress });
-                const commentUpdateWithInvalidSignatureJson = await createCommentUpdateWithInvalidSignature(
-                    community.posts.pages.hot.comments[0].cid
-                );
-                const createdComment = await dedicatedPKC.createComment({
-                    cid: commentUpdateWithInvalidSignatureJson.cid
-                });
+                const validCommentUpdate = staticCommunity.communityRecord.posts!.pages.hot!.comments[0].commentUpdate;
+                const commentUpdateWithInvalidSignatureJson = { ...validCommentUpdate, updatedAt: validCommentUpdate.updatedAt + 1234 };
+                const createdComment = await dedicatedPKC.createComment({ cid: staticCommunity.commentCid });
 
                 const recordedStates: string[] = [];
                 createdComment.on("updatingstatechange", () => recordedStates.push(createdComment.updatingState));
@@ -360,8 +370,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
 
                 await createErrorPromise();
 
-                await publishRandomPost({ communityAddress: communityAddress, pkc: dedicatedPKC }); // force community to publish a new update which will increase loading attempts
-                await createErrorPromise();
+                // A newer record with the same postUpdates folder forces another attempt to load the invalid CommentUpdate
+                const secondError = createErrorPromise();
+                const newerRecord = JSON.parse(JSON.stringify(staticCommunity.communityRecord)) as typeof staticCommunity.communityRecord;
+                newerRecord.updatedAt = Math.max(staticCommunity.communityRecord.updatedAt + 1, timestamp());
+                newerRecord.signature = await signCommunity({ community: newerRecord, signer: staticCommunity.ipnsObj.signer });
+                await staticCommunity.ipnsObj.publishToIpns(JSON.stringify(newerRecord));
+                await secondError;
 
                 await createdComment.stop();
 
@@ -384,31 +399,43 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-ipfs-gatew
                 expect(recordedStates[recordedStates.length - 1]).to.equal("stopped");
             } finally {
                 await dedicatedPKC.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
             }
         });
         it(`Updating states is in correct upon updating a post that's included in preloaded pages of community`, async () => {
-            const community = await pkc.getCommunity({ address: communityAddress });
-            const postCid = community.posts.pages.hot.comments[0].cid;
-            const mockPost = await pkc.createComment({ cid: postCid });
-            const recordedStates: string[] = [];
-            mockPost.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
+            // A STATIC community under its own fresh key rather than the shared live signers[0] (issue #513): every
+            // concurrent suite publishes to signers[0], and each arrival starts a community fetch cycle at a random
+            // moment. One landing between the first updatedAt and stop() put an extra fetching-community-ipns in the
+            // tail asserted below. Long updateInterval so the loop's timer cannot insert a cycle either (see
+            // updateIntervalForExactStateTests). The post is in the record's preloaded hot page, which is what this
+            // case is about: the CommentUpdate comes from the record itself, with no fetch from postUpdates.
+            const dedicatedPKC = await config.pkcInstancePromise({ pkcOptions: { updateInterval: updateIntervalForExactStateTests } });
+            const staticCommunity = await publishStaticCommunityWithPostInPages();
+            try {
+                const mockPost = await dedicatedPKC.createComment({ cid: staticCommunity.commentCid });
+                const recordedStates: string[] = [];
+                mockPost.on("updatingstatechange", (newState: string) => recordedStates.push(newState));
 
-            await mockPost.update();
-            const expectedStates = [
-                "fetching-ipfs",
-                "succeeded",
-                "fetching-community-ipns", // found CommentUpdate of post here
-                "succeeded",
-                "stopped"
-            ];
+                await mockPost.update();
+                const expectedStates = [
+                    "fetching-ipfs",
+                    "succeeded",
+                    "fetching-community-ipns", // found CommentUpdate of post here
+                    "succeeded",
+                    "stopped"
+                ];
 
-            await mockPost.update();
-            await resolveWhenConditionIsTrue({ toUpdate: mockPost, predicate: async () => typeof mockPost.updatedAt === "number" });
-            await mockPost.stop();
+                await mockPost.update();
+                await resolveWhenConditionIsTrue({ toUpdate: mockPost, predicate: async () => typeof mockPost.updatedAt === "number" });
+                await mockPost.stop();
 
-            expect(mockPost._commentUpdateIpfsPath).to.not.exist;
-            const cleanedStates = cleanupStateArray(recordedStates);
-            expect(cleanedStates.slice(cleanedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
+                expect(mockPost._commentUpdateIpfsPath).to.not.exist;
+                const cleanedStates = cleanupStateArray(recordedStates);
+                expect(cleanedStates.slice(cleanedStates.length - expectedStates.length)).to.deep.equal(expectedStates);
+            } finally {
+                await dedicatedPKC.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
+            }
         });
 
         it(`updating states is in correct order upon updating a post with gateway using postUpdates`, async () => {

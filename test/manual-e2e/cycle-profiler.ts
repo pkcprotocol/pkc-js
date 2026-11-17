@@ -4,7 +4,7 @@
 //
 //   commentUpdatesMs   publishing-ipns -> _calculateLatestUpdateTrigger: every CommentUpdate the cycle owes,
 //                      flag query (flagQueryMs), calculation (calcMs), reply pages embedded in each update
-//                      (replyPagesMs), DB upserts (upsertMs), the posts' postUpdates files (kubo files.write)
+//                      (replyPagesMs), DB upserts (upsertMs), the posts' postUpdates files (kubo dag.import and the files.cp/rm/mv of the bucket swap)
 //   recordPrepMs       -> generateCommunityPosts: postUpdates root cids (postUpdatesRootMs), mod queue pages
 //                      (modQueuePagesMs), the stats file
 //   postsPagesMs       generateCommunityPosts: every posts sort generated and added to kubo
@@ -106,7 +106,9 @@ const KUBO_METHODS = [
     "cat",
     "block.rm",
     "block.stat",
-    "files.write",
+    "block.get",
+    "dag.import",
+    "files.mv",
     "files.flush",
     "files.rm",
     "files.stat",

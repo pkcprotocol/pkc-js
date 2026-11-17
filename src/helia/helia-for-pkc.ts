@@ -407,6 +407,66 @@ export async function createLibp2pJsClientOrUseExistingOne(
 
         // A bitswap session over rootCid's DAG, seeded with connected peers (see MAX_BITSWAP_SESSION_SEED_PEERS above).
         // The caller closes it.
+        // The wait between two session attempts that found no providers (issue #562). A session
+        // snapshots its peers when it opens, so a peer holding the block that connects while we wait
+        // (the community connect a comment load runs next to its CID fetch) would not be asked until
+        // the wait ends, up to 8s later. So from the first no-providers failure on, one broadcast want
+        // for the root block stays open through helia.blockstore.get: bitswap sends its want list to
+        // every peer that connects, with no router query per retry. When the block arrives it is in
+        // the blockstore, the wait ends, and the next session reads it locally. It is a single want for
+        // a single CID, not the per-block want flood sessions exist to prevent (issue #189). An early
+        // wake-up is granted once: if later attempts still find no providers (a child block nobody
+        // has), the backoff applies in full so the routers are not hammered.
+        const createNoProvidersRetryWaiter = (rootCid: CID, signal: AbortSignal) => {
+            let wantController: AbortController | undefined;
+            let rootBlockArrived: Promise<void> | undefined;
+            let arrived = false;
+            let earlyWakeUsed = false;
+            const abortWant = () => wantController?.abort(signal.reason);
+            const startWant = () => {
+                wantController = new AbortController();
+                if (signal.aborted) abortWant();
+                else signal.addEventListener("abort", abortWant, { once: true });
+                const wantSignal = wantController.signal;
+                rootBlockArrived = (async () => {
+                    // Draining the stream is what stores the block
+                    for await (const _chunk of helia.blockstore.get(rootCid, { signal: wantSignal })) void _chunk;
+                    arrived = true;
+                })().catch((error) => {
+                    if (!wantSignal.aborted) log.trace("Broadcast want for", String(rootCid), "failed, keeping the retry backoff", error);
+                    // Never settle: the backoff timer stays the only thing that ends a wait
+                    return new Promise<void>(() => {});
+                });
+            };
+            return {
+                async wait(attempt: number) {
+                    const delayMs = Math.min(SESSION_NO_PROVIDERS_RETRY_BASE_DELAY_MS * 2 ** attempt, 8_000);
+                    if (signal.aborted) return;
+                    if (!rootBlockArrived) startWant();
+                    if (earlyWakeUsed) return delayAbortable(delayMs, signal);
+                    if (!arrived) {
+                        const endDelay = new AbortController();
+                        const endDelayOnAbort = () => endDelay.abort();
+                        signal.addEventListener("abort", endDelayOnAbort, { once: true });
+                        try {
+                            await Promise.race([delayAbortable(delayMs, endDelay.signal), rootBlockArrived]);
+                        } finally {
+                            signal.removeEventListener("abort", endDelayOnAbort);
+                            endDelay.abort(); // clears the timer when the block won the race
+                        }
+                    }
+                    if (arrived) {
+                        earlyWakeUsed = true;
+                        log.trace("Root block", String(rootCid), "arrived through the broadcast want, retrying the session now");
+                    }
+                },
+                stop() {
+                    signal.removeEventListener("abort", abortWant);
+                    wantController?.abort();
+                }
+            };
+        };
+
         const createSeededBitswapSession = (rootCid: CID, scopeIpnsPubsubTopic?: string) => {
             const session = helia.blockstore.createSession(rootCid, {
                 // helia 7 sessions take providers as libp2p-key CIDs (or multiaddrs), not PeerIds
@@ -635,17 +695,23 @@ export async function createLibp2pJsClientOrUseExistingOne(
         // callers that expect the sync contract. Instead, we expose `warmupForTopic(topic)` and
         // dedupe in-flight warmups via a per-topic Map, so concurrent callers share a single
         // findProviders/dial cycle.
+        // Aborted by the final stop(): ends every warmup and every cat() still in flight
+        const stopController = new AbortController();
         const WARMUP_MAX_PEERS = 4;
         const warmupPromisesByTopic = new Map<string, Promise<void>>();
         const warmupForTopic = (topic: string, options?: { signal?: AbortSignal }): Promise<void> => {
             if (helia.libp2p.services.pubsub.getSubscribers(topic).length > 0) return Promise.resolve();
             const existing = warmupPromisesByTopic.get(topic);
             if (existing) return existing;
+            // The final stop() ends a warmup that is still running (issue #541). A warmup started without a
+            // caller signal (the IPNS resolver's, for a name nobody is subscribed to) otherwise waits out its
+            // 10 s subscriber timeout on a stopped node, with its timer, poll interval and findProviders query.
             const p = connectToPubsubPeers({
                 helia,
                 pubsubTopic: topic,
                 maxPeers: WARMUP_MAX_PEERS,
                 options,
+                stopSignal: stopController.signal,
                 log: Logger("pkc-js:helia:pubsub:warmup")
             })
                 .then(() => undefined)
@@ -665,13 +731,12 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 });
         };
 
-        // Issue #345: every in-flight cat() also listens on this controller, and registers a promise
+        // Issue #345: every in-flight cat() also listens on stopController, and registers a promise
         // that settles once its generator has unwound. The final stop() aborts the controller and
         // waits for those promises before stopping helia, so no fetch (with or without a caller
         // signal) keeps creating bitswap sessions, querying routers, and logging after stop()
         // resolved. Under --per-test-logs such a late debug line lands while vitest is closing the
         // worker and fails an all-green run (EnvironmentTeardownError, CI run 34019332586).
-        const catStopController = new AbortController();
         const inFlightCats = new Set<Promise<void>>();
         // Bound on waiting for in-flight cats to unwind. They only need to observe the abort and
         // run their finally blocks, so this is never expected to be reached; it just keeps stop()
@@ -1006,7 +1071,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     const abortFromCallerSignal = () => controller.abort(callerSignal?.reason);
                     if (callerSignal?.aborted) abortFromCallerSignal();
                     else callerSignal?.addEventListener("abort", abortFromCallerSignal, { once: true });
-                    // The final stop() aborts this one (issue #345), see catStopController above.
+                    // The final stop() aborts this one (issue #345), see stopController above.
                     const abortFromStop = () =>
                         controller.abort(
                             new PKCError("ERR_HELIAS_STOPPING_OR_STOPPED", {
@@ -1015,8 +1080,8 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                 ...getHeliaDebugContext(helia)
                             })
                         );
-                    if (catStopController.signal.aborted) abortFromStop();
-                    else catStopController.signal.addEventListener("abort", abortFromStop, { once: true });
+                    if (stopController.signal.aborted) abortFromStop();
+                    else stopController.signal.addEventListener("abort", abortFromStop, { once: true });
                     let markUnwound!: () => void;
                     const unwound = new Promise<void>((resolve) => (markUnwound = resolve));
                     inFlightCats.add(unwound);
@@ -1027,6 +1092,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                   timeoutMs
                               )
                             : undefined;
+                    const noProvidersRetryWaiter = createNoProvidersRetryWaiter(rootCid, controller.signal);
                     try {
                         for (let attempt = 0; ; attempt++) {
                             const session = createSeededBitswapSession(rootCid, bitswapSessionSeedScopeIpnsPubsubTopic);
@@ -1065,19 +1131,17 @@ export async function createLibp2pJsClientOrUseExistingOne(
                                 // letting it run until maxProviders providers are found.
                                 session.close();
                             }
-                            await delayAbortable(
-                                Math.min(SESSION_NO_PROVIDERS_RETRY_BASE_DELAY_MS * 2 ** attempt, 8_000),
-                                controller.signal
-                            );
+                            await noProvidersRetryWaiter.wait(attempt);
                             if (controller.signal.aborted) {
                                 if (controller.signal.reason instanceof Error) throw controller.signal.reason;
                                 throw new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { ipfsPath, timeoutMs });
                             }
                         }
                     } finally {
+                        noProvidersRetryWaiter.stop();
                         if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
                         callerSignal?.removeEventListener("abort", abortFromCallerSignal);
-                        catStopController.signal.removeEventListener("abort", abortFromStop);
+                        stopController.signal.removeEventListener("abort", abortFromStop);
                         inFlightCats.delete(unwound);
                         markUnwound();
                     }
@@ -1166,8 +1230,8 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     controller.abort(new PKCError("ERR_HELIAS_STOPPING_OR_STOPPED", { heliaKey: pkcOptions.key, ipfsPath }));
                 if (callerSignal?.aborted) abortFromCaller();
                 else callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
-                if (catStopController.signal.aborted) abortFromStop();
-                else catStopController.signal.addEventListener("abort", abortFromStop, { once: true });
+                if (stopController.signal.aborted) abortFromStop();
+                else stopController.signal.addEventListener("abort", abortFromStop, { once: true });
                 const timeoutTimer =
                     timeoutMs !== undefined
                         ? setTimeout(() => controller.abort(new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { ipfsPath, timeoutMs })), timeoutMs)
@@ -1200,7 +1264,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 } finally {
                     if (timeoutTimer) clearTimeout(timeoutTimer);
                     callerSignal?.removeEventListener("abort", abortFromCaller);
-                    catStopController.signal.removeEventListener("abort", abortFromStop);
+                    stopController.signal.removeEventListener("abort", abortFromStop);
                 }
             },
             async add(
@@ -1259,7 +1323,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     // End every in-flight cat() and let it unwind (close its bitswap session, run
                     // its finally) before helia goes down, so nothing fetch-related runs or logs
                     // after stop() resolves (issue #345).
-                    catStopController.abort();
+                    stopController.abort();
                     if (inFlightCats.size > 0) {
                         const unwindTimeout = new AbortController();
                         const allUnwound = Promise.all([...inFlightCats]).then(() => "unwound" as const);

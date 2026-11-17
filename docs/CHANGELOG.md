@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.0.150](https://github.com/pkcprotocol/pkc-js/compare/v0.0.149...v0.0.150) (2026-11-16)
+
+### Bug Fixes
+
+* write post updates by bucket swap only, end pubsub warmups on stop ([#555](https://github.com/pkcprotocol/pkc-js/issues/555)) ([3450989](https://github.com/pkcprotocol/pkc-js/commit/3450989ef22bf7efe231cb4ec3abff04549f4a35)), closes [#541](https://github.com/pkcprotocol/pkc-js/issues/541) [#551](https://github.com/pkcprotocol/pkc-js/issues/551) [#456](https://github.com/pkcprotocol/pkc-js/issues/456) [ipfs/kubo#11494](https://github.com/ipfs/kubo/issues/11494) [#556](https://github.com/pkcprotocol/pkc-js/issues/556) [#551](https://github.com/pkcprotocol/pkc-js/issues/551) [ipfs/kubo#11494](https://github.com/ipfs/kubo/issues/11494) [#556](https://github.com/pkcprotocol/pkc-js/issues/556)
+
+## [0.0.149](https://github.com/pkcprotocol/pkc-js/compare/v0.0.148...v0.0.149) (2026-11-16)
+
+### Bug Fixes
+
+* **community:** drop the own-name IPNS resolve, publish with the stored sequence ([#548](https://github.com/pkcprotocol/pkc-js/issues/548)) ([3448445](https://github.com/pkcprotocol/pkc-js/commit/344844581a0f436db77d675277b55651f1c50d9c)), closes [#239](https://github.com/pkcprotocol/pkc-js/issues/239) [#553](https://github.com/pkcprotocol/pkc-js/issues/553) [#239](https://github.com/pkcprotocol/pkc-js/issues/239) [#553](https://github.com/pkcprotocol/pkc-js/issues/553)
+
+## [0.0.148](https://github.com/pkcprotocol/pkc-js/compare/v0.0.147...v0.0.148) (2026-11-16)
+
+### Bug Fixes
+
+* **community:** ignore forged challenge messages, rate-limit per community, unpin raced approvals ([#523](https://github.com/pkcprotocol/pkc-js/issues/523)) ([8ef97a1](https://github.com/pkcprotocol/pkc-js/commit/8ef97a15ef4937024c158de68645b75d7df3fb16))
+
+## [0.0.147](https://github.com/pkcprotocol/pkc-js/compare/v0.0.146...v0.0.147) (2026-11-16)
+
+### Bug Fixes
+
+* **community:** stop on a lost start lock, atomic table migration, no deferred delete of a live DB ([#521](https://github.com/pkcprotocol/pkc-js/issues/521)) ([3b01e27](https://github.com/pkcprotocol/pkc-js/commit/3b01e27640cb9444913d72fd1ff50a6b291cb9d8))
+* retry failed CommentUpdate lookups, undo failed renames, fix flaky state and modqueue tests ([#544](https://github.com/pkcprotocol/pkc-js/issues/544)) ([2cc042c](https://github.com/pkcprotocol/pkc-js/commit/2cc042cb7b3a9c0a61a7800299bf172a888e0e02)), closes [#515](https://github.com/pkcprotocol/pkc-js/issues/515) [#514](https://github.com/pkcprotocol/pkc-js/issues/514) [#513](https://github.com/pkcprotocol/pkc-js/issues/513) [#497](https://github.com/pkcprotocol/pkc-js/issues/497) [#540](https://github.com/pkcprotocol/pkc-js/issues/540) [#540](https://github.com/pkcprotocol/pkc-js/issues/540) [#514](https://github.com/pkcprotocol/pkc-js/issues/514) [#514](https://github.com/pkcprotocol/pkc-js/issues/514) [#543](https://github.com/pkcprotocol/pkc-js/issues/543) [#540](https://github.com/pkcprotocol/pkc-js/issues/540) [#543](https://github.com/pkcprotocol/pkc-js/issues/543) [#543](https://github.com/pkcprotocol/pkc-js/issues/543)
+
+## [0.0.146](https://github.com/pkcprotocol/pkc-js/compare/v0.0.145...v0.0.146) (2026-11-15)
+
+### Bug Fixes
+
+* **community:** order overlapping start(), stop() and update() calls, store edits at once ([#527](https://github.com/pkcprotocol/pkc-js/issues/527)) ([7971c56](https://github.com/pkcprotocol/pkc-js/commit/7971c56109ac9f474634eb4c3176c8bb8b34bd39)), closes [#516](https://github.com/pkcprotocol/pkc-js/issues/516)
+* **publication:** report a silent challenge deadline as a missing response, not provider errors ([#552](https://github.com/pkcprotocol/pkc-js/issues/552)) ([7b090d3](https://github.com/pkcprotocol/pkc-js/commit/7b090d321be9287f802779546e29e58b56ca3646)), closes [#362](https://github.com/pkcprotocol/pkc-js/issues/362)
+
+## [0.0.145](https://github.com/pkcprotocol/pkc-js/compare/v0.0.144...v0.0.145) (2026-11-15)
+
 ## [0.0.144](https://github.com/pkcprotocol/pkc-js/compare/v0.0.143...v0.0.144) (2026-11-13)
 
 ### Bug Fixes

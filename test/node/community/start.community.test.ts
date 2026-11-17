@@ -121,8 +121,8 @@ describe(`community.start`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         const ipfsClient = community._clientsManager.getDefaultKuboRpcClient()!._client;
 
-        const originalFunc = ipfsClient.files.write;
-        ipfsClient.files.write = () => {
+        const originalFunc = ipfsClient.files.cp;
+        ipfsClient.files.cp = () => {
             throw Error("Mocking a failure in copying MFS file in tests");
         };
         publishRandomPost({ communityAddress: community.address, pkc: pkc });
@@ -134,7 +134,7 @@ describe(`community.start`, async () => {
         });
         expect(community.startedState).to.equal("failed");
 
-        ipfsClient.files.write = originalFunc;
+        ipfsClient.files.cp = originalFunc;
 
         await resolveWhenConditionIsTrue({
             toUpdate: community,

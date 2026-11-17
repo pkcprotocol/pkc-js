@@ -51,7 +51,7 @@ import { CommunityIpfsSchema } from "../../../community/schema.js";
 import { MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS } from "../../../community/community-client-manager.js";
 import { sha256 } from "js-sha256";
 import { AllPageCids } from "../../../pages/types.js";
-import { CHALLENGE_EXCHANGE_TTL_MS, generateDefaultChallenges } from "./local-community/defaults.js";
+import { CHALLENGE_EXCHANGE_TTL_MS, SLOW_GET_CHALLENGE_WARNING_MS, generateDefaultChallenges } from "./local-community/defaults.js";
 import {
     createNewLocalCommunityDb,
     getDbInternalState,
@@ -76,13 +76,11 @@ import {
 import { loadPageSortsForStartedCommunity, type ResolvedPageSorts } from "./page-sorts/index.js";
 import { checkPublicationValidity } from "./local-community/publication-validation.js";
 import { calculateLocalMfsPathForCommentUpdate, updateCommentsThatNeedToBeUpdated } from "./local-community/comment-updates.js";
-import { POST_UPDATES_NODE_BUILT_BUCKET_MIN_POSTS } from "./local-community/post-updates-bucket.js";
 import { purgeDisapprovedCommentsOlderThan } from "./local-community/cleanup.js";
 import {
     addOldPageCidsToCidsToUnpin,
     calculateLatestUpdateTrigger,
     calculateNewPostUpdates,
-    resolveIpnsAndLogIfPotentialProblematicSequence,
     shouldResolveDomainForVerification,
     updateCommunityIpnsIfNeeded
 } from "./local-community/ipns-publishing.js";
@@ -109,10 +107,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     override signer!: SignerWithPublicKeyAddress;
     override raw: RpcLocalCommunity["raw"] = {};
     _postUpdatesBuckets = [86400, 604800, 2592000, 3153600000]; // 1 day, 1 week, 1 month, 100 years. Expecting to be sorted from smallest to largest
-    // A postUpdates bucket that gets at least this many of a slice's posts is rebuilt in node and swapped
-    // into MFS whole instead of having its files written one by one (issue #471). A test can lower it.
-    _postUpdatesNodeBuiltBucketMinPosts: number = POST_UPDATES_NODE_BUILT_BUCKET_MIN_POSTS;
-
     _defaultCommunityChallenges: CommunityChallengeSetting[] = generateDefaultChallenges();
 
     // These caches below will be used to facilitate challenges exchange with authors, they will expire after 10 minutes
@@ -137,9 +131,15 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // Lifetime of one challenge exchange (see CHALLENGE_EXCHANGE_TTL_MS). Read when the caches
     // above are created at start; an instance field so a test can lower it.
     _challengeExchangeTtlMs: number = CHALLENGE_EXCHANGE_TTL_MS;
+    // How long a getChallenge() call may run before the community logs it as slow (issue #362).
+    // A field rather than the bare constant so tests can shorten it.
+    _slowGetChallengeWarningMs: number = SLOW_GET_CHALLENGE_WARNING_MS;
 
     _cidsToUnPin: Set<string> = new Set<string>();
     _mfsPathsToRemove: Set<string> = new Set<string>();
+    // Each set here is handed every MFS path whose removal starts while it is registered: a postUpdates bucket
+    // swap in progress repeats those removals on the bucket it swaps in (see writePostUpdatesToMfs)
+    _mfsPathRemovalWatchers: Set<Set<string>> = new Set();
     _communityUpdateTriggerValue: boolean = false;
     // Counts every request for a new record (each time the trigger is set to true), so the publish loop can tell a new
     // request from the trigger a failed cycle left set (issue #430)
@@ -165,10 +165,15 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _reportedChallengeLoadFailures: string | undefined = undefined;
     _dbHandler!: DbHandler;
     _stopHasBeenCalled: boolean; // we use this to track if community.stop() has been called after community.start() or community.update()
+    // This process lost the start lock of this run (see lockCommunityStart), so another process may be running the community.
+    // The publish loop and stop() then skip every write: no more cycles, no internal state write, no unpinning.
+    _startLockLost: boolean = false;
     _publishLoopPromise?: Promise<void> = undefined;
     _updateLoopPromise?: Promise<void> = undefined;
+    _startOrUpdateInFlight?: Promise<void> = undefined; // settles once start() or update() is done setting up, stop() waits for it
+    _stopInFlight?: Promise<void> = undefined; // settles once stop() is done tearing down, a stop() or edit() called meanwhile waits for it
+    _editStoresInFlight = new Set<Promise<unknown>>(); // the DB writes of edit() calls on this started community, stop() waits for them
     _updateLoopAbortController?: AbortController;
-    _firstUpdateAfterStart: boolean = true;
     _internalStateUpdateId: InternalCommunityRecordBeforeFirstUpdateType["_internalStateUpdateId"] = "";
     _lastPubsubTopicRoutingProvideAt?: number = undefined;
     // The challenge exchange topic we last subscribed to. pubsubTopic can change while the community is
@@ -593,10 +598,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     _calculateLatestUpdateTrigger() {
         return calculateLatestUpdateTrigger(this);
-    }
-
-    async _resolveIpnsAndLogIfPotentialProblematicSequence() {
-        return resolveIpnsAndLogIfPotentialProblematicSequence(this);
     }
 
     async _updateDbInternalState(props: Parameters<typeof updateDbInternalState>[1]) {

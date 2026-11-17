@@ -201,6 +201,15 @@ the owner meant is not pkc-js's guess. Before issue [#430](https://github.com/pk
 the comments signed with the old name, the community's own pre-publish check rejected every new record
 (`ERR_LOCAL_COMMUNITY_PRODUCED_INVALID_SIGNATURE`), and the renamed record was never published.
 
+A rename moves the postUpdates folder and then the DB file. When the DB file can't be renamed, the move is undone,
+whether the community was started or not: the partial DB file at the new address is removed, the postUpdates folder is
+moved back, and a started community is restarted under its old address. `edit()` rejects with
+`ERR_FAILED_TO_RENAME_COMMUNITY_DB`, whose `details` carry the rename's own error (`error`, `errorMessage`,
+`errorCode`), both DB paths, and what could not be undone: `partialDbCopyRemoved` (with `partialDbCopyPath` when the
+file is left, which on Windows happens if it stays busy for 10s) and `postUpdatesFolderMovedBack`. A partial file that
+is left behind is not deleted later on its own, because a later attempt that succeeds puts the community's real DB at
+that path; that attempt overwrites the leftover.
+
 Readers that loaded the community by its old name do not follow a rename. They keep fetching the same IPNS key, but
 the next record claims a different name than the one they asked for, so they refuse it (see "A remote community's
 name follows its record" below). They have to load the community again by the new name or by its public key. A name

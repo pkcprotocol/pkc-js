@@ -43,9 +43,14 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
     // sort configuration, or an unreachable Kubo, would make stop() hang.
     let syncFailedSinceStop = false;
 
+    // After a lost start lock the loop runs no further cycle, even with an edit pending: the process that holds the lock now
+    // may be running the community. Such an edit is not published by this process. edit() stored it in the DB at once, but
+    // the process that holds the lock writes the whole internal state from its own memory and can overwrite it, so the owner
+    // may have to apply it again
     const shouldStopPublishLoop = () => {
         return (
             community.state !== "started" ||
+            community._startLockLost ||
             (community._stopHasBeenCalled && (community._pendingEditProps.length === 0 || syncFailedSinceStop))
         );
     };
@@ -150,12 +155,46 @@ async function emitChallengeSettingsValidationErrors(community: LocalCommunity, 
     }
 }
 
+// Marks the start() or update() that is still setting this instance up until it settles. stop() waits for it, so it tears
+// down what the call set up rather than racing it: a stop() that ran during start() used to leave a "stopped" community
+// subscribed to challenge requests, and one that ran during update()'s first load left it in the updating registry.
+async function runAsStartOrUpdateInFlight({
+    community,
+    setUp
+}: {
+    community: LocalCommunity;
+    setUp: (releaseMark: () => void) => Promise<void>;
+}) {
+    let settle!: () => void;
+    const inFlight = new Promise<void>((resolve) => (settle = resolve));
+    community._startOrUpdateInFlight = inFlight;
+    // Clears this call's own mark only. A start() that began once the mark was released (from a "stopped" listener during a
+    // failed start()'s own stop()) has set its own mark by then, and clearing that one let a stop() skip waiting for it.
+    const releaseMark = () => {
+        if (community._startOrUpdateInFlight === inFlight) community._startOrUpdateInFlight = undefined;
+    };
+    try {
+        await setUp(releaseMark);
+    } finally {
+        releaseMark();
+        settle();
+    }
+}
+
 export async function start(community: LocalCommunity) {
-    const log = Logger("pkc-js:local-community:start");
     if (community.state === "updating")
         throw new PKCError("ERR_NEED_TO_STOP_UPDATING_COMMUNITY_BEFORE_STARTING", { address: community.address });
+    // Refused before anything on the instance changes: this instance is running, still stopping (stop() keeps the state
+    // "started" until its teardown is done) or already starting. Clearing _stopHasBeenCalled under a stop() in flight kept
+    // the publish loop it waits for running forever, and a second start() tore the first one down once it lost the lock.
+    if (community.state === "started" || community._startOrUpdateInFlight)
+        throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: community.address });
+    await runAsStartOrUpdateInFlight({ community, setUp: (releaseMark) => startCommunity({ community, releaseMark }) });
+}
+
+async function startCommunity({ community, releaseMark }: { community: LocalCommunity; releaseMark: () => void }) {
+    const log = Logger("pkc-js:local-community:start");
     community._stopHasBeenCalled = false;
-    community._firstUpdateAfterStart = true;
     // Re-baseline address-change re-provide for this run (start() provides everything fresh below).
     community._lastProvidedBrowserDialableSelfAddrs = undefined;
     community._lastAddressReprovideCheckAt = undefined;
@@ -169,6 +208,14 @@ export async function start(community: LocalCommunity) {
         findProcessStartedCommunity(community)
     )
         throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: community.address });
+    // Reset only past the check above: a start() refused there, one called from an error listener while the stop after a
+    // lost start lock runs for example, must not turn that stop's writes back on
+    community._startLockLost = false;
+    // This process can lose the start lock, mostly to another process that takes it over (see lockCommunityStart). While
+    // start() still runs it fails with that error before it subscribes to challenge requests or at its end, after that the
+    // running community stops
+    let startLockLostDuringStart: PKCError | undefined;
+    let startFinished = false;
     try {
         await initBeforeStarting(community);
         // A delegated community whose anchor record was never published is half-created: nothing points
@@ -189,10 +236,21 @@ export async function start(community: LocalCommunity) {
             pkc: community._pkc,
             communityAddress: community.address
         });
-        // update started value twice because it could be started prior lockCommunityStart
+        // Locked before entering the started state, so a start() that loses the race for the lock throws while still
+        // "stopped" and the stop() below does nothing. From "started" it ran the running-community teardown, which unlocks
+        // by path and released the lock of the start() that won (held locks are keyed by path, per process).
+        // Will throw if community is locked already
+        await community._dbHandler.lockCommunityStart({
+            onCompromised: (error) => {
+                // Before any stop: the stop that follows, or one already running, must skip its writes (see stop())
+                community._startLockLost = true;
+                const lostLockError = new PKCError("ERR_COMMUNITY_START_LOCK_COMPROMISED", { communityAddress: community.address, error });
+                if (startFinished) stopAfterLosingStartLock(community, lostLockError);
+                else startLockLostDuringStart = lostLockError;
+            }
+        });
         community._setState("started");
         await community._updateStartedValue();
-        await community._dbHandler.lockCommunityStart(); // Will throw if community is locked already
         trackStartedCommunity(community._pkc, community);
         syncProcessStartedCommunity(community);
         await community._updateStartedValue();
@@ -225,6 +283,9 @@ export async function start(community: LocalCommunity) {
         community._setStartedStateWithEmission("publishing-ipns");
         await community._repinCommentsIPFSIfNeeded();
         await repinCommentUpdateIfNeeded(community);
+        // A start that lost its lock (most likely while the VACUUM above blocked the event loop) must not take challenge
+        // requests, which write the DB next to the process that holds the lock now
+        if (startLockLostDuringStart) throw startLockLostDuringStart;
         await community._listenToIncomingRequests();
 
         // Option validation only reports; it never throws. A config that was persisted before these checks existed, or
@@ -238,8 +299,17 @@ export async function start(community: LocalCommunity) {
         community._pageSorts = undefined;
         community._pageSortFactories = undefined;
         await syncPageSortsWithRegistry(community);
+        if (startLockLostDuringStart) throw startLockLostDuringStart;
+        startFinished = true;
     } catch (e) {
+        // Released first, so this failed start's own stop() does not wait for it, and a start() called during that stop()
+        // (from a "stopped" statechange listener) is not refused. A stop() that was already waiting for this start() resumes
+        // only when it settles, after this teardown, so the two never tear the community down at the same time.
+        releaseMark();
         await community.stop(); // Make sure to reset the community state
+        // A start() that failed before entering the started state (it lost the race for the start lock, say) leaves stop()
+        // nothing to tear down, but initBeforeStarting() opened the DB. A start() or update() begun since owns the connection.
+        if (community.state === "stopped" && !community._startOrUpdateInFlight) community._dbHandler.destoryConnection();
         //@ts-expect-error
         e.details = { ...e.details, communityAddress: community.address };
         throw e;
@@ -249,6 +319,19 @@ export async function start(community: LocalCommunity) {
         log.error(err);
         community.emit("error", err);
     });
+}
+
+// This process lost the community's start lock, and another process may be running the community now. Two processes
+// running one community both publish and write its DB, so this one stops, and emits why. The stop starts first:
+// emit("error") throws when nobody listens for it (on the community or on its PKC), and the stop must not depend on that.
+// A community that is stopping already is not stopped a second time, but the error is still emitted: that stop now skips
+// its writes and the publish of a pending edit (see stop()), which the owner would otherwise never hear of.
+export function stopAfterLosingStartLock(community: LocalCommunity, error: PKCError) {
+    const log = Logger("pkc-js:local-community:stopAfterLosingStartLock");
+    if (community.state !== "started") return;
+    if (!community._stopHasBeenCalled)
+        community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after losing its start lock`, e));
+    community.emit("error", error);
 }
 
 export async function initMirroringStartedOrUpdatingCommunity(community: LocalCommunity, startedCommunity: LocalCommunity) {
@@ -432,21 +515,50 @@ export async function updateLoop(community: LocalCommunity) {
 export async function update(community: LocalCommunity) {
     if (community.state === "started") throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: community.address });
     if (community.state === "updating") return;
-    community._stopHasBeenCalled = false;
-    community._setState("updating");
+    // a start() still in flight: it has not entered the started state yet
+    if (community._startOrUpdateInFlight) throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: community.address });
 
-    try {
-        await updateOnce(community);
-    } catch (e) {
-        community.emit("error", e as PKCError | Error);
-    }
-    community._updateLoopAbortController = new AbortController();
-    community._updateLoopPromise = updateLoop(community);
+    await runAsStartOrUpdateInFlight({
+        community,
+        setUp: async () => {
+            // Marked in flight before the "updating" statechange, so a stop() that a listener of it calls waits too
+            community._stopHasBeenCalled = false;
+            community._setState("updating");
+            try {
+                await updateOnce(community);
+            } catch (e) {
+                community.emit("error", e as PKCError | Error);
+            }
+            community._updateLoopAbortController = new AbortController();
+            community._updateLoopPromise = updateLoop(community);
+        }
+    });
 }
 
 export async function stop(community: LocalCommunity) {
-    const log = Logger("pkc-js:local-community:stop");
     community._stopHasBeenCalled = true;
+    // Set above first, so the publish or update loop the start() or update() launches ends at its first check. Also waits
+    // for a start() begun while it waited (from a listener during a failed start()'s teardown), so it stops that one too.
+    // A stop() that is tearing down is waited for as well: two teardowns at once each released the start lock and closed
+    // the DB, also those of a start() that a "stopped" listener began once the first teardown was done.
+    // The DB write of an edit() of this started community is waited for too: the teardown closes the connection it uses.
+    while (community._startOrUpdateInFlight || community._stopInFlight || community._editStoresInFlight.size > 0) {
+        await (community._startOrUpdateInFlight ?? community._stopInFlight ?? Promise.allSettled([...community._editStoresInFlight]));
+        community._stopHasBeenCalled = true; // a start() begun meanwhile cleared it
+    }
+    let settle!: () => void;
+    const stopInFlight = new Promise<void>((resolve) => (settle = resolve));
+    community._stopInFlight = stopInFlight;
+    try {
+        await stopCommunity(community);
+    } finally {
+        if (community._stopInFlight === stopInFlight) community._stopInFlight = undefined;
+        settle();
+    }
+}
+
+async function stopCommunity(community: LocalCommunity) {
+    const log = Logger("pkc-js:local-community:stop");
     if (community._updateLoopAbortController) {
         community._updateLoopAbortController.abort();
     }
@@ -479,27 +591,34 @@ export async function stop(community: LocalCommunity) {
             community._publishLoopPromise = undefined;
         }
 
-        try {
-            // Bypass the unpin grace period: this is the process's last chance to unpin, and a
-            // community that never starts again would otherwise leak its queued pins forever.
-            await unpinStaleCids(community, { bypassGracePeriod: true });
-        } catch (e) {
-            log.error("Failed to unpin stale cids and remove mfs paths before stopping", e);
-        }
+        if (community._startLockLost) {
+            // The process that took the lock may be running the community already: its internal state, the cids it
+            // publishes and its lock are not this process's to overwrite, unpin or release. The stale cids queued here
+            // stay pinned, and an edit no cycle published stays unpublished (see publishLoop).
+            log(`Community (${community.address}) lost its start lock, stopping without writing its state, unpinning or unlocking`);
+        } else {
+            try {
+                // Bypass the unpin grace period: this is the process's last chance to unpin, and a
+                // community that never starts again would otherwise leak its queued pins forever.
+                await unpinStaleCids(community, { bypassGracePeriod: true });
+            } catch (e) {
+                log.error("Failed to unpin stale cids and remove mfs paths before stopping", e);
+            }
 
-        try {
-            await updateDbInternalState(
-                community,
-                community.updateCid ? community.toJSONInternalAfterFirstUpdate() : community.toJSONInternalBeforeFirstUpdate()
-            );
-        } catch (e) {
-            log.error("Failed to update db internal state before stopping", e);
-        }
+            try {
+                // built under the state lock, so it keeps an edit stored meanwhile (see updateDbInternalState)
+                await updateDbInternalState(community, () =>
+                    community.updateCid ? community.toJSONInternalAfterFirstUpdate() : community.toJSONInternalBeforeFirstUpdate()
+                );
+            } catch (e) {
+                log.error("Failed to update db internal state before stopping", e);
+            }
 
-        try {
-            await community._dbHandler.unlockCommunityStart();
-        } catch (e) {
-            log.error(`Failed to unlock start lock on community (${community.address})`, e);
+            try {
+                await community._dbHandler.unlockCommunityStart();
+            } catch (e) {
+                log.error(`Failed to unlock start lock on community (${community.address})`, e);
+            }
         }
         const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
 

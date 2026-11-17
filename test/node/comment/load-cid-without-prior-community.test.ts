@@ -2,12 +2,12 @@
 // subscription. Two scenarios:
 //
 //   1. The comment IS reachable (community is up, CID is fetchable from a community
-//      peer). The parallel community connect kicked off by
-//      `loadCommentIpfsAndStartCommentUpdateSubscription` fires 5s into the first
-//      cat() attempt: it calls `pkc.getCommunity` so we subscribe to the community's
-//      IPNS pubsub topic and connect to its peers, and bitswap then fetches the
-//      comment block from one of those peers. Loads within ~6s on libp2pjs even when
-//      no provider record exists for the comment CID; instant on kubo when local.
+//      peer). Both `comment.update()` and `pkc.getComment()` start a community
+//      connect at the same moment as the CID fetch (issue #562): they call
+//      `pkc.getCommunity` so we connect to the community's peers, and bitswap then
+//      fetches the comment block from one of those peers. Loads in about a second on
+//      libp2pjs even when no provider record exists for the comment CID; instant on
+//      kubo when local.
 //
 //   2. The comment is UNREACHABLE (CID doesn't exist anywhere). Behavior splits by
 //      caller:
@@ -23,6 +23,7 @@ import {
     createSubWithNoChallenge,
     publishRandomPost,
     mockPKC,
+    mockGatewayPKC,
     getAvailablePKCConfigsToTestAgainst,
     resolveWhenConditionIsTrue
 } from "../../../dist/node/test/test-util.js";
@@ -113,6 +114,8 @@ afterAll(async () => {
 
 getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs", "remote-kubo-rpc"] }).map((config) => {
     describe(`Direct-thread URL: load comment by CID with community hint, no prior subscription - ${config.name}`, () => {
+        const isLibp2pjs = config.testConfigCode === "remote-libp2pjs";
+
         it("mock http router has a provider for the community IPNS pubsub topic and none for the comment CID", () => {
             expect(mockHttpRouter.hasProvidersFor(community.ipnsPubsubTopicRoutingCid!)).to.be.true;
             const providers = mockHttpRouter.getProvidersFor(community.ipnsPubsubTopicRoutingCid!);
@@ -124,54 +127,273 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
             expect(mockHttpRouter.hasProvidersFor(publishedPost.cid!)).to.be.false;
         });
 
-        it("loads comment IPFS within 10s via the parallel community connect", async () => {
-            // Fresh resolver PKC — simulates a user landing directly on /thread/<cid>.
-            // No getCommunity / createCommunity / prior pubsub subscription on this instance.
-            // For libp2pjs we point its single HTTP router at the mock router (which
-            // returns nothing for the comment CID, so the in-flight cat() can't make
-            // progress and the parallel fallback has to carry the load). The
-            // remote-kubo-rpc config shares the publisher's local kubo, so the comment
-            // block is already local and no router setup is needed there.
-            const isLibp2pjs = config.testConfigCode === "remote-libp2pjs";
-            const resolverPkc = await config.pkcInstancePromise(
-                isLibp2pjs ? { pkcOptions: { httpRoutersOptions: [mockHttpRouter.url] } } : {}
-            );
-            const getCommunitySpy = vi.spyOn(resolverPkc, "getCommunity");
-            try {
-                const comment = await resolverPkc.createComment({
-                    cid: publishedPost.cid!,
-                    communityPublicKey: community.publicKey
-                });
-                const startedAt = Date.now();
-                await comment.update();
+        // How soon after the load starts pkc.getCommunity must have been called. The connect is
+        // started synchronously with the fetch, so this only has to absorb scheduling jitter.
+        const GET_COMMUNITY_MUST_START_WITHIN_MS = 1_000;
+        // Loose bound on the whole load against a local kubo node (measured: well under 2s).
+        const COLD_LOAD_DEADLINE_MS = 6_000;
 
-                // Parallel community connect fires 5s into the first cat() attempt and
-                // bitswap fetches the comment block from a community peer shortly after,
-                // so total time should be well under 10s. The vitest timeout below is
-                // the per-test cap.
+        // A cold client: its own helia node (forceMockPubsub: false gives a random client key, so no
+        // connections or blocks are shared with another test) whose only router lists the community
+        // but not the comment CID.
+        const createColdResolverPkc = async () =>
+            config.pkcInstancePromise(
+                isLibp2pjs ? { forceMockPubsub: false, pkcOptions: { httpRoutersOptions: [mockHttpRouter.url] } } : {}
+            );
+
+        // Records when pkc.getCommunity is called and with what, and still runs the real call.
+        const recordGetCommunityCalls = (pkc: PKC) => {
+            const calls: { atMs: number; args: Parameters<PKC["getCommunity"]>[0] }[] = [];
+            const startedAt = Date.now();
+            const original = pkc.getCommunity.bind(pkc);
+            const spy = vi.spyOn(pkc, "getCommunity").mockImplementation((args) => {
+                calls.push({ atMs: Date.now() - startedAt, args });
+                return original(args);
+            });
+            return { calls, startedAt, restore: () => spy.mockRestore() };
+        };
+
+        it("comment.update() starts the community connect at once and loads the comment", async () => {
+            const resolverPkc = await createColdResolverPkc();
+            const comment = await resolverPkc.createComment({ cid: publishedPost.cid!, communityPublicKey: community.publicKey });
+            const recorded = recordGetCommunityCalls(resolverPkc);
+            try {
+                await comment.update();
                 await resolveWhenConditionIsTrue({
                     toUpdate: comment,
                     predicate: async () => typeof comment.raw.comment === "object"
                 });
-                const elapsedMs = Date.now() - startedAt;
-                expect(comment.raw.comment, "comment IPFS should have loaded").to.be.an("object");
-                expect(elapsedMs, `comment IPFS should load within 10s (took ${elapsedMs}ms)`).to.be.lessThan(10_000);
-
-                // The kubo path resolves the cat() before the 5s timer fires (block is
-                // local), so the parallel connect is skipped. On libp2pjs the cat() has
-                // no provider, so the parallel pkc.getCommunity must fire.
+                const elapsedMs = Date.now() - recorded.startedAt;
+                console.log(
+                    `[issue-562] update() ${config.testConfigCode}: loaded in ${elapsedMs}ms, getCommunity at`,
+                    recorded.calls[0]?.atMs
+                );
+                expect(elapsedMs, `comment IPFS should load within ${COLD_LOAD_DEADLINE_MS}ms (took ${elapsedMs}ms)`).to.be.lessThan(
+                    COLD_LOAD_DEADLINE_MS
+                );
+                // The kubo config shares the publisher's kubo node, so the block is local and the load
+                // can finish before anything else matters; only libp2pjs depends on the connect.
                 if (isLibp2pjs) {
-                    expect(
-                        getCommunitySpy,
-                        "parallel community connect should have called pkc.getCommunity with the community's publicKey"
-                    ).toHaveBeenCalledWith(expect.objectContaining({ publicKey: community.publicKey }));
+                    expect(recorded.calls.length, "the community connect should have called pkc.getCommunity").to.be.greaterThan(0);
+                    expect(recorded.calls[0].args).to.include({ publicKey: community.publicKey });
+                    expect(recorded.calls[0].atMs, "the community connect must not wait before starting").to.be.lessThan(
+                        GET_COMMUNITY_MUST_START_WITHIN_MS
+                    );
                 }
                 await comment.stop();
             } finally {
-                getCommunitySpy.mockRestore();
+                recorded.restore();
                 await resolverPkc.destroy();
             }
         }, 30_000);
+
+        it("pkc.getComment({ cid, communityPublicKey }) starts the community connect at once and loads the comment", async () => {
+            const resolverPkc = await createColdResolverPkc();
+            resolverPkc._timeouts["comment-ipfs"] = 15_000;
+            const recorded = recordGetCommunityCalls(resolverPkc);
+            try {
+                const comment = await resolverPkc.getComment({ cid: publishedPost.cid!, communityPublicKey: community.publicKey });
+                const elapsedMs = Date.now() - recorded.startedAt;
+                console.log(
+                    `[issue-562] getComment() ${config.testConfigCode}: loaded in ${elapsedMs}ms, getCommunity at`,
+                    recorded.calls[0]?.atMs
+                );
+                expect(comment.raw.comment, "comment IPFS should have loaded").to.be.an("object");
+                expect(elapsedMs, `getComment should resolve within ${COLD_LOAD_DEADLINE_MS}ms (took ${elapsedMs}ms)`).to.be.lessThan(
+                    COLD_LOAD_DEADLINE_MS
+                );
+                if (isLibp2pjs) {
+                    expect(recorded.calls.length, "getComment should have called pkc.getCommunity").to.be.greaterThan(0);
+                    expect(recorded.calls[0].args).to.include({ publicKey: community.publicKey });
+                    expect(recorded.calls[0].atMs).to.be.lessThan(GET_COMMUNITY_MUST_START_WITHIN_MS);
+                }
+            } finally {
+                recorded.restore();
+                await resolverPkc.destroy();
+            }
+        }, 30_000);
+
+        it("pkc.getComment({ cid, communityName }) starts the community connect with the name", async () => {
+            // No community publishes under this name, so the load cannot succeed; the test is about
+            // the name reaching pkc.getCommunity.
+            const resolverPkc = await createColdResolverPkc();
+            resolverPkc._timeouts["comment-ipfs"] = 3_000;
+            const recorded = recordGetCommunityCalls(resolverPkc);
+            try {
+                await resolverPkc.getComment({ cid: unreachableCid, communityName: "issue-562-nobody.bso" }).catch(() => {});
+                expect(recorded.calls.length, "getComment should have called pkc.getCommunity").to.be.greaterThan(0);
+                expect(recorded.calls[0].args).to.include({ name: "issue-562-nobody.bso" });
+                expect(recorded.calls[0].atMs).to.be.lessThan(GET_COMMUNITY_MUST_START_WITHIN_MS);
+            } finally {
+                recorded.restore();
+                await resolverPkc.destroy();
+            }
+        }, 30_000);
+
+        it("pkc.getComment({ cid }) with no community identity starts no community connect", async () => {
+            const resolverPkc = await createColdResolverPkc();
+            resolverPkc._timeouts["comment-ipfs"] = 3_000;
+            const recorded = recordGetCommunityCalls(resolverPkc);
+            try {
+                await resolverPkc.getComment({ cid: unreachableCid }).catch(() => {});
+                expect(recorded.calls.length).to.equal(0);
+            } finally {
+                recorded.restore();
+                await resolverPkc.destroy();
+            }
+        }, 30_000);
+
+        it("pkc.getComment() aborts its community load once the comment has loaded", async () => {
+            const resolverPkc = await createColdResolverPkc();
+            resolverPkc._timeouts["comment-ipfs"] = 15_000;
+            const recorded = recordGetCommunityCalls(resolverPkc);
+            try {
+                await resolverPkc.getComment({ cid: publishedPost.cid!, communityPublicKey: community.publicKey });
+                if (isLibp2pjs || recorded.calls.length > 0) {
+                    const abortSignal = recorded.calls[0]?.args.abortSignal;
+                    expect(abortSignal, "the community load should be given an abort signal").to.be.instanceOf(AbortSignal);
+                    expect(abortSignal!.aborted, "the community load should be aborted when getComment resolves").to.be.true;
+                }
+            } finally {
+                recorded.restore();
+                await resolverPkc.destroy();
+            }
+        }, 30_000);
+
+        it("pkc.getComment() aborts its community load when it times out", async () => {
+            const resolverPkc = await createColdResolverPkc();
+            resolverPkc._timeouts["comment-ipfs"] = 3_000;
+            const recorded = recordGetCommunityCalls(resolverPkc);
+            try {
+                const unpublishedCommunityKey = (await resolverPkc.createSigner()).address;
+                let thrown: Error | undefined;
+                await resolverPkc
+                    .getComment({ cid: unreachableCid, communityPublicKey: unpublishedCommunityKey })
+                    .catch((e) => (thrown = e));
+                expect(thrown).to.be.instanceOf(Error);
+                const abortSignal = recorded.calls[0]?.args.abortSignal;
+                expect(abortSignal, "the community load should be given an abort signal").to.be.instanceOf(AbortSignal);
+                expect(abortSignal!.aborted, "the community load should be aborted when getComment times out").to.be.true;
+            } finally {
+                recorded.restore();
+                await resolverPkc.destroy();
+            }
+        }, 30_000);
+
+        it("pkc.getComment() reports a failed community load in the details of the error it throws", async () => {
+            const resolverPkc = await createColdResolverPkc();
+            // The community load has to fail before getComment itself gives up
+            resolverPkc._timeouts["community-ipns"] = 1_500;
+            resolverPkc._timeouts["comment-ipfs"] = 6_000;
+            try {
+                const unpublishedCommunityKey = (await resolverPkc.createSigner()).address;
+                let thrown: (Error & { details?: { communityLoadError?: unknown } }) | undefined;
+                await resolverPkc
+                    .getComment({ cid: unreachableCid, communityPublicKey: unpublishedCommunityKey })
+                    .catch((e) => (thrown = e));
+                expect(thrown, "getComment should still fail on its own terms").to.be.instanceOf(Error);
+                expect(thrown!.details?.communityLoadError, "the community load failure should be attached").to.be.instanceOf(Error);
+            } finally {
+                await resolverPkc.destroy();
+            }
+        }, 30_000);
+
+        it("pkc.getComment() aborts its community load when the caller aborts", async () => {
+            const resolverPkc = await createColdResolverPkc();
+            const recorded = recordGetCommunityCalls(resolverPkc);
+            const callerAbort = new AbortController();
+            try {
+                const unpublishedCommunityKey = (await resolverPkc.createSigner()).address;
+                setTimeout(() => callerAbort.abort(), 500);
+                let thrown: { code?: string } | undefined;
+                await resolverPkc
+                    .getComment({ cid: unreachableCid, communityPublicKey: unpublishedCommunityKey, abortSignal: callerAbort.signal })
+                    .catch((e) => (thrown = e));
+                expect(thrown?.code).to.equal("ERR_GET_COMMENT_ABORTED");
+                const abortSignal = recorded.calls[0]?.args.abortSignal;
+                expect(abortSignal, "the community load should be given an abort signal").to.be.instanceOf(AbortSignal);
+                expect(abortSignal!.aborted, "the community load should be aborted with the caller's abort").to.be.true;
+            } finally {
+                recorded.restore();
+                await resolverPkc.destroy();
+            }
+        }, 30_000);
+
+        it("pkc.getComment() reports a failed community load in the details of the abort error too", async () => {
+            const resolverPkc = await createColdResolverPkc();
+            // The community load has to fail before the caller aborts
+            resolverPkc._timeouts["community-ipns"] = 1_500;
+            resolverPkc._timeouts["comment-ipfs"] = 20_000;
+            const callerAbort = new AbortController();
+            try {
+                const unpublishedCommunityKey = (await resolverPkc.createSigner()).address;
+                setTimeout(() => callerAbort.abort(), 5_000);
+                let thrown: (Error & { code?: string; details?: { communityLoadError?: unknown } }) | undefined;
+                await resolverPkc
+                    .getComment({ cid: unreachableCid, communityPublicKey: unpublishedCommunityKey, abortSignal: callerAbort.signal })
+                    .catch((e) => (thrown = e));
+                expect(thrown?.code, "the abort stays the reported outcome").to.equal("ERR_GET_COMMENT_ABORTED");
+                expect(thrown!.details?.communityLoadError, "the community load failure should be attached").to.be.instanceOf(Error);
+            } finally {
+                await resolverPkc.destroy();
+            }
+        }, 30_000);
+
+        it("comment.update() aborts its community load when the CommentIpfs load fails with a non retriable error", async () => {
+            const resolverPkc = await createColdResolverPkc();
+            const recorded = recordGetCommunityCalls(resolverPkc);
+            let loadStub: { mockRestore: () => void } | undefined;
+            try {
+                // Never published, so the community load is still pending when the comment load fails
+                const unpublishedCommunityKey = (await resolverPkc.createSigner()).address;
+                const comment = await resolverPkc.createComment({ cid: unreachableCid, communityPublicKey: unpublishedCommunityKey });
+                const errors: Error[] = [];
+                comment.on("error", (error) => errors.push(error as Error));
+                const nonRetriableError = new Error("CommentIpfs is invalid (stubbed non retriable failure)");
+                // update() runs the load on a separate updating instance, so stub the method on the class
+                loadStub = vi
+                    .spyOn(Object.getPrototypeOf(comment) as { _retryLoadingCommentIpfs: () => Promise<Error> }, "_retryLoadingCommentIpfs")
+                    .mockImplementation(async () => {
+                        await new Promise((resolve) => setTimeout(resolve, 500));
+                        return nonRetriableError;
+                    });
+                await comment.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: comment,
+                    predicate: async () => comment.state === "stopped",
+                    eventName: "statechange"
+                });
+                expect(errors).to.include(nonRetriableError);
+                const abortSignal = recorded.calls[0]?.args.abortSignal;
+                expect(abortSignal, "the community load should be given an abort signal").to.be.instanceOf(AbortSignal);
+                expect(abortSignal!.aborted, "the community load should be aborted once the update loop stops itself").to.be.true;
+            } finally {
+                loadStub?.mockRestore();
+                recorded.restore();
+                await resolverPkc.destroy();
+            }
+        }, 30_000);
+
+        it("starts no community connect when the community is already updating on this pkc", async () => {
+            const resolverPkc = await createColdResolverPkc();
+            resolverPkc._timeouts["comment-ipfs"] = 15_000;
+            const updatingCommunity = await resolverPkc.createCommunity({ publicKey: community.publicKey });
+            await updatingCommunity.update();
+            await resolveWhenConditionIsTrue({
+                toUpdate: updatingCommunity,
+                predicate: async () => typeof updatingCommunity.updatedAt === "number"
+            });
+            const recorded = recordGetCommunityCalls(resolverPkc);
+            try {
+                const comment = await resolverPkc.getComment({ cid: publishedPost.cid!, communityPublicKey: community.publicKey });
+                expect(comment.raw.comment).to.be.an("object");
+                expect(recorded.calls.length, "the updating community already keeps its peers connected").to.equal(0);
+            } finally {
+                recorded.restore();
+                await updatingCommunity.stop();
+                await resolverPkc.destroy();
+            }
+        }, 60_000);
 
         it("comment.update() does NOT throw on unreachable CID — it emits 'error' events and retries forever", async () => {
             // Documents existing behavior: retriable errors (timeouts, no providers,
@@ -219,4 +441,29 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
             }
         }, 20_000);
     });
+});
+
+// A gateway connection cannot serve bitswap, so loading the community through a gateway does nothing
+// for the comment fetch and would only cost an extra gateway request (issue #562).
+describe("Gateway-only pkc starts no community connect when loading a comment by CID", () => {
+    it("comment.update() and pkc.getComment() do not call pkc.getCommunity", async () => {
+        const gatewayPkc = await mockGatewayPKC();
+        gatewayPkc._timeouts["comment-ipfs"] = 2_000;
+        const getCommunitySpy = vi.spyOn(gatewayPkc, "getCommunity");
+        try {
+            await gatewayPkc.getComment({ cid: unreachableCid, communityPublicKey: community.publicKey }).catch(() => {});
+
+            const comment = await gatewayPkc.createComment({ cid: unreachableCid, communityPublicKey: community.publicKey });
+            comment.on("error", () => {});
+            await comment.update();
+            // Longer than the 5s delay the connect used to wait before this issue
+            await new Promise((resolve) => setTimeout(resolve, 6_500));
+            await comment.stop();
+
+            expect(getCommunitySpy).not.toHaveBeenCalled();
+        } finally {
+            getCommunitySpy.mockRestore();
+            await gatewayPkc.destroy();
+        }
+    }, 40_000);
 });
