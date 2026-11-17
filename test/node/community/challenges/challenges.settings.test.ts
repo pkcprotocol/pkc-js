@@ -73,7 +73,7 @@ describe.concurrent(`community.settings.challenges`, async () => {
         const post = await generateMockPost({
             communityAddress: community.address,
             pkc: remotePKC,
-            postProps: { challengeRequest: { challengeAnswers: ["wrong answer"] } }
+            postProps: { challengeRequest: { challengeAnswers: { "0": "wrong answer" } } }
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: false });
         const challengeVerification = await challengeVerificationPromise;
@@ -137,7 +137,7 @@ describe.concurrent(`community.settings.challenges`, async () => {
         const mockPost = await generateMockPost({
             communityAddress: community.address,
             pkc: pkc,
-            postProps: { challengeRequest: { challengeAnswers: ["2"] } }
+            postProps: { challengeRequest: { challengeAnswers: { "0": "2" } } }
         });
 
         expect(mockPost.challengeRequest!.challengeAnswers).to.deep.equal(["2"]);

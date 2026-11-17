@@ -1154,7 +1154,7 @@ export async function generatePostToAnswerMathQuestion(props: Partial<CreateComm
     const mockPost = await generateMockPost({ communityAddress: props.communityAddress, pkc, postProps: props });
     mockPost.removeAllListeners("challenge");
     mockPost.once("challenge", (challengeMessage) => {
-        mockPost.publishChallengeAnswers({ challengeAnswers: ["2"] });
+        mockPost.publishChallengeAnswers({ challengeAnswers: { "0": "2" } });
     });
 
     return mockPost;
@@ -1449,7 +1449,7 @@ export async function publishChallengeAnswerMessageWithExtraProps({
     includeExtraPropsInChallengeSignedPropertyNames
 }: {
     publication: Publication;
-    challengeAnswers: string[];
+    challengeAnswers: Record<string, string>;
     extraProps: Object;
     includeExtraPropsInChallengeSignedPropertyNames: boolean;
 }) {

@@ -19,7 +19,7 @@ type CommunityForSigning = {
 
 // Type for challengerequest event data
 type ChallengeRequestEvent = {
-    challengeAnswers?: string[];
+    challengeAnswers?: Record<string, string>;
     challengeCommentCids?: string[];
 };
 getAvailablePKCConfigsToTestAgainst().map((config) => {
@@ -38,7 +38,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`pkc.createComment({challengeRequest: challengeAnswers}) includes challengeAnswers in request pubsub message`, async () => {
-            const challengeRequestFields = { challengeAnswers: ["12345"] };
+            const challengeRequestFields = { challengeAnswers: { "0": "12345" } };
             const comment = await generateMockPost({
                 communityAddress: signers[0].address,
                 pkc: pkc,
@@ -78,7 +78,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`Pubsub fields are copied properly with JSON.parse(JSON.stringify(comment)))`, async () => {
             const challengeRequestFields = {
                 challengeCommentCids: ["QmXsYKgNH7XoZXdLko5uDvtWSRNE2AXuQ4u8KxVpCacrZx"],
-                challengeAnswers: ["12345"]
+                challengeAnswers: { "0": "12345" }
             }; // random cid
             const comment = await generateMockPost({
                 communityAddress: signers[0].address,

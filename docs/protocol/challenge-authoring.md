@@ -129,7 +129,9 @@ is answered with the stored result and its cid instead of a duplicate error, onc
 
 ## Deciding who the author is
 
-`getChallenge({ challengeSettings, challengeRequestMessage, challengeIndex, community, authorIdentityMatcher })`.
+`getChallenge({ challengeSettings, challengeRequestMessage, challengeIndex, challengeAnswer, community, authorIdentityMatcher })`.
+
+`challengeAnswer` is this challenge's own pre-answer: the string the author put under key `String(challengeIndex)` in `challengeRequestMessage.challengeAnswers`, or `undefined` when they sent none for it. Read it instead of indexing `challengeAnswers` yourself. An author who pre-answers only some challenges sends no key for the others, so `undefined` means "ask the author" (return a `challenge`), not "wrong".
 
 If your challenge decides anything from **who** is publishing (an allow list, a deny list, a role check),
 use `authorIdentityMatcher` rather than comparing strings against `author.address`. That field is

@@ -91,7 +91,7 @@ export async function decryptOrRespondWithFailure(
 
 export async function publishChallenges(
     community: LocalCommunity,
-    challenges: Omit<Challenge, "verify">[],
+    challenges: Record<string, Omit<Challenge, "verify">>,
     request: DecryptedChallengeRequestMessageTypeWithCommunityAuthor
 ) {
     const log = Logger("pkc-js:local-community:_publishChallenges");
@@ -123,7 +123,7 @@ export async function publishChallenges(
     log(
         `Community ${community.address} with pubsub topic ${challengeTopic} published ${challengeMessage.type} over pubsub: `,
         pick(toSignChallenge, ["timestamp"]),
-        toEncryptChallenge.challenges.map((challenge) => challenge.type)
+        Object.values(toEncryptChallenge.challenges).map((challenge) => challenge.type)
     );
     community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("waiting-challenge-answers");
     community.emit("challenge", {

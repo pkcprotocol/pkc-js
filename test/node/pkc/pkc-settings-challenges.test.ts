@@ -156,7 +156,7 @@ describe("pkc.settings.challenges", async () => {
             communityAddress: community.address,
             pkc: pkc,
             postProps: {
-                challengeRequest: { challengeAnswers: ["blue"] }
+                challengeRequest: { challengeAnswers: { "0": "blue" } }
             }
         });
         await publishWithExpectedResult({ publication: correctPost, expectedChallengeSuccess: true });
@@ -169,7 +169,7 @@ describe("pkc.settings.challenges", async () => {
             communityAddress: community.address,
             pkc: pkc,
             postProps: {
-                challengeRequest: { challengeAnswers: ["red"] }
+                challengeRequest: { challengeAnswers: { "0": "red" } }
             }
         });
         await publishWithExpectedResult({ publication: wrongPost, expectedChallengeSuccess: false });
@@ -204,7 +204,7 @@ describe("pkc.settings.challenges", async () => {
             communityAddress: community.address,
             pkc: pkcWithOverride,
             postProps: {
-                challengeRequest: { challengeAnswers: ["42"] }
+                challengeRequest: { challengeAnswers: { "0": "42" } }
             }
         });
         await publishWithExpectedResult({ publication: correctPost, expectedChallengeSuccess: true });
@@ -217,7 +217,7 @@ describe("pkc.settings.challenges", async () => {
             communityAddress: community.address,
             pkc: pkcWithOverride,
             postProps: {
-                challengeRequest: { challengeAnswers: ["wrong"] }
+                challengeRequest: { challengeAnswers: { "0": "wrong" } }
             }
         });
         await publishWithExpectedResult({ publication: wrongPost, expectedChallengeSuccess: false });

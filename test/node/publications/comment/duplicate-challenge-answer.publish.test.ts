@@ -167,10 +167,10 @@ describeSkipIfRpc("a second publishChallengeAnswers call for the same challenge 
     it("rejects the second call and does not fail a publication to a community hosted in the same PKC instance", async () => {
         const observed = await publishAndWaitForChallenge(pkc);
         try {
-            await observed.post.publishChallengeAnswers({ challengeAnswers: ["anything"] });
+            await observed.post.publishChallengeAnswers({ challengeAnswers: { "0": "anything" } });
             expect(observed.post.publishingState).to.equal("waiting-challenge-verification");
 
-            const [second] = await Promise.allSettled([observed.post.publishChallengeAnswers({ challengeAnswers: ["anything"] })]);
+            const [second] = await Promise.allSettled([observed.post.publishChallengeAnswers({ challengeAnswers: { "0": "anything" } })]);
             expectAlreadyPublishedRejection(second);
             expect(observed.post.publishingState).to.equal("waiting-challenge-verification");
 
@@ -186,8 +186,8 @@ describeSkipIfRpc("a second publishChallengeAnswers call for the same challenge 
         const observed = await publishAndWaitForChallenge(publisherPKC);
         try {
             const results = await Promise.allSettled([
-                observed.post.publishChallengeAnswers({ challengeAnswers: ["anything"] }),
-                observed.post.publishChallengeAnswers({ challengeAnswers: ["anything"] })
+                observed.post.publishChallengeAnswers({ challengeAnswers: { "0": "anything" } }),
+                observed.post.publishChallengeAnswers({ challengeAnswers: { "0": "anything" } })
             ]);
             expect(results[0].status, "the first call must publish the answer").to.equal("fulfilled");
             expectAlreadyPublishedRejection(results[1]);

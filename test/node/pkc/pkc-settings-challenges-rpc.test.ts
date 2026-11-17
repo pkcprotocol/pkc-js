@@ -433,7 +433,7 @@ describe("pkc.settings.challenges over RPC", () => {
             communityAddress: community.address,
             pkc: clientPKC,
             postProps: {
-                challengeRequest: { challengeAnswers: ["blue"] }
+                challengeRequest: { challengeAnswers: { "0": "blue" } }
             }
         });
         await publishWithExpectedResult({ publication: correctPost, expectedChallengeSuccess: true });
@@ -443,7 +443,7 @@ describe("pkc.settings.challenges over RPC", () => {
             communityAddress: community.address,
             pkc: clientPKC,
             postProps: {
-                challengeRequest: { challengeAnswers: ["red"] }
+                challengeRequest: { challengeAnswers: { "0": "red" } }
             }
         });
         await publishWithExpectedResult({ publication: wrongPost, expectedChallengeSuccess: false });

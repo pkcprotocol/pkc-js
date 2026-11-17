@@ -62,7 +62,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             const props = {
                 challengeRequest: {
                     challengeCommentCids: ["QmVZR5Ts9MhRc66hr6TsYnX1A2oPhJ2H1fRJknxgjLLwrh"],
-                    challengeAnswers: ["test123"]
+                    challengeAnswers: { "0": "test123" }
                 },
                 communityAddress: communityAddress,
                 commentCid: commentToMod.cid,
