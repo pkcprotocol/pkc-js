@@ -16,9 +16,10 @@ import Database, { type Database as BetterSqlite3Database } from "better-sqlite3
 // - The lock lives exactly as long as the connection it is attached to. Closing that connection releases it, and
 //   better-sqlite3 closes a connection that is garbage collected, so the lock is attached to the community's own
 //   connection, which a started community holds on to anyway (DbHandler refuses to close it while the lock is held).
-// - Nothing in the holder's process may open the sidecar other than through SQLite. POSIX drops every lock a process
-//   holds on a file when it closes any descriptor of that file, and only SQLite's own bookkeeping guards against that.
-//   The directory listing in util.ts reads file headers with plain fs calls, and skips the sidecar by its name.
+// - On POSIX nothing in the holder's process may open the sidecar other than through SQLite. POSIX drops every lock a
+//   process holds on a file when it closes any descriptor of that file, and only SQLite's own bookkeeping guards against
+//   that. The directory listing in util.ts reads file headers with plain fs calls, and skips the sidecar by its name.
+//   Windows locks belong to the handle, which is why the check below may use plain fs calls there.
 // - The sidecar is never deleted while its community exists. Unlinking it on release would let a second process lock
 //   the unlinked file while a third creates and locks a new one at the same path.
 // - dataPath must be on a local filesystem. File locks are unreliable on network filesystems (NFS, SMB).
@@ -37,10 +38,39 @@ export function getStartLockPath({ dataPath, communityAddress }: StartLockArgs):
 const isSqliteBusyError = (error: unknown): boolean =>
     typeof (error as { code?: unknown })?.code === "string" && (error as { code: string }).code.startsWith("SQLITE_BUSY");
 
+// The first of the bytes SQLite locks in a database file. They sit at a fixed offset far beyond the data and are part
+// of its file format (PENDING_BYTE): https://www.sqlite.org/fileformat2.html#the_lock_byte_page
+const SQLITE_PENDING_BYTE_OFFSET = 0x40000000;
+
+// Windows only. SQLite gives up on a locked database there only after sleeping twice, which Windows rounds up to its
+// timer tick: 31ms for each held lock, against microseconds elsewhere, and pkc.communities checks every community on
+// every refresh (issue #561). Windows refuses a read of a byte another handle has locked exclusively, so reading the
+// first lock byte tells whether the start lock is held, in microseconds and without taking any lock. A shared or
+// reserved lock, which nothing takes on a sidecar, would not refuse the read.
+function isCommunityStartLockedOnWindows(startLockPath: string): boolean {
+    let fd: number;
+    try {
+        fd = fs.openSync(startLockPath, "r");
+    } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") return false; // never started, or its community was deleted
+        throw e;
+    }
+    try {
+        fs.readSync(fd, Buffer.alloc(1), 0, 1, SQLITE_PENDING_BYTE_OFFSET);
+        return false; // reads nothing, the byte is beyond the end of the file
+    } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "EBUSY") return true;
+        throw e;
+    } finally {
+        fs.closeSync(fd);
+    }
+}
+
 // A read of the sidecar needs a shared lock, which the holder's exclusive lock refuses. Read-only and with no busy
 // timeout, so the check changes nothing on disk and never waits.
 export function isCommunityStartLockedSync(args: StartLockArgs): boolean {
     const startLockPath = getStartLockPath(args);
+    if (process.platform === "win32") return isCommunityStartLockedOnWindows(startLockPath);
     if (!fs.existsSync(startLockPath)) return false; // never started
     let db: BetterSqlite3Database;
     try {
@@ -76,8 +106,8 @@ export function takeStartLock({ db, dataPath, communityAddress }: StartLockArgs 
     if (db.inTransaction) throw Error("The start lock of a community can't be taken inside a transaction");
     const busyTimeout = db.pragma("busy_timeout", { simple: true }) as number;
     // The wait is synchronous, so the connection's own timeout would block the event loop for seconds under a held lock.
-    // Not zero either: a check from another process holds a shared lock on the sidecar for the length of one read, and
-    // a start that ran into it would be refused as if the community were started
+    // Not zero either: a check from another process holds a shared lock on the sidecar for the length of one read
+    // (except on Windows), and a start that ran into it would be refused as if the community were started
     db.pragma(`busy_timeout = ${TAKE_START_LOCK_BUSY_TIMEOUT_MS}`);
     const startLockPath = getStartLockPath({ dataPath, communityAddress });
     // ATTACH opens the sidecar with the flags of `db`, which is opened with fileMustExist and so cannot create it.

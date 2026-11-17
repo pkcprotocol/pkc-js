@@ -86,8 +86,8 @@ describe("isCommunitiesListChangeEvent with a held start lock", () => {
 });
 
 // The filter runs inside the watcher callback, where a throw is an uncaught exception that can end the process. A start
-// lock check that fails must not escape it. The failure here is a sidecar that is not a database, which the check
-// cannot read.
+// lock check that fails must not escape it. The failure here is a directory where the sidecar should be, which the check
+// can read on no platform.
 describe("isCommunitiesListChangeEvent when the start lock check fails", () => {
     const dataPath = path.join(process.cwd(), ".tmp", `communities-watch-events-check-fails-${uuidv4()}`);
 
@@ -98,8 +98,7 @@ describe("isCommunitiesListChangeEvent when the start lock check fails", () => {
             communities: [{ name: communityAddress, publicKey: "12D3KooWLockCheckFails", address: communityAddress, started: false }]
         } as unknown as PKC;
         const startLockPath = getStartLockPath({ dataPath, communityAddress });
-        fs.mkdirSync(path.dirname(startLockPath), { recursive: true });
-        fs.writeFileSync(startLockPath, "not a database ".repeat(100));
+        fs.mkdirSync(startLockPath, { recursive: true });
         let result: boolean | undefined;
         try {
             expect(() => isCommunityStartLockedSync({ dataPath, communityAddress })).to.throw(); // the check does fail

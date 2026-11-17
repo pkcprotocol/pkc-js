@@ -96,6 +96,24 @@ describeSkipIfRpc("how long a start lock stays held", () => {
         expect(await anotherProcessIsRefused()).to.be.true;
     });
 
+    // pkc.communities checks every community on each refresh, in the event loop. Through SQLite a held lock took 31ms to
+    // check on Windows, which stalled a process with a few dozen started communities for seconds (the first Windows CI
+    // run of issue #561). 40 checks take about 2ms on every platform.
+    it("is cheap to check while held, from its holder's process and from another", async () => {
+        const timeChecks = () => {
+            const startedAt = performance.now();
+            for (let i = 0; i < 40; i++) expect(isCommunityStartLockedSync({ dataPath, communityAddress: address })).to.be.true;
+            return performance.now() - startedAt;
+        };
+
+        await dbHandler.lockCommunityStart();
+        expect(timeChecks(), "40 checks from the holder's process, in ms").to.be.lessThan(250);
+        await dbHandler.unlockCommunityStart();
+
+        holder = await holdStartLockInAnotherProcess({ dataPath, communityAddress: address });
+        expect(timeChecks(), "40 checks from another process, in ms").to.be.lessThan(250);
+    });
+
     it("survives writes, a failed write, a VACUUM and a backup on the connection that holds it", async () => {
         await dbHandler.lockCommunityStart();
         const db = dbHandler._db;
