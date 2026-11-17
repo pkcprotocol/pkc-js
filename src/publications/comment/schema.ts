@@ -304,7 +304,10 @@ export const CommentUpdateTableRowSchema = CommentUpdateSchema.extend({
     insertedAt: PKCTimestampSchema,
     postUpdatesBucket: z.int().nonnegative().optional(), // the post updates bucket of post CommentUpdate, not applicable to replies
     publishedToPostUpdatesMFS: z.boolean(), // whether the comment latest update has been published
-    replies: DbRepliesSchema.optional() // Override: DB stores CID refs, not wire format
+    replies: DbRepliesSchema.optional(), // Override: DB stores CID refs, not wire format
+    // Keys of the signed record that CommentUpdateSchema does not know (a challenge's commentUpdate extras). A snapshot of
+    // what was signed, rebuilt with the table on every DB_VERSION bump, never a source of truth
+    extraProps: z.looseObject({}).optional()
 });
 
 // Comment pubsub reserved fields
@@ -388,7 +391,8 @@ export const CommentIpfsReservedFields = difference(
 
 export const CommentUpdateReservedFields = difference(CommentPubsubMessageReservedFields, [
     ...keys(CommentUpdateSchema.shape),
-    ...keys(CommentUpdateTableRowSchema.shape),
+    // extraProps is the table's column for the record's unknown keys, never a key of the record itself: it stays reserved
+    ...keys(CommentUpdateTableRowSchema.shape).filter((key) => key !== "extraProps"),
     "pendingApproval"
 ]);
 

@@ -8,6 +8,7 @@ import { cleanUpBeforePublishing, signCommentUpdate, verifyCommentUpdate } from 
 import { PKCError } from "../../../../pkc-error.js";
 import { getAuthorNameFromWire } from "../../../../publications/publication-author.js";
 import { deriveDbReplies } from "../../util.js";
+import { commentUpdateToDbRow } from "../comment-update-row.js";
 import type {
     CommentsTableRow,
     CommentUpdatesRow,
@@ -180,15 +181,22 @@ export async function calculateNewCommentUpdate(opts: {
         );
         community._mfsPathsToRemove.add(oldPostUpdates);
     }
-    const newCommentUpdateDbRecord = <CommentUpdatesTableRowInsert>{
-        ...newCommentUpdate,
-        // Store CID refs instead of full inline page data — see deriveDbReplies()
-        replies: deriveDbReplies({ replies: newCommentUpdate.replies, allPageCids, flatSortNames: generatedRepliesPages?.flatSortNames }),
-        postUpdatesBucket: newPostUpdateBucket,
-        publishedToPostUpdatesMFS: false,
-
-        insertedAt: batchStartTimestamp
-    };
+    // commentUpdateToDbRow moves the keys CommentUpdateSchema does not know (a challenge's commentUpdate extras) into extraProps,
+    // so the page entry rebuilt from this row is the record signed above (issue #572)
+    const newCommentUpdateDbRecord = commentUpdateToDbRow({
+        update: newCommentUpdate,
+        dbOnlyFields: {
+            // Store CID refs instead of full inline page data — see deriveDbReplies()
+            replies: deriveDbReplies({
+                replies: newCommentUpdate.replies,
+                allPageCids,
+                flatSortNames: generatedRepliesPages?.flatSortNames
+            }),
+            postUpdatesBucket: newPostUpdateBucket,
+            publishedToPostUpdatesMFS: false,
+            insertedAt: batchStartTimestamp
+        }
+    });
     return {
         newCommentUpdate,
         newCommentUpdateToWriteToDb: newCommentUpdateDbRecord,

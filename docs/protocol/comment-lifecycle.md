@@ -90,6 +90,16 @@ gallery?: {
 - `replies`: pre-loaded first page of replies
 - `signature`: community owner's signature
 - `updatedAt`, `protocolVersion`
+- Challenge extras: a challenge's `commentUpdate` may set keys `CommentUpdateSchema` does not know (anything outside `CommentUpdateReservedFields`). They are listed in `signature.signedPropertyNames`, ride in the CommentUpdate, and readers parse the record loosely (unknown keys land on the `Comment` instance)
+
+## One Signed Record, Two Deliveries
+
+The community signs a CommentUpdate once and ships that record two ways: as the file in the post-updates MFS folder, and as an entry of a page (rebuilt from the `commentUpdates` row). They must be the same record: a page embeds what its comment signed, and a difference invalidates the signature.
+
+- `commentUpdateToDbRow` and the page row mapper (`src/runtime/node/community/comment-update-row.ts`, `createPositionalCommentRowMapper`) are the one definition of the record <-> row mapping. Keys `CommentUpdateSchema` does not know go in the `commentUpdates.extraProps` JSON column and are spread back on read.
+- `commentUpdates.extraProps` is a snapshot of the signed record, never a source of truth. The table is dropped and rebuilt on every `DB_VERSION` bump; the durable source of a challenge's extras is `comments.challengeCommentUpdate`.
+- `signCommentUpdate` and `signCommentUpdateForChallengeVerification` build `signedPropertyNames` from the same helper (the fixed base names plus every other key on the record), so a key can never be in the record and out of the signature (issue #572).
+- Adding a `CommentUpdateSchema` key means adding its column to the `commentUpdates` table and to `upsertCommentUpdates`; `test/node/community/commentUpdate.extraProps.roundtrip.db.community.test.ts` fails if a key does not survive the round trip.
 
 ## Which Replies Count
 

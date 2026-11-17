@@ -309,9 +309,18 @@ export async function signCommentUpdate({
 }): Promise<CommentUpdateSignature> {
     const log = Logger("pkc-js:signatures:signCommentUpdate");
     // Not sure, should we validate update.authorEdit here?
-    return <CommentUpdateSignature>(
-        await _signJson(<JsonSignature["signedPropertyNames"]>CommentUpdateSignedPropertyNames, update, signer, log)
-    );
+    // Challenge-supplied keys that CommentUpdateSchema does not know (db-handler seeds them into the update from
+    // comments.challengeCommentUpdate) must be signed too, or verifyCommentUpdate rejects the community's own
+    // record and its update cycle stalls (issue #572).
+    return <CommentUpdateSignature>await _signJson(_withExtraKeysSigned(CommentUpdateSignedPropertyNames, update), update, signer, log);
+}
+
+// The base property names plus every other key present on the record (except `signature`), so verification, which
+// reads the keys from signature.signedPropertyNames, covers them. Shared by both CommentUpdate signers so they
+// cannot drift apart again.
+function _withExtraKeysSigned(baseNames: readonly string[], record: Record<string, unknown>): JsonSignature["signedPropertyNames"] {
+    const extraKeys = Object.keys(record).filter((k) => !baseNames.includes(k) && k !== "signature");
+    return <JsonSignature["signedPropertyNames"]>[...baseNames, ...extraKeys];
 }
 
 export async function signCommentUpdateForChallengeVerification({
@@ -325,13 +334,7 @@ export async function signCommentUpdateForChallengeVerification({
     // Dynamic signedPropertyNames so challenge-supplied keys (e.g. `reason`, `countryCode`) land in
     // the signature alongside the base picked fields. Verification on the author side reads keys
     // from signature.signedPropertyNames, so extras are signed-and-verified.
-    const extraKeys = Object.keys(update).filter(
-        (k) => !(CommentUpdateForChallengeVerificationSignedPropertyNames as readonly string[]).includes(k) && k !== "signature"
-    );
-    const signedPropertyNames = [
-        ...CommentUpdateForChallengeVerificationSignedPropertyNames,
-        ...extraKeys
-    ] as JsonSignature["signedPropertyNames"];
+    const signedPropertyNames = _withExtraKeysSigned(CommentUpdateForChallengeVerificationSignedPropertyNames, update);
     return <CommentUpdateForChallengeVerificationSignature>await _signJson(signedPropertyNames, update, signer, log);
 }
 
