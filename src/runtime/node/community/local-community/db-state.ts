@@ -83,8 +83,8 @@ type InternalStateProps = Partial<InternalCommunityRecordBeforeFirstUpdateType |
 // guarded them before, which a killed process left behind (issue #561).
 // A writer of the whole record (the publish cycle, stop()) passes a function that builds it, called inside that
 // transaction. A record built before it lacked an edit of a started community that stored itself in the meantime, and was
-// written over it. That edit applies itself to the instance right after its write, in the same synchronous run, so before
-// another writer can build its record.
+// written over it. The instance it is built from gets such an edit only once edit() resumes after its write, so until
+// then the edit's props are in community._editsStoredNotApplied, and are laid over the record built here.
 export async function updateDbInternalState(
     community: LocalCommunity,
     propsOrBuildProps: InternalStateProps | (() => InternalStateProps)
@@ -98,7 +98,8 @@ export async function updateDbInternalState(
     try {
         const internalStateUpdateId = uuidV4();
         const mergedInternalState = community._dbHandler.runInWriteTransaction(() => {
-            if (typeof propsOrBuildProps === "function") props = propsOrBuildProps();
+            if (typeof propsOrBuildProps === "function")
+                props = Object.assign(propsOrBuildProps(), ...community._editsStoredNotApplied) as InternalStateProps;
             props._internalStateUpdateId = internalStateUpdateId;
             const internalStateBefore = community._getDbInternalState(); // through the method, which tests patch
             // Convert posts to CID-ref format for compact DB storage (strip preloaded page data)

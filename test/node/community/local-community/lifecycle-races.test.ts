@@ -524,6 +524,43 @@ describeSkipIfRpc("edit() on a started community", () => {
         }
     });
 
+    it("stays in the DB when a write of the whole record was queued the moment the edit stored itself", async () => {
+        const { community } = await createOfflineCommunity();
+        await community.start();
+        const title = `edited ${uuidV4()}`;
+
+        // A publish cycle writes the whole record, built from the instance inside its write transaction. Queue such a
+        // write right before edit() stores the edit: its transaction then runs after the edit's, and before edit()
+        // resumes and applies the edit to the instance. It used to build the record without the edit and write it
+        // over the edit.
+        const dbHandler = community._dbHandler;
+        const runInWriteTransaction = dbHandler.runInWriteTransaction.bind(dbHandler);
+        let wholeRecordWrite: Promise<unknown> | undefined;
+        let titleWhenWholeRecordWasBuilt: string | undefined;
+        const initDbIfNeeded = dbHandler.initDbIfNeeded.bind(dbHandler);
+        dbHandler.runInWriteTransaction = <T>(write: () => T): T => {
+            if (!wholeRecordWrite) {
+                // The whole-record write is one step from its transaction, as a publish cycle is once the connection
+                // it asked for is there (it is open: the community is started)
+                dbHandler.initDbIfNeeded = () => Promise.resolve();
+                wholeRecordWrite = community._updateDbInternalState(() => {
+                    titleWhenWholeRecordWasBuilt = community.title;
+                    return community.toJSONInternalBeforeFirstUpdate();
+                });
+                dbHandler.initDbIfNeeded = initDbIfNeeded;
+            }
+            return runInWriteTransaction(write);
+        };
+
+        await community.edit({ title });
+        await wholeRecordWrite;
+        expect(titleWhenWholeRecordWasBuilt, "the whole record was built before edit() applied itself").to.not.equal(title);
+
+        // What a restart after a crash here would load
+        expect((await community._getDbInternalState()).title).to.equal(title);
+        await community.stop();
+    });
+
     it("called while stop() is tearing down waits for the teardown, then edits the stopped community", async () => {
         const { community } = await createOfflineCommunity();
         await community.start();
