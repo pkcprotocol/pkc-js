@@ -90,7 +90,7 @@ export async function holdStartLockInAnotherProcess({
 const START_IN_ANOTHER_PROCESS_TIMEOUT_MS = 120_000;
 
 // Runs a second process that starts the community for real: its own PKC on the same dataPath, createCommunity() and
-// start(). Resolves once that process has published the community's first record of this run. kill() is a SIGKILL, so
+// start(). Resolves once that process has published the community's first record of this run and stored it. kill() is a SIGKILL, so
 // the process gets no chance to stop the community or release anything.
 export async function startCommunityInAnotherProcess({
     dataPath,
@@ -110,7 +110,11 @@ export async function startCommunityInAnotherProcess({
             community.on("error", () => {});
             const updatedAtBefore = community.updatedAt;
             await community.start();
-            while (community.updatedAt === updatedAtBefore) await new Promise((resolve) => setTimeout(resolve, 50));
+            // Until the record is in the DB, not only on the instance: the publish cycle stores it a call to kubo later,
+            // and a process killed in between has published a record its DB does not know
+            const storedUpdatedAt = () => community._getDbInternalState()?.updatedAt;
+            while (community.updatedAt === updatedAtBefore || storedUpdatedAt() !== community.updatedAt)
+                await new Promise((resolve) => setTimeout(resolve, 50));
             globalThis.community = community;
             process.stdout.write("started\\n");
         } catch (error) {
