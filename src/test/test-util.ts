@@ -1496,7 +1496,7 @@ export async function publishChallengeMessageWithExtraProps({
     const log = Logger("pkc-js:test-util:publishChallengeMessageWithExtraProps");
 
     const encryptedChallenges = await encryptEd25519AesGcmPublicKeyBuffer(
-        deterministicStringify({ challenges: [] })!,
+        deterministicStringify({ challenges: { "0": { challenge: "1+1=?", type: "text/plain", caseInsensitive: true } } })!, // a CHALLENGE is a non-empty record keyed by challenge index
         pubsubSigner.privateKey,
         Object.values(publication._challengeExchanges)[0].challengeRequest.signature.publicKey
     );
