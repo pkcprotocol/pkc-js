@@ -441,7 +441,7 @@ describeSkipIfRpc("exclude/role identity: resolver-independent cases (resolveAut
             // Validation has already resolved the name and concluded "moderator" by the time this fires.
             post.once("challenge", async () => {
                 harness.resolverShouldThrow.value = true;
-                await post.publishChallengeAnswers({ challengeAnswers: { "0": "2" } });
+                await post.publishChallengeAnswers({ challengeAnswers: { "1": "2" } });
             });
             const verification = await new Promise<DecryptedChallengeVerificationMessageType>((resolve) => {
                 post.once("challengeverification", resolve);
@@ -462,7 +462,7 @@ describeSkipIfRpc("exclude/role identity: resolver-independent cases (resolveAut
                 postProps: { signer: ownerSigner, author: { address: harness.ownerDomain } }
             });
             post.once("challenge", async () => {
-                await post.publishChallengeAnswers({ challengeAnswers: { "0": "2" } });
+                await post.publishChallengeAnswers({ challengeAnswers: { "1": "2" } });
             });
             const verification = await new Promise<DecryptedChallengeVerificationMessageType>((resolve) => {
                 post.once("challengeverification", resolve);
