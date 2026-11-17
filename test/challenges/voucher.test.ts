@@ -44,7 +44,7 @@ describe.skip("voucher challenge", () => {
 
     interface ChallengeRequestOverrides {
         publication?: Record<string, unknown>;
-        challengeAnswers?: string[];
+        challengeAnswers?: Record<string, string>;
         [key: string]: unknown;
     }
 
@@ -206,7 +206,7 @@ describe.skip("voucher challenge", () => {
         it("handles pre-answered challenges correctly", async () => {
             const community = createCommunity();
             const challengeRequestMessage = createChallengeRequestMessage({
-                challengeAnswers: ["VOUCHER1"]
+                challengeAnswers: { "0": "VOUCHER1" }
             });
 
             const result = await testGetPendingChallengesOrChallengeVerification(challengeRequestMessage, community);
@@ -217,7 +217,7 @@ describe.skip("voucher challenge", () => {
         it("rejects pre-answered challenges with invalid voucher", async () => {
             const community = createCommunity();
             const challengeRequestMessage = createChallengeRequestMessage({
-                challengeAnswers: ["INVALID_VOUCHER"]
+                challengeAnswers: { "0": "INVALID_VOUCHER" }
             });
 
             const result = await testGetPendingChallengesOrChallengeVerification(challengeRequestMessage, community);

@@ -15,7 +15,7 @@ import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-loca
 import type { SignerType } from "../../../../dist/node/signer/types.js";
 import type { CommentUpdateType, CommentUpdatesRow } from "../../../../dist/node/publications/comment/types.js";
 
-const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: ["pending"] } };
+const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: { "0": "pending" } } };
 
 const ONE_MINUTE = 60;
 const DEFAULT_MOD_PROPS = { approved: false, reason: "Expired disapproval" };

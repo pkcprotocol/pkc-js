@@ -128,7 +128,7 @@ describeSkipIfRpc.sequential(`DB importing`, async () => {
 
         const mockPost: Comment = await generateMockPost({ communityAddress: community.address, pkc: tempPKC });
         mockPost.once("challenge", async () => {
-            await mockPost.publishChallengeAnswers({ challengeAnswers: ["2"] }); // hardcode answer here
+            await mockPost.publishChallengeAnswers({ challengeAnswers: { "0": "2" } }); // hardcode answer here
         });
 
         await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });

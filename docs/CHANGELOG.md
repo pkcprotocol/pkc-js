@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.152](https://github.com/pkcprotocol/pkc-js/compare/v0.0.151...v0.0.152) (2026-11-17)
+
+### ⚠ BREAKING CHANGES
+
+* **challenges:** carry challenge answers as per-index records, not arrays (#569)
+
+### Features
+
+* **challenges:** carry challenge answers as per-index records, not arrays ([#569](https://github.com/pkcprotocol/pkc-js/issues/569)) ([c255031](https://github.com/pkcprotocol/pkc-js/commit/c255031b20854cf1af4b0c6a1953352e27c9f91a)), closes [#567](https://github.com/pkcprotocol/pkc-js/issues/567)
+
 ## [0.0.151](https://github.com/pkcprotocol/pkc-js/compare/v0.0.150...v0.0.151) (2026-11-17)
 
 ### Bug Fixes

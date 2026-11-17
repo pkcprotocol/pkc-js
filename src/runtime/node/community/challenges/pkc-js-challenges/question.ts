@@ -30,8 +30,7 @@ const description = `Ask a question, like 'What is the password?'`;
 
 const getChallenge = async ({
     challengeSettings,
-    challengeRequestMessage,
-    challengeIndex
+    challengeAnswer
 }: GetChallengeArgsInput): Promise<ChallengeInput | ChallengeResultInput> => {
     if (!challengeSettings?.options?.question) throw Error("No option question");
     let answer = challengeSettings?.options?.answer;
@@ -40,7 +39,6 @@ const getChallenge = async ({
     }
 
     // use the answer preincluded in the challenge request when possible
-    const challengeAnswer = challengeRequestMessage?.challengeAnswers?.[challengeIndex];
 
     // the author didn't preinclude his answer, so send him a pubsub challenge message
     if (challengeAnswer === undefined) {

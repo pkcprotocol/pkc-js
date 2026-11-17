@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-    ChallengeAnswersSchema,
+    ChallengeAnswersByIndexSchema,
     CreatePublicationUserOptionsSchema,
     PKCTimestampSchema,
     ProtocolVersionSchema,
@@ -89,7 +89,10 @@ export const ChallengeMessageSchema = PubsubMessageBaseSchema.extend({
 
 export const DecryptedChallengeSchema = z
     .object({
-        challenges: ChallengeInChallengePubsubMessageSchema.array()
+        // challenge index => challenge. Only the challenges that still need an answer, so the keys can be sparse.
+        challenges: z
+            .record(nonNegativeIntStringSchema, ChallengeInChallengePubsubMessageSchema)
+            .refine((challenges) => Object.keys(challenges).length > 0, "a CHALLENGE must contain at least one challenge")
     })
     .strict();
 export const ChallengeMessageSignedPropertyNames = keys(omit(ChallengeMessageSchema.shape, ["signature"]));
@@ -103,7 +106,7 @@ export const ChallengeAnswerMessageSchema = PubsubMessageBaseSchema.extend({
 
 export const DecryptedChallengeAnswerSchema = z
     .object({
-        challengeAnswers: ChallengeAnswersSchema // for example ['2+2=4', '1+7=8']
+        challengeAnswers: ChallengeAnswersByIndexSchema // keyed by the challenge index of each CHALLENGE entry, for example { "0": "2+2=4", "2": "1+7=8" }
     })
     .strict();
 

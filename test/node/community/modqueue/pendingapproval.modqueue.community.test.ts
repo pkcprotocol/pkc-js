@@ -36,7 +36,7 @@ import type {
 } from "../../../../dist/node/community/types.js";
 
 const depthsToTest = [0, 1, 2, 3, 10];
-const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: ["pending"] } }; // this should get comment to be successful with challenge, thus sending it to modqueue
+const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: { "0": "pending" } } }; // this should get comment to be successful with challenge, thus sending it to modqueue
 
 for (const commentInPendingApprovalDepth of depthsToTest) {
     // made it sequential because maybe it can stop failing in CI
@@ -332,7 +332,7 @@ for (const commentInPendingApprovalDepth of depthsToTest) {
                 commentCid: commentInPendingApproval.cid!,
                 deleted: true,
                 signer: commentInPendingApproval.signer,
-                challengeRequest: { challengeAnswers: ["pending"] }
+                challengeRequest: { challengeAnswers: { "0": "pending" } }
             });
             await publishWithExpectedResult({
                 publication: deleteEdit,

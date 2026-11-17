@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comment/schema.js";
-import { AuthorAddressSchema, ChallengeAnswersSchema, CidStringSchema } from "../../schema/schema.js";
+import { AuthorAddressSchema, ChallengeAnswersByIndexSchema, CidStringSchema } from "../../schema/schema.js";
 import { CommunityEditOptionsSchema, CommunityExportRecordsSchema, ExportCommunityModLogsOptionsSchema } from "../../community/schema.js";
 import { CommentModerationsTableRowSchema } from "../../publications/comment-moderation/schema.js";
 import { NameResolveCacheOptionsSchema } from "../../schema.js";
@@ -54,7 +54,7 @@ export const RpcEditCommunityParamSchema = z
     .refine((args) => args.name || args.publicKey, "At least one of name or publicKey must be provided");
 export const RpcPublishChallengeAnswersParamSchema = z.object({
     subscriptionId: SubscriptionIdSchema,
-    challengeAnswers: ChallengeAnswersSchema
+    challengeAnswers: ChallengeAnswersByIndexSchema
 });
 export const RpcUnsubscribeParamSchema = z.object({ subscriptionId: SubscriptionIdSchema });
 

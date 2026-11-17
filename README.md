@@ -345,7 +345,7 @@ ChallengeRequestMessage extends PubsubMessage /* (sent by post author) */ {
     commentEdit?: CommentEdit
     commentModeration?: CommentModeration
     communityEdit?: CommunityEdit
-    challengeAnswers?: string[] // some challenges might be included in community.challenges and can be pre-answered
+    challengeAnswers?: {[challengeIndex: string]: string} // pre-answers to challenges in community.challenges, keyed by challenge index (the position in community.challenges, as a decimal string). A challenge with no key has no pre-answer. Non-empty when present
     challengeCommentCids?: string[] // some challenges could require including comment cids in other communities, like friendly community karma challenges
   }
   pkc-js should decrypt the encrypted fields when possible, and add them to the message for convenience, e.g. `ChallengeRequestMessage.comment` or `ChallengeRequestMessage.vote` (not part of the broadcasted pubsub message) */
@@ -353,14 +353,14 @@ ChallengeRequestMessage extends PubsubMessage /* (sent by post author) */ {
 ChallengeMessage extends PubsubMessage /* (sent by community owner) */ {
   encrypted: Encrypted
   /* ChallengeMessage.encrypted.ciphertext decrypts to JSON {
-    challenges: Challenge[]
+    challenges: {[challengeIndex: string]: Challenge} // only the challenges that still need an answer, keyed by challenge index (a sparse subset of community.challenges). Never empty
   }
   pkc-js should decrypt the encrypted fields when possible, and add `ChallengeMessage.challenges` property for convenience (not part of the broadcasted pubsub message) */
 }
 ChallengeAnswerMessage extends PubsubMessage /* (sent by post author) */ {
   encrypted: Encrypted
   /* ChallengeAnswerMessage.encrypted.ciphertext decrypts to JSON {
-    challengeAnswers: string[] // for example ['2+2=4', '1+7=8']
+    challengeAnswers: {[challengeIndex: string]: string} // keyed by the challenge index of each ChallengeMessage.challenges entry, for example {'0': '2+2=4', '2': '1+7=8'}
   }
   pkc-js should decrypt the encrypted fields when possible, and add `ChallengeAnswerMessage.challengeAnswers` property for convenience (not part of the broadcasted pubsub message) */
 }
@@ -1014,7 +1014,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| challengeAnswers | `string[]` or `undefined` | Optional pre-answers to community.challenges |
+| challengeAnswers | `{[challengeIndex: string]: string}` or `undefined` | Optional pre-answers to community.challenges, keyed by challenge index. A challenge with no key has no pre-answer |
 | challengeCommentCids | `string[]` or `undefined` | Optional comment cids for community.challenges related to author karma/age in other communities |
 
 #### Returns
@@ -1093,7 +1093,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| challengeAnswers | `string[]` or `undefined` | Optional pre-answers to community.challenges |
+| challengeAnswers | `{[challengeIndex: string]: string}` or `undefined` | Optional pre-answers to community.challenges, keyed by challenge index. A challenge with no key has no pre-answer |
 | challengeCommentCids | `string[]` or `undefined` | Optional comment cids for community.challenges related to author karma/age in other communities |
 
 #### Returns
@@ -1217,7 +1217,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| challengeAnswers | `string[]` or `undefined` | Optional pre-answers to community.challenges |
+| challengeAnswers | `{[challengeIndex: string]: string}` or `undefined` | Optional pre-answers to community.challenges, keyed by challenge index. A challenge with no key has no pre-answer |
 | challengeCommentCids | `string[]` or `undefined` | Optional comment cids for community.challenges related to author karma/age in other communities |
 
 #### Returns
@@ -1649,7 +1649,7 @@ await retry.publish()
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| challengeAnswers | `string[]` | The challenge answers |
+| challengeAnswers | `{[challengeIndex: string]: string}` | The challenge answers, keyed by the challenge index of each entry in `challengeMessage.challenges`. A challenge you leave out fails as unanswered |
 
 #### Example
 
