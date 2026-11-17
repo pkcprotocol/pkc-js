@@ -140,7 +140,7 @@ describe.concurrent(`community.settings.challenges`, async () => {
             postProps: { challengeRequest: { challengeAnswers: { "0": "2" } } }
         });
 
-        expect(mockPost.challengeRequest!.challengeAnswers).to.deep.equal(["2"]);
+        expect(mockPost.challengeRequest!.challengeAnswers).to.deep.equal({ "0": "2" });
 
         let receivedChallenge = false;
         mockPost.once("challenge", () => {

@@ -69,7 +69,7 @@ describeSkipIfRpc.concurrent(`community.settings.challenges with path`, async ()
             }
         });
 
-        expect(mockPost.challengeRequest!.challengeAnswers).to.deep.equal(["4"]);
+        expect(mockPost.challengeRequest!.challengeAnswers).to.deep.equal({ "0": "4" });
 
         let receivedChallenge = false;
         mockPost.once("challenge", () => {
