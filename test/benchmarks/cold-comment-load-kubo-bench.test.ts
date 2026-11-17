@@ -23,6 +23,12 @@ import type { LocalCommunity } from "../../dist/node/runtime/node/community/loca
 // so they are the "connect off" arm of the same build.
 //
 // Env knobs: BENCH_ROUNDS (default 3), BENCH_LIMIT_MS (default 25000), BENCH_LABEL (default "run").
+// A directory run such as `npm run test:node` collects every *.test.ts under test/, this file
+// included, so the benchmark only runs when it is named on the command line.
+// run-test-config.js puts the paths it was given into VITEST_INCLUDE_GLOBS.
+const NAMED_ON_COMMAND_LINE = (JSON.parse(process.env.VITEST_INCLUDE_GLOBS ?? "[]") as string[]).some((glob) =>
+    glob.endsWith(path.basename(import.meta.filename))
+);
 const ROUNDS = Number(process.env.BENCH_ROUNDS) > 0 ? Number(process.env.BENCH_ROUNDS) : 3;
 const LIMIT_MS = Number(process.env.BENCH_LIMIT_MS) > 0 ? Number(process.env.BENCH_LIMIT_MS) : 25_000;
 const LABEL = process.env.BENCH_LABEL ?? "run";
@@ -213,36 +219,42 @@ async function runRound(variant: VariantKey, round: number): Promise<RoundResult
     return result;
 }
 
-describe("cold kubo client: comment load by CID with no provider record for the comment (issue #562)", () => {
-    it(`${VARIANTS.length} variants x ${ROUNDS} rounds`, async () => {
-        const results: RoundResult[] = [];
-        for (const variant of VARIANTS)
-            for (let round = 1; round <= ROUNDS; round++) {
-                const roundResult = await runRound(variant, round);
-                results.push(roundResult);
-                console.log("[bench-562-kubo]", JSON.stringify(roundResult));
+describe.skipIf(!NAMED_ON_COMMAND_LINE)(
+    "cold kubo client: comment load by CID with no provider record for the comment (issue #562)",
+    () => {
+        it(`${VARIANTS.length} variants x ${ROUNDS} rounds`, async () => {
+            const results: RoundResult[] = [];
+            for (const variant of VARIANTS)
+                for (let round = 1; round <= ROUNDS; round++) {
+                    const roundResult = await runRound(variant, round);
+                    results.push(roundResult);
+                    console.log("[bench-562-kubo]", JSON.stringify(roundResult));
+                }
+            const seconds = (ms: number) => (ms / 1000).toFixed(1);
+            const lines = [
+                "| Variant | Loaded | Load time (s) | getCommunity called at (s) | Swarm peers at end |",
+                "|---|---|---|---|---|"
+            ];
+            for (const variant of VARIANTS) {
+                const rows = results.filter((row) => row.variant === variant);
+                const loadedRows = rows.filter((row) => row.loaded);
+                const calls = rows.map((row) => row.firstGetCommunityCallMs).filter((value): value is number => value !== undefined);
+                lines.push(
+                    `| ${variant} | ${loadedRows.length} of ${rows.length} | ${
+                        loadedRows.length
+                            ? `${seconds(Math.min(...loadedRows.map((row) => row.elapsedMs)))}-${seconds(Math.max(...loadedRows.map((row) => row.elapsedMs)))}`
+                            : `timeout at ${seconds(LIMIT_MS)}`
+                    } | ${calls.length ? `${seconds(Math.min(...calls))}-${seconds(Math.max(...calls))}` : "-"} | ${rows.map((row) => row.peersAtEnd).join(", ")} |`
+                );
             }
-        const seconds = (ms: number) => (ms / 1000).toFixed(1);
-        const lines = ["| Variant | Loaded | Load time (s) | getCommunity called at (s) | Swarm peers at end |", "|---|---|---|---|---|"];
-        for (const variant of VARIANTS) {
-            const rows = results.filter((row) => row.variant === variant);
-            const loadedRows = rows.filter((row) => row.loaded);
-            const calls = rows.map((row) => row.firstGetCommunityCallMs).filter((value): value is number => value !== undefined);
-            lines.push(
-                `| ${variant} | ${loadedRows.length} of ${rows.length} | ${
-                    loadedRows.length
-                        ? `${seconds(Math.min(...loadedRows.map((row) => row.elapsedMs)))}-${seconds(Math.max(...loadedRows.map((row) => row.elapsedMs)))}`
-                        : `timeout at ${seconds(LIMIT_MS)}`
-                } | ${calls.length ? `${seconds(Math.min(...calls))}-${seconds(Math.max(...calls))}` : "-"} | ${rows.map((row) => row.peersAtEnd).join(", ")} |`
+            const table = lines.join("\n");
+            console.log(`\n[bench-562-kubo] summary (${LABEL})\n${table}\n`);
+            fs.mkdirSync(path.resolve(".tmp"), { recursive: true });
+            fs.writeFileSync(path.resolve(".tmp", `bench-562-kubo-${LABEL}.md`), table + "\n");
+            fs.writeFileSync(
+                path.resolve(".tmp", `bench-562-kubo-${LABEL}.json`),
+                JSON.stringify({ label: LABEL, limitMs: LIMIT_MS, results }, null, 2)
             );
-        }
-        const table = lines.join("\n");
-        console.log(`\n[bench-562-kubo] summary (${LABEL})\n${table}\n`);
-        fs.mkdirSync(path.resolve(".tmp"), { recursive: true });
-        fs.writeFileSync(path.resolve(".tmp", `bench-562-kubo-${LABEL}.md`), table + "\n");
-        fs.writeFileSync(
-            path.resolve(".tmp", `bench-562-kubo-${LABEL}.json`),
-            JSON.stringify({ label: LABEL, limitMs: LIMIT_MS, results }, null, 2)
-        );
-    });
-});
+        });
+    }
+);

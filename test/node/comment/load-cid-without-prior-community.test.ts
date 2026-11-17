@@ -319,6 +319,61 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs",
             }
         }, 30_000);
 
+        it("pkc.getComment() reports a failed community load in the details of the abort error too", async () => {
+            const resolverPkc = await createColdResolverPkc();
+            // The community load has to fail before the caller aborts
+            resolverPkc._timeouts["community-ipns"] = 1_500;
+            resolverPkc._timeouts["comment-ipfs"] = 20_000;
+            const callerAbort = new AbortController();
+            try {
+                const unpublishedCommunityKey = (await resolverPkc.createSigner()).address;
+                setTimeout(() => callerAbort.abort(), 5_000);
+                let thrown: (Error & { code?: string; details?: { communityLoadError?: unknown } }) | undefined;
+                await resolverPkc
+                    .getComment({ cid: unreachableCid, communityPublicKey: unpublishedCommunityKey, abortSignal: callerAbort.signal })
+                    .catch((e) => (thrown = e));
+                expect(thrown?.code, "the abort stays the reported outcome").to.equal("ERR_GET_COMMENT_ABORTED");
+                expect(thrown!.details?.communityLoadError, "the community load failure should be attached").to.be.instanceOf(Error);
+            } finally {
+                await resolverPkc.destroy();
+            }
+        }, 30_000);
+
+        it("comment.update() aborts its community load when the CommentIpfs load fails with a non retriable error", async () => {
+            const resolverPkc = await createColdResolverPkc();
+            const recorded = recordGetCommunityCalls(resolverPkc);
+            let loadStub: { mockRestore: () => void } | undefined;
+            try {
+                // Never published, so the community load is still pending when the comment load fails
+                const unpublishedCommunityKey = (await resolverPkc.createSigner()).address;
+                const comment = await resolverPkc.createComment({ cid: unreachableCid, communityPublicKey: unpublishedCommunityKey });
+                const errors: Error[] = [];
+                comment.on("error", (error) => errors.push(error as Error));
+                const nonRetriableError = new Error("CommentIpfs is invalid (stubbed non retriable failure)");
+                // update() runs the load on a separate updating instance, so stub the method on the class
+                loadStub = vi
+                    .spyOn(Object.getPrototypeOf(comment) as { _retryLoadingCommentIpfs: () => Promise<Error> }, "_retryLoadingCommentIpfs")
+                    .mockImplementation(async () => {
+                        await new Promise((resolve) => setTimeout(resolve, 500));
+                        return nonRetriableError;
+                    });
+                await comment.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: comment,
+                    predicate: async () => comment.state === "stopped",
+                    eventName: "statechange"
+                });
+                expect(errors).to.include(nonRetriableError);
+                const abortSignal = recorded.calls[0]?.args.abortSignal;
+                expect(abortSignal, "the community load should be given an abort signal").to.be.instanceOf(AbortSignal);
+                expect(abortSignal!.aborted, "the community load should be aborted once the update loop stops itself").to.be.true;
+            } finally {
+                loadStub?.mockRestore();
+                recorded.restore();
+                await resolverPkc.destroy();
+            }
+        }, 30_000);
+
         it("starts no community connect when the community is already updating on this pkc", async () => {
             const resolverPkc = await createColdResolverPkc();
             resolverPkc._timeouts["comment-ipfs"] = 15_000;

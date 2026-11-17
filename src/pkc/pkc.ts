@@ -606,8 +606,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         } catch (e) {
             // Abort wins over whatever else the comment happened to emit: the caller cancelled on
             // purpose, so reporting a stale retriable error instead would be misleading.
-            if (abortError) throw abortError;
-            const errorToThrow = lastUpdateError ?? e;
+            const errorToThrow = abortError ?? lastUpdateError ?? e;
             if (communityLoadError) {
                 // A PKCError already has details; the plain TimeoutError gets the same shape, so a
                 // caller reads error.details.communityLoadError either way.

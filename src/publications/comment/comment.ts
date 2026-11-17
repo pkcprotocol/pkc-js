@@ -787,6 +787,9 @@ export class Comment
                     newCommentIpfsOrNonRetriableError
                 );
                 // We can't proceed with an invalid CommentIpfs, so we're stopping the update loop and emitting an error event for the user
+                // _stopUpdateLoop() drops the stop signal without aborting it, which would leave the parallel
+                // community load running with a signal no later stop() can reach
+                this._abortStopOperations(`Aborting comment operations for ${this.cid} because its CommentIpfs failed to load`);
                 await this._stopUpdateLoop();
                 this._changeCommentStateEmitEventEmitStateChangeEvent({
                     newUpdatingState: "failed",

@@ -31,6 +31,12 @@ import type { LocalCommunity } from "../../dist/node/runtime/node/community/loca
 //   BENCH_DIAL_DELAYS_MS    comma separated delays (default "0,2000,4000,6000")
 //   BENCH_VARIANTS          comma separated variant keys to run (default all)
 //   BENCH_LABEL             label written into the result file name (default "run")
+// A directory run such as `npm run test:node` collects every *.test.ts under test/, this file
+// included, so the benchmark only runs when it is named on the command line.
+// run-test-config.js puts the paths it was given into VITEST_INCLUDE_GLOBS.
+const NAMED_ON_COMMAND_LINE = (JSON.parse(process.env.VITEST_INCLUDE_GLOBS ?? "[]") as string[]).some((glob) =>
+    glob.endsWith(path.basename(import.meta.filename))
+);
 const ROUNDS = Number(process.env.BENCH_ROUNDS) > 0 ? Number(process.env.BENCH_ROUNDS) : 5;
 const LIMIT_MS = Number(process.env.BENCH_LIMIT_MS) > 0 ? Number(process.env.BENCH_LIMIT_MS) : 25_000;
 const DIAL_DELAYS_MS = (process.env.BENCH_DIAL_DELAYS_MS ?? "0,2000,4000,6000").split(",").map((value) => Number(value.trim()));
@@ -172,7 +178,7 @@ async function runRound(variant: VariantKey, dialDelayMs: number, round: number)
     return result;
 }
 
-describe("cold comment load by CID with no provider record for the comment (issue #562)", () => {
+describe.skipIf(!NAMED_ON_COMMAND_LINE)("cold comment load by CID with no provider record for the comment (issue #562)", () => {
     it(`${VARIANTS.length} variants x ${DIAL_DELAYS_MS.length} dial delays x ${ROUNDS} rounds`, async () => {
         const results: RoundResult[] = [];
         for (const dialDelayMs of DIAL_DELAYS_MS) {
