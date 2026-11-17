@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.151](https://github.com/pkcprotocol/pkc-js/compare/v0.0.150...v0.0.151) (2026-11-17)
+
+### Bug Fixes
+
+* **comment:** look up community peers at once in getComment() and update() ([#563](https://github.com/pkcprotocol/pkc-js/issues/563)) ([d9acf5a](https://github.com/pkcprotocol/pkc-js/commit/d9acf5a6c2b42e0e30ef43d782152339d622f090)), closes [#562](https://github.com/pkcprotocol/pkc-js/issues/562) [#562](https://github.com/pkcprotocol/pkc-js/issues/562) [#562](https://github.com/pkcprotocol/pkc-js/issues/562)
+
 ## [0.0.150](https://github.com/pkcprotocol/pkc-js/compare/v0.0.149...v0.0.150) (2026-11-16)
 
 ### Bug Fixes
