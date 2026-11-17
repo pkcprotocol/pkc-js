@@ -54,11 +54,12 @@ describe("isCommunitiesListChangeEvent with a held start lock", () => {
         const takeStartLockEvents = async ({ count, timeoutMs }: { count: number; timeoutMs: number }) => {
             const collected: (string | null)[] = [];
             const deadline = Date.now() + timeoutMs;
-            while (collected.length < count && Date.now() < deadline) {
+            // Reads what has arrived at least once, also with no time to wait
+            for (;;) {
                 collected.push(...filenames.splice(0).filter((filename) => filename === path.basename(lockfilePath)));
-                if (collected.length < count) await new Promise((resolve) => setTimeout(resolve, 20));
+                if (collected.length >= count || Date.now() >= deadline) return collected;
+                await new Promise((resolve) => setTimeout(resolve, 20));
             }
-            return collected;
         };
         const countsAsChange = (events: (string | null)[]) => events.map((filename) => isCommunitiesListChangeEvent({ pkc, filename }));
 

@@ -68,7 +68,11 @@ describeSkipIfRpc("DbHandler.lockCommunityStart against a holder that cannot los
 
         await dbHandler.lockCommunityStart();
         const refused = await holdStartLockInAnotherProcess({ dataPath, communityAddress: address }).then(
-            (): Error | undefined => undefined,
+            // a process that got the lock against expectation must not outlive the test
+            async (taker): Promise<Error | undefined> => {
+                await taker.kill();
+                return undefined;
+            },
             (e: Error) => e
         );
         expect(refused?.message).to.equal("failed ERR_COMMUNITY_ALREADY_STARTED");

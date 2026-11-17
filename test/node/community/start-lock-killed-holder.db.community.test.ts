@@ -70,7 +70,11 @@ describeSkipIfRpc("the start lock of a community whose holder is another process
 
         // A second process is refused the same way
         const secondProcessError = await holdStartLockInAnotherProcess({ dataPath, communityAddress: address }).then(
-            (): Error | undefined => undefined,
+            // a process that got the lock against expectation must not outlive the test
+            async (taker): Promise<Error | undefined> => {
+                await taker.kill();
+                return undefined;
+            },
             (e: Error) => e
         );
         expect(secondProcessError?.message).to.equal("failed ERR_COMMUNITY_ALREADY_STARTED");

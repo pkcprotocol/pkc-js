@@ -87,6 +87,8 @@ export async function holdStartLockInAnotherProcess({
     return { process: child, kill };
 }
 
+const START_IN_ANOTHER_PROCESS_TIMEOUT_MS = 120_000;
+
 // Runs a second process that starts the community for real: its own PKC on the same dataPath, createCommunity() and
 // start(). Resolves once that process has published the community's first record of this run. kill() is a SIGKILL, so
 // the process gets no chance to stop the community or release anything.
@@ -130,6 +132,13 @@ export async function startCommunityInAnotherProcess({
         child.kill("SIGKILL");
         await exited;
     };
+    // Bounded: a community that starts but never publishes (that process swallows its errors) would leave the caller
+    // waiting without the handle it needs to kill the process
+    let timedOut = false;
+    const notStartedInTime = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGKILL");
+    }, START_IN_ANOTHER_PROCESS_TIMEOUT_MS);
     await new Promise<void>((resolve, reject) => {
         let output = "";
         child.stdout!.on("data", (chunk: Buffer) => {
@@ -138,13 +147,14 @@ export async function startCommunityInAnotherProcess({
         });
         // A refusal is reported once the process is gone, not when it prints it: until then it has the community DB
         // open, and Windows does not let the caller's cleanup delete an open file
-        child.once("exit", (code) =>
-            reject(
-                new Error(
-                    output.includes("failed") ? output.trim() : `The other process exited with code ${code} before starting the community`
-                )
-            )
-        );
-    });
+        child.once("exit", (code) => {
+            const reason = timedOut
+                ? `The other process did not publish a record within ${START_IN_ANOTHER_PROCESS_TIMEOUT_MS}ms and was killed`
+                : output.includes("failed")
+                  ? output.trim()
+                  : `The other process exited with code ${code} before starting the community`;
+            reject(new Error(reason));
+        });
+    }).finally(() => clearTimeout(notStartedInTime));
     return { process: child, kill };
 }
