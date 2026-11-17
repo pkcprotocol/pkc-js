@@ -132,10 +132,11 @@ describeSkipIfRpc("the start lock through a community's life", () => {
     it("exportCommunityModLogs() during a start() does not close the connection that holds the lock", async () => {
         const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
 
-        let started = false;
-        const starting = community.start().then(() => (started = true));
+        let startSettled = false;
+        const starting = community.start().finally(() => (startSettled = true));
+        starting.catch(() => {}); // a failed start is thrown by the await below, once the loop has ended
         let exportsDuringStart = 0;
-        while (!started) {
+        while (!startSettled) {
             await community.exportCommunityModLogs();
             exportsDuringStart++;
             await new Promise((resolve) => setImmediate(resolve));

@@ -3610,8 +3610,10 @@ export class DbHandler {
                 await forgetCommunityThatFailedToBeDeleted({ communityAddress: newDbName, pkc: this._community._pkc });
                 if (os.type() === "Windows_NT") await deleteOldCommunityInWindows(oldPathString, this._community._pkc);
                 else await fs.promises.rm(oldPathString, { force: true });
-                // No community lives at the old address any more, so its start lock sidecar goes too
-                await fs.promises.rm(getStartLockPath({ dataPath, communityAddress: oldDbName }), { force: true });
+                // No community lives at the old address any more, so its start lock sidecar goes too. Not while the old
+                // file is still there, which it is on Windows when it could not be removed yet (see start-lock.ts)
+                if (!fs.existsSync(oldPathString))
+                    await fs.promises.rm(getStartLockPath({ dataPath, communityAddress: oldDbName }), { force: true });
             }
         } catch (error) {
             log.error(`Failed to backup/rename database from ${oldPathString} to ${newPathString}: `, error);
@@ -3629,11 +3631,13 @@ export class DbHandler {
         const communityAddress = this._community.address;
         const dataPath = this._community._pkc.dataPath!;
         await this.initDbIfNeeded();
+        // The lock directory of the mtime lock this one replaced, left by a process that was killed before an upgrade.
+        // Removed before the lock is taken: nothing may fail or wait between taking the lock and returning, since a
+        // start() that fails here has not entered the started state, whose teardown is what releases the lock
+        await fs.promises.rm(path.join(dataPath, "communities", `${communityAddress}.start.lock`), { recursive: true, force: true });
         if (!takeStartLock({ db: this._db, dataPath, communityAddress }))
             throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { communityAddress });
         this._startLockAddress = communityAddress;
-        // The lock directory of the mtime lock this one replaced, left by a process that was killed before an upgrade
-        await fs.promises.rm(path.join(dataPath, "communities", `${communityAddress}.start.lock`), { recursive: true, force: true });
         log(`Locked the start of community (${communityAddress}) successfully`);
     }
 

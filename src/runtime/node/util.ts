@@ -281,6 +281,8 @@ export async function tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc: PKC
             const communityPath = path.join(<string>pkc.dataPath, "communities", communityAddress);
             try {
                 await fsPromises.rm(communityPath, { force: true });
+                // its start lock sidecar was kept for as long as the DB was there
+                await fsPromises.rm(getStartLockPath({ dataPath: <string>pkc.dataPath, communityAddress }), { force: true });
                 log(`Succeeded in deleting old db path (${communityAddress})`);
                 communitiesThatWereDeletedSuccessfully.push(communityAddress);
             } catch (e) {
@@ -741,8 +743,9 @@ export async function moveCommunityDbToDeletedDirectory(communityAddress: string
         if (os.type() === "Windows_NT") {
             await deleteOldCommunityInWindows(oldPath, pkc);
         } else await fsPromises.rm(oldPath, { force: true });
-        // The start lock sidecar goes with its community, and only then (see start-lock.ts)
-        await fsPromises.rm(getStartLockPath({ dataPath: pkc.dataPath, communityAddress }), { force: true });
+        // The start lock sidecar goes with its community, and only then (see start-lock.ts): on Windows the DB may
+        // still be there, to be removed by tryToDeleteCommunitiesThatFailedToBeDeletedBefore()
+        if (!existsSync(oldPath)) await fsPromises.rm(getStartLockPath({ dataPath: pkc.dataPath, communityAddress }), { force: true });
     } catch (error: any) {
         error.details = { ...error.details, oldPath, newPath };
         throw error;

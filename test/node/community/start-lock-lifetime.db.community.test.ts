@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { v4 as uuidV4 } from "uuid";
@@ -81,6 +81,27 @@ describeSkipIfRpc("how long a start lock stays held", () => {
 
         await dbHandler.unlockCommunityStart();
         expect(() => dbHandler.destoryConnection()).to.not.throw();
+    });
+
+    // Taking the lock also removes the lock directory of the lock this one replaced. A failure there used to come after
+    // the lock was taken: the failed start had no started state to tear down, so nothing released the lock and the
+    // community could not be started again by any process until this one exited.
+    it("is not left held when the old lock directory can't be removed", async () => {
+        const oldLockDirectory = path.join(dataPath, "communities", `${address}.start.lock`);
+        const realRm = fs.promises.rm.bind(fs.promises);
+        vi.spyOn(fs.promises, "rm").mockImplementation(async (target, options) => {
+            if (target === oldLockDirectory) throw Object.assign(new Error("EPERM: operation not permitted"), { code: "EPERM" });
+            return realRm(target, options);
+        });
+        try {
+            await expect(dbHandler.lockCommunityStart()).rejects.toThrow("EPERM");
+        } finally {
+            vi.restoreAllMocks();
+        }
+
+        expect(dbHandler.holdsStartLock()).to.be.false;
+        expect(await isCommunityStartLocked({ dataPath, communityAddress: address })).to.be.false;
+        expect(await anotherProcessIsRefused()).to.be.false;
     });
 
     it("survives garbage collection in the holder's process, as long as the handler is referenced", async () => {
