@@ -32,8 +32,9 @@ describeSkipIfRpc("how long a start lock stays held", () => {
 
     const anotherProcessIsRefused = async () => {
         const refused = await holdStartLockInAnotherProcess({ dataPath, communityAddress: address }).then(
-            (taker): Error | undefined => {
-                void taker.kill();
+            // waited for: until that process is gone it has the DB open, which Windows does not let the cleanup delete
+            async (taker): Promise<Error | undefined> => {
+                await taker.kill();
                 return undefined;
             },
             (e: Error) => e

@@ -32,8 +32,8 @@ describeSkipIfRpc("a started community whose start lock another process asks for
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 
         const refused = await holdStartLockInAnotherProcess({ dataPath: pkc.dataPath!, communityAddress: community.address }).then(
-            (holder): Error | undefined => {
-                void holder.kill();
+            async (holder): Promise<Error | undefined> => {
+                await holder.kill();
                 return undefined;
             },
             (e: Error) => e
