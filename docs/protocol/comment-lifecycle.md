@@ -85,7 +85,8 @@ gallery?: {
 - `flairs`, `spoiler`, `nsfw`: mod-set overrides
 - `pinned`, `locked`, `archived`, `removed`, `approved`: mod actions
 - `reason`: reason for mod action
-- `author.community`: per-community author stats (postScore, replyScore, banExpiresAt)
+- `authorBanExpiresAt`: present only on the comment a mod banned the author from (see [Which comment a ban marks](#which-comment-a-ban-marks))
+- `author.community`: per-community author stats (postScore, replyScore, banExpiresAt). `banExpiresAt` here is an author aggregate, the same value on the author's comments, and says nothing about which comment the ban was published on
 - `lastChildCid`, `lastReplyTimestamp`: for efficient update checking (see [Which replies count](#which-replies-count))
 - `replies`: pre-loaded first page of replies
 - `signature`: community owner's signature
@@ -111,6 +112,30 @@ comment is rejected, which is why they never have replies under them.
 
 Removing a reply un-bumps its thread: `lastReplyTimestamp` is recalculated without it, and the built-in `active` sort
 reads `lastReplyTimestamp` (see [page-sorts.md](page-sorts.md)).
+
+## Which Comment a Ban Marks
+
+A ban is a `commentModeration` row keyed by `commentCid` whose `author.banExpiresAt` is a number. Two fields are computed from those rows, both by "the newest row carrying a number wins" (issue #363):
+
+- `author.community.banExpiresAt` looks at every row that targets the author (`queryAuthorModEdits`, by `targetAuthorSignerAddress` or `targetAuthorDomain`, so it survives a purge of the comment). It drives `ERR_AUTHOR_IS_BANNED`.
+- `authorBanExpiresAt` looks only at the rows on the comment's own cid (`_queryModerationSummariesByCids`). It is the value verbatim, with no dedupe against other comments, so every moderation that carries a timestamp marks its comment.
+
+The input takes three kinds of value (`CommentModerationAuthorSchema`):
+
+| `commentModeration.author.banExpiresAt` | Author aggregate | Mark on that cid |
+|---|---|---|
+| future timestamp | banned until then | set |
+| past timestamp (an unban) | lifted, the past timestamp is published | stays, value becomes the past timestamp |
+| `0` (a revoke) | absent while the `0` is the author's newest row | absent |
+
+Rules that follow from it:
+
+- `0` exists only on the moderation input. It renders as "absent" in both published fields, which stay a positive timestamp (`PKCTimestampSchema`) or missing. `null` cannot play this role because signing strips null values.
+- Expiry is not an event. Nothing in the update loop runs when a ban runs out, so a mark is never removed by time. Clients read presence from `authorBanExpiresAt` and current status from `author.community.banExpiresAt`.
+- `0` removes the mark only on the cid it is published on. A `0` published elsewhere revokes the ban and leaves the marks of the author's other comments.
+- Order matters when moving a ban: `0` on the wrong comment, then the ban on the right one. The other way round, the `0` is the author's newest row and the ban is gone.
+- A challenge cannot set `authorBanExpiresAt` (`CommentUpdateChallengeReservedFieldNames`).
+- `reason` is not part of this: it is still the newest reason on the cid from any moderation, so a ban's reason and a later removal's reason overwrite each other.
 
 ## Comment States
 

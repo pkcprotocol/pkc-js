@@ -118,6 +118,7 @@ export class Comment
     archived?: CommentUpdateType["archived"];
     removed?: CommentUpdateType["removed"];
     reason?: CommentUpdateType["reason"];
+    authorBanExpiresAt?: CommentUpdateType["authorBanExpiresAt"];
     lastChildCid?: CommentUpdateType["lastChildCid"];
     lastReplyTimestamp?: CommentUpdateType["lastReplyTimestamp"];
     pendingApproval?: CommentUpdateForChallengeVerification["pendingApproval"];
@@ -408,6 +409,7 @@ export class Comment
         this.archived = props.archived;
         this.removed = props.removed;
         this.reason = props.reason;
+        this.authorBanExpiresAt = props.authorBanExpiresAt;
         this.edit = props.edit;
         this.protocolVersion = props.protocolVersion;
 

@@ -452,6 +452,7 @@ export class DbHandler {
                 removed INTEGER NULLABLE, -- BOOLEAN (0/1)
                 approved INTEGER NULLABLE, -- BOOLEAN (0/1)
                 reason TEXT NULLABLE,
+                authorBanExpiresAt INTEGER NULLABLE, -- the ban a mod published on this comment (issue #363)
                 updatedAt INTEGER NOT NULL CHECK(updatedAt > 0), 
                 protocolVersion TEXT NOT NULL,
                 signature TEXT NOT NULL, -- JSON
@@ -1287,14 +1288,14 @@ export class DbHandler {
 
         const stmt = this._prepareCached(`
             INSERT INTO ${TABLES.COMMENT_UPDATES} 
-            (cid, edit, upvoteCount, downvoteCount, replyCount, childCount, number, postNumber, flairs, spoiler, nsfw, pinned, locked, archived, removed, approved, reason, updatedAt, protocolVersion, signature, author, replies, lastChildCid, lastReplyTimestamp, postUpdatesBucket, publishedToPostUpdatesMFS, insertedAt)
-            VALUES (@cid, @edit, @upvoteCount, @downvoteCount, @replyCount, @childCount, @number, @postNumber, @flairs, @spoiler, @nsfw, @pinned, @locked, @archived, @removed, @approved, @reason, @updatedAt, @protocolVersion, @signature, @author, @replies, @lastChildCid, @lastReplyTimestamp, @postUpdatesBucket, @publishedToPostUpdatesMFS, @insertedAt)
+            (cid, edit, upvoteCount, downvoteCount, replyCount, childCount, number, postNumber, flairs, spoiler, nsfw, pinned, locked, archived, removed, approved, reason, authorBanExpiresAt, updatedAt, protocolVersion, signature, author, replies, lastChildCid, lastReplyTimestamp, postUpdatesBucket, publishedToPostUpdatesMFS, insertedAt)
+            VALUES (@cid, @edit, @upvoteCount, @downvoteCount, @replyCount, @childCount, @number, @postNumber, @flairs, @spoiler, @nsfw, @pinned, @locked, @archived, @removed, @approved, @reason, @authorBanExpiresAt, @updatedAt, @protocolVersion, @signature, @author, @replies, @lastChildCid, @lastReplyTimestamp, @postUpdatesBucket, @publishedToPostUpdatesMFS, @insertedAt)
             ON CONFLICT(cid) DO UPDATE SET
                 edit = excluded.edit, upvoteCount = excluded.upvoteCount, downvoteCount = excluded.downvoteCount, replyCount = excluded.replyCount, childCount = excluded.childCount,
                 number = COALESCE(excluded.number, ${TABLES.COMMENT_UPDATES}.number),
                 postNumber = COALESCE(excluded.postNumber, ${TABLES.COMMENT_UPDATES}.postNumber),
                 flairs = excluded.flairs, spoiler = excluded.spoiler, nsfw = excluded.nsfw, pinned = excluded.pinned, locked = excluded.locked, archived = excluded.archived,
-                removed = excluded.removed, approved = excluded.approved, reason = excluded.reason, updatedAt = excluded.updatedAt, protocolVersion = excluded.protocolVersion,
+                removed = excluded.removed, approved = excluded.approved, reason = excluded.reason, authorBanExpiresAt = excluded.authorBanExpiresAt, updatedAt = excluded.updatedAt, protocolVersion = excluded.protocolVersion,
                 signature = excluded.signature, author = excluded.author, replies = excluded.replies, lastChildCid = excluded.lastChildCid,
                 lastReplyTimestamp = excluded.lastReplyTimestamp, postUpdatesBucket = excluded.postUpdatesBucket,
                 publishedToPostUpdatesMFS = excluded.publishedToPostUpdatesMFS,
@@ -2743,6 +2744,8 @@ export class DbHandler {
                 ...moderation?.flags,
                 // moderatorReason wins when present, else fall back to the challenge-supplied reason (if any).
                 reason: moderation?.reason ?? (comment.challengeCommentUpdate?.reason as string | undefined),
+                // 0 is the mod's revoke: it is the newest ban value on this comment, and it means no mark
+                authorBanExpiresAt: moderation?.authorBanExpiresAt || undefined,
                 author: { community: { ...(challengeAuthorCommunity ?? {}), ...authorCommunity } },
                 lastChildCid: lastChildCids.get(comment.cid),
                 lastReplyTimestamp: lastReplyTimestamps.get(comment.cid),
@@ -2880,10 +2883,13 @@ export class DbHandler {
 
     // What the moderations of each comment say, newest first, one read for the batch: the latest non-null value per
     // field (reason, flairs, approved and the six flags), the same precedence as the per-field statements this replaces.
+    // authorBanExpiresAt is the newest author.banExpiresAt published on the comment itself, 0 (the revoke) included,
+    // unlike author.community.banExpiresAt which is the newest across all of the author's comments.
     private _queryModerationSummariesByCids(cids: string[]): Map<
         string,
         {
             reason?: string;
+            authorBanExpiresAt?: number;
             flairs?: CommentModerationTableRow["commentModeration"]["flairs"];
             approved?: boolean;
             flags: Partial<Pick<CommentUpdateType, "spoiler" | "pinned" | "locked" | "archived" | "removed" | "nsfw">>;
@@ -2891,6 +2897,7 @@ export class DbHandler {
     > {
         type Summary = {
             reason?: string;
+            authorBanExpiresAt?: number;
             flairs?: CommentModerationTableRow["commentModeration"]["flairs"];
             approved?: boolean;
             flags: Partial<Pick<CommentUpdateType, "spoiler" | "pinned" | "locked" | "archived" | "removed" | "nsfw">>;
@@ -2909,6 +2916,8 @@ export class DbHandler {
                     result.set(row.commentCid, summary);
                 }
                 if (summary.reason === undefined && typeof moderation.reason === "string") summary.reason = moderation.reason;
+                const banExpiresAt = (moderation.author as { banExpiresAt?: unknown } | null | undefined)?.banExpiresAt;
+                if (summary.authorBanExpiresAt === undefined && typeof banExpiresAt === "number") summary.authorBanExpiresAt = banExpiresAt;
                 if (summary.flairs === undefined && moderation.flairs !== null && moderation.flairs !== undefined)
                     summary.flairs = moderation.flairs as Summary["flairs"];
                 if (summary.approved === undefined && moderation.approved !== null && moderation.approved !== undefined)
