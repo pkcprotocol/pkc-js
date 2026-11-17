@@ -40,7 +40,10 @@ type PendingChallenge = Challenge & { index: number };
 
 type DeferredChallenge = { index: number; communityChallenge: CommunityChallenge };
 
-export type GetChallengeAnswers = (challenges: Omit<Challenge, "verify">[]) => Promise<DecryptedChallengeAnswer["challengeAnswers"]>;
+// challenge index (as a decimal string) => the challenge that still needs an answer. The answers come back keyed the same way.
+export type GetChallengeAnswers = (
+    challenges: Record<string, Omit<Challenge, "verify">>
+) => Promise<DecryptedChallengeAnswer["challengeAnswers"]>;
 
 export type ChallengeResultAggregate = {
     aggregatedComment?: Record<string, unknown>;
@@ -288,6 +291,7 @@ const callGetChallenge = async ({
             challengeSettings: communityChallengeSettings,
             challengeRequestMessage,
             challengeIndex,
+            challengeAnswer: challengeRequestMessage.challengeAnswers?.[String(challengeIndex)],
             community,
             authorIdentityMatcher
         });
@@ -679,8 +683,15 @@ const getChallengeVerificationFromChallengeAnswers = async ({
 
     // Run verify() for every pending challenge in parallel.
     const verifyChallengePromises: Promise<ChallengeResult>[] = [];
-    for (const i in pendingChallenges) {
-        verifyChallengePromises.push(Promise.resolve(pendingChallenges[i].verify(challengeAnswers[i])));
+    for (const pendingChallenge of pendingChallenges) {
+        const challengeAnswer: string | undefined = challengeAnswers[String(pendingChallenge.index)];
+        // The author left this challenge out of the answer. verify() takes a string, so an unanswered challenge fails here
+        // rather than reaching the challenge with undefined. Issue #567.
+        verifyChallengePromises.push(
+            challengeAnswer === undefined
+                ? Promise.resolve({ success: false, error: "No answer." })
+                : Promise.resolve(pendingChallenge.verify(challengeAnswer))
+        );
     }
     const challengeResultsWithPendingIndexes = await Promise.all(verifyChallengePromises);
     for (const i in challengeResultsWithPendingIndexes) {
@@ -900,7 +911,9 @@ const getChallengeVerification = async ({
     // was able to verify without asking author for challenges
     let postAnswerAuthorIdentityMatcher: AuthorIdentityMatcher | undefined;
     if ("pendingChallenges" in res) {
-        const challengeAnswers = await getChallengeAnswers(res.pendingChallenges.map((challenge) => omit(challenge, ["index", "verify"])));
+        const challengeAnswers = await getChallengeAnswers(
+            Object.fromEntries(res.pendingChallenges.map((challenge) => [String(challenge.index), omit(challenge, ["index", "verify"])]))
+        );
         // The round-trip is what makes the identity verdict stale, so the round-trip is what invalidates it.
         // `identityMatcher` memoised its maxAge-0 resolve before the challenge went out, and the author had
         // until the exchange ttl to answer: a TXT record repointed in that window must not still read as

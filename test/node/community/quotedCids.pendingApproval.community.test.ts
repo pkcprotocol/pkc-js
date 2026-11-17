@@ -19,7 +19,7 @@ import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-c
 import type { SignerType } from "../../../dist/node/signer/types.js";
 import type { CommentIpfsWithCidDefined } from "../../../dist/node/publications/comment/types.js";
 
-const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: ["pending"] } };
+const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: { "0": "pending" } } };
 
 describeSkipIfRpc("quotedCids with pending approval comments", async () => {
     let pkc: PKCType;

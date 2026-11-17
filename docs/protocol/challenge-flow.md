@@ -13,10 +13,10 @@ Author                              Community
   │    (contains the publication)       │  Contains: comment/vote/edit + challengeRequest options
   │                                     │
   │<── ChallengeMessage ───────────────│  Encrypted reply
-  │    (contains challenges to solve)   │  Contains: challenges[] (text, type, caseInsensitive)
+  │    (contains challenges to solve)   │  Contains: challenges {index: challenge} (text, type, caseInsensitive)
   │                                     │
   │─── ChallengeAnswerMessage ────────>│  Author's answers
-  │    (contains answers)               │  Contains: challengeAnswers[]
+  │    (contains answers)               │  Contains: challengeAnswers {index: answer}
   │                                     │
   │<── ChallengeVerificationMessage ───│  Success or failure
   │    (result + optional comment data) │  Contains: challengeSuccess, comment, commentUpdate
@@ -30,8 +30,8 @@ All in `src/pubsub-messages/schema.ts`:
 | Message                        | Schema                               | Encrypted Payload                                                                       |
 | ------------------------------ | ------------------------------------ | --------------------------------------------------------------------------------------- |
 | `ChallengeRequestMessage`      | `ChallengeRequestMessageSchema`      | `DecryptedChallengeRequestSchema`: contains the publication + challenge options         |
-| `ChallengeMessage`             | `ChallengeMessageSchema`             | `DecryptedChallengeSchema`: contains `challenges[]` to solve                            |
-| `ChallengeAnswerMessage`       | `ChallengeAnswerMessageSchema`       | `DecryptedChallengeAnswerSchema`: contains `challengeAnswers[]`                         |
+| `ChallengeMessage`             | `ChallengeMessageSchema`             | `DecryptedChallengeSchema`: contains `challenges`, a record keyed by challenge index, to solve |
+| `ChallengeAnswerMessage`       | `ChallengeAnswerMessageSchema`       | `DecryptedChallengeAnswerSchema`: contains `challengeAnswers`, a record keyed by challenge index |
 | `ChallengeVerificationMessage` | `ChallengeVerificationMessageSchema` | `DecryptedChallengeVerificationSchema`: contains `comment` + `commentUpdate` on success |
 
 ## Encryption
@@ -98,6 +98,24 @@ One matcher is built per challenge phase (`ParsedChallengeRequest.authorIdentity
 The `blacklist` challenge is the deliberate exception: an unverifiable blacklisted domain stays a non-match, so it fails open. Tracked separately in issue #356.
 
 There is no `exclude.address`, and `exclude.role` is now `exclude.roles`. The private settings schema (`CommunityChallengeSettingSchema`) rejects both old fields, so a stale owner config fails loudly instead of silently becoming an exclude that matches nobody. The public record schema (`CommunityChallengeSchema`) stays loose: a client on this version still loads records published by communities that have not upgraded, where the old fields pass through unused. Private settings written before DB version 42 are migrated by `DbHandler._migrateOldSettings`, which splits the old `address` array by kind into `publicKeys` and `names` and renames `role` to `roles`. See issue #267.
+
+## Challenge Indexes
+
+Every per-challenge payload is a record keyed by the **challenge index**: the position of the challenge in `community.challenges` (`settings.challenges` on the owner side), as a decimal string. `challengeErrors` in `CHALLENGEVERIFICATION` already worked this way, and these now match it (issue #567):
+
+| Message | Field | Holds |
+| ------- | ----- | ----- |
+| `CHALLENGEREQUEST` | `challengeAnswers` (optional) | Pre-answers. A challenge with no key has no pre-answer and behaves as if none were sent. Never empty when present. |
+| `CHALLENGE` | `challenges` | Only the challenges that still need an answer, so the keys are a sparse subset. Never empty: a community with nothing to ask sends no `CHALLENGE`. |
+| `CHALLENGEANSWER` | `challengeAnswers` | One answer per key of the `CHALLENGE` it answers. Never empty. |
+| `CHALLENGEVERIFICATION` | `challengeErrors` | The error of each failed challenge. |
+
+Why not arrays: a positional array cannot say "no answer for this one". A client that pre-answered only challenge 2 had to put filler in slots 0 and 1, and a `question` challenge at index 0 then read the filler as a wrong answer. A key per challenge removes that, and the answer no longer depends on which challenges happened to be excluded or pre-answered.
+
+-   The community hands each challenge its own pre-answer as `challengeAnswer` in `getChallenge`, so a challenge does not index `challengeAnswers` itself.
+-   Keys the community does not recognise are ignored. A pending challenge with no key in the `CHALLENGEANSWER` fails with `"No answer."`.
+-   The array form is rejected at the schema, with no compatibility path.
+-   The index is only as stable as the array order: reordering `settings.challenges` re-targets `exclude.challenges` and any pre-answer already in flight, so owners should not reorder challenges of a community that publishers are actively answering.
 
 ## ChallengeVerification Result
 

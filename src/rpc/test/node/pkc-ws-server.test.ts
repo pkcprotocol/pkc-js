@@ -424,7 +424,7 @@ describeSkipIfRpc("PKCWsServer per-method coverage", () => {
     it("publishChallengeAnswers rejects an unknown subscription id", async () => {
         let err: any;
         try {
-            await rawClient.call("publishChallengeAnswers", [{ subscriptionId: 999999999, challengeAnswers: ["x"] }]);
+            await rawClient.call("publishChallengeAnswers", [{ subscriptionId: 999999999, challengeAnswers: { "0": "x" } }]);
         } catch (e) {
             err = e;
         }

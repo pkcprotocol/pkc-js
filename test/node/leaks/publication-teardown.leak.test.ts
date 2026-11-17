@@ -126,7 +126,7 @@ describeSkipIfRpc("leak: publications that never leave pkc._publishingPublicatio
             const challenged = new Promise<void>((resolve) => post.once("challenge", () => resolve()));
             await post.publish();
             await challenged;
-            await post.publishChallengeAnswers({ challengeAnswers: ["2"] });
+            await post.publishChallengeAnswers({ challengeAnswers: { "0": "2" } });
             const left = await waitFor(() => !publisherPKC._publishingPublications.has(post), THRESHOLD_SECONDS * 10 * 1000);
             expect({ left, publishingState: post.publishingState }).toEqual({ left: true, publishingState: "failed" });
         } finally {

@@ -1154,7 +1154,7 @@ export async function generatePostToAnswerMathQuestion(props: Partial<CreateComm
     const mockPost = await generateMockPost({ communityAddress: props.communityAddress, pkc, postProps: props });
     mockPost.removeAllListeners("challenge");
     mockPost.once("challenge", (challengeMessage) => {
-        mockPost.publishChallengeAnswers({ challengeAnswers: ["2"] });
+        mockPost.publishChallengeAnswers({ challengeAnswers: { "0": "2" } });
     });
 
     return mockPost;
@@ -1449,7 +1449,7 @@ export async function publishChallengeAnswerMessageWithExtraProps({
     includeExtraPropsInChallengeSignedPropertyNames
 }: {
     publication: Publication;
-    challengeAnswers: string[];
+    challengeAnswers: Record<string, string>;
     extraProps: Object;
     includeExtraPropsInChallengeSignedPropertyNames: boolean;
 }) {
@@ -1496,7 +1496,7 @@ export async function publishChallengeMessageWithExtraProps({
     const log = Logger("pkc-js:test-util:publishChallengeMessageWithExtraProps");
 
     const encryptedChallenges = await encryptEd25519AesGcmPublicKeyBuffer(
-        deterministicStringify({ challenges: [] })!,
+        deterministicStringify({ challenges: { "0": { challenge: "1+1=?", type: "text/plain", caseInsensitive: true } } })!, // a CHALLENGE is a non-empty record keyed by challenge index
         pubsubSigner.privateKey,
         Object.values(publication._challengeExchanges)[0].challengeRequest.signature.publicKey
     );

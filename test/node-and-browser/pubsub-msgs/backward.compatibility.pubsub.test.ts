@@ -187,7 +187,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 const extraProps = { extraProp: "1234" };
                 await publishChallengeAnswerMessageWithExtraProps({
                     publication: post,
-                    challengeAnswers: ["2"],
+                    challengeAnswers: { "0": "2" },
                     extraProps,
                     includeExtraPropsInChallengeSignedPropertyNames: false
                 });
@@ -210,7 +210,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 const extraProps = { extraProp: "1234" };
                 await publishChallengeAnswerMessageWithExtraProps({
                     publication: post,
-                    challengeAnswers: ["2"],
+                    challengeAnswers: { "0": "2" },
                     extraProps,
                     includeExtraPropsInChallengeSignedPropertyNames: true
                 });

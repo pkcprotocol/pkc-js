@@ -16,8 +16,7 @@ const makeExtrasChallenge = (resultLiteral: Record<string, unknown>) => () => ({
 describe("ChallengeResult extras: aggregation across successful challenges", () => {
     const author = { address: "QmTestAddr" };
     const challengeRequestMessage = {
-        comment: { author },
-        challengeAnswers: []
+        comment: { author }
     } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
     let mockPkc: ReturnType<typeof PKC>;
@@ -38,7 +37,7 @@ describe("ChallengeResult extras: aggregation across successful challenges", () 
         const verification = (await getChallengeVerification({
             challengeRequestMessage,
             community,
-            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
         })) as { challengeSuccess: boolean; aggregatedComment?: Record<string, unknown> };
 
         expect(verification.challengeSuccess).to.equal(true);
@@ -58,7 +57,7 @@ describe("ChallengeResult extras: aggregation across successful challenges", () 
         const verification = (await getChallengeVerification({
             challengeRequestMessage,
             community,
-            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
         })) as { challengeSuccess: boolean; aggregatedCommentUpdate?: Record<string, unknown> };
 
         expect(verification.challengeSuccess).to.equal(true);
@@ -77,7 +76,7 @@ describe("ChallengeResult extras: aggregation across successful challenges", () 
         const verification = (await getChallengeVerification({
             challengeRequestMessage,
             community,
-            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
         })) as { challengeSuccess: boolean; aggregatedReason?: string; challengeErrors?: Record<string, string> };
 
         expect(verification.challengeSuccess).to.equal(false);
@@ -103,7 +102,7 @@ describe("ChallengeResult extras: aggregation across successful challenges", () 
         const verification = (await getChallengeVerification({
             challengeRequestMessage,
             community,
-            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
         })) as {
             challengeSuccess: boolean;
             pendingApproval?: boolean;
@@ -121,8 +120,7 @@ describe("ChallengeResult extras: aggregation across successful challenges", () 
 describe("ChallengeResult extras: override-guard", () => {
     const author = { address: "QmTestAddr2" };
     const challengeRequestMessage = {
-        comment: { author },
-        challengeAnswers: []
+        comment: { author }
     } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
     let mockPkc: ReturnType<typeof PKC>;
@@ -147,7 +145,7 @@ describe("ChallengeResult extras: override-guard", () => {
             await getChallengeVerification({
                 challengeRequestMessage,
                 community,
-                getChallengeAnswers: (async () => []) as GetChallengeAnswers
+                getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
             });
         } catch (e) {
             caught = e as Error;
@@ -173,7 +171,7 @@ describe("ChallengeResult extras: override-guard", () => {
             await getChallengeVerification({
                 challengeRequestMessage,
                 community,
-                getChallengeAnswers: (async () => []) as GetChallengeAnswers
+                getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
             });
         } catch (e) {
             caught = e as Error;
@@ -194,7 +192,7 @@ describe("ChallengeResult extras: override-guard", () => {
         const verification = (await getChallengeVerification({
             challengeRequestMessage,
             community,
-            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
         })) as { challengeSuccess: boolean; aggregatedComment?: Record<string, unknown> };
 
         expect(verification.challengeSuccess).to.equal(true);
@@ -216,7 +214,7 @@ describe("ChallengeResult extras: override-guard", () => {
         const verification = (await getChallengeVerification({
             challengeRequestMessage,
             community,
-            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
         })) as { challengeSuccess: boolean; aggregatedCommentUpdate?: Record<string, unknown> };
 
         expect(verification.challengeSuccess).to.equal(true);
@@ -240,7 +238,7 @@ describe("ChallengeResult extras: override-guard", () => {
             await getChallengeVerification({
                 challengeRequestMessage,
                 community,
-                getChallengeAnswers: (async () => []) as GetChallengeAnswers
+                getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
             });
         } catch (e) {
             caught = e as Error;
@@ -267,7 +265,7 @@ describe("ChallengeResult extras: override-guard", () => {
         const verification = (await getChallengeVerification({
             challengeRequestMessage,
             community,
-            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
         })) as { challengeSuccess: boolean; aggregatedCommentUpdate?: Record<string, unknown> };
 
         expect(verification.challengeSuccess).to.equal(true);
@@ -296,7 +294,7 @@ describe("ChallengeResult extras: override-guard", () => {
             await getChallengeVerification({
                 challengeRequestMessage,
                 community,
-                getChallengeAnswers: (async () => []) as GetChallengeAnswers
+                getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
             });
         } catch (e) {
             caught = e as Error;
@@ -322,7 +320,7 @@ describe("ChallengeResult extras: override-guard", () => {
             await getChallengeVerification({
                 challengeRequestMessage,
                 community,
-                getChallengeAnswers: (async () => []) as GetChallengeAnswers
+                getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
             });
         } catch (e) {
             caught = e as Error;

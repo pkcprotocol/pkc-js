@@ -48,7 +48,7 @@ const isTransientFetchError = (err: unknown): boolean => {
 };
 
 const depthsToTest = [0, 1, 2, 15];
-const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: ["pending"] } };
+const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: { "0": "pending" } } };
 
 const commentModProps: CreateCommentModerationOptions["commentModeration"][] = [
     { approved: false },
