@@ -970,8 +970,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this._communityFetchAbortController?.abort(
             new PKCError("ERR_GET_COMMUNITY_ABORTED", { publicationType: this.getType(), communityAddress: this.communityAddress })
         );
-        if (this._backgroundCommunityRefresh) await this._backgroundCommunityRefresh;
+        // Reset before the drain, not after it: the refresh keeps the aborted signal it was given, and a publish() or
+        // update() called right after a stop() that was not awaited must not be handed that aborted signal
+        const refresh = this._backgroundCommunityRefresh;
         this._resetCommunityFetchAbortSignal();
+        if (refresh) await refresh;
     }
 
     private _resetCommunityFetchAbortSignal() {
@@ -1097,6 +1100,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this._communityFetchAbortController?.abort(
             new PKCError("ERR_GET_COMMUNITY_ABORTED", { publicationType: this.getType(), communityAddress: this.communityAddress })
         );
+        // With no publish to end, a publish() may follow this stop() before it resolves, and it needs a live signal
+        if (!wasPublishCalled) this._resetCommunityFetchAbortSignal();
         try {
             await this._postSucessOrFailurePublishing();
         } finally {
@@ -1106,7 +1111,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
             // _publishingPublications, so a cleanup failure would otherwise leave the refresh
             // running past teardown, which is the exact thing this is here to prevent.
             if (this._backgroundCommunityRefresh) await this._backgroundCommunityRefresh;
-            if (endedByThisStop) this._updatePublishingStateWithEmission("stopped");
+            // A stop() that had no publish to end leaves a publish() that started since alone
+            const publishStartedSinceThisStop = !wasPublishCalled && (this._isPublishSpent || this._isPublishCallRunning);
+            if (endedByThisStop && !publishStartedSinceThisStop) this._updatePublishingStateWithEmission("stopped");
         }
     }
 

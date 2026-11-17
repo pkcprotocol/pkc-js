@@ -477,6 +477,22 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             expect(post.publishingState).to.equal("waiting-challenge");
         });
 
+        it("a stop() that was not awaited before the first publish() leaves that publish alone", async () => {
+            for (const kind of ["post", "vote"] as const) {
+                const { post, pubsub } = await createPostWithStubbedPubsub({ kind });
+                const publishingStates: string[] = [];
+                post.on("publishingstatechange", (state) => publishingStates.push(state));
+                const stopped = post.stop();
+                await post.publish();
+                await stopped;
+                expect(pubsub.requests.length).to.equal(1);
+                expect(post.state).to.equal("publishing");
+                expect(post.publishingState).to.equal("waiting-challenge");
+                // The stop() had no publish to end, so it must not write "stopped" into the publish that followed it
+                expect(publishingStates).to.not.include("stopped");
+            }
+        });
+
         it("a new instance of the same publication publishes after the first one failed", async () => {
             const { post: vote, pubsub } = await createPostWithStubbedPubsub({ kind: "vote" });
             await vote.publish();

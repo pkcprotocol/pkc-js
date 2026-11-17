@@ -1382,9 +1382,15 @@ export class Comment
         this._abortStopOperations(
             `Aborting comment operations for ${this.cid || this.author?.address || "comment"} because comment.stop() was called`
         );
-        if (this.state === "publishing") await super.stop();
-        else await this._cancelBackgroundCommunityRefresh();
-        this._setStateWithEmission("stopped");
+        if (this.state === "publishing") {
+            await super.stop();
+            this._setStateWithEmission("stopped");
+        } else {
+            // Written before the await: a publish() called right after a stop() that was not awaited sets "publishing",
+            // which this stop() has no business undoing
+            this._setStateWithEmission("stopped");
+            await this._cancelBackgroundCommunityRefresh();
+        }
         await this._stopUpdateLoop();
         this.replies._stop();
         this._setUpdatingStateWithEmissionIfNewState("stopped");
