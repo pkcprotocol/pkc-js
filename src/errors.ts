@@ -167,7 +167,7 @@ export enum messages {
     ERR_COMMUNITY_EDIT_OPTIONS_SCHEMA = "User sent a community edit options with invalid schema",
     ERR_INVALID_CHALLENGE_ANSWERS = "User sent challenge answers with invalid schema",
     ERR_CHALLENGE_ANSWER_ALREADY_PUBLISHED = "publishChallengeAnswers was called again for a challenge exchange whose answer has already been published or is being published. Each challenge is answered once",
-    ERR_PUBLICATION_PUBLISH_ALREADY_CALLED = "publish() was already called on this publication instance. That attempt may have succeeded, failed or still be in progress (see details). A publication instance publishes once: create a new instance to publish again",
+    ERR_PUBLICATION_PUBLISH_ALREADY_CALLED = "publish() was already called on this publication instance. That call is still running, or it got as far as sending a request and then succeeded, failed or was stopped (see details). A publication instance runs one challenge exchange: create a new instance to publish again",
     ERR_PUBLICATION_CHALLENGE_EXCHANGE_ENDED = "publishChallengeAnswers was called after the publication's challenge exchange ended (the community answered, the publish failed, or stop() was called)",
     ERR_INVALID_CREATE_PKC_WS_SERVER_OPTIONS_SCHEMA = "Invalid create arguments for PKC WS RPC server",
     ERR_INVALID_CREATE_PKC_ARGS_SCHEMA = "User sent arguments with invalid schema in an attempt to create a PKC instance",

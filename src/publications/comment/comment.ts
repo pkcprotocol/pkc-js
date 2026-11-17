@@ -507,7 +507,6 @@ export class Comment
                 originalPubsubMsg: this.raw.pubsubMessageToPublish
             });
             log.error(error);
-            this.emit("error", error);
             return error;
         }
 
@@ -533,7 +532,6 @@ export class Comment
                 decryptedChallengeVerification: decryptedVerification
             });
             log.error(error);
-            this.emit("error", error);
             return error;
         }
         const commentUpdateValidity = await verifyCommentUpdate({
@@ -551,7 +549,6 @@ export class Comment
                 decryptedChallengeVerification: decryptedVerification
             });
             log.error(error);
-            this.emit("error", error);
             return error;
         }
 
@@ -562,7 +559,6 @@ export class Comment
                 decryptedChallengeVerification: decryptedVerification
             });
             log.error(error);
-            this.emit("error", error);
             return error;
         }
     }
@@ -647,8 +643,10 @@ export class Comment
 
         if (!this._pkc._pkcRpcClient) {
             // no need to validate if RPC
+            // Thrown, not emitted here: the publication ends as failed with this error. Emitting it and returning let the
+            // verdict be reported as "succeeded" for a comment that was never installed on this instance
             const errorInVerificationProps = await this._verifyChallengeVerificationCommentProps(decryptedVerification);
-            if (errorInVerificationProps) return;
+            if (errorInVerificationProps) throw errorInVerificationProps;
         }
 
         await this._updateCommentPropsFromDecryptedChallengeVerification(decryptedVerification);

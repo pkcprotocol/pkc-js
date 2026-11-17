@@ -392,37 +392,81 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             expect(providerPubsubState(post)).to.equal("stopped");
         });
 
-        // These steps run before any request is sent. The instance is spent all the same: one rule, with no window in
-        // which "was anything sent yet" has to be read
-        for (const { step, failOnce } of [
-            {
-                step: "the signature hook",
-                failOnce: (post: Publication) =>
-                    vi
-                        .spyOn(post as unknown as { _validateSignatureHook: () => Promise<void> }, "_validateSignatureHook")
-                        .mockRejectedValueOnce(new Error("stubbed pre-flight failure"))
-            },
-            {
-                step: "the pubsub provider lookup",
-                failOnce: (post: Publication) =>
-                    vi
-                        .spyOn(post as unknown as { _getPubsubProviders: () => string[] }, "_getPubsubProviders")
-                        .mockImplementationOnce(() => {
-                            throw new Error("stubbed pre-flight failure");
-                        })
-            }
-        ]) {
-            it(`rejects after ${step} rejected the first publish()`, async () => {
-                const { post, pubsub } = await createPostWithStubbedPubsub();
-                failOnce(post);
-                await expect(post.publish()).rejects.toThrow("stubbed pre-flight failure");
-                expect(pkc._publishingPublications.has(post)).to.be.false;
+        // Pre-flight (the community fetch, signing, the signature hook) runs before anything leaves this instance. A
+        // publish() that rejects there has no exchange to cross with, so the instance is not spent and can publish again
+        it("publishes again after the signature hook rejected the first publish(), before anything was sent", async () => {
+            const { post, pubsub } = await createPostWithStubbedPubsub();
+            vi.spyOn(post as unknown as { _validateSignatureHook: () => Promise<void> }, "_validateSignatureHook").mockRejectedValueOnce(
+                new Error("stubbed pre-flight failure")
+            );
+            await expect(post.publish()).rejects.toThrow("stubbed pre-flight failure");
+            expect(pubsub.requests.length).to.equal(0);
+            expect(pkc._publishingPublications.has(post)).to.be.false;
 
-                expect((await secondPublishError(post))?.code).to.equal("ERR_PUBLICATION_PUBLISH_ALREADY_CALLED");
-                expect(pubsub.requests.length).to.equal(0);
-                expect(pkc._publishingPublications.has(post)).to.be.false;
+            await post.publish();
+            expect(pubsub.requests.length).to.equal(1);
+            expect(post.state).to.equal("publishing");
+            expect(post.publishingState).to.equal("waiting-challenge");
+            expect(pkc._publishingPublications.has(post)).to.be.true;
+            // From here on it is spent
+            expect((await secondPublishError(post))?.code).to.equal("ERR_PUBLICATION_PUBLISH_ALREADY_CALLED");
+        });
+
+        // Holds the first publish() in its pre-flight until release() is called
+        const holdSignatureHook = (post: Publication) => {
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => (release = resolve));
+            const hook = vi
+                .spyOn(post as unknown as { _validateSignatureHook: () => Promise<void> }, "_validateSignatureHook")
+                .mockImplementationOnce(async () => {
+                    await gate;
+                });
+            return { release, hook };
+        };
+
+        it("rejects while the first publish() is still in pre-flight", async () => {
+            const { post, pubsub } = await createPostWithStubbedPubsub();
+            const { release, hook } = holdSignatureHook(post);
+            const firstPublish = post.publish();
+            await vi.waitFor(() => expect(hook).toHaveBeenCalled(), { timeout: 5000, interval: 10 });
+
+            // Two publish() calls running side by side on one instance is what single-use rules out
+            expect((await secondPublishError(post))?.code).to.equal("ERR_PUBLICATION_PUBLISH_ALREADY_CALLED");
+            release();
+            await firstPublish;
+            expect(pubsub.requests.length).to.equal(1);
+            expect(post.publishingState).to.equal("waiting-challenge");
+        });
+
+        it("rejects after a stop() during pre-flight", async () => {
+            const { post, pubsub } = await createPostWithStubbedPubsub();
+            const { release, hook } = holdSignatureHook(post);
+            const firstPublish = post.publish();
+            await vi.waitFor(() => expect(hook).toHaveBeenCalled(), { timeout: 5000, interval: 10 });
+            await post.stop();
+            release();
+            await firstPublish;
+
+            // stop() ended this instance's publish, also when it had not sent anything yet
+            expect((await secondPublishError(post))?.code).to.equal("ERR_PUBLICATION_PUBLISH_ALREADY_CALLED");
+            expect(pubsub.requests.length).to.equal(0);
+            expect(post.state).to.equal("stopped");
+            expect(post.publishingState).to.equal("stopped");
+        });
+
+        // Past pre-flight the instance is spent, also when the step that failed sent nothing itself
+        it("rejects after the pubsub provider lookup rejected the first publish()", async () => {
+            const { post, pubsub } = await createPostWithStubbedPubsub();
+            vi.spyOn(post as unknown as { _getPubsubProviders: () => string[] }, "_getPubsubProviders").mockImplementationOnce(() => {
+                throw new Error("stubbed provider lookup failure");
             });
-        }
+            await expect(post.publish()).rejects.toThrow("stubbed provider lookup failure");
+            expect(pkc._publishingPublications.has(post)).to.be.false;
+
+            expect((await secondPublishError(post))?.code).to.equal("ERR_PUBLICATION_PUBLISH_ALREADY_CALLED");
+            expect(pubsub.requests.length).to.equal(0);
+            expect(pkc._publishingPublications.has(post)).to.be.false;
+        });
 
         it("a stop() before the first publish() does not spend the instance", async () => {
             const { post, pubsub } = await createPostWithStubbedPubsub();
@@ -577,6 +621,24 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             expect(post.publishingState).to.equal("stopped");
         });
 
+        it("does not send a challenge answer when stop() runs while it is being encrypted and signed", async () => {
+            const { post, pubsub, events } = await createPostWithStubbedPubsub();
+            await post.publish();
+            await deliver(pubsub, await challengeFor({ request: pubsub.requests[0], by: communitySigner }));
+
+            const answering = post.publishChallengeAnswers({ challengeAnswers: ["2"] }).then(
+                (): string | undefined => undefined,
+                (error: { code?: string }) => error.code
+            );
+            const stopping = post.stop(); // in the same tick: the answer is not encrypted yet
+            expect(await answering).to.equal("ERR_PUBLICATION_CHALLENGE_EXCHANGE_ENDED");
+            await stopping;
+            // Only the request: the answer used to go out after the teardown
+            expect(pubsub.publishCalls).to.equal(1);
+            expect(events).to.not.include("publishingstatechange:publishing-challenge-answer");
+            expect(post.publishingState).to.equal("stopped");
+        });
+
         it("leaves the states alone when stop() runs while a challenge answer is being published", async () => {
             const { post, pubsub, events } = await createPostWithStubbedPubsub();
             await post.publish();
@@ -691,6 +753,38 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             expect(errorCodes).to.have.length(1);
             expect(events.filter((event) => event.startsWith("challengeverification"))).to.deep.equal([]);
             expect(post._clientsManager.pubsubUnsubscribe).toHaveBeenCalled();
+            expect(pkc._publishingPublications.has(post)).to.be.false;
+        });
+
+        // The same with the real check: the community returns the comment with its content changed. The check used to
+        // emit the error and return normally, so the publication ended "succeeded" with no cid
+        it("ends as failed when the community returns a comment that differs from the one published", async () => {
+            const { post, pubsub, events, errorCodes } = await createPostWithStubbedPubsub();
+            await post.publish();
+            const signedComment = post.raw.pubsubMessageToPublish!;
+            await deliver(
+                pubsub,
+                await challengeVerificationFor({
+                    request: pubsub.requests[0],
+                    by: communitySigner,
+                    challengeSuccess: true,
+                    encryptedPlaintext: JSON.stringify({
+                        comment: { ...signedComment, content: "not what was published", depth: 0 },
+                        commentUpdate: {
+                            cid: "QmUFu8fzuT1th3jJYgR4oRgGpw3sgRALr4nbenA4pyoCav",
+                            signature: signedComment.signature,
+                            protocolVersion: env.PROTOCOL_VERSION
+                        }
+                    })
+                })
+            );
+
+            expect(errorCodes).to.deep.equal(["ERR_COMMUNITY_CHANGED_COMMENT_PUBSUB_PUBLICATION_PROPS"]);
+            expect(post.state).to.equal("stopped");
+            expect(post.publishingState).to.equal("failed");
+            expect(publishingStates(events)).to.not.include("succeeded");
+            expect(events.filter((event) => event.startsWith("challengeverification"))).to.deep.equal([]);
+            expect((post as unknown as { cid?: string }).cid).to.be.undefined;
             expect(pkc._publishingPublications.has(post)).to.be.false;
         });
 

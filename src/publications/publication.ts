@@ -162,10 +162,15 @@ class Publication extends TypedEmitter<PublicationEvents> {
             providerUrl: string; // either kubo rpc url or libp2pjsclient key, or RPC url
         }
     > = {};
-    // Set by the first publish() call. A publication instance runs one challenge exchange: a later publish() rejects with
-    // ERR_PUBLICATION_PUBLISH_ALREADY_CALLED whatever came of the first one, and a retry is a new instance. A second
-    // exchange on the same instance crossed with the first one's requests, watchdog, verdict and teardown
-    private _wasPublishCalled = false;
+    // A publication instance runs one challenge exchange. It is spent once publish() gets past pre-flight (the community
+    // fetch, signing, the signature hook), which is the point from which a request can leave this instance, or once
+    // stop() ends a publish() that was called. From then on publish() rejects with
+    // ERR_PUBLICATION_PUBLISH_ALREADY_CALLED whatever came of the exchange, and a retry is a new instance. A second
+    // exchange on the same instance crossed with the first one's requests, watchdog, verdict and teardown. A publish()
+    // that rejected during pre-flight has no exchange to cross with, so it does not spend the instance
+    private _isPublishSpent = false;
+    // True while a publish() call is running, pre-flight included, so a second call next to it rejects too
+    private _isPublishCallRunning = false;
     // What ended this instance's publish: the community's verdict, a failure (no response, every provider threw, an
     // unreadable verification, a request a local community or the RPC server rejected) or stop(). Whichever is recorded
     // first is the end. The others then change nothing, and the work publish() still has awaiting (the community fetch,
@@ -772,6 +777,16 @@ class Publication extends TypedEmitter<PublicationEvents> {
             challengeExchange.challengeAnswerPublishInFlight = false;
             throw e;
         }
+        // The exchange can have ended while the answer was being encrypted and signed
+        if (this._publishEndedBy) {
+            challengeExchange.challengeAnswerPublishInFlight = false;
+            throw new PKCError("ERR_PUBLICATION_CHALLENGE_EXCHANGE_ENDED", {
+                publicationType: this.getType(),
+                state: this.state,
+                publishingState: this.publishingState,
+                endedBy: this._publishEndedBy
+            });
+        }
 
         // TODO should be handling multiple providers with publishing challenge answer?
         // For now, let's just publish to the provider that got us the challenge and its request
@@ -1073,7 +1088,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
         // Ends the publish, unless a verdict or a failure already did: that end still lands, with its own final
         // publishingState, which this stop() must not replace with "stopped". An instance that was never published has no
         // publish to end and stays publishable
-        const endedByThisStop = this._wasPublishCalled ? this._claimPublishEnd("stop") : true;
+        const wasPublishCalled = this._isPublishSpent || this._isPublishCallRunning;
+        if (wasPublishCalled) this._isPublishSpent = true; // also a publish() that stop() catches in pre-flight
+        const endedByThisStop = wasPublishCalled ? this._claimPublishEnd("stop") : true;
         // Abort first, so the drain below unwinds an in-flight fetch instead of waiting it out. Only
         // stop() does this, never the success funnel: a refresh fired to warm a stale cache should
         // still finish after a publish succeeds.
@@ -1703,8 +1720,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     async publish() {
-        // One challenge exchange per instance, see _wasPublishCalled
-        if (this._wasPublishCalled) {
+        // One challenge exchange per instance, see _isPublishSpent
+        if (this._isPublishSpent || this._isPublishCallRunning) {
             const exchanges = Object.values(this._challengeExchanges);
             throw new PKCError("ERR_PUBLICATION_PUBLISH_ALREADY_CALLED", {
                 publicationType: this.getType(),
@@ -1714,8 +1731,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 receivedChallengeVerification: exchanges.some((exchange) => exchange.challengeVerification)
             });
         }
-        this._wasPublishCalled = true;
         this._validatePublicationFields();
+        this._isPublishCallRunning = true;
         // An earlier stop() left the signal aborted, which would cancel this publish's community fetch before it
         // started.
         if (this._getCommunityFetchAbortSignal().aborted) this._resetCommunityFetchAbortSignal();
@@ -1739,6 +1756,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
             // pkc.destroy() can no longer reach an unregistered publication, so end the run's waits here
             this._publishRunAbortController?.abort();
             throw e;
+        } finally {
+            this._isPublishCallRunning = false;
         }
     }
 
@@ -1764,6 +1783,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
         await this._validateSignatureHook();
         // Stopped during the steps above: stop() settled the states, so do not start an exchange behind it
         if (this._hasPublishEnded()) return;
+        // Pre-flight is over. From here a request can leave this instance, so it cannot publish again
+        this._isPublishSpent = true;
 
         if (this._pkc._pkcRpcClient) return this._publishWithRpc();
 

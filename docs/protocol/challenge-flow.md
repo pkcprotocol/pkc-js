@@ -25,18 +25,24 @@ Author                              Community
 
 ## One Exchange Per Publication Instance
 
-A publication instance runs this exchange once. `publish()` is spent by its first call, whatever came of it, and a second call rejects with `ERR_PUBLICATION_PUBLISH_ALREADY_CALLED` (its `details` carry `state`, `publishingState`, `receivedChallenge` and `receivedChallengeVerification`). To publish again, create a new instance, and `stop()` the old one if it is still publishing:
+A publication instance runs this exchange once. It is spent once `publish()` gets past pre-flight (the community fetch, signing, the signature hook), which is the point from which a request can leave the instance, or once `stop()` ends a `publish()` that was called. From then on a second `publish()` rejects with `ERR_PUBLICATION_PUBLISH_ALREADY_CALLED` (its `details` carry `state`, `publishingState`, `receivedChallenge` and `receivedChallengeVerification`), whatever came of the exchange. A `publish()` call made while another one is still running on the same instance rejects too.
+
+A `publish()` that rejected during pre-flight does not spend the instance: no exchange exists, so there is nothing for a second one to cross with, and the same instance can call `publish()` again.
+
+To publish again once it is spent, create a new instance, and `stop()` the old one if it is still publishing:
 
 -   A new publication (new timestamp, new signature): call `createComment` / `createVote` / ... with the options again. This is what a client does after a wrong challenge answer.
 -   The same signed publication: pass the signed message of the first instance, `pkc.createComment(comment.raw.pubsubMessageToPublish)`. A community that already stored it answers idempotently, see "Duplicate and Overlapping Requests" below.
 
-The rule is deliberately "the first call", not "once a request was sent": it is one flag with no window in which the instance has to work out whether anything reached the community. A second exchange on the same instance used to cross with the first one's requests, no-response watchdog, verdict and teardown.
+A second exchange on the same instance used to cross with the first one's requests, no-response watchdog, verdict and teardown, which is why the rule is one exchange per instance rather than one exchange at a time.
 
 The publish ends once, by whichever of these is recorded first: the community's verification, a failure (no response, every pubsub provider threw, a verification that cannot be decrypted, a request a local community or the RPC server rejected) or `stop()`. Anything that arrives after that changes nothing. For example a verification that lands while a no-response failure is being torn down is dropped, and `stop()` after a verification leaves `publishingState` at `succeeded` or `failed`.
 
 A `CHALLENGE` or `CHALLENGEVERIFICATION` whose signature is not the community's is logged and dropped: no `error` event and no state change. Anyone on the topic can read a `challengeRequestId` and send a message for it, so such a message says nothing about the publication.
 
-`publishChallengeAnswers` after the exchange ended rejects with `ERR_PUBLICATION_CHALLENGE_EXCHANGE_ENDED`.
+`publishChallengeAnswers` after the exchange ended rejects with `ERR_PUBLICATION_CHALLENGE_EXCHANGE_ENDED`. Over RPC the exchange runs on the server, and the client rejects with `ERR_RPC_CLIENT_NO_ACTIVE_PUBLISH_SUBSCRIPTION` once its publish subscription is gone.
+
+A success verification the client cannot use ends the publication as `failed` with the error emitted: an encrypted part that cannot be decrypted or parsed, or a returned comment that differs from the one published or does not verify.
 
 ## Message Schemas
 
