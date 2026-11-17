@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.0.151](https://github.com/pkcprotocol/pkc-js/compare/v0.0.150...v0.0.151) (2026-11-17)
+
+### Bug Fixes
+
+* **comment:** look up community peers at once in getComment() and update() ([#563](https://github.com/pkcprotocol/pkc-js/issues/563)) ([d9acf5a](https://github.com/pkcprotocol/pkc-js/commit/d9acf5a6c2b42e0e30ef43d782152339d622f090)), closes [#562](https://github.com/pkcprotocol/pkc-js/issues/562) [#562](https://github.com/pkcprotocol/pkc-js/issues/562) [#562](https://github.com/pkcprotocol/pkc-js/issues/562)
+
+## [0.0.150](https://github.com/pkcprotocol/pkc-js/compare/v0.0.149...v0.0.150) (2026-11-16)
+
+### Bug Fixes
+
+* write post updates by bucket swap only, end pubsub warmups on stop ([#555](https://github.com/pkcprotocol/pkc-js/issues/555)) ([3450989](https://github.com/pkcprotocol/pkc-js/commit/3450989ef22bf7efe231cb4ec3abff04549f4a35)), closes [#541](https://github.com/pkcprotocol/pkc-js/issues/541) [#551](https://github.com/pkcprotocol/pkc-js/issues/551) [#456](https://github.com/pkcprotocol/pkc-js/issues/456) [ipfs/kubo#11494](https://github.com/ipfs/kubo/issues/11494) [#556](https://github.com/pkcprotocol/pkc-js/issues/556) [#551](https://github.com/pkcprotocol/pkc-js/issues/551) [ipfs/kubo#11494](https://github.com/ipfs/kubo/issues/11494) [#556](https://github.com/pkcprotocol/pkc-js/issues/556)
+
+## [0.0.149](https://github.com/pkcprotocol/pkc-js/compare/v0.0.148...v0.0.149) (2026-11-16)
+
+### Bug Fixes
+
+* **community:** drop the own-name IPNS resolve, publish with the stored sequence ([#548](https://github.com/pkcprotocol/pkc-js/issues/548)) ([3448445](https://github.com/pkcprotocol/pkc-js/commit/344844581a0f436db77d675277b55651f1c50d9c)), closes [#239](https://github.com/pkcprotocol/pkc-js/issues/239) [#553](https://github.com/pkcprotocol/pkc-js/issues/553) [#239](https://github.com/pkcprotocol/pkc-js/issues/239) [#553](https://github.com/pkcprotocol/pkc-js/issues/553)
+
 ## [0.0.148](https://github.com/pkcprotocol/pkc-js/compare/v0.0.147...v0.0.148) (2026-11-16)
 
 ### Bug Fixes
