@@ -73,9 +73,16 @@ export async function holdStartLockInAnotherProcess({
         child.stdout!.on("data", (chunk: Buffer) => {
             output += chunk.toString();
             if (output.includes("locked\n")) resolve();
-            else if (output.includes("failed")) reject(new Error(output.trim()));
         });
-        child.once("exit", (code) => reject(new Error(`The other process exited with code ${code} before taking the start lock`)));
+        // A refusal is reported once the process is gone, not when it prints it: until then it has the community DB
+        // open, and Windows does not let the caller's cleanup delete an open file
+        child.once("exit", (code) =>
+            reject(
+                new Error(
+                    output.includes("failed") ? output.trim() : `The other process exited with code ${code} before taking the start lock`
+                )
+            )
+        );
     });
     return { process: child, kill };
 }
@@ -128,9 +135,16 @@ export async function startCommunityInAnotherProcess({
         child.stdout!.on("data", (chunk: Buffer) => {
             output += chunk.toString();
             if (output.includes("started\n")) resolve();
-            else if (output.includes("failed")) reject(new Error(output.trim()));
         });
-        child.once("exit", (code) => reject(new Error(`The other process exited with code ${code} before starting the community`)));
+        // A refusal is reported once the process is gone, not when it prints it: until then it has the community DB
+        // open, and Windows does not let the caller's cleanup delete an open file
+        child.once("exit", (code) =>
+            reject(
+                new Error(
+                    output.includes("failed") ? output.trim() : `The other process exited with code ${code} before starting the community`
+                )
+            )
+        );
     });
     return { process: child, kill };
 }
