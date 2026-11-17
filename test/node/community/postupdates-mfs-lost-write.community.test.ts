@@ -39,7 +39,8 @@ describeSkipIfRpc("postUpdates sync vs MFS changes that Kubo reports as done and
         try {
             for await (const chunk of kubo().files.read(path)) chunks.push(chunk);
         } catch (e) {
-            expect((e as Error).message).to.equal("file does not exist");
+            // Kubo prefixes the MFS path on some platforms (Windows CI: "<path>: file does not exist")
+            expect((e as Error).message).to.match(/file does not exist$/);
             return undefined;
         }
         return Buffer.concat(chunks).toString();

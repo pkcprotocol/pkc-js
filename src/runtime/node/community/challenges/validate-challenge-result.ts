@@ -1,4 +1,8 @@
-import { CommentSignedPropertyNames, CommentUpdateChallengeReservedFieldNames } from "../../../../publications/comment/schema.js";
+import {
+    CommentSignedPropertyNames,
+    CommentUpdateChallengeReservedFieldNames,
+    CommentUpdateReservedFields
+} from "../../../../publications/comment/schema.js";
 import { CommunityAuthorChallengeReservedFieldNames } from "../../../../schema/schema.js";
 import { PKCError } from "../../../../pkc-error.js";
 import type { ChallengeResult } from "../../../../community/types.js";
@@ -31,7 +35,14 @@ export function validateChallengeResultExtras({
     }
     if (challengeResult.commentUpdate) {
         for (const key of Object.keys(challengeResult.commentUpdate)) {
-            if ((CommentUpdateChallengeReservedFieldNames as readonly string[]).includes(key)) {
+            // CommentUpdateReservedFields: runtime/DB-only names (raw, state, extraProps...) that the signature check rejects
+            // on a CommentUpdate, so signing them would stall the update cycle. `__proto__` cannot be carried as an own
+            // property of the extraProps carrier, so the signed record and the page entry would diverge.
+            if (
+                (CommentUpdateChallengeReservedFieldNames as readonly string[]).includes(key) ||
+                (CommentUpdateReservedFields as readonly string[]).includes(key) ||
+                key === "__proto__"
+            ) {
                 throw new PKCError("ERR_CHALLENGE_RESULT_OVERRIDES_RESERVED_COMMENT_UPDATE_FIELD", {
                     challengeIndex,
                     offendingKey: key

@@ -12,7 +12,7 @@ export const RpcCommentEventResultSchema = z.object({
     runtimeFields: z.object({}).loose().optional()
 });
 export const RpcCommentUpdateResultSchema = z.object({
-    commentUpdate: CommentUpdateSchema,
+    commentUpdate: CommentUpdateSchema.loose(), // a challenge's commentUpdate extras are signed keys the schema does not know (issue #572)
     runtimeFields: z.object({}).loose().optional()
 });
 export const RpcChallengeVerificationEventResultSchema = z.object({
