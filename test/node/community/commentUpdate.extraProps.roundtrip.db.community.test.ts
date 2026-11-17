@@ -10,6 +10,7 @@ import {
     commentUpdateToDbRow,
     spreadCommentUpdateExtraProps
 } from "../../../dist/node/runtime/node/community/comment-update-row.js";
+import { resolveDbPostsCidRefs } from "../../../dist/node/runtime/node/util.js";
 import { CommentUpdateSchema } from "../../../dist/node/publications/comment/schema.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
@@ -131,6 +132,7 @@ describe("comment-update-row mapping functions (pure)", () => {
     });
 });
 
+// DbHandler-only: opens an in-memory SQLite DB through the node-only DbHandler, which an RPC client has no access to.
 describeSkipIfRpc("comment_updates.extraProps through the DB and the page mapper (issue #572)", () => {
     let dbHandler: DbHandler;
     const communityAddress = "12D3KooWExtraPropsRoundTrip";
@@ -220,6 +222,17 @@ describeSkipIfRpc("comment_updates.extraProps through the DB and the page mapper
         );
         // and the key order of the entry is canonical, so plain JSON.stringify is too (the page generator relies on it)
         expect(JSON.stringify(entry)).to.equal(deterministicStringify(withoutUndefined(update as unknown as Record<string, unknown>)));
+    });
+
+    it("the CID-ref reload at startup (resolveDbPostsCidRefs) keeps the extras too", () => {
+        insertPost(CID);
+        const update = { ...baseUpdate(CID), tip: { txHash: "0xabc" } } as unknown as CommentUpdateType;
+        upsert(update);
+        const [entry] = resolveDbPostsCidRefs({
+            dbPosts: { new: { commentCids: [CID] } } as never,
+            dbHandler
+        })!.pages!.new.comments;
+        expect((entry.commentUpdate as Record<string, unknown>).tip).to.deep.equal({ txHash: "0xabc" });
     });
 
     it("extras of one comment do not leak into another comment's page entry", () => {

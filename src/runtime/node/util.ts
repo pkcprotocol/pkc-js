@@ -993,7 +993,8 @@ export function resolveDbPostsCidRefs(opts: { dbPosts: DbPostsFormat; dbHandler:
     // For preloaded sorts (with commentCids): query those posts from DB and resolve their nested replies.
     // For non-preloaded sorts (allPageCids only): reconstruct pageCids.
     const { dbPosts, dbHandler } = opts;
-    const commentUpdateCols = keys(CommentUpdateSchema.shape);
+    // extraProps: the signed record's unknown keys (a challenge's commentUpdate extras), spread back by the mapper
+    const commentUpdateCols = [...keys(CommentUpdateSchema.shape), "extraProps"];
     const commentIpfsCols = [...keys(CommentIpfsSchema.shape), "extraProps"];
 
     const pages: Record<string, PageIpfs> = {};
