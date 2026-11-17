@@ -111,6 +111,43 @@ describeSkipIfRpc("the start lock through a community's life", () => {
         await restarted.delete();
     });
 
+    // edit() and exportCommunityModLogs() close the DB connection of a community they find stopped. A start() in flight
+    // is still "stopped" until it has taken the lock, on that same connection: closing it then left the community
+    // running with no lock, which a second process could take.
+    it("an edit() called right after start() waits for it, and the lock stays held", async () => {
+        const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+        const title = `edited while starting ${Date.now()}`;
+
+        const starting = community.start();
+        const editing = community.edit({ title });
+        await Promise.all([starting, editing]);
+
+        expect(community.state).to.equal("started");
+        expect(community.title).to.equal(title);
+        expect(await lockAsAnotherProcessSeesIt(community.address)).to.equal("held");
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => community.raw.communityIpfs?.title === title });
+        await community.delete();
+    });
+
+    it("exportCommunityModLogs() during a start() does not close the connection that holds the lock", async () => {
+        const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+
+        let started = false;
+        const starting = community.start().then(() => (started = true));
+        let exportsDuringStart = 0;
+        while (!started) {
+            await community.exportCommunityModLogs();
+            exportsDuringStart++;
+            await new Promise((resolve) => setImmediate(resolve));
+        }
+        await starting;
+
+        expect(exportsDuringStart).to.be.greaterThan(1);
+        expect(community.state).to.equal("started");
+        expect(await lockAsAnotherProcessSeesIt(community.address)).to.equal("held");
+        await community.delete();
+    });
+
     it("is free again after a start() that fails once it holds the lock", async () => {
         const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
         const dbHandler = community._dbHandler;

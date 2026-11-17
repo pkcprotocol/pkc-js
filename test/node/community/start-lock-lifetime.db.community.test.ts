@@ -58,11 +58,25 @@ describeSkipIfRpc("how long a start lock stays held", () => {
         await fs.promises.rm(dataPath, { recursive: true, force: true });
     });
 
-    it("closing the connection that holds it is refused under vitest, and the lock stays held", async () => {
+    it("closing the connection that holds it is refused, and the lock stays held", async () => {
         await dbHandler.lockCommunityStart();
 
-        expect(() => dbHandler.destoryConnection()).to.throw(/held the community's start lock/);
+        // under vitest it throws, so a test that reaches a path closing the connection of a started community fails
+        expect(() => dbHandler.destoryConnection()).to.throw(/while it holds the community's start lock/);
         expect(dbHandler._db.open, "the connection was closed all the same").to.be.true;
+        expect(await anotherProcessIsRefused()).to.be.true;
+
+        // outside of it the call is logged and does nothing: a caller that mistook the community for a stopped one
+        // must not take a running community's lock away
+        const vitestEnv = process.env["VITEST"];
+        delete process.env["VITEST"];
+        try {
+            expect(() => dbHandler.destoryConnection()).to.not.throw();
+        } finally {
+            process.env["VITEST"] = vitestEnv;
+        }
+        expect(dbHandler._db.open, "the connection was closed all the same").to.be.true;
+        expect(dbHandler.holdsStartLock()).to.be.true;
         expect(await anotherProcessIsRefused()).to.be.true;
 
         await dbHandler.unlockCommunityStart();

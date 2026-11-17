@@ -289,14 +289,16 @@ export class DbHandler {
     destoryConnection() {
         const log = Logger("pkc-js:local-community:dbHandler:destroyConnection");
         // The start lock lives on this connection (see start-lock.ts), so closing it releases the lock: another process
-        // could then start the community next to this one. stop() releases the lock before it gets here. Under vitest it
-        // throws, so a test that reaches a path closing the connection of a started community fails.
-        if (this._startLockAddress !== undefined && this._db?.open) {
+        // could then start the community next to this one. stop() releases the lock before it gets here, so anything
+        // else that does is a caller that took a starting or started community for a stopped one. The connection stays
+        // open and the lock held. Under vitest it throws, so a test that reaches such a path fails.
+        if (this.holdsStartLock()) {
             const error = new Error(
-                `The DB connection of community (${this._startLockAddress}) was closed while it held the community's start lock (issue #561)`
+                `Refused to close the DB connection of community (${this._startLockAddress}) while it holds the community's start lock (issue #561)`
             );
             log.error(error);
             if (process.env["VITEST"]) throw error;
+            return;
         }
         this._startLockAddress = undefined;
         this._preparedStatements.clear(); // statements belong to the connection
@@ -3633,6 +3635,11 @@ export class DbHandler {
         // The lock directory of the mtime lock this one replaced, left by a process that was killed before an upgrade
         await fs.promises.rm(path.join(dataPath, "communities", `${communityAddress}.start.lock`), { recursive: true, force: true });
         log(`Locked the start of community (${communityAddress}) successfully`);
+    }
+
+    // Whether this handler's connection holds the community's start lock, i.e. this instance is starting or started
+    holdsStartLock(): boolean {
+        return this._startLockAddress !== undefined && this._db?.open === true;
     }
 
     async unlockCommunityStart() {

@@ -317,6 +317,7 @@ export async function editPropsOnStartedCommunity(
     const log = Logger("pkc-js:local-community:start:editPropsOnStartedCommunity");
     const oldAddress = clone(community.address);
     const uniqueEditId = sha256(deterministicStringify(parsedEditOptions));
+    let storedEdit: ParsedCommunityEditOptions | undefined; // in the DB, not on the instance yet
     if (typeof parsedEditOptions.address === "string" && community.address !== parsedEditOptions.address) {
         const newAddress = parsedEditOptions.address;
         await validateNewAddressBeforeEditing(community, newAddress, log);
@@ -362,15 +363,26 @@ export async function editPropsOnStartedCommunity(
         // publish or stop() stored it, and a crash before either (a cycle keeps failing while kubo is down) lost the edit.
         // An empty edit (edit({}), or edit({ roles: undefined }) once parsed) has nothing to store, and updateDbInternalState()
         // throws on empty props. The props are copied because it sets _internalStateUpdateId on what it gets.
-        // Keep the in-memory apply below right after this write, with no I/O between them: the publish cycle and stop() build
-        // the whole record from the instance inside their write transaction, and must find the edit there once it is stored.
+        // The publish cycle and stop() build the whole record from the instance inside their write transaction. The edit is
+        // on the instance only once this function resumes after its write, and a whole-record write that was queued before
+        // then built the record without the edit and wrote it over the edit. From its write until it is on the instance,
+        // the edit is in _editsStoredNotApplied, which every whole-record write lays over what it built.
         // stop() waits for this write before it tears down. It closes the DB connection, and a write that came after it
         // ran on the closed connection and rejected with a TypeError.
         if (!isEmpty(parsedEditOptions)) {
-            const store = updateDbInternalState(community, { ...parsedEditOptions });
+            const editToStore = { ...parsedEditOptions };
+            // added inside the write transaction, in the same synchronous run as the write
+            const store = updateDbInternalState(community, () => {
+                community._editsStoredNotApplied.add(editToStore);
+                return { ...parsedEditOptions };
+            });
+            storedEdit = editToStore;
             community._editStoresInFlight.add(store);
             try {
                 await store;
+            } catch (e) {
+                community._editsStoredNotApplied.delete(editToStore);
+                throw e;
             } finally {
                 community._editStoresInFlight.delete(store);
             }
@@ -378,18 +390,22 @@ export async function editPropsOnStartedCommunity(
         community._pendingEditProps.push({ ...parsedEditOptions, editId: uniqueEditId });
     }
 
-    if (community.updateCid)
-        await community.initInternalCommunityAfterFirstUpdateNoMerge({
-            ...community.toJSONInternalAfterFirstUpdate(),
-            ...parsedEditOptions,
-            _internalStateUpdateId: uniqueEditId
-        });
-    else
-        await community.initInternalCommunityBeforeFirstUpdateNoMerge({
-            ...community.toJSONInternalBeforeFirstUpdate(),
-            ...parsedEditOptions,
-            _internalStateUpdateId: uniqueEditId
-        });
+    try {
+        if (community.updateCid)
+            await community.initInternalCommunityAfterFirstUpdateNoMerge({
+                ...community.toJSONInternalAfterFirstUpdate(),
+                ...parsedEditOptions,
+                _internalStateUpdateId: uniqueEditId
+            });
+        else
+            await community.initInternalCommunityBeforeFirstUpdateNoMerge({
+                ...community.toJSONInternalBeforeFirstUpdate(),
+                ...parsedEditOptions,
+                _internalStateUpdateId: uniqueEditId
+            });
+    } finally {
+        if (storedEdit) community._editsStoredNotApplied.delete(storedEdit);
+    }
     await applyPagesEdit(community, pagesEdit);
     community._communityUpdateTrigger = true;
     log(
@@ -441,10 +457,15 @@ export async function editPropsOnNotStartedCommunity(
         await community.initInternalCommunityAfterFirstUpdateNoMerge(mergedInternalState);
     else await community.initInternalCommunityBeforeFirstUpdateNoMerge(mergedInternalState);
     await applyPagesEdit(community, pagesEdit);
-    await community._dbHandler.destoryConnection();
+    // A start() called while the awaits above ran owns the connection now, and holds the start lock on it
+    if (!isStartInFlight(community) && !community._dbHandler.holdsStartLock()) community._dbHandler.destoryConnection();
     community.emit("update", community);
     return community;
 }
+
+// A start() of this instance that has not entered the started state yet. update() marks itself in flight too, but
+// enters the "updating" state as it does
+const isStartInFlight = (community: LocalCommunity) => community.state === "stopped" && community._startOrUpdateInFlight !== undefined;
 
 export async function edit(community: LocalCommunity, newCommunityOptions: CommunityEditOptions): Promise<LocalCommunity> {
     // scenearios
@@ -456,7 +477,10 @@ export async function edit(community: LocalCommunity, newCommunityOptions: Commu
     // A stop() that is tearing this instance down keeps the state "started" until it is done, and closes the DB connection
     // on the way. Editing it as a started community meanwhile wrote to that connection. Waited for, the edit then finds the
     // community stopped (sceneario 3), or started again by a "stopped" listener.
-    while (community._stopInFlight) await community._stopInFlight;
+    // A start() in flight keeps the state "stopped" until it holds the start lock, which it takes on this instance's DB
+    // connection. Editing it as a stopped community meanwhile closed that connection, and the lock with it (issue #561).
+    // Waited for, the edit then finds the community started (sceneario 4), or stopped if the start failed.
+    while (community._stopInFlight || isStartInFlight(community)) await (community._stopInFlight ?? community._startOrUpdateInFlight);
 
     const startedCommunity = <LocalCommunity | undefined>(
         (findStartedCommunity(community._pkc, { publicKey: community.publicKey, name: community.name }) ||
@@ -473,6 +497,8 @@ export async function edit(community: LocalCommunity, newCommunityOptions: Commu
 
     await community.initDbHandlerIfNeeded();
     await community._updateStartedValue();
+    // a start() of this instance began while the awaits above ran: the lock it holds is not another process's
+    if (isStartInFlight(community)) return edit(community, newCommunityOptions);
     if (community.started && community.state !== "started") {
         // sceneario 2
         community._dbHandler.destoryConnection();
@@ -503,8 +529,9 @@ export async function edit(community: LocalCommunity, newCommunityOptions: Commu
         ...newInternalProps
     };
 
-    // a stop() began tearing down while the awaits above ran: what they found is stale, start over once it is done
-    if (community._stopInFlight) return edit(community, newCommunityOptions);
+    // a stop() began tearing down or a start() began while the awaits above ran: what they found is stale, start over
+    // once it is done
+    if (community._stopInFlight || isStartInFlight(community)) return edit(community, newCommunityOptions);
 
     if (!community.started && !startedCommunity) {
         // sceneario 3

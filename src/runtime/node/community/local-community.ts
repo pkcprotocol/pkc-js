@@ -172,6 +172,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _startOrUpdateInFlight?: Promise<void> = undefined; // settles once start() or update() is done setting up, stop() waits for it
     _stopInFlight?: Promise<void> = undefined; // settles once stop() is done tearing down, a stop() or edit() called meanwhile waits for it
     _editStoresInFlight = new Set<Promise<unknown>>(); // the DB writes of edit() calls on this started community, stop() waits for them
+    // The props of edit() calls on this started community that are in the DB and not on this instance yet. A writer of the
+    // whole record builds it from the instance, and adds these so it does not write the record over such an edit.
+    _editsStoredNotApplied = new Set<Partial<InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType>>();
     _updateLoopAbortController?: AbortController;
     _internalStateUpdateId: InternalCommunityRecordBeforeFirstUpdateType["_internalStateUpdateId"] = "";
     _lastPubsubTopicRoutingProvideAt?: number = undefined;
@@ -523,8 +526,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         try {
             return { moderations: this._dbHandler.queryAllCommentModerations(opts) };
         } finally {
-            // Don't leave a DB connection open on a community that isn't running.
-            if (this.state === "stopped") this._dbHandler.destoryConnection();
+            // Don't leave a DB connection open on a community that isn't running. A start() in flight is still "stopped"
+            // and owns the connection, on which it holds the start lock once it has taken it
+            if (this.state === "stopped" && !this._startOrUpdateInFlight) this._dbHandler.destoryConnection();
         }
     }
 
