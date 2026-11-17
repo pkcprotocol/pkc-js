@@ -42,7 +42,7 @@ const challengeFor = async ({ request, by }: { request: ChallengeRequestMessageT
         type: "CHALLENGE",
         challengeRequestId: request.challengeRequestId,
         encrypted: await encryptEd25519AesGcm(
-            JSON.stringify({ challenges: [{ type: "text/plain", challenge: "1+1=?" }] }),
+            JSON.stringify({ challenges: { "0": { type: "text/plain", challenge: "1+1=?" } } }),
             by.privateKey,
             requestPublicKey(request)
         ),
@@ -315,7 +315,7 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             });
             expect(pubsub.requests.length).to.equal(1);
             // The exchange is untouched: its challenge can still be answered
-            await post.publishChallengeAnswers({ challengeAnswers: ["2"] });
+            await post.publishChallengeAnswers({ challengeAnswers: { "0": "2" } });
             expect(post.publishingState).to.equal("waiting-challenge-verification");
         });
 
@@ -628,7 +628,7 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             await deliver(pubsub, await challengeFor({ request: pubsub.requests[0], by: communitySigner }));
             await post.stop();
 
-            await expect(post.publishChallengeAnswers({ challengeAnswers: ["2"] })).rejects.toMatchObject({
+            await expect(post.publishChallengeAnswers({ challengeAnswers: { "0": "2" } })).rejects.toMatchObject({
                 code: "ERR_PUBLICATION_CHALLENGE_EXCHANGE_ENDED"
             });
             // Only the request: no answer went out for the stopped publication
@@ -642,7 +642,7 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             await post.publish();
             await deliver(pubsub, await challengeFor({ request: pubsub.requests[0], by: communitySigner }));
 
-            const answering = post.publishChallengeAnswers({ challengeAnswers: ["2"] }).then(
+            const answering = post.publishChallengeAnswers({ challengeAnswers: { "0": "2" } }).then(
                 (): string | undefined => undefined,
                 (error: { code?: string }) => error.code
             );
@@ -664,7 +664,7 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             vi.mocked(post._clientsManager.pubsubPublishOnProvider).mockImplementationOnce(async () => {
                 await answerGate;
             });
-            const answering = post.publishChallengeAnswers({ challengeAnswers: ["2"] });
+            const answering = post.publishChallengeAnswers({ challengeAnswers: { "0": "2" } });
             await vi.waitFor(() => expect(post.publishingState).to.equal("publishing-challenge-answer"), { timeout: 5000, interval: 10 });
 
             await post.stop();
@@ -978,7 +978,7 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             await post.publish();
             const request = pubsub.requests[0];
             await deliver(pubsub, await challengeFor({ request, by: communitySigner }));
-            await post.publishChallengeAnswers({ challengeAnswers: ["2"] });
+            await post.publishChallengeAnswers({ challengeAnswers: { "0": "2" } });
             expect(post.publishingState).to.equal("waiting-challenge-verification");
 
             // Signed by the community, so it is the real verdict, but the encrypted comment and update are not JSON
