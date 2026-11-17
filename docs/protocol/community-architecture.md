@@ -90,7 +90,7 @@ The RPC server ties every subscription to one websocket connection and drops the
 - The communities and settings subscriptions run in the background with no caller to retry them, so one whose first attempt fails with the connection is issued again on the next open. This covers a server that was down when the client started. A subscription that the server rejects while the client is connected is not retried.
 - `start()` is re-established with `startedCommunitySubscribe`, never `startCommunity`, so a reconnect never undoes a stop. If someone stopped the community on purpose, even while the client was away, the client gets `startedState: "stopped"` and does not try again. A community the server lost without a stop (a server restart) is started again.
 - Instances keep the subscription id they got first. The client maps the server's new id back to it, so nothing outside `PKCRpcClient` sees the change.
-- A publication in flight when the connection closes fails with `ERR_RPC_PUBLICATION_LOST_WITH_CONNECTION` and `publishingState: "failed"`. The server stopped it, and re-publishing automatically would start a challenge exchange the user never saw. Publish it again.
+- A publication in flight when the connection closes fails with `ERR_RPC_PUBLICATION_LOST_WITH_CONNECTION` and `publishingState: "failed"`. The server stopped it, and re-publishing automatically would start a challenge exchange the user never saw. To publish it again, create a new instance (`pkc.createComment(comment.raw.pubsubMessageToPublish)` for the same signed publication) and call `publish()` on that: a publication instance publishes once.
 - `pkc.destroy()` closes the socket and cancels any pending reconnect attempt.
 
 ## Common Mistakes

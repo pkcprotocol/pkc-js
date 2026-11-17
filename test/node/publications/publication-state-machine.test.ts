@@ -179,7 +179,8 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             // The watchdog used to stop here, PUBLISH_TO_DIFFERENT_PROVIDER_SECONDS after the request, without an error and
             // with publishingState left at "waiting-challenge"
             await vi.waitFor(() => expect(post.publishingState).to.equal("failed"), { timeout: 2000, interval: 50 });
-            expect(errorCodes).to.deep.equal(["ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS"]);
+            // A request did reach pubsub, so this is "no response", not "every provider threw" (#362)
+            expect(errorCodes).to.deep.equal(["ERR_PUBSUB_DID_NOT_RECEIVE_RESPONSE_AFTER_PUBLISHING_CHALLENGE_REQUEST"]);
             expect(pubsub.requests.length).to.equal(1);
         });
     });
@@ -211,122 +212,251 @@ describe("publication publishing over a stubbed pubsub provider", () => {
         });
     });
 
-    describe("publish() again on the same instance", () => {
-        it("sends a new challenge request after a verification failed the previous attempt", async () => {
+    // The provider is listed once per pubsub client, and a single client twice
+    const providerPubsubState = (post: Publication) => Object.values(post.clients.pubsubKuboRpcClients)[0].state;
+
+    // Holds the given pubsub subscribe call (1-based) until the returned release() is called
+    const holdSubscribeCall = (post: Publication, pubsub: { handler?: PubsubSubscriptionHandler }, callToHold: number) => {
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => (release = resolve));
+        let subscribeCalls = 0;
+        vi.mocked(post._clientsManager.pubsubSubscribeOnProvider).mockImplementation(async (_topic, handler) => {
+            pubsub.handler = handler;
+            subscribeCalls += 1;
+            if (subscribeCalls === callToHold) await gate;
+        });
+        return release;
+    };
+
+    // Holds the first pubsub unsubscribe call, the one of the teardown that ends a publish, until release() is called
+    const holdFirstUnsubscribe = (post: Publication) => {
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => (release = resolve));
+        let unsubscribeCalls = 0;
+        vi.mocked(post._clientsManager.pubsubUnsubscribe).mockImplementation(async () => {
+            unsubscribeCalls += 1;
+            if (unsubscribeCalls === 1) await gate;
+        });
+        return release;
+    };
+
+    // A started local community that takes the request and, unless a test passes its own handlers, never answers. While it
+    // is tracked, publish() hands the request to it directly instead of going over pubsub. Untrack it before the test
+    // ends: pkc.destroy() stops every tracked community, and this one has no stop()
+    const trackFakeLocalCommunity = ({
+        handleChallengeRequest = async () => {},
+        handleChallengeAnswer = async () => {}
+    }: {
+        handleChallengeRequest?: (request: ChallengeRequestMessageType) => Promise<void>;
+        handleChallengeAnswer?: () => Promise<void>;
+    } = {}) => {
+        const community = Object.assign(new EventEmitter(), {
+            address: communitySigner.address,
+            publicKey: communitySigner.address,
+            signer: { address: communitySigner.address },
+            handleChallengeRequest: vi.fn(handleChallengeRequest),
+            handleChallengeAnswer: vi.fn(handleChallengeAnswer)
+        });
+        const started = community as unknown as Parameters<typeof trackStartedCommunity>[1];
+        trackStartedCommunity(pkc, started);
+        return { community, untrack: () => untrackStartedCommunity(pkc, started) };
+    };
+
+    type AlreadyCalledError = {
+        code?: string;
+        details?: { state?: string; publishingState?: string; receivedChallenge?: boolean; receivedChallengeVerification?: boolean };
+    };
+    const secondPublishError = (post: Publication): Promise<AlreadyCalledError | undefined> =>
+        post.publish().then(
+            (): AlreadyCalledError | undefined => undefined,
+            (error: AlreadyCalledError) => error
+        );
+
+    // A publication instance runs one challenge exchange. publish() is spent by its first call, whatever came of it: a
+    // retry is a new instance. A second call used to start a second exchange on the same instance, whose requests,
+    // watchdog, verdicts and teardown then crossed with the first one's
+    describe("a second publish() on the same instance", () => {
+        it("rejects while the first request is still waiting, and the first exchange carries on", async () => {
+            const { post: vote, pubsub, events } = await createPostWithStubbedPubsub({ kind: "vote" });
+            await vote.publish();
+
+            const error = await secondPublishError(vote);
+            expect(error?.code).to.equal("ERR_PUBLICATION_PUBLISH_ALREADY_CALLED");
+            expect(error?.details).to.include({
+                state: "publishing",
+                publishingState: "waiting-challenge",
+                receivedChallenge: false,
+                receivedChallengeVerification: false
+            });
+            // A second request for the same vote used to go on the wire, and its verdict decided the result
+            expect(pubsub.requests.length).to.equal(1);
+            expect(vote.publishingState).to.equal("waiting-challenge");
+
+            await deliver(
+                pubsub,
+                await challengeVerificationFor({ request: pubsub.requests[0], by: communitySigner, challengeSuccess: true })
+            );
+            expect(vote.state).to.equal("stopped");
+            expect(vote.publishingState).to.equal("succeeded");
+            expect(events.filter((event) => event === "challengerequest")).to.have.length(1);
+        });
+
+        it("rejects after a challenge arrived, and says so", async () => {
+            const { post, pubsub } = await createPostWithStubbedPubsub();
+            await post.publish();
+            await deliver(pubsub, await challengeFor({ request: pubsub.requests[0], by: communitySigner }));
+
+            const error = await secondPublishError(post);
+            expect(error?.code).to.equal("ERR_PUBLICATION_PUBLISH_ALREADY_CALLED");
+            expect(error?.details).to.include({
+                publishingState: "waiting-challenge-answers",
+                receivedChallenge: true,
+                receivedChallengeVerification: false
+            });
+            expect(pubsub.requests.length).to.equal(1);
+            // The exchange is untouched: its challenge can still be answered
+            await post.publishChallengeAnswers({ challengeAnswers: ["2"] });
+            expect(post.publishingState).to.equal("waiting-challenge-verification");
+        });
+
+        it("rejects after a verification ended the first one", async () => {
             const { post, pubsub } = await createPostWithStubbedPubsub();
             await post.publish();
             await deliver(
                 pubsub,
                 await challengeVerificationFor({ request: pubsub.requests[0], by: communitySigner, challengeSuccess: false })
             );
-            expect(post.state).to.equal("stopped");
             expect(post.publishingState).to.equal("failed");
 
-            await post.publish();
-            // The previous attempt's verification used to count as "challenge received", so nothing was sent and the
-            // publication stayed "publishing" with publishingState "failed"
-            expect(pubsub.requests.length).to.equal(2);
-            expect(post.state).to.equal("publishing");
-            expect(post.publishingState).to.equal("waiting-challenge");
-
-            await deliver(
-                pubsub,
-                await challengeVerificationFor({ request: pubsub.requests[1], by: communitySigner, challengeSuccess: false })
-            );
+            const error = await secondPublishError(post);
+            expect(error?.code).to.equal("ERR_PUBLICATION_PUBLISH_ALREADY_CALLED");
+            expect(error?.details).to.include({ state: "stopped", publishingState: "failed", receivedChallengeVerification: true });
+            expect(pubsub.requests.length).to.equal(1);
             expect(post.state).to.equal("stopped");
+            expect(post.publishingState).to.equal("failed");
+            expect(pkc._publishingPublications.has(post)).to.be.false;
         });
 
-        it("fails after stop() and publish() when the community stays silent, without the stopped attempt's watchdog publishing", async () => {
+        // The obvious way to retry a wrong answer. It must fail loudly, not be dropped or cross with the teardown
+        it("rejects when called from a challengeverification listener", async () => {
+            const { post: vote, pubsub } = await createPostWithStubbedPubsub({ kind: "vote" });
+            await vote.publish();
+            const listenerPublishes: Promise<AlreadyCalledError | undefined>[] = [];
+            vote.once("challengeverification", () => listenerPublishes.push(secondPublishError(vote)));
+            await deliver(
+                pubsub,
+                await challengeVerificationFor({ request: pubsub.requests[0], by: communitySigner, challengeSuccess: false })
+            );
+
+            expect((await Promise.all(listenerPublishes)).map((error) => error?.code)).to.deep.equal([
+                "ERR_PUBLICATION_PUBLISH_ALREADY_CALLED"
+            ]);
+            expect(pubsub.requests.length).to.equal(1);
+            expect(vote.state).to.equal("stopped");
+            expect(vote.publishingState).to.equal("failed");
+            expect(providerPubsubState(vote)).to.equal("stopped");
+        });
+
+        it("rejects after stop()", async () => {
             const { post, pubsub, errorCodes } = await createPostWithStubbedPubsub();
             await post.publish();
-            await new Promise((resolve) => setTimeout(resolve, 200));
             await post.stop();
 
-            const requestsBeforeRepublish = pubsub.requests.length;
-            await post.publish();
-            // The first attempt's request and exchange used to stay counted, so _isAllAttemptsExhausted never matched the
-            // number of providers and the publication stayed "publishing" for good
-            await vi.waitFor(() => expect(post.state).to.equal("stopped"), { timeout: 15000, interval: 50 });
-            await vi.waitFor(() => expect(post.publishingState).to.equal("failed"), { timeout: 2000, interval: 50 });
-            expect(errorCodes).to.deep.equal(["ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS"]);
-            // The new attempt's request and its watchdog's retry; the stopped attempt's watchdog woke up during the new
-            // attempt and used to send a request of its own
-            expect(pubsub.requests.length - requestsBeforeRepublish).to.equal(2);
+            const error = await secondPublishError(post);
+            expect(error?.code).to.equal("ERR_PUBLICATION_PUBLISH_ALREADY_CALLED");
+            expect(error?.details).to.include({ state: "stopped", publishingState: "stopped" });
+            expect(pubsub.requests.length).to.equal(1);
+            // Past the no-response watchdog's first wake-up: the stopped exchange's watchdog sends nothing either
+            await new Promise((resolve) => setTimeout(resolve, PUBLISH_TO_DIFFERENT_PROVIDER_SECONDS * 1000 + 500));
+            expect(pubsub.requests.length).to.equal(1);
+            expect(post.state).to.equal("stopped");
+            expect(post.publishingState).to.equal("stopped");
+            expect(errorCodes).to.deep.equal([]);
         });
 
-        // Holds the given pubsub subscribe call (1-based) until the returned release() is called
-        const holdSubscribeCall = (post: Publication, pubsub: { handler?: PubsubSubscriptionHandler }, callToHold: number) => {
-            let release!: () => void;
-            const gate = new Promise<void>((resolve) => (release = resolve));
-            let subscribeCalls = 0;
-            vi.mocked(post._clientsManager.pubsubSubscribeOnProvider).mockImplementation(async (_topic, handler) => {
-                pubsub.handler = handler;
-                subscribeCalls += 1;
-                if (subscribeCalls === callToHold) await gate;
-            });
-            return release;
-        };
-
-        const providerPubsubState = (post: Publication) => Object.values(post.clients.pubsubKuboRpcClients)[0].state;
-
-        it("does not let the stopped attempt publish a request when publish() runs again during its pubsub subscribe", async () => {
+        // stop()'s teardown is still running when publish() is called. An exchange started there used to have "stopped"
+        // written over it and its provider reset by that teardown
+        it("rejects right after a stop() that was not awaited", async () => {
             const { post, pubsub } = await createPostWithStubbedPubsub();
-            const releaseFirstSubscribe = holdSubscribeCall(post, pubsub, 1);
+            await post.publish();
+            const releaseUnsubscribe = holdFirstUnsubscribe(post);
+            const stopping = post.stop();
 
-            const firstPublish = post.publish();
-            await vi.waitFor(() => expect(post._clientsManager.pubsubSubscribeOnProvider).toHaveBeenCalled(), {
-                timeout: 5000,
-                interval: 10
+            const error = await secondPublishError(post);
+            expect(error?.code).to.equal("ERR_PUBLICATION_PUBLISH_ALREADY_CALLED");
+            releaseUnsubscribe();
+            await stopping;
+            expect(pubsub.requests.length).to.equal(1);
+            expect(post.state).to.equal("stopped");
+            expect(post.publishingState).to.equal("stopped");
+            expect(providerPubsubState(post)).to.equal("stopped");
+        });
+
+        // These steps run before any request is sent. The instance is spent all the same: one rule, with no window in
+        // which "was anything sent yet" has to be read
+        for (const { step, failOnce } of [
+            {
+                step: "the signature hook",
+                failOnce: (post: Publication) =>
+                    vi
+                        .spyOn(post as unknown as { _validateSignatureHook: () => Promise<void> }, "_validateSignatureHook")
+                        .mockRejectedValueOnce(new Error("stubbed pre-flight failure"))
+            },
+            {
+                step: "the pubsub provider lookup",
+                failOnce: (post: Publication) =>
+                    vi
+                        .spyOn(post as unknown as { _getPubsubProviders: () => string[] }, "_getPubsubProviders")
+                        .mockImplementationOnce(() => {
+                            throw new Error("stubbed pre-flight failure");
+                        })
+            }
+        ]) {
+            it(`rejects after ${step} rejected the first publish()`, async () => {
+                const { post, pubsub } = await createPostWithStubbedPubsub();
+                failOnce(post);
+                await expect(post.publish()).rejects.toThrow("stubbed pre-flight failure");
+                expect(pkc._publishingPublications.has(post)).to.be.false;
+
+                expect((await secondPublishError(post))?.code).to.equal("ERR_PUBLICATION_PUBLISH_ALREADY_CALLED");
+                expect(pubsub.requests.length).to.equal(0);
+                expect(pkc._publishingPublications.has(post)).to.be.false;
             });
+        }
+
+        it("a stop() before the first publish() does not spend the instance", async () => {
+            const { post, pubsub } = await createPostWithStubbedPubsub();
             await post.stop();
             await post.publish();
             expect(pubsub.requests.length).to.equal(1);
-            expect(providerPubsubState(post)).to.equal("waiting-challenge");
-
-            releaseFirstSubscribe();
-            await firstPublish;
-
-            // The stopped attempt only checked for state "stopped", which the new attempt had replaced with "publishing", so
-            // it moved the provider back to "publishing-challenge-request" and put a second request on the wire
-            expect(pubsub.requests.length).to.equal(1);
-            expect(providerPubsubState(post)).to.equal("waiting-challenge");
-            // The new attempt holds the same topic subscription with the same handler, so it must not be undone
-            expect(post._clientsManager.pubsubUnsubscribeOnProvider).not.toHaveBeenCalled();
             expect(post.state).to.equal("publishing");
             expect(post.publishingState).to.equal("waiting-challenge");
+        });
 
+        it("a new instance of the same publication publishes after the first one failed", async () => {
+            const { post: vote, pubsub } = await createPostWithStubbedPubsub({ kind: "vote" });
+            await vote.publish();
             await deliver(
                 pubsub,
                 await challengeVerificationFor({ request: pubsub.requests[0], by: communitySigner, challengeSuccess: false })
             );
-            expect(post.state).to.equal("stopped");
-            expect(post.publishingState).to.equal("failed");
+            expect(vote.publishingState).to.equal("failed");
+
+            // What the error tells the caller to do
+            const { post: retry, pubsub: retryPubsub } = await createPostWithStubbedPubsub({ kind: "vote" });
+            await retry.publish();
+            expect(retryPubsub.requests.length).to.equal(1);
+            await deliver(
+                retryPubsub,
+                await challengeVerificationFor({ request: retryPubsub.requests[0], by: communitySigner, challengeSuccess: true })
+            );
+            expect(retry.publishingState).to.equal("succeeded");
+            expect(vote.publishingState).to.equal("failed");
         });
+    });
 
-        it("does not let the stopped attempt's watchdog publish its retry when publish() runs again during its subscribe", async () => {
-            const { post, pubsub } = await createPostWithStubbedPubsub();
-            // Call 1 is the first request's subscribe; call 2 is the watchdog's retry on the next provider
-            const releaseRetrySubscribe = holdSubscribeCall(post, pubsub, 2);
-
-            await post.publish();
-            expect(pubsub.requests.length).to.equal(1);
-            await vi.waitFor(() => expect(post._clientsManager.pubsubSubscribeOnProvider).toHaveBeenCalledTimes(2), {
-                timeout: PUBLISH_TO_DIFFERENT_PROVIDER_SECONDS * 1000 + 5000,
-                interval: 10
-            });
-            await post.stop();
-            await post.publish();
-            expect(pubsub.requests.length).to.equal(2);
-
-            releaseRetrySubscribe();
-            // Well before the new attempt's own watchdog retries, PUBLISH_TO_DIFFERENT_PROVIDER_SECONDS after its request
-            await new Promise((resolve) => setTimeout(resolve, 100));
-            expect(pubsub.requests.length).to.equal(2);
-            expect(providerPubsubState(post)).to.equal("waiting-challenge");
-            expect(post.publishingState).to.equal("waiting-challenge");
-        });
-
-        it("still undoes a subscription that resolves after a plain stop()", async () => {
+    describe("stop() while the publish is still at work", () => {
+        it("undoes a subscription that resolves after stop()", async () => {
             const { post, pubsub } = await createPostWithStubbedPubsub();
             const releaseFirstSubscribe = holdSubscribeCall(post, pubsub, 1);
 
@@ -346,341 +476,26 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             expect(post.publishingState).to.equal("stopped");
         });
 
-        // A started local community that takes the request and, unless a test passes its own handlers, never answers. While it
-        // is tracked, publish() hands the request to it directly instead of going over pubsub. Untrack it before the test
-        // ends: pkc.destroy() stops every tracked community, and this one has no stop()
-        const trackFakeLocalCommunity = ({
-            handleChallengeRequest = async () => {},
-            handleChallengeAnswer = async () => {}
-        }: {
-            handleChallengeRequest?: (request: ChallengeRequestMessageType) => Promise<void>;
-            handleChallengeAnswer?: () => Promise<void>;
-        } = {}) => {
-            const community = Object.assign(new EventEmitter(), {
-                address: communitySigner.address,
-                publicKey: communitySigner.address,
-                signer: { address: communitySigner.address },
-                handleChallengeRequest: vi.fn(handleChallengeRequest),
-                handleChallengeAnswer: vi.fn(handleChallengeAnswer)
-            });
-            const started = community as unknown as Parameters<typeof trackStartedCommunity>[1];
-            trackStartedCommunity(pkc, started);
-            return { community, untrack: () => untrackStartedCommunity(pkc, started) };
-        };
-
-        // The exchange of an attempt that went to a local community stays recorded after the next attempt, and its
-        // provider is not a pubsub client. Ending a later attempt resets the pubsub state of every exchange's provider,
-        // which must skip that one instead of throwing
-        it("ends a pubsub attempt that follows an attempt with a local community", async () => {
-            const { post, pubsub, errorCodes } = await createPostWithStubbedPubsub();
-            const localCommunity = trackFakeLocalCommunity();
-            try {
-                await post.publish();
-                expect(localCommunity.community.handleChallengeRequest).toHaveBeenCalledTimes(1);
-                expect(pubsub.requests.length).to.equal(0);
-                await post.stop();
-            } finally {
-                localCommunity.untrack(); // the community stopped, so the next attempt goes over pubsub
-            }
-
-            await post.publish();
-            expect(pubsub.requests.length).to.equal(1);
-            expect(post.publishingState).to.equal("waiting-challenge");
-            // This attempt goes over pubsub, so it tracks its provider's state instead of acting as if it were still local
-            expect(providerPubsubState(post)).to.equal("waiting-challenge");
-
-            await deliver(
-                pubsub,
-                await challengeVerificationFor({ request: pubsub.requests[0], by: communitySigner, challengeSuccess: false })
-            );
-            expect(post.state).to.equal("stopped");
-            expect(post.publishingState).to.equal("failed");
-            expect(providerPubsubState(post)).to.equal("stopped");
-            await post.stop();
-            expect(errorCodes).to.deep.equal([]);
-        });
-
-        it("stops a publish() that follows an attempt with a local community before it starts its exchange", async () => {
-            const { post, pubsub, errorCodes } = await createPostWithStubbedPubsub();
-            const localCommunity = trackFakeLocalCommunity();
-            try {
-                await post.publish();
-                await post.stop();
-
-                const secondPublish = post.publish();
-                await post.stop(); // lands while the second publish() is still starting up
-                await secondPublish;
-
-                expect(localCommunity.community.handleChallengeRequest).toHaveBeenCalledTimes(1);
-                expect(pubsub.requests.length).to.equal(0);
-                expect(post.state).to.equal("stopped");
-                expect(post.publishingState).to.equal("stopped");
-                expect(errorCodes).to.deep.equal([]);
-            } finally {
-                localCommunity.untrack();
-            }
-        });
-
-        it("leaves an attempt that is still in flight alone when publish() is called again without stop()", async () => {
-            const { post: vote, pubsub, events } = await createPostWithStubbedPubsub({ kind: "vote" });
-            await vote.publish();
-            await vote.publish();
-            // A second attempt used to start: it put a second request for the same vote on the wire, and from then on the
-            // first request's verification was ignored, so the duplicate's verdict decided the result
-            expect(pubsub.requests.length).to.equal(1);
-            expect(vote.publishingState).to.equal("waiting-challenge");
-
-            await deliver(
-                pubsub,
-                await challengeVerificationFor({ request: pubsub.requests[0], by: communitySigner, challengeSuccess: true })
-            );
-            expect(vote.state).to.equal("stopped");
-            expect(vote.publishingState).to.equal("succeeded");
-            expect(events.filter((event) => event === "challengerequest")).to.have.length(1);
-        });
-
-        it("publishes again a publication that failed without being stopped", async () => {
-            // Publish call 1 is the request, call 2 the challenge answer
-            const { post, pubsub } = await createPostWithStubbedPubsub({ failingPublishCalls: [2] });
-            await post.publish();
-            await deliver(pubsub, await challengeFor({ request: pubsub.requests[0], by: communitySigner }));
-            await expect(post.publishChallengeAnswers({ challengeAnswers: ["2"] })).rejects.toThrow("stubbed failure of publish call 2");
-            // Nothing ends the exchange after its answer could not be published
-            expect(post.state).to.equal("publishing");
-            expect(post.publishingState).to.equal("failed");
-
-            await post.publish();
-            expect(pubsub.requests.length).to.equal(2);
-            expect(post.publishingState).to.equal("waiting-challenge");
-            await deliver(pubsub, await challengeFor({ request: pubsub.requests[1], by: communitySigner }));
-            await post.publishChallengeAnswers({ challengeAnswers: ["2"] });
-            expect(post.publishingState).to.equal("waiting-challenge-verification");
-        });
-
-        it("does not start another attempt while the retry of a failed publication waits for its challenge from a local community", async () => {
-            const { post, pubsub } = await createPostWithStubbedPubsub();
-            // The community challenges the first request at once, and holds the later ones until the test answers them
-            let releaseLaterRequests!: () => void;
-            const laterRequestsGate = new Promise<void>((resolve) => (releaseLaterRequests = resolve));
-            const localCommunity = trackFakeLocalCommunity({
-                handleChallengeRequest: async (request) => {
-                    if (localCommunity.community.handleChallengeRequest.mock.calls.length === 1)
-                        localCommunity.community.emit("challenge", await challengeFor({ request, by: communitySigner }));
-                    else await laterRequestsGate;
-                },
-                handleChallengeAnswer: async () => {
-                    throw new Error("stubbed handleChallengeAnswer failure");
-                }
-            });
-            const { handleChallengeRequest } = localCommunity.community;
-            try {
-                await post.publish();
-                await vi.waitFor(() => expect(post.publishingState).to.equal("waiting-challenge-answers"), { timeout: 5000, interval: 10 });
-                await expect(post.publishChallengeAnswers({ challengeAnswers: ["2"] })).rejects.toThrow(
-                    "stubbed handleChallengeAnswer failure"
-                );
-                expect(post.state).to.equal("publishing");
-                expect(post.publishingState).to.equal("failed");
-
-                await post.publish();
-                expect(handleChallengeRequest).toHaveBeenCalledTimes(2);
-                // The retry does not move publishingState before its challenge arrives, so it still shows the old "failed"
-                expect(post.publishingState).to.equal("failed");
-                await post.publish();
-                // This publish() used to pass the guard on that "failed": it handed the community a third request, and the
-                // retry's challenge was then ignored
-                expect(handleChallengeRequest).toHaveBeenCalledTimes(2);
-
-                const retryRequest = handleChallengeRequest.mock.calls[1][0];
-                localCommunity.community.emit("challenge", await challengeFor({ request: retryRequest, by: communitySigner }));
-                await vi.waitFor(() => expect(post.publishingState).to.equal("waiting-challenge-answers"), { timeout: 5000, interval: 10 });
-                expect(post.state).to.equal("publishing");
-                expect(pubsub.requests.length).to.equal(0);
-            } finally {
-                releaseLaterRequests();
-                localCommunity.untrack();
-            }
-        });
-
-        // A started local community handles the request in one call that settles once the exchange is over, and the
-        // publication's listeners on the community are removed then. That call can reject with no verdict, or right after
-        // the community emitted a failed one
-        describe("a request the local community rejected", () => {
-            const trackRejectingLocalCommunity = () => {
-                let rejectRequest!: (error: Error) => void;
-                const localCommunity = trackFakeLocalCommunity({
-                    handleChallengeRequest: () => new Promise<void>((_, reject) => (rejectRequest = reject))
-                });
-                return { ...localCommunity, rejectRequest: (error: Error) => rejectRequest(error) };
-            };
-
-            it("ends the attempt as failed with the rejection, and publish() runs again", async () => {
-                const { post, pubsub, events } = await createPostWithStubbedPubsub();
-                const errorMessages: string[] = [];
-                post.on("error", (error) => errorMessages.push(error.message));
-                const localCommunity = trackRejectingLocalCommunity();
-                try {
-                    await post.publish();
-                    expect(localCommunity.community.handleChallengeRequest).toHaveBeenCalledTimes(1);
-                    localCommunity.rejectRequest(new Error("stubbed handleChallengeRequest failure"));
-
-                    // Nothing ended the attempt: it stayed "publishing", in flight and registered until stop(), so publish()
-                    // again was a no-op, and the rejection was unhandled
-                    await vi.waitFor(() => expect(post.state).to.equal("stopped"), { timeout: 5000, interval: 10 });
-                    expect(post.publishingState).to.equal("failed");
-                    expect(errorMessages).to.deep.equal(["stubbed handleChallengeRequest failure"]);
-                    expect(publishingStates(events).at(-1)).to.equal("failed");
-                    expect(pkc._publishingPublications.has(post)).to.be.false;
-
-                    await post.publish();
-                    expect(localCommunity.community.handleChallengeRequest).toHaveBeenCalledTimes(2);
-                    expect(post.state).to.equal("publishing");
-                    expect(pkc._publishingPublications.has(post)).to.be.true;
-                    localCommunity.rejectRequest(new Error("stubbed handleChallengeRequest failure"));
-                    await vi.waitFor(() => expect(errorMessages).to.have.length(2), { timeout: 5000, interval: 10 });
-                    expect(post.state).to.equal("stopped");
-                    expect(post.publishingState).to.equal("failed");
-                    expect(pubsub.requests.length).to.equal(0);
-                } finally {
-                    localCommunity.untrack();
-                }
-            });
-
-            it("leaves a stopped publication alone when the rejection comes after stop()", async () => {
-                const { post, events, errorCodes } = await createPostWithStubbedPubsub();
-                const localCommunity = trackRejectingLocalCommunity();
-                try {
-                    await post.publish();
-                    await post.stop();
-                    const eventsAfterStop = events.length;
-                    localCommunity.rejectRequest(new Error("stubbed handleChallengeRequest failure"));
-                    await new Promise((resolve) => setTimeout(resolve, 100));
-
-                    expect(post.state).to.equal("stopped");
-                    expect(post.publishingState).to.equal("stopped");
-                    expect(events.slice(eventsAfterStop)).to.deep.equal([]);
-                    expect(errorCodes).to.deep.equal([]);
-                } finally {
-                    localCommunity.untrack();
-                }
-            });
-
-            it("lets the failed verdict the community emitted before it rejected end the attempt", async () => {
-                const { post, events } = await createPostWithStubbedPubsub();
-                const errorMessages: string[] = [];
-                post.on("error", (error) => errorMessages.push(error.message));
-                // A request the community cannot decrypt or parse gets a failed verdict, and then the call rethrows the error
-                const localCommunity = trackFakeLocalCommunity({
-                    handleChallengeRequest: async (request) => {
-                        const verdict = await challengeVerificationFor({ request, by: communitySigner, challengeSuccess: false });
-                        localCommunity.community.emit("challengeverification", verdict);
-                        throw new Error("stubbed failure after the verdict");
-                    }
-                });
-                try {
-                    await post.publish();
-                    await vi.waitFor(() => expect(post.state).to.equal("stopped"), { timeout: 5000, interval: 10 });
-                    await new Promise((resolve) => setTimeout(resolve, 100));
-
-                    // The rejection used to overtake the verdict, which is recorded only once its signature is checked: the
-                    // attempt ended as a failure with the rejection as an error, and the verdict landed on the stopped publication
-                    expect(errorMessages).to.deep.equal([]);
-                    expect(events).to.deep.equal([
-                        "statechange:publishing",
-                        "challengerequest",
-                        "challengeverification:false",
-                        "statechange:stopped",
-                        "publishingstatechange:failed"
-                    ]);
-                    expect(post.publishingState).to.equal("failed");
-                    expect(pkc._publishingPublications.has(post)).to.be.false;
-                } finally {
-                    localCommunity.untrack();
-                }
-            });
-        });
-
-        // A publication stays in pkc._publishingPublications until the community refresh its publish() fired from a stale
-        // cache entry settles, so pkc.destroy() can still drain that refresh (#270)
-        it("stays registered for a retry when the previous attempt's community refresh settles", async () => {
-            const { post: vote, pubsub } = await createPostWithStubbedPubsub({ kind: "vote" });
-            // The community comes from a stale cache entry, and the background refresh it fires waits for the test (or for
-            // stop(), so a failing test does not hold up pkc.destroy())
-            const community = vote._community!;
-            vote._community = undefined;
-            pkc._memCaches.communityForPublishing.set(vote.communityAddress, community);
-            vi.spyOn(pkc._memCaches.communityForPublishing, "has").mockReturnValue(false);
-            let settleRefresh!: () => void;
-            vi.spyOn(pkc, "getCommunity").mockImplementation(
-                ({ abortSignal }) =>
-                    new Promise((_, reject) => {
-                        settleRefresh = () => reject(new Error("stubbed community refresh failure"));
-                        abortSignal?.addEventListener("abort", settleRefresh, { once: true });
-                    })
-            );
-
-            await vote.publish();
-            const refresh = vote._backgroundCommunityRefresh;
-            expect(refresh).to.not.be.undefined;
-            await deliver(
-                pubsub,
-                await challengeVerificationFor({ request: pubsub.requests[0], by: communitySigner, challengeSuccess: false })
-            );
-            expect(vote.publishingState).to.equal("failed");
-            // Waits for the refresh
-            expect(pkc._publishingPublications.has(vote)).to.be.true;
-
-            await vote.publish();
-            expect(pubsub.requests.length).to.equal(2);
-            settleRefresh();
-            await refresh;
-            await new Promise((resolve) => setTimeout(resolve, 0));
-            // The first attempt's deferred unregister used to remove the retry, which pkc.destroy() then could not stop
-            expect(vote.state).to.equal("publishing");
-            expect(pkc._publishingPublications.has(vote)).to.be.true;
-
-            // With no refresh left, the retry leaves the registry as soon as it ends
-            await deliver(
-                pubsub,
-                await challengeVerificationFor({ request: pubsub.requests[1], by: communitySigner, challengeSuccess: false })
-            );
-            expect(vote.state).to.equal("stopped");
-            expect(pkc._publishingPublications.has(vote)).to.be.false;
-        });
-
-        // The message is handed over before stop(), so its handler is still verifying or decrypting it when stop() and
-        // publish() run. The handlers used to filter by attempt only on entry
-        it("ignores a challenge the stopped attempt was still handling when stop() and publish() ran", async () => {
+        // The message is handed over before stop(), so its handler is still verifying or decrypting it when stop() runs
+        it("drops a challenge that was still being handled when stop() ran", async () => {
             const { post, pubsub, events } = await createPostWithStubbedPubsub();
             await post.publish();
             const handled = deliver(pubsub, await challengeFor({ request: pubsub.requests[0], by: communitySigner }));
             await post.stop();
-            await post.publish();
             await handled;
 
-            // It used to be recorded on the stopped attempt's exchange: "challenge" was emitted for the old request and
-            // publishingState moved to "waiting-challenge-answers", and publishChallengeAnswers then threw
+            // It used to be recorded: "challenge" was emitted on the stopped publication, which moved to
+            // "waiting-challenge-answers"
             expect(events).to.not.include("challenge");
-            expect(publishingStates(events)).to.deep.equal([
-                "publishing-challenge-request",
-                "waiting-challenge",
-                "stopped",
-                "publishing-challenge-request",
-                "waiting-challenge"
-            ]);
-            expect(pubsub.requests.length).to.equal(2);
-
-            await deliver(pubsub, await challengeFor({ request: pubsub.requests[1], by: communitySigner }));
-            expect(events).to.include("challenge");
-            await post.publishChallengeAnswers({ challengeAnswers: ["2"] });
-            expect(post.publishingState).to.equal("waiting-challenge-verification");
+            expect(publishingStates(events)).to.deep.equal(["publishing-challenge-request", "waiting-challenge", "stopped"]);
+            expect(post.state).to.equal("stopped");
         });
 
         for (const { name, encryptedPlaintext } of [
             { name: "verification", encryptedPlaintext: undefined },
             { name: "verification whose encrypted part cannot be read", encryptedPlaintext: "not json" }
         ]) {
-            it(`does not let a ${name} the stopped attempt was still handling end the next attempt`, async () => {
+            it(`drops a ${name} that was still being handled when stop() ran`, async () => {
                 const { post: vote, pubsub, events, errorCodes } = await createPostWithStubbedPubsub({ kind: "vote" });
                 await vote.publish();
                 const handled = deliver(
@@ -693,55 +508,17 @@ describe("publication publishing over a stubbed pubsub provider", () => {
                     })
                 );
                 await vote.stop();
-                await vote.publish();
                 await handled;
 
-                // It used to be recorded on the stopped attempt's exchange and end the publication with its verdict
+                // stop() ended the publish first, so the verdict that was not recorded yet changes nothing
                 expect(events.filter((event) => event.startsWith("challengeverification"))).to.deep.equal([]);
                 expect(errorCodes).to.deep.equal([]);
-                expect(vote.state).to.equal("publishing");
-                expect(vote.publishingState).to.equal("waiting-challenge");
-                expect(pubsub.requests.length).to.equal(2);
-                expect(pkc._publishingPublications.has(vote)).to.be.true;
+                expect(vote.state).to.equal("stopped");
+                expect(vote.publishingState).to.equal("stopped");
             });
         }
 
-        // These steps run before the exchange starts. A publish() that rejects there leaves state "publishing", with
-        // nothing in flight
-        for (const { step, failOnce } of [
-            {
-                step: "the signature hook",
-                failOnce: (post: Publication) =>
-                    vi
-                        .spyOn(post as unknown as { _validateSignatureHook: () => Promise<void> }, "_validateSignatureHook")
-                        .mockRejectedValueOnce(new Error("stubbed pre-flight failure"))
-            },
-            {
-                step: "the pubsub provider lookup",
-                failOnce: (post: Publication) =>
-                    vi
-                        .spyOn(post as unknown as { _getPubsubProviders: () => string[] }, "_getPubsubProviders")
-                        .mockImplementationOnce(() => {
-                            throw new Error("stubbed pre-flight failure");
-                        })
-            }
-        ]) {
-            it(`publishes again after ${step} rejected the previous publish()`, async () => {
-                const { post, pubsub } = await createPostWithStubbedPubsub();
-                failOnce(post);
-                await expect(post.publish()).rejects.toThrow("stubbed pre-flight failure");
-                expect(post.state).to.equal("publishing");
-                expect(pubsub.requests.length).to.equal(0);
-
-                await post.publish();
-                // The guard against publishing while in flight used to read state, which the rejected publish() left at
-                // "publishing", so this publish() resolved without sending anything
-                expect(pubsub.requests.length).to.equal(1);
-                expect(post.publishingState).to.equal("waiting-challenge");
-            });
-        }
-
-        it("does not start another attempt while a comment's success verification is being applied", async () => {
+        it("lets a comment's success verification that was already recorded end the publication", async () => {
             const { post, pubsub, events } = await createPostWithStubbedPubsub();
             await post.publish();
             const request = pubsub.requests[0];
@@ -776,185 +553,284 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             await vi.waitFor(() => expect(commentCheck).toHaveBeenCalled(), { timeout: 5000, interval: 10 });
 
             await post.stop();
-            await post.publish();
-            // The recorded verdict still ends the publication. This publish() used to start an attempt that put a second
-            // request on the wire, which the verdict then stopped under it: that attempt still moved to "waiting-challenge"
-            // and its watchdog ended the publication there, without an error
-            expect(pubsub.requests.length).to.equal(1);
-
             releaseCommentCheck();
             await handled;
+            // The verdict was recorded before stop(), so it is the end of this publish
             expect(post.state).to.equal("stopped");
             expect(post.publishingState).to.equal("succeeded");
             expect(events.filter((event) => event.startsWith("challengeverification"))).to.deep.equal(["challengeverification:true"]);
-            // Past the no-response watchdog's first wake-up, had a new attempt started one
-            await new Promise((resolve) => setTimeout(resolve, PUBLISH_TO_DIFFERENT_PROVIDER_SECONDS * 1000 + 500));
-            expect(post.state).to.equal("stopped");
-            expect(post.publishingState).to.equal("succeeded");
             expect(pubsub.requests.length).to.equal(1);
         });
 
-        // An attempt that ends tears its exchange down first (_postSucessOrFailurePublishing awaits the pubsub
-        // unsubscribe) and only then writes how it ended, for a failure. These hold the first unsubscribe call, the one of
-        // that teardown, and call publish() inside it
-        describe("while the previous attempt is ending", () => {
-            const holdFirstUnsubscribe = (post: Publication) => {
-                let release!: () => void;
-                const gate = new Promise<void>((resolve) => (release = resolve));
-                let unsubscribeCalls = 0;
-                vi.mocked(post._clientsManager.pubsubUnsubscribe).mockImplementation(async () => {
-                    unsubscribeCalls += 1;
-                    if (unsubscribeCalls === 1) await gate;
-                });
-                return release;
-            };
-            const waitForUnsubscribe = (post: Publication, timeout = 5000) =>
-                vi.waitFor(() => expect(post._clientsManager.pubsubUnsubscribe).toHaveBeenCalled(), { timeout, interval: 5 });
+        it("does not answer a challenge after stop()", async () => {
+            const { post, pubsub, events } = await createPostWithStubbedPubsub();
+            await post.publish();
+            await deliver(pubsub, await challengeFor({ request: pubsub.requests[0], by: communitySigner }));
+            await post.stop();
 
-            for (const withStop of [false, true]) {
-                it(`does not start an attempt ${withStop ? "after stop() " : ""}while an unreadable success verification ends it`, async () => {
-                    const { post: vote, pubsub, errorCodes } = await createPostWithStubbedPubsub({ kind: "vote" });
-                    await vote.publish();
-                    const releaseUnsubscribe = holdFirstUnsubscribe(vote);
-                    const handled = deliver(
-                        pubsub,
-                        await challengeVerificationFor({
-                            request: pubsub.requests[0],
-                            by: communitySigner,
-                            challengeSuccess: true,
-                            encryptedPlaintext: "not json"
-                        })
-                    );
-                    await waitForUnsubscribe(vote);
-                    if (withStop) await vote.stop();
-                    await vote.publish();
-                    // This publish() used to start an attempt that put a second request on the wire. The verdict then wrote
-                    // "failed" and ERR_INVALID_JSON over that live attempt, and the guard let a further publish() through
-                    expect(pubsub.requests.length).to.equal(1);
-
-                    releaseUnsubscribe();
-                    await handled;
-                    expect(vote.state).to.equal("stopped");
-                    expect(vote.publishingState).to.equal("failed");
-                    expect(errorCodes).to.deep.equal(["ERR_INVALID_JSON"]);
-                    expect(pkc._publishingPublications.has(vote)).to.be.false;
-
-                    // Once it has ended, publish() starts a new attempt
-                    await vote.publish();
-                    expect(pubsub.requests.length).to.equal(2);
-                    expect(vote.publishingState).to.equal("waiting-challenge");
-                });
-            }
-
-            it("does not start an attempt while a verification's teardown unsubscribes", async () => {
-                const { post: vote, pubsub } = await createPostWithStubbedPubsub({ kind: "vote" });
-                await vote.publish();
-                const releaseUnsubscribe = holdFirstUnsubscribe(vote);
-                const handled = deliver(
-                    pubsub,
-                    await challengeVerificationFor({ request: pubsub.requests[0], by: communitySigner, challengeSuccess: false })
-                );
-                await waitForUnsubscribe(vote);
-                await vote.publish();
-                // This publish() used to start an attempt, and the teardown then reset that attempt's provider to "stopped"
-                // while it was waiting for a challenge
-                expect(pubsub.requests.length).to.equal(1);
-
-                releaseUnsubscribe();
-                await handled;
-                expect(vote.state).to.equal("stopped");
-                expect(vote.publishingState).to.equal("failed");
-                expect(providerPubsubState(vote)).to.equal("stopped");
-
-                await vote.publish();
-                expect(pubsub.requests.length).to.equal(2);
-                expect(providerPubsubState(vote)).to.equal("waiting-challenge");
+            await expect(post.publishChallengeAnswers({ challengeAnswers: ["2"] })).rejects.toMatchObject({
+                code: "ERR_PUBLICATION_CHALLENGE_EXCHANGE_ENDED"
             });
+            // Only the request: no answer went out for the stopped publication
+            expect(pubsub.publishCalls).to.equal(1);
+            expect(events).to.not.include("publishingstatechange:publishing-challenge-answer");
+            expect(post.publishingState).to.equal("stopped");
+        });
 
-            it("does not start an attempt while the no-response watchdog fails it", async () => {
-                const { post: vote, pubsub, errorCodes } = await createPostWithStubbedPubsub({ kind: "vote" });
-                await vote.publish();
-                const releaseUnsubscribe = holdFirstUnsubscribe(vote);
-                // The watchdog retries once, on the provider's second listing, and fails PROVIDER_FAILURE_SECONDS later
-                await waitForUnsubscribe(vote, (PUBLISH_TO_DIFFERENT_PROVIDER_SECONDS + PROVIDER_FAILURE_SECONDS) * 1000 + 5000);
-                expect(pubsub.requests.length).to.equal(2);
-                await vote.publish();
-                // This publish() used to start an attempt, and the watchdog then wrote "failed" and
-                // ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS over it while it was waiting for a challenge
-                expect(pubsub.requests.length).to.equal(2);
-
-                releaseUnsubscribe();
-                await vi.waitFor(() => expect(vote.publishingState).to.equal("failed"), { timeout: 2000, interval: 10 });
-                expect(vote.state).to.equal("stopped");
-                expect(errorCodes).to.deep.equal(["ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS"]);
+        it("leaves the states alone when stop() runs while a challenge answer is being published", async () => {
+            const { post, pubsub, events } = await createPostWithStubbedPubsub();
+            await post.publish();
+            await deliver(pubsub, await challengeFor({ request: pubsub.requests[0], by: communitySigner }));
+            let releaseAnswer!: () => void;
+            const answerGate = new Promise<void>((resolve) => (releaseAnswer = resolve));
+            vi.mocked(post._clientsManager.pubsubPublishOnProvider).mockImplementationOnce(async () => {
+                await answerGate;
             });
+            const answering = post.publishChallengeAnswers({ challengeAnswers: ["2"] });
+            await vi.waitFor(() => expect(post.publishingState).to.equal("publishing-challenge-answer"), { timeout: 5000, interval: 10 });
 
-            it("does not start an attempt while a publish() whose providers all threw fails it", async () => {
-                const { post, pubsub, errorCodes } = await createPostWithStubbedPubsub({ failingPublishCalls: [1, 2] });
-                const releaseUnsubscribe = holdFirstUnsubscribe(post);
-                const firstPublish = post.publish().then(
-                    (): { code?: string } | undefined => undefined,
-                    (error: { code?: string }) => error
-                );
-                await waitForUnsubscribe(post);
-                await post.publish();
-                // This publish() used to start an attempt whose request went out, and the first publish() then wrote "failed"
-                // and its error over it
-                expect(pubsub.publishCalls).to.equal(2);
-
-                releaseUnsubscribe();
-                expect((await firstPublish)?.code).to.equal("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS");
-                expect(post.state).to.equal("stopped");
-                expect(post.publishingState).to.equal("failed");
-                expect(errorCodes).to.deep.equal(["ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS"]);
-            });
-
-            it("lets a listener of the failure's error publish again", async () => {
-                const { post, pubsub } = await createPostWithStubbedPubsub({ failingPublishCalls: [1, 2] });
-                // The failure is written once the teardown is done, so the attempt has ended when its error is emitted
-                let retry: Promise<void> | undefined;
-                post.once("error", () => (retry = post.publish()));
-                await expect(post.publish()).rejects.toMatchObject({ code: "ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS" });
-                await retry;
-                expect(pubsub.requests.length).to.equal(1);
-                expect(post.state).to.equal("publishing");
-                expect(post.publishingState).to.equal("waiting-challenge");
-                expect(pkc._publishingPublications.has(post)).to.be.true;
-            });
-
-            it("does not start an attempt from a statechange listener while a publish() to a community without a challenge exchange fails it", async () => {
-                const { post, pubsub } = await createPostWithStubbedPubsub();
-                post._community = { ...post._community!, pubsubTopic: undefined };
-                // The teardown emits "stopped" before the failure is written
-                const listenerPublishes: Promise<unknown>[] = [];
-                post.on("statechange", (state) => {
-                    if (state === "stopped" && listenerPublishes.length === 0) listenerPublishes.push(post.publish().catch((e) => e));
-                });
-                const statesAtError: string[] = [];
-                post.on("error", () => statesAtError.push(`${post.state}/${post.publishingState}`));
-
-                await expect(post.publish()).rejects.toMatchObject({ code: "ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED" });
-                const listenerPublishOutcomes = await Promise.all(listenerPublishes);
-                // The listener's publish() used to start an attempt, and the first publish() then wrote "failed" and its error
-                // over that attempt while it was "publishing"
-                expect(statesAtError).to.deep.equal(["stopped/failed"]);
-                expect(listenerPublishOutcomes).to.deep.equal([undefined]);
-                expect(post.state).to.equal("stopped");
-                expect(pubsub.publishCalls).to.equal(0);
-            });
+            await post.stop();
+            releaseAnswer();
+            await answering;
+            // The answer used to move the stopped publication to "waiting-challenge-verification"
+            expect(post.state).to.equal("stopped");
+            expect(post.publishingState).to.equal("stopped");
+            expect(events).to.not.include("publishingstatechange:waiting-challenge-verification");
         });
     });
 
+    // A publish ends once: by the community's verdict, by a failure, or by stop(). Whichever is recorded first is the
+    // end, and the others change nothing
+    describe("two ends of the same publish", () => {
+        it("drops a verification that arrives while the no-response failure is being torn down", async () => {
+            const { post: vote, pubsub, events, errorCodes } = await createPostWithStubbedPubsub({ kind: "vote" });
+            await vote.publish();
+            const releaseUnsubscribe = holdFirstUnsubscribe(vote);
+            // The watchdog retries once, on the provider's second listing, and fails PROVIDER_FAILURE_SECONDS later. Its
+            // teardown awaits the unsubscribe, and the subscription still delivers until that returns
+            await vi.waitFor(() => expect(vote._clientsManager.pubsubUnsubscribe).toHaveBeenCalled(), {
+                timeout: (PUBLISH_TO_DIFFERENT_PROVIDER_SECONDS + PROVIDER_FAILURE_SECONDS) * 1000 + 5000,
+                interval: 5
+            });
+            await deliver(
+                pubsub,
+                await challengeVerificationFor({ request: pubsub.requests[0], by: communitySigner, challengeSuccess: true })
+            );
+            releaseUnsubscribe();
+
+            await vi.waitFor(() => expect(vote.publishingState).to.equal("failed"), { timeout: 2000, interval: 10 });
+            // The verdict used to be written and emitted, and the failure then wrote "failed" and its error over it
+            expect(events.filter((event) => event.startsWith("challengeverification"))).to.deep.equal([]);
+            expect(publishingStates(events)).to.not.include("succeeded");
+            expect(errorCodes).to.deep.equal(["ERR_PUBSUB_DID_NOT_RECEIVE_RESPONSE_AFTER_PUBLISHING_CHALLENGE_REQUEST"]);
+            expect(vote.state).to.equal("stopped");
+        });
+
+        // The verdict lands while the request's own publish call has not returned yet
+        it("does not move back to waiting-challenge when the verification arrives while the request is being published", async () => {
+            const { post: vote, pubsub, events } = await createPostWithStubbedPubsub({ kind: "vote" });
+            let releasePublish!: () => void;
+            const publishGate = new Promise<void>((resolve) => (releasePublish = resolve));
+            vi.mocked(vote._clientsManager.pubsubPublishOnProvider).mockImplementationOnce(async (_topic, message) => {
+                pubsub.requests.push(message as ChallengeRequestMessageType);
+                await publishGate;
+            });
+            const publishing = vote.publish();
+            await vi.waitFor(() => expect(pubsub.requests.length).to.equal(1), { timeout: 5000, interval: 10 });
+            await deliver(
+                pubsub,
+                await challengeVerificationFor({ request: pubsub.requests[0], by: communitySigner, challengeSuccess: true })
+            );
+            expect(vote.publishingState).to.equal("succeeded");
+            releasePublish();
+            await publishing;
+            // Past the no-response watchdog's first wake-up, had one been started
+            await new Promise((resolve) => setTimeout(resolve, PUBLISH_TO_DIFFERENT_PROVIDER_SECONDS * 1000 + 500));
+
+            // The publish loop used to carry on: "waiting-challenge" over "succeeded", and a "challengerequest" event
+            expect(vote.state).to.equal("stopped");
+            expect(vote.publishingState).to.equal("succeeded");
+            expect(publishingStates(events)).to.deep.equal(["publishing-challenge-request", "succeeded"]);
+            expect(events).to.not.include("challengerequest");
+            expect(pubsub.requests.length).to.equal(1);
+        });
+
+        // The community accepted the comment, but what it returned does not verify (a reply without postCid, a signature
+        // that does not match). Like a verification that cannot be read, there is no result to report as succeeded
+        it("ends as failed when the comment in a success verification does not verify", async () => {
+            const { post, pubsub, events, errorCodes } = await createPostWithStubbedPubsub();
+            await post.publish();
+            const errorMessages: string[] = [];
+            post.on("error", (error) => errorMessages.push(error.message));
+            vi.spyOn(
+                post as unknown as { _verifyDecryptedChallengeVerificationAndUpdateCommentProps: () => Promise<void> },
+                "_verifyDecryptedChallengeVerificationAndUpdateCommentProps"
+            ).mockRejectedValue(new Error("stubbed invalid comment in the verification"));
+            const signedComment = post.raw.pubsubMessageToPublish!;
+            await deliver(
+                pubsub,
+                await challengeVerificationFor({
+                    request: pubsub.requests[0],
+                    by: communitySigner,
+                    challengeSuccess: true,
+                    encryptedPlaintext: JSON.stringify({
+                        comment: { ...signedComment, depth: 0 },
+                        commentUpdate: {
+                            cid: "QmUFu8fzuT1th3jJYgR4oRgGpw3sgRALr4nbenA4pyoCav",
+                            signature: signedComment.signature,
+                            protocolVersion: env.PROTOCOL_VERSION
+                        }
+                    })
+                })
+            );
+
+            // The publication used to stay "publishing", subscribed and registered until stop()
+            expect(post.state).to.equal("stopped");
+            expect(post.publishingState).to.equal("failed");
+            expect(errorMessages).to.deep.equal(["stubbed invalid comment in the verification"]);
+            expect(errorCodes).to.have.length(1);
+            expect(events.filter((event) => event.startsWith("challengeverification"))).to.deep.equal([]);
+            expect(post._clientsManager.pubsubUnsubscribe).toHaveBeenCalled();
+            expect(pkc._publishingPublications.has(post)).to.be.false;
+        });
+
+        // A listener of the verdict that starts the comment's update loop, which sets state "updating"
+        it("does not write state stopped over a state a challengeverification listener set", async () => {
+            const { post: vote, pubsub } = await createPostWithStubbedPubsub({ kind: "vote" });
+            await vote.publish();
+            const stateSetter = vote as unknown as { _setStateWithEmission: (state: string) => void };
+            vote.once("challengeverification", () => stateSetter._setStateWithEmission("updating"));
+            await deliver(
+                pubsub,
+                await challengeVerificationFor({ request: pubsub.requests[0], by: communitySigner, challengeSuccess: true })
+            );
+            // The teardown that follows the emission used to set "stopped" again, under the running update
+            expect(vote.state).to.equal("updating");
+            expect(vote.publishingState).to.equal("succeeded");
+        });
+
+        it("keeps the failure when stop() runs while it is being torn down", async () => {
+            const { post, errorCodes } = await createPostWithStubbedPubsub({ failingPublishCalls: [1, 2] });
+            const releaseUnsubscribe = holdFirstUnsubscribe(post);
+            const publishOutcome = post.publish().then(
+                (): { code?: string } | undefined => undefined,
+                (error: { code?: string }) => error
+            );
+            await vi.waitFor(() => expect(post._clientsManager.pubsubUnsubscribe).toHaveBeenCalled(), { timeout: 5000, interval: 5 });
+            // The failure was recorded first, so it is the end: stop() does not replace it
+            const stopping = post.stop();
+            releaseUnsubscribe();
+            await stopping;
+
+            expect((await publishOutcome)?.code).to.equal("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS");
+            expect(post.state).to.equal("stopped");
+            expect(post.publishingState).to.equal("failed");
+            expect(errorCodes).to.deep.equal(["ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS"]);
+        });
+    });
+
+    // A started local community handles the request in one call that settles once the exchange is over, and the
+    // publication's listeners on the community are removed then. That call can reject with no verdict, or right after
+    // the community emitted a failed one
+    describe("a request the local community rejected", () => {
+        const trackRejectingLocalCommunity = () => {
+            let rejectRequest!: (error: Error) => void;
+            const localCommunity = trackFakeLocalCommunity({
+                handleChallengeRequest: () => new Promise<void>((_, reject) => (rejectRequest = reject))
+            });
+            return { ...localCommunity, rejectRequest: (error: Error) => rejectRequest(error) };
+        };
+
+        it("ends the publish as failed with the rejection", async () => {
+            const { post, pubsub, events } = await createPostWithStubbedPubsub();
+            const errorMessages: string[] = [];
+            post.on("error", (error) => errorMessages.push(error.message));
+            const localCommunity = trackRejectingLocalCommunity();
+            try {
+                await post.publish();
+                expect(localCommunity.community.handleChallengeRequest).toHaveBeenCalledTimes(1);
+                localCommunity.rejectRequest(new Error("stubbed handleChallengeRequest failure"));
+
+                // Nothing ended the publish: it stayed "publishing" and registered until stop(), and the rejection was
+                // unhandled
+                await vi.waitFor(() => expect(post.state).to.equal("stopped"), { timeout: 5000, interval: 10 });
+                expect(post.publishingState).to.equal("failed");
+                expect(errorMessages).to.deep.equal(["stubbed handleChallengeRequest failure"]);
+                expect(publishingStates(events).at(-1)).to.equal("failed");
+                expect(pkc._publishingPublications.has(post)).to.be.false;
+                expect(pubsub.requests.length).to.equal(0);
+            } finally {
+                localCommunity.untrack();
+            }
+        });
+
+        it("leaves a stopped publication alone when the rejection comes after stop()", async () => {
+            const { post, events, errorCodes } = await createPostWithStubbedPubsub();
+            const localCommunity = trackRejectingLocalCommunity();
+            try {
+                await post.publish();
+                await post.stop();
+                const eventsAfterStop = events.length;
+                localCommunity.rejectRequest(new Error("stubbed handleChallengeRequest failure"));
+                await new Promise((resolve) => setTimeout(resolve, 100));
+
+                expect(post.state).to.equal("stopped");
+                expect(post.publishingState).to.equal("stopped");
+                expect(events.slice(eventsAfterStop)).to.deep.equal([]);
+                expect(errorCodes).to.deep.equal([]);
+            } finally {
+                localCommunity.untrack();
+            }
+        });
+
+        it("lets the failed verdict the community emitted before it rejected end the publish", async () => {
+            const { post, events } = await createPostWithStubbedPubsub();
+            const errorMessages: string[] = [];
+            post.on("error", (error) => errorMessages.push(error.message));
+            // A request the community cannot decrypt or parse gets a failed verdict, and then the call rethrows the error
+            const localCommunity = trackFakeLocalCommunity({
+                handleChallengeRequest: async (request) => {
+                    const verdict = await challengeVerificationFor({ request, by: communitySigner, challengeSuccess: false });
+                    localCommunity.community.emit("challengeverification", verdict);
+                    throw new Error("stubbed failure after the verdict");
+                }
+            });
+            try {
+                await post.publish();
+                await vi.waitFor(() => expect(post.state).to.equal("stopped"), { timeout: 5000, interval: 10 });
+                await new Promise((resolve) => setTimeout(resolve, 100));
+
+                // The rejection used to overtake the verdict, which is recorded only once its signature is checked: the
+                // publish ended as a failure with the rejection as an error, and the verdict landed on the stopped publication
+                expect(errorMessages).to.deep.equal([]);
+                expect(events).to.deep.equal([
+                    "statechange:publishing",
+                    "challengerequest",
+                    "challengeverification:false",
+                    "statechange:stopped",
+                    "publishingstatechange:failed"
+                ]);
+                expect(post.publishingState).to.equal("failed");
+                expect(pkc._publishingPublications.has(post)).to.be.false;
+            } finally {
+                localCommunity.untrack();
+            }
+        });
+    });
+
+    // Anyone on the topic can read a challengeRequestId and send a message for it. A message the community did not sign
+    // says nothing about the publication, so it is logged and dropped: no state change and no "error" event
     describe("messages the community did not sign", () => {
-        it("a CHALLENGEVERIFICATION with an invalid signature emits an error without moving publishingState to failed", async () => {
+        it("a CHALLENGEVERIFICATION with an invalid signature is dropped without an error or a state change", async () => {
             const forger = await pkc.createSigner();
             const { post: vote, pubsub, events, errorCodes } = await createPostWithStubbedPubsub({ kind: "vote" });
             await vote.publish();
             const request = pubsub.requests[0];
+            const eventsBefore = events.length;
 
-            // Anyone on the topic can read the challengeRequestId and send a verification for it
             await deliver(pubsub, await challengeVerificationFor({ request, by: forger, challengeSuccess: false }));
-            expect(errorCodes).to.deep.equal(["ERR_CHALLENGE_VERIFICATION_SIGNATURE_IS_INVALID"]);
+            expect(errorCodes).to.deep.equal([]);
+            expect(events.slice(eventsBefore)).to.deep.equal([]);
             expect(vote.state).to.equal("publishing");
             expect(vote.publishingState).to.equal("waiting-challenge");
 
@@ -964,14 +840,16 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             expect(publishingStates(events)).to.deep.equal(["publishing-challenge-request", "waiting-challenge", "succeeded"]);
         });
 
-        it("a CHALLENGE with an invalid signature emits an error without moving publishingState to failed", async () => {
+        it("a CHALLENGE with an invalid signature is dropped without an error or a state change", async () => {
             const forger = await pkc.createSigner();
             const { post, pubsub, events, errorCodes } = await createPostWithStubbedPubsub();
             await post.publish();
             const request = pubsub.requests[0];
+            const eventsBefore = events.length;
 
             await deliver(pubsub, await challengeFor({ request, by: forger }));
-            expect(errorCodes).to.deep.equal(["ERR_CHALLENGE_SIGNATURE_IS_INVALID"]);
+            expect(errorCodes).to.deep.equal([]);
+            expect(events.slice(eventsBefore)).to.deep.equal([]);
             expect(post.publishingState).to.equal("waiting-challenge");
 
             await deliver(pubsub, await challengeFor({ request, by: communitySigner }));
