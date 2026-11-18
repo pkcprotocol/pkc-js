@@ -141,6 +141,14 @@ export class DbHandler {
     // Advanced by every write to the publication tables (comments, votes, edits, moderations, aliases, purges). The
     // update cycle's author memo (CommunityAuthorMemo) is only reused while it stays the same.
     private _publicationWriteGeneration = 0;
+
+    // Every method that writes a publication (a vote, comment, edit, moderation, an approval, a purge) calls this.
+    // Besides dropping what was memoized from the old rows, it asks the community for a new record, which wakes its
+    // publish loop: the loop does not poll the DB for changes (issue #576).
+    private _notePublicationWrite(): void {
+        this._publicationWriteGeneration++;
+        if (this._community) this._community._communityUpdateTrigger = true;
+    }
     private _preparedStatements: Map<string, Statement>;
     // The address this handler has claimed the start of, from lockCommunityStart until unlockCommunityStart
     private _startLockAddress: string | undefined = undefined;
@@ -1233,20 +1241,20 @@ export class DbHandler {
     }
 
     deleteVote(authorSignerAddress: VotesTableRow["authorSignerAddress"], commentCid: VotesTableRow["commentCid"]): void {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         this._db
             .prepare(`DELETE FROM ${TABLES.VOTES} WHERE commentCid = ? AND authorSignerAddress = ?`)
             .run(commentCid, authorSignerAddress);
     }
 
     private _deleteCommentEditRow(rowid: number): boolean {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         const deleteResult = this._db.prepare(`DELETE FROM ${TABLES.COMMENT_EDITS} WHERE rowid = ?`).run(rowid);
         return deleteResult.changes > 0;
     }
 
     insertVotes(votes: VotesTableRowInsert[]): void {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         if (votes.length === 0) return;
         const processedVotes = this._processRecordsForDbBeforeInsert(votes);
 
@@ -1279,7 +1287,7 @@ export class DbHandler {
     }
 
     insertComments(comments: CommentsTableRowInsert[]): void {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         if (comments.length === 0) return;
         const processedComments = this._processRecordsForDbBeforeInsert(comments);
 
@@ -1309,7 +1317,7 @@ export class DbHandler {
     }
 
     insertPseudonymityAliases(aliases: PseudonymityAliasRow[]): void {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         if (aliases.length === 0) return;
         const processedAliases = this._processRecordsForDbBeforeInsert(aliases).map((alias) => ({
             ...alias,
@@ -1367,7 +1375,7 @@ export class DbHandler {
     }
 
     insertCommentModerations(moderations: CommentModerationsTableRowInsert[]): void {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         if (moderations.length === 0) return;
         const processedModerations = this._processRecordsForDbBeforeInsert(moderations);
 
@@ -1395,7 +1403,7 @@ export class DbHandler {
     }
 
     insertCommentEdits(edits: CommentEditsTableRowInsert[]): void {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         if (edits.length === 0) return;
         const processedEdits = this._processRecordsForDbBeforeInsert(edits);
 
@@ -2500,7 +2508,7 @@ export class DbHandler {
     }
 
     removeCommentFromPendingApproval(comment: Pick<CommentsTableRow, "cid">): void {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         const log = Logger("pkc-js:local-community:db-handler:removeCommentFromPendingApproval");
         const stmt = this._db.prepare(`UPDATE ${TABLES.COMMENTS} SET pendingApproval = 0 WHERE cid = ?`);
         const res = stmt.run(comment.cid);
@@ -3516,7 +3524,7 @@ export class DbHandler {
     }
 
     purgeComment(cid: string, isNestedCall: boolean = false): PurgedCommentTableRows[] {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         const log = Logger("pkc-js:local-community:db-handler:purgeComment");
         const purgedRecords: PurgedCommentTableRows[] = [];
         const detachedPageCids: string[] = [];
