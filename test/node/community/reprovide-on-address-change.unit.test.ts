@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
     isBrowserDialableAddr,
     normalizeSelfAddrsForProvider,
-    reprovideConnectionCidsIfBrowserAddrsChanged
+    reprovideConnectionCidsIfBrowserAddrsChanged,
+    reprovideOnAddressChangeIfDue,
+    ADDRESS_REPROVIDE_POLL_INTERVAL_MS
 } from "../../../dist/node/runtime/node/community/local-community/reprovide-on-address-change.js";
 import type {
     AddressChangeReprovidable,
@@ -193,5 +195,49 @@ describe("normalizeSelfAddrsForProvider", () => {
 
     it("returns an empty array for empty input", () => {
         expect(normalizeSelfAddrsForProvider([], NORMALIZE_PEER_ID)).toEqual([]);
+    });
+});
+
+// Issue #576: the node's own addresses are the same for every community on it, but each community asked kubo for
+// them (id() and swarm.addrs(), which lists every peer the node knows) once a minute.
+describe("reprovideOnAddressChangeIfDue shares the node's addresses between its communities", () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    function makeCountingClient() {
+        const { client, provideCalls, setIdAddrs } = makeClient([TCP_ADDR, WSS_ADDR_A]);
+        const id = vi.fn(client.id);
+        const swarmAddrs = vi.fn(client.swarm.addrs);
+        const countingClient: ReprovideKuboRpcClient = { ...client, id, swarm: { addrs: swarmAddrs } };
+        return { client: countingClient, id, swarmAddrs, provideCalls, setIdAddrs };
+    }
+
+    it("asks kubo once for all the communities of a node that check within the same quarter of the poll interval", async () => {
+        const { client, id, swarmAddrs } = makeCountingClient();
+        const communities = Array.from({ length: 50 }, () => makeCommunity(client));
+
+        await Promise.all(communities.slice(0, 25).map((community) => reprovideOnAddressChangeIfDue(community)));
+        for (const community of communities.slice(25)) await reprovideOnAddressChangeIfDue(community);
+
+        expect(id).toHaveBeenCalledTimes(1);
+        expect(swarmAddrs).toHaveBeenCalledTimes(1);
+        for (const community of communities) expect(community._lastProvidedBrowserDialableSelfAddrs).toEqual([WSS_ADDR_A]);
+    });
+
+    it("every community still notices a rotated address on its next check and re-provides its own CIDs", async () => {
+        vi.useFakeTimers();
+        const { client, id, provideCalls, setIdAddrs } = makeCountingClient();
+        const communities = Array.from({ length: 3 }, () => makeCommunity(client));
+        for (const community of communities) await reprovideOnAddressChangeIfDue(community); // baseline
+        expect(id).toHaveBeenCalledTimes(1);
+
+        setIdAddrs([TCP_ADDR, WSS_ADDR_B]);
+        vi.advanceTimersByTime(ADDRESS_REPROVIDE_POLL_INTERVAL_MS);
+        for (const community of communities) await reprovideOnAddressChangeIfDue(community);
+
+        expect(id).toHaveBeenCalledTimes(2);
+        expect(provideCalls).toHaveLength(communities.length * 2);
+        for (const community of communities) expect(community._lastProvidedBrowserDialableSelfAddrs).toEqual([WSS_ADDR_B]);
     });
 });

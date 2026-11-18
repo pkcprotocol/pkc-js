@@ -65,6 +65,38 @@ export async function getBrowserDialableSelfAddrs(client: ReprovideKuboRpcClient
     return unique(normalized.filter(isBrowserDialableAddr)).sort();
 }
 
+// A node's own addresses are the same for every community on it, and swarm.addrs() lists every peer the node knows,
+// so one read serves all of them (issue #576): overlapping callers join one request, and its result is reused for
+// `maxAgeMs`. Keyed by the kubo client, which the communities of a PKC share.
+const sharedSelfAddrsByClient = new WeakMap<object, { inFlight?: Promise<string[]>; stored?: { addrs: string[]; fetchedAtMs: number } }>();
+
+export async function getBrowserDialableSelfAddrsShared({
+    client,
+    maxAgeMs
+}: {
+    client: ReprovideKuboRpcClient;
+    maxAgeMs: number;
+}): Promise<string[]> {
+    let shared = sharedSelfAddrsByClient.get(client);
+    if (!shared) {
+        shared = {};
+        sharedSelfAddrsByClient.set(client, shared);
+    }
+    const sharedOfClient = shared;
+    if (sharedOfClient.stored && Date.now() - sharedOfClient.stored.fetchedAtMs < maxAgeMs) return sharedOfClient.stored.addrs;
+    if (sharedOfClient.inFlight) return sharedOfClient.inFlight;
+    const inFlight = getBrowserDialableSelfAddrs(client)
+        .then((addrs) => {
+            sharedOfClient.stored = { addrs, fetchedAtMs: Date.now() };
+            return addrs;
+        })
+        .finally(() => {
+            if (sharedOfClient.inFlight === inFlight) sharedOfClient.inFlight = undefined;
+        });
+    sharedOfClient.inFlight = inFlight;
+    return inFlight;
+}
+
 // The CIDs a browser needs a fresh provider record for in order to bootstrap a connection to the community:
 // the pubsub-topic routing blocks used to find challenge / ipns-over-pubsub peers. These are derived
 // deterministically from the (never-changing) topics, so their router records are exactly what goes stale
@@ -85,11 +117,16 @@ function connectionCriticalCids(community: AddressChangeReprovidable): string[] 
  * addresses via providePubsubTopicRoutingCidsIfNeeded); subsequent changes trigger a re-provide.
  */
 export async function reprovideConnectionCidsIfBrowserAddrsChanged(
-    community: AddressChangeReprovidable
+    community: AddressChangeReprovidable,
+    // How old a read of the node's addresses another community made may be. 0 always asks kubo.
+    { selfAddrsMaxAgeMs = 0 }: { selfAddrsMaxAgeMs?: number } = {}
 ): Promise<{ reprovided: boolean; providedCids: string[]; browserAddrs: string[] }> {
     const log = Logger("pkc-js:local-community:_reprovideConnectionCidsIfBrowserAddrsChanged");
     const client = community._clientsManager.getDefaultKuboRpcClient()._client;
-    const current = await getBrowserDialableSelfAddrs(client);
+    const current =
+        selfAddrsMaxAgeMs > 0
+            ? await getBrowserDialableSelfAddrsShared({ client, maxAgeMs: selfAddrsMaxAgeMs })
+            : await getBrowserDialableSelfAddrs(client);
     const previous = community._lastProvidedBrowserDialableSelfAddrs;
 
     if (previous === undefined) {
@@ -143,5 +180,8 @@ export async function reprovideOnAddressChangeIfDue(community: AddressChangeRepr
     )
         return;
     community._lastAddressReprovideCheckAt = now;
-    await reprovideConnectionCidsIfBrowserAddrsChanged(community);
+    // Communities spread their checks over the poll interval, so a read reused for a quarter of it costs the node
+    // about four id() + swarm.addrs() calls per interval however many communities it hosts (issue #576). A rotated
+    // address is noticed at most that much later.
+    await reprovideConnectionCidsIfBrowserAddrsChanged(community, { selfAddrsMaxAgeMs: ADDRESS_REPROVIDE_POLL_INTERVAL_MS / 4 });
 }
