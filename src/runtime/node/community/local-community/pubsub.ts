@@ -2,6 +2,11 @@ import Logger from "../../../../logger.js";
 import { retryKuboBlockPutPinAndProvidePubsubTopic } from "../../../../util.js";
 import type { LocalCommunity } from "../local-community.js";
 import { challengeExchangePubsubTopic, communityChallengePubsubTopic } from "./comment-updates.js";
+import { listSubscribedPubsubTopicsShared } from "../../../../clients/shared-pubsub-topic-list.js";
+
+// Communities on one node spread their cycles over the publishInterval, so a list reused for a quarter of it
+// costs the node about four pubsub.ls() calls per interval however many communities it hosts (issue #576).
+const SHARED_TOPIC_LIST_MAX_AGE_AS_FRACTION_OF_PUBLISH_INTERVAL = 1 / 4;
 
 export async function listenToIncomingRequests(community: LocalCommunity) {
     const log = Logger("pkc-js:local-community:sync:_listenToIncomingRequests");
@@ -15,7 +20,10 @@ export async function listenToIncomingRequests(community: LocalCommunity) {
         ? community._clientsManager.getDefaultKuboPubsubClient()
         : community._clientsManager.getDefaultKuboPubsubClientIfAny();
     if (!pubsubClient) return;
-    const subscribedTopics = await pubsubClient._client.pubsub.ls();
+    const subscribedTopics = await listSubscribedPubsubTopicsShared({
+        client: pubsubClient._client,
+        maxAgeMs: community._pkc.publishInterval * SHARED_TOPIC_LIST_MAX_AGE_AS_FRACTION_OF_PUBLISH_INTERVAL
+    });
     // Whatever we joined last, which is the only way to know a topic is ours: the kubo node is shared
     // with every other community on it, so kubo's subscription list cannot be diffed safely.
     const staleTopic = community._subscribedChallengePubsubTopic;
