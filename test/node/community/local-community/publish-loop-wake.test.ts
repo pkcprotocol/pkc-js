@@ -26,6 +26,7 @@ vi.mock("../../../../dist/node/runtime/node/community/local-community/anchor-pub
 import { publishLoop } from "../../../../dist/node/runtime/node/community/local-community/lifecycle.js";
 import { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import { DbHandler } from "../../../../dist/node/runtime/node/community/db-handler.js";
+import { isEventLoopWatchRunning } from "../../../../dist/node/runtime/node/event-loop-watch.js";
 
 const SYNC_INTERVAL_MS = 20_000;
 
@@ -80,7 +81,8 @@ describe("publish loop: sleeping between cycles", () => {
         await settle();
         expect(syncIpnsWithDbMock).toHaveBeenCalledTimes(1);
         const queriesBeforeSleeping = queryLatestPostCid.mock.calls.length + queryLatestCommentCid.mock.calls.length;
-        expect(vi.getTimerCount()).to.equal(1);
+        // its own sleep, and the check of the event loop watch, which is one per process however many loops run
+        expect(vi.getTimerCount()).to.equal(2);
 
         await vi.advanceTimersByTimeAsync(SYNC_INTERVAL_MS - 1);
         expect(syncIpnsWithDbMock).toHaveBeenCalledTimes(1);
@@ -117,6 +119,21 @@ describe("publish loop: sleeping between cycles", () => {
         expect(syncIpnsWithDbMock).toHaveBeenCalledTimes(1);
         expect(vi.getTimerCount()).to.equal(0);
         expect(community._wakePublishLoop).to.equal(undefined);
+    });
+
+    it("the main thread is watched for as long as a loop runs, and no longer", async () => {
+        expect(isEventLoopWatchRunning()).to.equal(false);
+        const first = createIdleStartedCommunity();
+        const second = createIdleStartedCommunity();
+        const firstLoop = publishLoop(first.community, SYNC_INTERVAL_MS);
+        const secondLoop = publishLoop(second.community, SYNC_INTERVAL_MS);
+        await settle();
+        expect(isEventLoopWatchRunning()).to.equal(true);
+
+        await endLoop(first.community, firstLoop);
+        expect(isEventLoopWatchRunning()).to.equal(true);
+        await endLoop(second.community, secondLoop);
+        expect(isEventLoopWatchRunning()).to.equal(false);
     });
 
     it("a record the cycle left requested is retried after a short pause, not in a spin", async () => {

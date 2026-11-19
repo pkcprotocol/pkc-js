@@ -5,6 +5,7 @@ import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
 import { pubsubTopicToDhtKey, removeMfsFilesSafely, sleepUntilTimeoutOrAbort } from "../../../../util.js";
 import { moveCommunityDbToDeletedDirectory, unregisterLocalCommunity } from "../../util.js";
+import { holdEventLoopWatch } from "../../event-loop-watch.js";
 import { deriveCommunityChallengesOrThrow } from "../challenges/index.js";
 import { collectChallengeSettingsValidationFailures } from "../challenges/validate-challenge-settings.js";
 import {
@@ -82,51 +83,61 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
         });
     };
 
-    while (!shouldStopPublishLoop()) {
-        // Two instances publishing one community would each sign records under the same key, with the same sequence
-        // numbers. start() can't let that happen, so this is a second line: whatever took this instance's claim from
-        // it while it was running, the community goes down here and says why (issue #585)
-        if (isCommunityStartTakenByAnotherInstance(community, log)) {
-            const error = new PKCError("ERR_COMMUNITY_START_TAKEN_BY_ANOTHER_PKC_INSTANCE", {
-                address: community.address,
-                dataPath: community._pkc.dataPath
-            });
-            log.error(error);
-            // Read by the teardown, also by that of a stop() that is waiting for this loop already. Set before anything
-            // that may throw: a teardown that does not see it writes to what is another instance's
-            community._startTakenByAnotherInstance = true;
-            try {
-                community.emit("error", error);
-            } catch (e) {
-                // nobody listens for errors, or a listener threw. The community goes down all the same
-                log.error(`A listener of the error of community (${community.address}) threw, or there is none`, e);
-            }
-            // not awaited: stop() waits for this loop to end
-            community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after its start was taken`, e));
-            break;
-        }
-        let lastSyncFailed = false;
-        try {
-            await syncIpnsWithDb(community);
-            // Re-announce browser-dialable (WSS/WebRTC) addresses to HTTP routers when they rotate, so browsers
-            // don't hit NoValidAddressesError against stale addresses. Throttled internally; runs inside the
-            // publish loop so it's torn down with the loop on stop(). Its own failures must not break publishing.
-            await reprovideOnAddressChangeIfDue(community).catch((e) =>
-                log.error("Failed to re-provide connection CIDs on address change", e)
-            );
-            // Keep the anchor -> minter binding alive: its routers expire it, and this node is the only
-            // party online that can put it (the owner holds As and is offline by design). Its failures
-            // must not break publishing either.
-            await reprovideAnchorRecordIfDue(community).catch((e) => log.error("Failed to re-provide the anchor record", e));
-        } catch (e) {
-            lastSyncFailed = true;
-            if (community._stopHasBeenCalled) syncFailedSinceStop = true;
-            community.emit("error", e as Error);
-        } finally {
-            await waitUntilNextSync({ lastSyncFailed });
-        }
+    // reports when the main thread is held up, for as long as any community of this process is running
+    const releaseEventLoopWatch = holdEventLoopWatch();
+    try {
+        await runCyclesUntilStopped();
+    } finally {
+        releaseEventLoopWatch();
     }
     log("Stopping the publishing loop of community", community.address);
+
+    async function runCyclesUntilStopped() {
+        while (!shouldStopPublishLoop()) {
+            // Two instances publishing one community would each sign records under the same key, with the same sequence
+            // numbers. start() can't let that happen, so this is a second line: whatever took this instance's claim from
+            // it while it was running, the community goes down here and says why (issue #585)
+            if (isCommunityStartTakenByAnotherInstance(community, log)) {
+                const error = new PKCError("ERR_COMMUNITY_START_TAKEN_BY_ANOTHER_PKC_INSTANCE", {
+                    address: community.address,
+                    dataPath: community._pkc.dataPath
+                });
+                log.error(error);
+                // Read by the teardown, also by that of a stop() that is waiting for this loop already. Set before anything
+                // that may throw: a teardown that does not see it writes to what is another instance's
+                community._startTakenByAnotherInstance = true;
+                try {
+                    community.emit("error", error);
+                } catch (e) {
+                    // nobody listens for errors, or a listener threw. The community goes down all the same
+                    log.error(`A listener of the error of community (${community.address}) threw, or there is none`, e);
+                }
+                // not awaited: stop() waits for this loop to end
+                community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after its start was taken`, e));
+                break;
+            }
+            let lastSyncFailed = false;
+            try {
+                await syncIpnsWithDb(community);
+                // Re-announce browser-dialable (WSS/WebRTC) addresses to HTTP routers when they rotate, so browsers
+                // don't hit NoValidAddressesError against stale addresses. Throttled internally; runs inside the
+                // publish loop so it's torn down with the loop on stop(). Its own failures must not break publishing.
+                await reprovideOnAddressChangeIfDue(community).catch((e) =>
+                    log.error("Failed to re-provide connection CIDs on address change", e)
+                );
+                // Keep the anchor -> minter binding alive: its routers expire it, and this node is the only
+                // party online that can put it (the owner holds As and is offline by design). Its failures
+                // must not break publishing either.
+                await reprovideAnchorRecordIfDue(community).catch((e) => log.error("Failed to re-provide the anchor record", e));
+            } catch (e) {
+                lastSyncFailed = true;
+                if (community._stopHasBeenCalled) syncFailedSinceStop = true;
+                community.emit("error", e as Error);
+            } finally {
+                await waitUntilNextSync({ lastSyncFailed });
+            }
+        }
+    }
 }
 
 // A failure to read the registry is not a verdict: the cycle runs and the next one asks again
