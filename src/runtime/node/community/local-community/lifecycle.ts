@@ -5,6 +5,7 @@ import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
 import { pubsubTopicToDhtKey, removeMfsFilesSafely, sleepUntilTimeoutOrAbort } from "../../../../util.js";
 import { moveCommunityDbToDeletedDirectory, refreshCommunitiesList } from "../../util.js";
+import { holdEventLoopWatch } from "../../event-loop-watch.js";
 import { deriveCommunityChallengesOrThrow } from "../challenges/index.js";
 import { collectChallengeSettingsValidationFailures } from "../challenges/validate-challenge-settings.js";
 import {
@@ -82,29 +83,39 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
         });
     };
 
-    while (!shouldStopPublishLoop()) {
-        let lastSyncFailed = false;
-        try {
-            await syncIpnsWithDb(community);
-            // Re-announce browser-dialable (WSS/WebRTC) addresses to HTTP routers when they rotate, so browsers
-            // don't hit NoValidAddressesError against stale addresses. Throttled internally; runs inside the
-            // publish loop so it's torn down with the loop on stop(). Its own failures must not break publishing.
-            await reprovideOnAddressChangeIfDue(community).catch((e) =>
-                log.error("Failed to re-provide connection CIDs on address change", e)
-            );
-            // Keep the anchor -> minter binding alive: its routers expire it, and this node is the only
-            // party online that can put it (the owner holds As and is offline by design). Its failures
-            // must not break publishing either.
-            await reprovideAnchorRecordIfDue(community).catch((e) => log.error("Failed to re-provide the anchor record", e));
-        } catch (e) {
-            lastSyncFailed = true;
-            if (community._stopHasBeenCalled) syncFailedSinceStop = true;
-            community.emit("error", e as Error);
-        } finally {
-            await waitUntilNextSync({ lastSyncFailed });
-        }
+    // reports when the main thread is held up, for as long as any community of this process is running
+    const releaseEventLoopWatch = holdEventLoopWatch();
+    try {
+        await runCyclesUntilStopped();
+    } finally {
+        releaseEventLoopWatch();
     }
     log("Stopping the publishing loop of community", community.address);
+
+    async function runCyclesUntilStopped() {
+        while (!shouldStopPublishLoop()) {
+            let lastSyncFailed = false;
+            try {
+                await syncIpnsWithDb(community);
+                // Re-announce browser-dialable (WSS/WebRTC) addresses to HTTP routers when they rotate, so browsers
+                // don't hit NoValidAddressesError against stale addresses. Throttled internally; runs inside the
+                // publish loop so it's torn down with the loop on stop(). Its own failures must not break publishing.
+                await reprovideOnAddressChangeIfDue(community).catch((e) =>
+                    log.error("Failed to re-provide connection CIDs on address change", e)
+                );
+                // Keep the anchor -> minter binding alive: its routers expire it, and this node is the only
+                // party online that can put it (the owner holds As and is offline by design). Its failures
+                // must not break publishing either.
+                await reprovideAnchorRecordIfDue(community).catch((e) => log.error("Failed to re-provide the anchor record", e));
+            } catch (e) {
+                lastSyncFailed = true;
+                if (community._stopHasBeenCalled) syncFailedSinceStop = true;
+                community.emit("error", e as Error);
+            } finally {
+                await waitUntilNextSync({ lastSyncFailed });
+            }
+        }
+    }
 }
 
 export async function initBeforeStarting(community: LocalCommunity) {
