@@ -1,0 +1,93 @@
+# Idle cost of many communities on one node (#576): CPU of a node hosting N started communities that nothing posts to,
+# against a real Kubo daemon. See test/benchmarks/idle-communities-bench.mjs for what is measured and why.
+#
+# The job fails when one community costs more at 1,000 communities than at 250 by more than the allowed ratio, or more
+# than the allowed share of a core. Every problem of #576 looked like the first: a cost per community that grew with
+# the number of communities. Runner CPUs differ, so the absolute limit is loose; the ratio is the one to watch.
+#
+# - Nightly, and on workflow_dispatch with any counts.
+# - Pull requests labelled `performance`, on every push while the label is on.
+#
+# The report (all numbers) and a V8 CPU profile of the largest count are uploaded on every run.
+name: CI idle communities bench
+
+on:
+    schedule:
+        - cron: "47 2 * * *" # nightly
+    workflow_dispatch:
+        inputs:
+            counts:
+                description: "Community counts, smallest first"
+                required: false
+                default: "250 1000"
+            max_cost_ratio:
+                description: "BENCH_MAX_COST_RATIO"
+                required: false
+                default: "1.3"
+            max_cpu_pct_per_community:
+                description: "BENCH_MAX_CPU_PCT_PER_COMMUNITY"
+                required: false
+                default: "0.03"
+    pull_request:
+        branches:
+            - master
+        types: [labeled, opened, reopened, synchronize]
+
+concurrency:
+    group: idle-communities-bench-${{ github.event.pull_request.number || github.run_id }}
+    cancel-in-progress: true
+
+jobs:
+    bench:
+        if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'performance') }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: "npm"
+            # Retry: the kubo postinstall downloads its binary from dist.ipfs.tech, which intermittently
+            # returns 5xx and aborts the install with no retry of its own.
+            - name: npm ci (with retry)
+              shell: bash
+              run: |
+                  for attempt in 1 2 3; do
+                    npm ci && exit 0
+                    echo "npm ci attempt $attempt failed; retrying in 15s..."
+                    sleep 15
+                  done
+                  exit 1
+            - run: npm run build
+            - name: Run the idle communities bench
+              shell: bash
+              env:
+                  BENCH_CPU_PROFILE: "1"
+                  BENCH_MAX_COST_RATIO: ${{ github.event.inputs.max_cost_ratio || '1.3' }}
+                  BENCH_MAX_CPU_PCT_PER_COMMUNITY: ${{ github.event.inputs.max_cpu_pct_per_community || '0.03' }}
+              run: node --expose-gc test/benchmarks/idle-communities-bench.mjs profile ${{ github.event.inputs.counts || '250 1000' }}
+            - name: Summarize
+              if: ${{ always() }}
+              shell: bash
+              run: |
+                  node -e '
+                    const fs = require("fs");
+                    const file = ".tmp/idle-communities-bench/report-profile.json";
+                    if (!fs.existsSync(file)) { console.log("no report"); process.exit(0); }
+                    const r = JSON.parse(fs.readFileSync(file, "utf8"));
+                    const lines = ["| communities | start s | node CPU % | per community % | main thread CPU % | loop delay max ms | node RSS MB | kubo CPU % |", "|---|---|---|---|---|---|---|---|"];
+                    for (const e of [r.empty, ...r.results])
+                      lines.push(`| ${e.n} | ${e.startS ?? "-"} | ${e.nodeCpuPct} | ${r.costPerCommunityPct[e.n] ?? "-"} | ${e.mainThreadCpuPct ?? "-"} | ${e.loopDelayMs.max} | ${e.nodeRssMb} | ${e.kuboCpuPct} |`);
+                    lines.push("", `Cost ratio, largest count against smallest: ${r.costRatio}`, ...r.failures.map((f) => `**${f}**`));
+                    fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n");
+                  '
+            - name: Upload report and CPU profile
+              if: ${{ always() }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: idle-communities-bench
+                  path: |
+                      .tmp/idle-communities-bench/report-profile.json
+                      .tmp/idle-communities-bench/*.cpuprofile
+                  if-no-files-found: ignore

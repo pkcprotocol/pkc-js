@@ -31,6 +31,13 @@
 //                            community costs: at N communities the real rate is N / 900 records a second, and a
 //                            window of BENCH_WINDOW_S makes it N / BENCH_WINDOW_S
 //   BENCH_API_PORT (5301), BENCH_SWARM_PORT (4301), BENCH_GATEWAY_PORT (8380)
+//
+// The gate, for CI (.github/workflows/CI-idle-communities-bench.yml). The cost of one community is the node CPU of a
+// count minus the node CPU of the empty node, divided by the count. Exits 1 when a limit is passed:
+//   BENCH_MAX_COST_RATIO (unset)  largest count's cost per community / smallest count's. Above 1 means a community
+//                            costs more the more of them there are, which is how every problem of #576 looked
+//   BENCH_MAX_CPU_PCT_PER_COMMUNITY (unset)  the largest count's cost per community, in % of one core
+// All results are also written to .tmp/idle-communities-bench/report-<mode>.json.
 import { spawn, execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import inspector from "node:inspector/promises";
@@ -58,6 +65,8 @@ const gatewayPort = envNumber("BENCH_GATEWAY_PORT", 8380);
 const cpuProfile = process.env.BENCH_CPU_PROFILE === "1";
 const republishInWindow = process.env.BENCH_REPUBLISH_IN_WINDOW === "1";
 const startProfile = process.env.BENCH_START_PROFILE === "1";
+const maxCostRatio = process.env.BENCH_MAX_COST_RATIO ? envNumber("BENCH_MAX_COST_RATIO", 0) : undefined;
+const maxCpuPctPerCommunity = process.env.BENCH_MAX_CPU_PCT_PER_COMMUNITY ? envNumber("BENCH_MAX_CPU_PCT_PER_COMMUNITY", 0) : undefined;
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const outDir = path.join(repoRoot, ".tmp", "idle-communities-bench");
@@ -224,35 +233,58 @@ const measure = async ({ count, seconds, profile, startS }) => {
     global.gc?.();
     const memory = process.memoryUsage();
     const nodeCpuPct = ((cpu.user + cpu.system) / 1e6 / elapsedS) * 100;
-    console.log(
-        JSON.stringify({
-            mode,
-            n: count,
-            startS,
-            updated: started.filter((community) => typeof community.updatedAt === "number").length,
-            republishedInWindow: republishInWindow && count > 0,
-            nodeCpuPct: round(nodeCpuPct),
-            nodeCpuPctPerCommunity: count > 0 ? round(nodeCpuPct / count, 4) : 0,
-            mainThreadCpuPct:
-                mainThreadCpuStart === undefined || mainThreadCpuEnd === undefined
-                    ? undefined
-                    : round(((mainThreadCpuEnd - mainThreadCpuStart) / elapsedS) * 100),
-            mainThreadBusyPct: round(loopUtilization.utilization * 100),
-            loopDelayMs: {
-                p50: round(loopDelay.percentile(50) / 1e6),
-                p99: round(loopDelay.percentile(99) / 1e6),
-                max: round(loopDelay.max / 1e6)
-            },
-            nodeRssMb: round(memory.rss / 1048576, 0),
-            heapUsedMb: round(memory.heapUsed / 1048576, 0),
-            kuboRssMb: round(kuboEnd.rssMb, 0),
-            kuboCpuPct: round(((kuboEnd.cpuS - kuboStart.cpuS) / elapsedS) * 100)
-        })
-    );
+    const result = {
+        mode,
+        n: count,
+        startS,
+        updated: started.filter((community) => typeof community.updatedAt === "number").length,
+        republishedInWindow: republishInWindow && count > 0,
+        nodeCpuPct: round(nodeCpuPct),
+        nodeCpuPctPerCommunity: count > 0 ? round(nodeCpuPct / count, 4) : 0,
+        mainThreadCpuPct:
+            mainThreadCpuStart === undefined || mainThreadCpuEnd === undefined
+                ? undefined
+                : round(((mainThreadCpuEnd - mainThreadCpuStart) / elapsedS) * 100),
+        mainThreadBusyPct: round(loopUtilization.utilization * 100),
+        loopDelayMs: {
+            p50: round(loopDelay.percentile(50) / 1e6),
+            p99: round(loopDelay.percentile(99) / 1e6),
+            max: round(loopDelay.max / 1e6)
+        },
+        nodeRssMb: round(memory.rss / 1048576, 0),
+        heapUsedMb: round(memory.heapUsed / 1048576, 0),
+        kuboRssMb: round(kuboEnd.rssMb, 0),
+        kuboCpuPct: round(((kuboEnd.cpuS - kuboStart.cpuS) / elapsedS) * 100)
+    };
+    console.log(JSON.stringify(result));
+    return result;
 };
 
+// What the gate decides on: see the header.
+const gate = ({ empty, results }) => {
+    const costPerCommunity = (result) => (result.nodeCpuPct - empty.nodeCpuPct) / result.n;
+    const smallest = results[0];
+    const largest = results[results.length - 1];
+    const failures = [];
+    const summary = {
+        costPerCommunityPct: Object.fromEntries(results.map((result) => [result.n, round(costPerCommunity(result), 4)])),
+        costRatio: results.length > 1 ? round(costPerCommunity(largest) / costPerCommunity(smallest), 2) : undefined
+    };
+    if (maxCostRatio !== undefined && summary.costRatio !== undefined && !(summary.costRatio <= maxCostRatio))
+        failures.push(
+            `A community costs ${summary.costRatio}x as much at ${largest.n} communities as at ${smallest.n} (limit ${maxCostRatio}x)`
+        );
+    if (maxCpuPctPerCommunity !== undefined && !(costPerCommunity(largest) <= maxCpuPctPerCommunity))
+        failures.push(
+            `A community costs ${summary.costPerCommunityPct[largest.n]}% of a core at ${largest.n} communities (limit ${maxCpuPctPerCommunity}%)`
+        );
+    return { ...summary, failures };
+};
+
+let exitCode = 0;
 try {
-    await measure({ count: 0, seconds: Math.min(windowS, 30), profile: false });
+    const empty = await measure({ count: 0, seconds: Math.min(windowS, 30), profile: false });
+    const results = [];
     for (const target of targets) {
         const isLargest = target === targets[targets.length - 1];
         const startSession = startProfile && isLargest ? await startCpuProfile() : undefined;
@@ -262,10 +294,15 @@ try {
         const startS = round((Date.now() - startTime) / 1000, 0);
         if (startSession) await writeCpuProfile({ session: startSession, name: `${mode}-${target}-start` });
         console.error(`${target} started in ${startS}s`);
-        await measure({ count: target, seconds: windowS, profile: cpuProfile && isLargest, startS });
+        results.push(await measure({ count: target, seconds: windowS, profile: cpuProfile && isLargest, startS }));
     }
+    const verdict = gate({ empty, results });
+    writeFileSync(path.join(outDir, `report-${mode}.json`), JSON.stringify({ empty, results, ...verdict }, null, 2));
+    console.error(`cost per community (% of a core): ${JSON.stringify(verdict.costPerCommunityPct)}, ratio ${verdict.costRatio}`);
+    for (const failure of verdict.failures) console.error(`GATE FAILED: ${failure}`);
+    if (verdict.failures.length > 0) exitCode = 1;
 } finally {
     await pkc.destroy().catch((error) => console.error("destroy", error?.message));
     daemon.kill("SIGTERM");
 }
-process.exit(0);
+process.exit(exitCode);
