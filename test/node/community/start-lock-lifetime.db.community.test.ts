@@ -102,7 +102,9 @@ describeSkipIfRpc("how long a start lock stays held", () => {
 
         expect(dbHandler.holdsStartLock()).to.be.false;
         expect(await isCommunityStartLocked({ dataPath, communityAddress: address })).to.be.false;
-        expect(await anotherProcessIsRefused()).to.be.false;
+        // taken directly: a process that failed for any other reason would not have been refused either
+        holder = await holdStartLockInAnotherProcess({ dataPath, communityAddress: address });
+        expect(isCommunityStartLockedSync({ dataPath, communityAddress: address })).to.be.true;
     });
 
     it("survives garbage collection in the holder's process, as long as the handler is referenced", async () => {
