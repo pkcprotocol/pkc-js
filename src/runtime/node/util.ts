@@ -407,11 +407,13 @@ function readLocalCommunityIdentity(
 
 function listCommunitiesEntriesSync(pkc: PKC): PKCCommunitiesEntry[] {
     const communityAddresses = listCommunitiesSync(pkc);
+    // A Set, not Array.includes: with N communities these two loops were N scans of an N-long list on every refresh,
+    // and a node starting N communities refreshes at least N times (issue #576)
+    const listedAddresses = new Set(communityAddresses);
     const identities = getLocalCommunityIdentities(pkc);
-    for (const cachedAddress of identities.keys()) if (!communityAddresses.includes(cachedAddress)) identities.delete(cachedAddress);
+    for (const cachedAddress of identities.keys()) if (!listedAddresses.has(cachedAddress)) identities.delete(cachedAddress);
     const unreadable = getUnreadableLocalCommunityDbs(pkc);
-    for (const unreadableAddress of unreadable.keys())
-        if (!communityAddresses.includes(unreadableAddress)) unreadable.delete(unreadableAddress);
+    for (const unreadableAddress of unreadable.keys()) if (!listedAddresses.has(unreadableAddress)) unreadable.delete(unreadableAddress);
 
     const entries: PKCCommunitiesEntry[] = [];
     for (const communityAddress of communityAddresses) {
@@ -468,6 +470,20 @@ export function refreshCommunitiesList(pkc: PKC) {
     if (deterministicStringify(communities) !== deterministicStringify(pkc.communities)) pkc.emit("communitieschange", { communities });
 }
 
+// Sets the `started` of one listed community, for the caller that has just read that community's start lock: start()
+// and stop(). A full refresh reads the directory and checks the lock of every community in it, so with N communities
+// a node that starts them all did N² lock checks, all of them synchronous (issue #576). The filesystem event of the
+// lock that follows finds the entry already right and refreshes nothing (see isCommunitiesListChangeEvent). A
+// community that is not listed yet takes the full refresh, which is what lists it.
+export function setStartedOfListedCommunity({ pkc, communityAddress, started }: { pkc: PKC; communityAddress: string; started: boolean }) {
+    const index = pkc.communities.findIndex((listed) => listed.address === communityAddress);
+    if (index === -1) return refreshCommunitiesList(pkc);
+    if (pkc.communities[index].started === started) return;
+    const communities = [...pkc.communities];
+    communities[index] = { ...communities[index], started };
+    pkc.emit("communitieschange", { communities });
+}
+
 export function listCommunitiesSync(pkc: PKC) {
     const log = Logger("pkc-js:listCommunitiesSync");
     if (typeof pkc.dataPath !== "string") throw Error("pkc.dataPath needs to be defined to listCommunities");
@@ -491,10 +507,13 @@ export function listCommunitiesSync(pkc: PKC) {
     const knownCommunities = getLocalCommunityIdentities(pkc);
     const communityFilesWeDontNeedToCheck = files.filter((address) => knownCommunities.has(address));
     const headerChecks = getSqliteHeaderChecks(pkc);
-    for (const checkedFile of headerChecks.keys()) if (!files.includes(checkedFile)) headerChecks.delete(checkedFile);
+    if (headerChecks.size > 0) {
+        const filesInDirectory = new Set(files);
+        for (const checkedFile of headerChecks.keys()) if (!filesInDirectory.has(checkedFile)) headerChecks.delete(checkedFile);
+    }
 
     // For the remaining files, check if they're SQLite files synchronously
-    const filesToCheckIfSqlite = files.filter((address) => !communityFilesWeDontNeedToCheck.includes(address));
+    const filesToCheckIfSqlite = files.filter((address) => !knownCommunities.has(address));
     const sqliteFiles = filesToCheckIfSqlite.filter((address) => {
         const filePath = path.join(communitiesPath, address);
         // A file that is not a known community is listed on every refresh, for as long as it exists. Its header is
@@ -813,6 +832,11 @@ export async function monitorCommunitiesDirectory(pkc: PKC) {
 
     // Set up watcher with synchronous check
     fsWatch(communitiesPath, { signal: watchAbortController.signal, persistent: false }, (eventType, filename) => {
+        // A write to the DB file of a community whose identity is already read changes nothing the list holds: the
+        // identity is fixed per filename (see localCommunityIdentities) and `started` is the lock's, which has its own
+        // file. Every started community writes to its DB file at each checkpoint, so refreshing on those writes cost a
+        // lock check of every community per write (issue #576). A file that appears or disappears is a "rename".
+        if (eventType === "change" && typeof filename === "string" && getLocalCommunityIdentities(pkc).has(filename)) return;
         if (!isCommunitiesListChangeEvent({ pkc, filename })) return;
 
         // Prevent overlapping processing
