@@ -2,7 +2,8 @@
 //
 // `pubsub.ls()` returns the node's whole list, and every started community used to call it at the start of every
 // cycle to check on its own topic: N calls per publishInterval, each decoding N topic names. Here overlapping
-// callers join one request, and a result is reused for `maxAgeMs`.
+// callers join one request, and a result is reused for `maxAgeMs`. The list is handed out as a Set, built once per
+// request: each caller looks its own topic up in it, and scanning an array of N names from N callers is N² again.
 //
 // A subscribe or unsubscribe made through this process bumps the client's epoch, which drops the stored list and
 // stops anyone from joining a request that started before the change. Without that a community that had just
@@ -16,8 +17,8 @@ type PubsubTopicLister = { pubsub: { ls: () => Promise<string[]> } };
 
 type SharedPubsubTopicList = {
     epoch: number;
-    stored?: { epoch: number; topics: string[]; fetchedAtMs: number };
-    inFlight?: { epoch: number; promise: Promise<string[]> };
+    stored?: { epoch: number; topics: ReadonlySet<string>; fetchedAtMs: number };
+    inFlight?: { epoch: number; promise: Promise<ReadonlySet<string>> };
 };
 
 const sharedListByClient = new WeakMap<object, SharedPubsubTopicList>();
@@ -37,7 +38,7 @@ export async function listSubscribedPubsubTopicsShared({
 }: {
     client: PubsubTopicLister;
     maxAgeMs: number;
-}): Promise<string[]> {
+}): Promise<ReadonlySet<string>> {
     const shared = sharedListOf(client);
     const stored = shared.stored;
     if (stored && stored.epoch === shared.epoch && Date.now() - stored.fetchedAtMs < maxAgeMs) return stored.topics;
@@ -46,7 +47,8 @@ export async function listSubscribedPubsubTopicsShared({
     const epoch = shared.epoch;
     const promise = client.pubsub
         .ls()
-        .then((topics) => {
+        .then((topicList): ReadonlySet<string> => {
+            const topics = new Set(topicList);
             // A change that landed while the request was out may or may not be in this answer: hand it to the
             // callers that asked before the change, but do not keep it for the ones that ask after.
             if (shared.epoch === epoch) shared.stored = { epoch, topics, fetchedAtMs: Date.now() };
