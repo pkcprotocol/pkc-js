@@ -29,7 +29,7 @@ export async function listenToIncomingRequests(community: LocalCommunity) {
     const staleTopic = community._subscribedChallengePubsubTopic;
     const unsubscribeStaleTopicIfNeeded = async (currentTopic: string | undefined) => {
         if (!staleTopic || staleTopic === currentTopic) return;
-        if (subscribedTopics.includes(staleTopic))
+        if (subscribedTopics.has(staleTopic))
             await community._clientsManager.pubsubUnsubscribe(staleTopic, community.handleChallengeExchange);
         community._subscribedChallengePubsubTopic = undefined;
         log(`Stopped listening on the previous challenge exchange pubsub topic (${staleTopic})`);
@@ -39,7 +39,7 @@ export async function listenToIncomingRequests(community: LocalCommunity) {
         // settings.disablePubsubChallengeExchange is on (issue #229). This runs on every sync-loop
         // iteration, so toggling the setting on while started drops the subscription without a restart.
         const disabledTopic = communityChallengePubsubTopic(community);
-        if (disabledTopic && subscribedTopics.includes(disabledTopic)) {
+        if (disabledTopic && subscribedTopics.has(disabledTopic)) {
             await community._clientsManager.pubsubUnsubscribe(disabledTopic, community.handleChallengeExchange);
             if (community._subscribedChallengePubsubTopic === disabledTopic) community._subscribedChallengePubsubTopic = undefined;
             log(`Challenge exchange is disabled, unsubscribed from pubsub topic (${disabledTopic})`);
@@ -51,7 +51,7 @@ export async function listenToIncomingRequests(community: LocalCommunity) {
     // one, otherwise kubo keeps delivering requests to a handler on a topic we no longer advertise and
     // the subscription leaks for the lifetime of the node.
     await unsubscribeStaleTopicIfNeeded(topic);
-    if (!subscribedTopics.includes(topic)) {
+    if (!subscribedTopics.has(topic)) {
         await community._clientsManager.pubsubUnsubscribe(topic, community.handleChallengeExchange); // Make sure it's not hanging
         await community._clientsManager.pubsubSubscribe(topic, community.handleChallengeExchange);
         community._clientsManager.updateKuboRpcPubsubState("waiting-challenge-requests", pubsubClient.url);
