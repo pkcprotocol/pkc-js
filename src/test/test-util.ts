@@ -1219,6 +1219,10 @@ export async function resolveWhenConditionIsTrue(options: ResolveWhenConditionIs
 export async function disableValidationOfSignatureBeforePublishing(publication: Publication) {
     //@ts-expect-error
     publication._validateSignatureHook = async () => {};
+    // The local wallet-proof check is client-side validation too: a test that crafts a wire payload a client would
+    // never send needs it off to reach the community's own check (issue #566)
+    //@ts-expect-error
+    publication._validateAuthorWalletProofs = () => {};
 }
 
 export async function overrideCommentInstancePropsAndSign(comment: Comment, props: CreateCommentOptions) {
