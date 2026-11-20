@@ -7,6 +7,13 @@ import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 
+// BSIP-22 rollout switch, read by both the community (rejects a publication over an invalid entry) and the
+// publisher (throws before publishing). Verification is implemented and tested, but nothing acts on a verdict
+// until this is true: a proof signed with the pre-BSIP-22 string reads as invalid, so acting first would block
+// every author with a saved wallet, locally and in every community (issue #566, Rollout). Flipping it is the
+// whole of rollout step 3. Mutable only so a test can turn it on; nothing else writes it.
+export const authorWalletProofEnforcement = { enabled: false };
+
 export type AuthorWalletEntryOutcome = { outcome: "valid" } | { outcome: "unknown" } | { outcome: "invalid"; reason: string };
 
 // BSIP-22: a proof dated more than five minutes ahead of the verifier's clock is not valid yet.

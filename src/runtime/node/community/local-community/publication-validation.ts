@@ -28,7 +28,7 @@ import {
     verifyVote
 } from "../../../../signer/signatures.js";
 import { getPKCAddressFromPublicKey } from "../../../../signer/util.js";
-import { verifyAuthorWalletEntry } from "../../../../signer/author-wallet-proof.js";
+import { authorWalletProofEnforcement, verifyAuthorWalletEntry } from "../../../../signer/author-wallet-proof.js";
 import { timestamp as pkcTimestamp } from "../../../../util.js";
 import { getAuthorNameFromWire } from "../../../../publications/publication-author.js";
 import { authorIdentityMatcherForRequest, authorNameResolveFailureReason } from "./author-identity.js";
@@ -171,12 +171,6 @@ async function checkWireFormatAndCommunityAuthor(
 
     return undefined;
 }
-
-// BSIP-22 rollout switch. Verification is implemented and tested, but a community only rejects over an invalid
-// wallet proof once this is true: enforcing before challenges and clients have moved to the BSIP-22 string would
-// reject every publication from an author with a saved wallet (issue #566, Rollout). Flipping it is the whole
-// of rollout step 3. Mutable only so a test can turn it on; nothing else writes it.
-export const authorWalletProofEnforcement = { enabled: false };
 
 // Rejects a publication of any type whose author.wallets holds an invalid entry. An unknown entry (a signature
 // type BSIP-22 does not define) is accepted and stays unproven. The community cannot strip a failing entry,
