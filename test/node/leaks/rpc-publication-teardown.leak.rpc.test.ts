@@ -7,9 +7,6 @@ import { createInProcessRpcServer, uniqueTmpDataPath, type PKCWsServerType } fro
 import { describeIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 
-// it.fails: this is a known leak with no fix yet (#516). The body asserts the clean behaviour, so the test
-// starts failing once the leak is fixed: remove the .fails then.
-
 type StaticFixture = Awaited<ReturnType<typeof publishStaticCommunityWithPostInPages>>;
 type ServerInternals = { publishing: Record<string, { publication: object }> };
 type ClientInternals = { _subscriptionEvents: Record<string, unknown>; publishComment: (...args: unknown[]) => Promise<unknown> };
@@ -93,7 +90,7 @@ describeIfRpc("leak: RPC publish teardown", () => {
             }
         });
 
-        it.fails("an RPC publish that fails because nobody answers is torn down on both sides", async () => {
+        it("an RPC publish that fails because nobody answers is torn down on both sides", async () => {
             const post = await generateMockPost({ communityAddress: fixture.communityAddress, pkc: client });
             const errors: string[] = [];
             post.on("error", (e: Error & { code?: string }) => errors.push(e.code ?? e.message));

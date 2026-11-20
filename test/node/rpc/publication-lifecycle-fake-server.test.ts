@@ -456,6 +456,30 @@ describe("publications over RPC (fake RPC server)", () => {
             expect(pkc._publishingPublications.has(vote)).to.be.false;
         });
 
+        it("emits the error before the failed publishing state the server sends after it", async () => {
+            const vote = await createVote();
+            const events = recordEvents(vote);
+            await vote.publish();
+            const subscriptionId = server.subscriptionIdOf("publishVote");
+            const eventsBefore = events.length;
+            // The order a server sends them in: its publication emits the error, then the state change
+            sendServerError(subscriptionId, "stopped");
+            server.sendNotification({
+                method: "publishVoteNotification",
+                subscription: subscriptionId,
+                event: "publishingstatechange",
+                result: { state: "failed" }
+            });
+
+            await vi.waitFor(() => expect(events).to.include("publishingstatechange:failed"), { timeout: 10000, interval: 10 });
+            await vi.waitFor(() => expect(server.unsubscribedIds()).to.deep.equal([subscriptionId]), { timeout: 10000, interval: 10 });
+            expect(events.slice(eventsBefore)).to.deep.equal([
+                "statechange:stopped",
+                "error:ERR_PUBSUB_DID_NOT_RECEIVE_RESPONSE_AFTER_PUBLISHING_CHALLENGE_REQUEST",
+                "publishingstatechange:failed"
+            ]);
+        });
+
         it("stays publishing when the server's publication is still publishing after the error", async () => {
             const vote = await createVote();
             const events = recordEvents(vote);

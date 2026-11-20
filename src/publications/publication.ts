@@ -1276,23 +1276,25 @@ class Publication extends TypedEmitter<PublicationEvents> {
     private async _handleIncomingErrorFromRpc(args: any) {
         const log = Logger("pkc-js:publication:publish:_publishWithRpc:_handleIncomingErrorFromRpc");
         const error: PublicationRpcErrorToTransmit = args.params.result;
-        if (error.details?.publishThrowError) {
-            // The server's publish() threw, which ends the publish, unless a verdict already did
-            if (!this._claimPublishEnd("failure")) return;
-            if (error.details.newPublishingState) this._updatePublishingStateNoEmission(error.details.newPublishingState);
-            log.error("RPC server threw an error on publish(), will stop publication", error);
-            await this._postSucessOrFailurePublishing();
-            this.emit("error", error);
-            return;
-        }
-        // The server's publication stopped with this error, so it ended the publish there: end it here too, or this
-        // instance stays publishing, registered and subscribed until stop(). An error that left the server's publication
-        // publishing (a challenge answer that could not be published) is one the caller can still act on
-        if (error.details?.newState === "stopped" && this._claimPublishEnd("failure")) {
-            if (error.details.newPublishingState) this._updatePublishingStateNoEmission(error.details.newPublishingState);
+        // The server's publish() threw, or its publication stopped with this error: either way the publish ended there, so
+        // end it here too, or this instance stays publishing, registered and subscribed until stop(). An error that left
+        // the server's publication publishing (a challenge answer that could not be published) is one the caller can
+        // still act on
+        const endedOnServer = error.details?.publishThrowError || error.details?.newState === "stopped";
+        if (endedOnServer) {
+            if (!this._claimPublishEnd("failure")) {
+                // A verdict or stop() already ended it. An error the server only emitted is still the caller's to see
+                if (!error.details?.publishThrowError) this.emit("error", error);
+                return;
+            }
             log.error("The publication failed on the RPC server, will stop publication", error);
             await this._postSucessOrFailurePublishing();
-            this.emit("error", error);
+            // The error first, then the state change, the order a publication emits them in. The server's own state
+            // change follows its error and is ignored from here on (see _publishWithRpc)
+            this._changePublicationStateEmitEventEmitStateChangeEvent({
+                newPublishingState: error.details?.newPublishingState ?? "failed",
+                event: { name: "error", args: [error] }
+            });
             return;
         }
         if (error.details?.newPublishingState) this._updatePublishingStateNoEmission(error.details.newPublishingState);
@@ -1335,8 +1337,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
         // The RPC client removes these handlers only once an unsubscribe call returns, so the subscription still delivers
         // events after stop(), while its unsubscribe is pending. Like the pubsub messages of a stopped publication, they
         // are ignored: a verdict used to land on the stopped publication
+        // The same goes for a publish that failed: the server's remaining events, such as the state change that follows
+        // its error, would land in the middle of the teardown or after it
         const unlessStopped = (handler: (args: unknown) => unknown) => (args: unknown) => {
-            if (this._publishEndedBy !== "stop") return handler(args);
+            if (this._publishEndedBy !== "stop" && this._publishEndedBy !== "failure") return handler(args);
         };
         // Deferred so a listener attached synchronously after `await publish()` resolves still
         // receives events the server emitted before the publish response (#314); see
