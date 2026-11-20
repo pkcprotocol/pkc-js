@@ -100,8 +100,33 @@ describe("publish loop: sleeping between cycles", () => {
         await settle();
         expect(syncIpnsWithDbMock).toHaveBeenCalledTimes(1);
 
+        await vi.advanceTimersByTimeAsync(5_000);
         community._communityUpdateTrigger = true;
         await settle();
+        expect(syncIpnsWithDbMock).toHaveBeenCalledTimes(2);
+
+        await endLoop(community, loop);
+    });
+
+    // One publication writes several times in a row (the comment, then what it changes), and each write asks for a
+    // record. The 100ms tick of the old loop took them in one cycle. Waking at once for each gave one cycle, and one
+    // published record, per write.
+    it("requests that arrive right after a cycle are taken together, in one cycle that starts 100ms after the last one ended", async () => {
+        const { community } = createIdleStartedCommunity();
+        const loop = publishLoop(community, SYNC_INTERVAL_MS);
+        await settle();
+        expect(syncIpnsWithDbMock).toHaveBeenCalledTimes(1);
+
+        community._communityUpdateTrigger = true;
+        await vi.advanceTimersByTimeAsync(30);
+        community._communityUpdateTrigger = true;
+        await vi.advanceTimersByTimeAsync(69);
+        expect(syncIpnsWithDbMock).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(syncIpnsWithDbMock).toHaveBeenCalledTimes(2);
+
+        // nothing is left over from the two requests
+        await vi.advanceTimersByTimeAsync(SYNC_INTERVAL_MS - 1);
         expect(syncIpnsWithDbMock).toHaveBeenCalledTimes(2);
 
         await endLoop(community, loop);
