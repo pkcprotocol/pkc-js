@@ -56,6 +56,36 @@ describe("comment.stop() before update() has started the shared updating instanc
         expect(pkc._updatingComments.size()).to.equal(0);
     });
 
+    // stop() awaits before it stops the update loop. While it does, the comment has to keep looking like the updating
+    // comment it still is, or an update() called then starts a second time on top of the mirror the stop() is about to detach
+    it("an update() right after a stop() that was not awaited leaves the comment stopped and able to update again", async () => {
+        const comment = await pkc.createComment({ cid: COMMENT_CID });
+        const loopStarts = vi.fn(async () => {});
+        const realCreateComment = pkc.createComment.bind(pkc);
+        vi.spyOn(pkc, "createComment").mockImplementation(async (...args: Parameters<PKCType["createComment"]>) => {
+            const created = await realCreateComment(...args);
+            created.loadCommentIpfsAndStartCommentUpdateSubscription = loopStarts;
+            return created;
+        });
+        await comment.update();
+        expect(comment.state).to.equal("updating");
+        expect(pkc._updatingComments.size()).to.equal(1);
+
+        const stopping = comment.stop();
+        const updating = comment.update();
+        await Promise.all([stopping, updating]);
+
+        expect(comment.state).to.equal("stopped");
+        expect(comment.updatingState).to.equal("stopped");
+        expect(comment._updatingCommentInstance).to.be.undefined;
+        expect(pkc._updatingComments.size()).to.equal(0);
+
+        await comment.update();
+        expect(comment.state).to.equal("updating");
+        expect(pkc._updatingComments.size()).to.equal(1);
+        expect(loopStarts).toHaveBeenCalledTimes(2);
+    });
+
     // update() emits statechange "updating" before it starts anything, so a listener that calls stop() there runs before
     // the start-up. The start-up used to read the update attempt only after that emission, which took the stop()'s
     // attempt for its own

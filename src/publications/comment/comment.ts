@@ -1382,17 +1382,20 @@ export class Comment
         this._abortStopOperations(
             `Aborting comment operations for ${this.cid || this.author?.address || "comment"} because comment.stop() was called`
         );
-        if (this.state === "publishing") {
+        const isPublishing = () => this.state === "publishing"; // read again after an await, where the state can have changed
+        if (isPublishing()) {
             await super.stop();
             // A verdict recorded before this stop() still lands while the teardown above is awaited, and its listener may
             // have called update(). That update() came after this stop(), so the rest of this stop() must not undo it
             if (updateAttempt !== this._updateAttempt) return;
             this._setStateWithEmission("stopped");
         } else {
-            // Written before the await: a publish() called right after a stop() that was not awaited sets "publishing",
-            // which this stop() has no business undoing
-            this._setStateWithEmission("stopped");
+            // The state is written after the await, not before it: until the update loop is stopped below, this is still
+            // an updating comment, and an update() called meanwhile has to see that and do nothing
             await this._cancelBackgroundCommunityRefresh();
+            // A publish() called right after a stop() that was not awaited set "publishing", which this stop() has no
+            // business undoing
+            if (!isPublishing()) this._setStateWithEmission("stopped");
         }
         await this._stopUpdateLoop();
         this.replies._stop();
