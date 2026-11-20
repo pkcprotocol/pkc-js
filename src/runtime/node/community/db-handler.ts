@@ -3637,6 +3637,15 @@ export class DbHandler {
         await fs.promises.rm(path.join(dataPath, "communities", `${communityAddress}.start.lock`), { recursive: true, force: true });
         if (!takeStartLock({ db: this._db, dataPath, communityAddress }))
             throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { communityAddress });
+        // The connection was opened some awaits ago. Another process that deleted or renamed the community since has
+        // moved its DB away and removed its sidecar, and the lock just taken is on a new sidecar, for a community with
+        // no DB at its path: it would run, publish and write to a file nothing reads again. Given back at once (no
+        // await since the lock was taken), and the sidecar with it, as nothing is left for it to guard.
+        if (!fs.existsSync(path.join(dataPath, "communities", communityAddress))) {
+            releaseStartLock({ db: this._db, dataPath, communityAddress });
+            fs.rmSync(getStartLockPath({ dataPath, communityAddress }), { force: true });
+            throw new PKCError("CAN_NOT_LOAD_LOCAL_COMMUNITY_IF_DB_DOES_NOT_EXIST", { communityAddress, dataPath });
+        }
         this._startLockAddress = communityAddress;
         log(`Locked the start of community (${communityAddress}) successfully`);
     }

@@ -5,7 +5,7 @@ import { v4 as uuidV4 } from "uuid";
 import Database from "better-sqlite3";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { isCommunityStartLocked, isCommunityStartLockedSync } from "../../../dist/node/runtime/node/community/start-lock.js";
-import { listCommunitiesSync } from "../../../dist/node/runtime/node/util.js";
+import { listCommunitiesSync, moveCommunityDbToDeletedDirectory } from "../../../dist/node/runtime/node/util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { holdStartLockInAnotherProcess } from "../../helpers/start-lock-holder.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
@@ -105,6 +105,27 @@ describeSkipIfRpc("how long a start lock stays held", () => {
         // taken directly: a process that failed for any other reason would not have been refused either
         holder = await holdStartLockInAnotherProcess({ dataPath, communityAddress: address });
         expect(isCommunityStartLockedSync({ dataPath, communityAddress: address })).to.be.true;
+    });
+
+    // start() opens the community's DB some awaits before it takes the lock. Another process that deletes the community
+    // in between moves the DB away and removes the sidecar; the lock was then taken on a new sidecar, for a community
+    // whose DB is no longer at its path: started, publishing, and writing to a file nothing will read again.
+    it("is not taken for a community whose DB another process deleted after this one opened it", async () => {
+        const dbPath = path.join(dataPath, "communities", address);
+        // what the other process's delete() does to the files
+        await moveCommunityDbToDeletedDirectory(address, { dataPath } as unknown as PKC);
+        expect(fs.existsSync(dbPath)).to.be.false;
+
+        const error = await dbHandler.lockCommunityStart().then(
+            (): Error | undefined => undefined,
+            (e: Error) => e
+        );
+
+        expect(error, "the lock was taken for a community with no DB at its path").to.be.instanceOf(Error);
+        expect(dbHandler.holdsStartLock()).to.be.false;
+        expect((error as { code?: string }).code).to.equal("CAN_NOT_LOAD_LOCAL_COMMUNITY_IF_DB_DOES_NOT_EXIST");
+        expect(fs.existsSync(dbPath), "a DB file was created at the deleted community's path").to.be.false;
+        expect(fs.existsSync(`${dbPath}.start.lock.db`), "a sidecar was left for a community that is gone").to.be.false;
     });
 
     it("survives garbage collection in the holder's process, as long as the handler is referenced", async () => {
