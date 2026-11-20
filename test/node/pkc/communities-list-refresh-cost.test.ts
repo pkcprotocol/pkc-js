@@ -194,6 +194,16 @@ describe("pkc.communities: what a change costs with many communities", () => {
         }
     });
 
+    // A PKC has no `communities` until its first refresh emits one
+    it("the first refresh of a PKC that has no list yet lists every community", async () => {
+        const { pkc } = createFakePkc();
+        (pkc as { communities?: PKCCommunitiesEntry[] }).communities = undefined;
+        lockedAddresses.add(addresses[2]);
+        await monitorCommunitiesDirectory(pkc);
+        expect(pkc.communities.length).to.equal(communityCount);
+        expect(startedAddresses(pkc)).to.deep.equal([addresses[2]]);
+    });
+
     it("a community that appears is listed by checking its own lock and no other", async () => {
         const { pkc } = createFakePkc();
         lockedAddresses.add(addresses[4]);

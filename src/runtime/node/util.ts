@@ -414,7 +414,7 @@ function readLocalCommunityIdentity(
 function listCommunitiesEntriesSync(pkc: PKC, communityWithChangedStartLock?: string): PKCCommunitiesEntry[] {
     const communityAddresses = listCommunitiesSync(pkc);
     const listedStarted = new Map<string, boolean>();
-    for (const listed of pkc.communities) listedStarted.set(listed.address, listed.started);
+    for (const listed of pkc.communities ?? []) listedStarted.set(listed.address, listed.started);
     // A Set, not Array.includes: with N communities these two loops were N scans of an N-long list on every refresh,
     // and a node starting N communities refreshes at least N times (issue #576)
     const listedAddresses = new Set(communityAddresses);
