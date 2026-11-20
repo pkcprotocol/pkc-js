@@ -36,6 +36,7 @@ vi.mock("node:fs", async (importOriginal) => {
 import { monitorCommunitiesDirectory, refreshCommunitiesList } from "../../../dist/node/runtime/node/util.js";
 import { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import { STORAGE_KEYS } from "../../../dist/node/constants.js";
+import { START_LOCK_FILE_SUFFIX } from "../../../dist/node/runtime/node/community/start-lock.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { PKCCommunitiesEntry } from "../../../dist/node/clients/rpc-client/types.js";
 
@@ -169,11 +170,6 @@ describe("pkc.communities: what a change costs with many communities", () => {
         await monitorCommunitiesDirectory(pkc);
         const newAddress = "refresh-cost-appears.bso";
         try {
-            // an event with no filename, as some platforms send
-            lockChecks.length = 0;
-            watchCallbacks[0]("change", null);
-            expect(lockChecks.length).to.equal(communityCount);
-
             // created without its internal state: listed only once a later write adds it
             const db = new Database(path.join(communitiesPath, newAddress));
             db.exec("CREATE TABLE keyv(key VARCHAR(255) PRIMARY KEY, value TEXT)");
@@ -188,12 +184,79 @@ describe("pkc.communities: what a change costs with many communities", () => {
             watchCallbacks[0]("change", newAddress);
             expect(pkc.communities.map((entry) => entry.address)).to.include(newAddress);
 
+            // an event with no filename, as some platforms send
             fs.rmSync(path.join(communitiesPath, newAddress), { force: true });
-            watchCallbacks[0]("rename", newAddress);
+            watchCallbacks[0]("rename", null);
             expect(pkc.communities.length).to.equal(communityCount);
             expect(pkc.communities.map((entry) => entry.address)).to.not.include(newAddress);
         } finally {
             fs.rmSync(path.join(communitiesPath, newAddress), { force: true });
         }
+    });
+
+    it("a community that appears is listed by checking its own lock and no other", async () => {
+        const { pkc } = createFakePkc();
+        lockedAddresses.add(addresses[4]);
+        await monitorCommunitiesDirectory(pkc);
+        // the first refresh has no list to go by, so it checks every lock
+        expect([...lockChecks].sort()).to.deep.equal(addresses);
+        lockChecks.length = 0;
+
+        const newAddress = "refresh-cost-created.bso";
+        createCommunityDb(newAddress);
+        try {
+            lockedAddresses.add(newAddress);
+            watchCallbacks[0]("rename", newAddress);
+            expect(pkc.communities.length).to.equal(communityCount + 1);
+            expect(startedAddresses(pkc).sort()).to.deep.equal([addresses[4], newAddress].sort());
+            expect(lockChecks).to.deep.equal([newAddress]);
+
+            lockChecks.length = 0;
+            fs.rmSync(path.join(communitiesPath, newAddress), { force: true });
+            watchCallbacks[0]("rename", newAddress);
+            expect(startedAddresses(pkc)).to.deep.equal([addresses[4]]);
+            expect(lockChecks).to.deep.equal([]);
+        } finally {
+            fs.rmSync(path.join(communitiesPath, newAddress), { force: true });
+        }
+    });
+
+    it("an event of a listed community's start lock rechecks that community and no other", async () => {
+        const { pkc, emitted } = createFakePkc();
+        await monitorCommunitiesDirectory(pkc);
+        lockChecks.length = 0;
+        emitted.length = 0;
+        const startLockFilename = `${addresses[11]}${START_LOCK_FILE_SUFFIX}`;
+
+        // another process took the lock
+        lockedAddresses.add(addresses[11]);
+        watchCallbacks[0]("change", startLockFilename);
+        expect(startedAddresses(pkc)).to.deep.equal([addresses[11]]);
+        expect(emitted.length).to.equal(1);
+        expect(lockChecks.filter((address) => address !== addresses[11])).to.deep.equal([]);
+
+        // and released it
+        lockedAddresses.delete(addresses[11]);
+        watchCallbacks[0]("change", startLockFilename);
+        expect(startedAddresses(pkc)).to.deep.equal([]);
+        expect(emitted.length).to.equal(2);
+        expect(lockChecks.filter((address) => address !== addresses[11])).to.deep.equal([]);
+    });
+
+    // The price of not rechecking: a holder that is killed changes nothing on disk, so nothing tells the list. Its entry
+    // stays `started` until that community's lock next changes, or until the list is built again from nothing.
+    it("a lock that changed without an event is not seen by a refresh, and is seen when the list is built from nothing", async () => {
+        const { pkc } = createFakePkc();
+        lockedAddresses.add(addresses[20]);
+        refreshCommunitiesList(pkc);
+        expect(startedAddresses(pkc)).to.deep.equal([addresses[20]]);
+
+        lockedAddresses.delete(addresses[20]);
+        refreshCommunitiesList(pkc);
+        expect(startedAddresses(pkc)).to.deep.equal([addresses[20]]);
+
+        const { pkc: restartedPkc } = createFakePkc();
+        refreshCommunitiesList(restartedPkc);
+        expect(startedAddresses(restartedPkc)).to.deep.equal([]);
     });
 });

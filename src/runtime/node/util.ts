@@ -405,8 +405,16 @@ function readLocalCommunityIdentity(
     }
 }
 
-function listCommunitiesEntriesSync(pkc: PKC): PKCCommunitiesEntry[] {
+// `started` is read from the start lock only for a community that is not listed yet, and for the one whose lock the
+// caller knows has changed. Every other entry keeps the `started` it is listed with: start() and stop() set their own
+// entry (setStartedOfListedCommunity), and a lock taken or released by another process reaches the watcher as an event
+// of that one lock. Checking every lock on every refresh made creating or deleting one community cost a lock check per
+// community, each of them a synchronous open of a file (issue #576). The price: a `started` that went wrong with no
+// event, which is a holder that was killed, is no longer put right by the next refresh of something else.
+function listCommunitiesEntriesSync(pkc: PKC, communityWithChangedStartLock?: string): PKCCommunitiesEntry[] {
     const communityAddresses = listCommunitiesSync(pkc);
+    const listedStarted = new Map<string, boolean>();
+    for (const listed of pkc.communities) listedStarted.set(listed.address, listed.started);
     // A Set, not Array.includes: with N communities these two loops were N scans of an N-long list on every refresh,
     // and a node starting N communities refreshes at least N times (issue #576)
     const listedAddresses = new Set(communityAddresses);
@@ -433,9 +441,10 @@ function listCommunitiesEntriesSync(pkc: PKC): PKCCommunitiesEntry[] {
             identity = read.identity;
             identities.set(communityAddress, identity);
         }
-        entries.push(
-            toCommunitiesEntry({ ...identity, started: isCommunityStartLockedSync({ dataPath: pkc.dataPath!, communityAddress }) })
-        );
+        const started =
+            (communityAddress === communityWithChangedStartLock ? undefined : listedStarted.get(communityAddress)) ??
+            isCommunityStartLockedSync({ dataPath: pkc.dataPath!, communityAddress });
+        entries.push(toCommunitiesEntry({ ...identity, started }));
     }
     return entries;
 }
@@ -463,16 +472,18 @@ export function findLocalCommunityAddress(pkc: PKC, lookup: CommunitiesEntryLook
 
 // Reads dataPath/communities now and emits communitieschange if pkc.communities is out of date. The filesystem watcher
 // calls it on every change, and a rename calls it right after moving the DB file: the watcher fires later (much later on
-// macOS), and until then pkc.createCommunity and the RPC server would resolve the old address (issue #430). Starting or
-// stopping a community calls it too, so `started` is current as soon as the start lock changes.
-export function refreshCommunitiesList(pkc: PKC) {
-    const communities = listCommunitiesEntriesSync(pkc);
+// macOS), and until then pkc.createCommunity and the RPC server would resolve the old address (issue #430).
+// A community that starts or stops sets its own entry instead (setStartedOfListedCommunity). The refresh reads the
+// start lock of communities it lists for the first time and of `communityWithChangedStartLock`, and of no other (see
+// listCommunitiesEntriesSync).
+export function refreshCommunitiesList(pkc: PKC, { communityWithChangedStartLock }: { communityWithChangedStartLock?: string } = {}) {
+    const communities = listCommunitiesEntriesSync(pkc, communityWithChangedStartLock);
     if (deterministicStringify(communities) !== deterministicStringify(pkc.communities)) pkc.emit("communitieschange", { communities });
 }
 
 // Sets the `started` of one listed community, for the caller that has just read that community's start lock: start()
-// and stop(). A full refresh reads the directory and checks the lock of every community in it, so with N communities
-// a node that starts them all did N² lock checks, all of them synchronous (issue #576). The filesystem event of the
+// and stop(). They used to run a full refresh, which read the directory and checked the lock of every community in it,
+// so a node that started N communities did N² lock checks, all of them synchronous (issue #576). The filesystem event of the
 // lock that follows finds the entry already right and refreshes nothing (see isCommunitiesListChangeEvent). A
 // community that is not listed yet takes the full refresh, which is what lists it.
 export function setStartedOfListedCommunity({ pkc, communityAddress, started }: { pkc: PKC; communityAddress: string; started: boolean }) {
@@ -798,9 +809,9 @@ const COMMUNITIES_DIR_EXTENSIONS_TO_IGNORE = [".lock", "-journal", "-shm", "-wal
 // Whether a filesystem event on this file in dataPath/communities can change pkc.communities. A start lock decides a
 // community's `started` (issue #455), and it is a file lock on the community's sidecar (see start-lock.ts): taking it
 // writes the sidecar and releasing it touches the sidecar's mtime, so both reach the watcher as an event on that file.
-// A full refresh checks every community's lock, so a sidecar event only counts when that one community's `started` no
-// longer matches its listed entry. A holder that is killed changes nothing on disk, so its entry stays `started` until
-// the next refresh. Runs in the watcher callback, where a throw is uncaught, so a lock check that fails (EACCES, EIO)
+// A sidecar event only counts when that one community's `started` no longer matches its listed entry, and the refresh
+// it leads to rechecks that one lock (see communityOfStartLockFile). A holder that is killed changes nothing on disk,
+// so its entry stays `started` until its lock next changes or the list is built again from nothing. Runs in the watcher callback, where a throw is uncaught, so a lock check that fails (EACCES, EIO)
 // counts as a change and the refresh handles the error
 export function isCommunitiesListChangeEvent({ pkc, filename }: { pkc: PKC; filename: string | null }): boolean {
     if (typeof filename !== "string") return true;
@@ -815,6 +826,12 @@ export function isCommunitiesListChangeEvent({ pkc, filename }: { pkc: PKC; file
         }
     }
     return !COMMUNITIES_DIR_EXTENSIONS_TO_IGNORE.some((ext) => filename.endsWith(ext));
+}
+
+// The community a start lock file belongs to, or undefined for any other file
+function communityOfStartLockFile(filename: string | null): string | undefined {
+    if (typeof filename !== "string" || !filename.endsWith(START_LOCK_FILE_SUFFIX)) return undefined;
+    return filename.slice(0, -START_LOCK_FILE_SUFFIX.length);
 }
 
 export async function monitorCommunitiesDirectory(pkc: PKC) {
@@ -844,7 +861,7 @@ export async function monitorCommunitiesDirectory(pkc: PKC) {
 
         isProcessingChange = true;
         try {
-            refreshCommunitiesList(pkc);
+            refreshCommunitiesList(pkc, { communityWithChangedStartLock: communityOfStartLockFile(filename) });
         } catch (error) {
             // pkc.communities keeps its last list until a later event refreshes it, e.g. when one community's start lock
             // check fails (EACCES, EIO), which aborts the whole refresh
