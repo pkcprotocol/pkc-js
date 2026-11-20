@@ -20,6 +20,7 @@
 //
 // Env:
 //   BENCH_SETTLE_S (45)      seconds to wait after the last start() before measuring
+//   BENCH_PUBLISH_WAIT_S (300) seconds past the settle time to wait for every community to have published
 //   BENCH_WINDOW_S (120)     measurement window
 //   BENCH_CPU_PROFILE (unset) set to 1 to write a V8 .cpuprofile of the window at the largest count, under
 //                            .tmp/idle-communities-bench/, readable by cpuprofile-summary.mjs
@@ -57,6 +58,7 @@ if (!["profile", "board"].includes(mode) || targets.length === 0 || targets.some
 }
 const envNumber = (name, fallback) => (process.env[name] ? Number(process.env[name]) : fallback);
 const settleS = envNumber("BENCH_SETTLE_S", 45);
+const publishWaitS = envNumber("BENCH_PUBLISH_WAIT_S", 300); // how long past the settle time to wait for every community to publish
 const windowS = envNumber("BENCH_WINDOW_S", 120);
 const startConcurrency = envNumber("BENCH_START_CONCURRENCY", 4);
 const apiPort = envNumber("BENCH_API_PORT", 5301);
@@ -125,7 +127,8 @@ const processStats = (pid) => {
             .trim()
             .split(/\s+/);
         const [days, clock] = time.includes("-") ? time.split("-") : ["0", time];
-        const parts = clock.split(/[:.]/).map(Number);
+        // [[hh:]mm:]ss on Linux, mm:ss.hundredths on macOS: the last part is seconds, with or without a fraction
+        const parts = clock.split(":").map(Number);
         while (parts.length < 3) parts.unshift(0);
         return { rssMb: Number(rss) / 1024, cpuS: Number(days) * 86400 + parts[0] * 3600 + parts[1] * 60 + parts[2] };
     }
@@ -171,11 +174,12 @@ const profileOptions = (anchorAddress) => ({
 const boardOptions = (anchorAddress) => ({ anchor: { publicKey: anchorAddress }, title: "Bench board" });
 
 const started = [];
+let communityErrors = 0;
 const addOne = async () => {
     const anchorSigner = await createSigner();
     const options = mode === "profile" ? profileOptions(anchorSigner.address) : boardOptions(anchorSigner.address);
     const community = await pkc.createCommunity(options);
-    community.on("error", () => {});
+    community.on("error", () => communityErrors++);
     const record = await createAnchorIpnsRecord({ anchorSigner, minterIpnsName: community.signer.address, sequence: 0 });
     await community.publishAnchorRecord(record);
     await community.start();
@@ -197,8 +201,16 @@ const writeCpuProfile = async ({ session, name }) => {
     session.disconnect();
     console.error(`CPU profile written to ${path.relative(repoRoot, profilePath)}`);
 };
+const hasPublished = (community) => typeof community.updatedAt === "number";
 const measure = async ({ count, seconds, profile, startS }) => {
     await delay(settleS * 1000); // let the first publish passes finish
+    // The window measures communities that have published and now idle. One that has not published yet does less
+    // work, so a sample taken with some of them missing would read as cheap: wait for them, and the gate fails the
+    // run if they do not all get there.
+    const publishDeadline = Date.now() + publishWaitS * 1000;
+    while (!started.every(hasPublished) && Date.now() < publishDeadline) await delay(1000);
+    const publishedBeforeWindow = started.filter(hasPublished).length;
+    const communityErrorsBeforeWindow = communityErrors;
     global.gc?.();
     const session = profile ? await startCpuProfile() : undefined;
     const loopDelay = monitorEventLoopDelay({ resolution: 10 });
@@ -237,7 +249,9 @@ const measure = async ({ count, seconds, profile, startS }) => {
         mode,
         n: count,
         startS,
-        updated: started.filter((community) => typeof community.updatedAt === "number").length,
+        updated: started.filter(hasPublished).length,
+        publishedBeforeWindow,
+        communityErrors: communityErrors - communityErrorsBeforeWindow,
         republishedInWindow: republishInWindow && count > 0,
         nodeCpuPct: round(nodeCpuPct),
         nodeCpuPctPerCommunity: count > 0 ? round(nodeCpuPct / count, 4) : 0,
@@ -266,6 +280,16 @@ const gate = ({ empty, results }) => {
     const smallest = results[0];
     const largest = results[results.length - 1];
     const failures = [];
+    for (const result of results)
+        if (result.publishedBeforeWindow < result.n)
+            failures.push(
+                `Only ${result.publishedBeforeWindow} of ${result.n} communities had published when the window started, so its cost is not the cost of ${result.n} idle communities`
+            );
+    // a smallest count that measures no dearer than an empty node gives a ratio that means nothing, and a negative one passes any limit
+    if (maxCostRatio !== undefined && results.length > 1 && !(costPerCommunity(smallest) > 0))
+        failures.push(
+            `${smallest.n} communities measured no more CPU than none (${smallest.nodeCpuPct}% against ${empty.nodeCpuPct}%), so there is no cost to compare ${largest.n} against`
+        );
     const summary = {
         costPerCommunityPct: Object.fromEntries(results.map((result) => [result.n, round(costPerCommunity(result), 4)])),
         costRatio: results.length > 1 ? round(costPerCommunity(largest) / costPerCommunity(smallest), 2) : undefined
