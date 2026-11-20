@@ -1285,6 +1285,16 @@ class Publication extends TypedEmitter<PublicationEvents> {
             this.emit("error", error);
             return;
         }
+        // The server's publication stopped with this error, so it ended the publish there: end it here too, or this
+        // instance stays publishing, registered and subscribed until stop(). An error that left the server's publication
+        // publishing (a challenge answer that could not be published) is one the caller can still act on
+        if (error.details?.newState === "stopped" && this._claimPublishEnd("failure")) {
+            if (error.details.newPublishingState) this._updatePublishingStateNoEmission(error.details.newPublishingState);
+            log.error("The publication failed on the RPC server, will stop publication", error);
+            await this._postSucessOrFailurePublishing();
+            this.emit("error", error);
+            return;
+        }
         if (error.details?.newPublishingState) this._updatePublishingStateNoEmission(error.details.newPublishingState);
         this.emit("error", error);
     }

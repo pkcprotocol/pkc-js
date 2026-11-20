@@ -427,6 +427,55 @@ describe("publications over RPC (fake RPC server)", () => {
         });
     });
 
+    describe("a publish the server failed after it started", () => {
+        const sendServerError = (subscription: number, newState: "stopped" | "publishing") =>
+            server.sendNotification({
+                method: "publishVoteNotification",
+                subscription,
+                event: "error",
+                result: {
+                    code: "ERR_PUBSUB_DID_NOT_RECEIVE_RESPONSE_AFTER_PUBLISHING_CHALLENGE_REQUEST",
+                    message: "stubbed server publish failure",
+                    details: { newPublishingState: "failed", newState }
+                }
+            });
+
+        it("ends on the client when the server's publication stopped with the error", async () => {
+            const vote = await createVote();
+            const events = recordEvents(vote);
+            await vote.publish();
+            const subscriptionId = server.subscriptionIdOf("publishVote");
+            sendServerError(subscriptionId, "stopped");
+
+            await vi.waitFor(() => expect(vote.state).to.equal("stopped"), { timeout: 10000, interval: 10 });
+            expect(vote.publishingState).to.equal("failed");
+            expect(events.filter((event) => event.startsWith("error:"))).to.deep.equal([
+                "error:ERR_PUBSUB_DID_NOT_RECEIVE_RESPONSE_AFTER_PUBLISHING_CHALLENGE_REQUEST"
+            ]);
+            await vi.waitFor(() => expect(server.unsubscribedIds()).to.deep.equal([subscriptionId]), { timeout: 10000, interval: 10 });
+            expect(pkc._publishingPublications.has(vote)).to.be.false;
+        });
+
+        it("stays publishing when the server's publication is still publishing after the error", async () => {
+            const vote = await createVote();
+            const events = recordEvents(vote);
+            await vote.publish();
+            const subscriptionId = server.subscriptionIdOf("publishVote");
+            sendServerError(subscriptionId, "publishing");
+
+            await vi.waitFor(() => expect(events.some((event) => event.startsWith("error:"))).to.be.true, {
+                timeout: 10000,
+                interval: 10
+            });
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            // A failure the caller can still act on, such as a challenge answer that could not be published
+            expect(vote.state).to.equal("publishing");
+            expect(vote.publishingState).to.equal("failed");
+            expect(server.unsubscribedIds()).to.deep.equal([]);
+            expect(pkc._publishingPublications.has(vote)).to.be.true;
+        });
+    });
+
     describe("stop() while the server is starting the publish", () => {
         it("drops the subscription the server returns afterwards and ignores its events", async () => {
             const post = await createPost();
