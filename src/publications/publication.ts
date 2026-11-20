@@ -1114,7 +1114,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
             // fast. In a finally because pkc.destroy() catches a rejecting stop() and then clears
             // _publishingPublications, so a cleanup failure would otherwise leave the refresh
             // running past teardown, which is the exact thing this is here to prevent.
-            if (this._backgroundCommunityRefresh) await this._backgroundCommunityRefresh;
+            // Only a publish this stop() ended has a refresh to drain: one that started since is not this stop()'s to wait for
+            if (wasPublishCalled && this._backgroundCommunityRefresh) await this._backgroundCommunityRefresh;
             // A stop() that had no publish to end leaves a publish() that started since alone
             const publishStartedSinceThisStop = !wasPublishCalled && (this._isPublishSpent || this._isPublishCallRunning);
             if (endedByThisStop && !publishStartedSinceThisStop) this._updatePublishingStateWithEmission("stopped");

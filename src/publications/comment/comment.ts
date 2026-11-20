@@ -1378,12 +1378,15 @@ export class Comment
     }
 
     override async stop() {
-        this._updateAttempt++; // an update() start-up still awaiting sees it is stale and leaves this comment alone
+        const updateAttempt = ++this._updateAttempt; // an update() start-up still awaiting sees it is stale and leaves this comment alone
         this._abortStopOperations(
             `Aborting comment operations for ${this.cid || this.author?.address || "comment"} because comment.stop() was called`
         );
         if (this.state === "publishing") {
             await super.stop();
+            // A verdict recorded before this stop() still lands while the teardown above is awaited, and its listener may
+            // have called update(). That update() came after this stop(), so the rest of this stop() must not undo it
+            if (updateAttempt !== this._updateAttempt) return;
             this._setStateWithEmission("stopped");
         } else {
             // Written before the await: a publish() called right after a stop() that was not awaited sets "publishing",

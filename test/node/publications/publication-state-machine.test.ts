@@ -10,6 +10,7 @@ import { encryptEd25519AesGcm } from "../../../dist/node/signer/index.js";
 import env from "../../../dist/node/version.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type Publication from "../../../dist/node/publications/publication.js";
+import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { SignerType } from "../../../dist/node/signer/types.js";
 import type { IpfsHttpClientPubsubMessage, PubsubSubscriptionHandler } from "../../../dist/node/types.js";
 import type {
@@ -493,6 +494,40 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             }
         });
 
+        it("a stop() that was not awaited before the first publish() does not wait for that publish's cache refresh", async () => {
+            const { post: vote, pubsub } = await createPostWithStubbedPubsub({ kind: "vote" });
+            // A stale cache entry: publish() uses it and refreshes it in the background
+            const community = vote._community!;
+            vote._community = undefined;
+            pkc._memCaches.communityForPublishing.set(vote.communityAddress, community, { ttl: 1 });
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            let releaseRefresh!: () => void;
+            const refreshGate = new Promise<void>((resolve) => (releaseRefresh = resolve));
+            const refresh = vi.spyOn(pkc, "getCommunity").mockImplementation(async () => {
+                await refreshGate;
+                throw new Error("stubbed refresh of the community cache");
+            });
+            const publishingStates: string[] = [];
+            vote.on("publishingstatechange", (state) => publishingStates.push(state));
+
+            let stopSettled = false;
+            const stopped = vote.stop().then(() => (stopSettled = true));
+            await vote.publish();
+            expect(refresh).toHaveBeenCalledTimes(1);
+            expect(vote.publishingState).to.equal("waiting-challenge");
+            // The refresh belongs to the publish that came after this stop(), which has nothing to drain
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            expect(stopSettled).to.be.true;
+
+            releaseRefresh();
+            await stopped;
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            expect(pubsub.requests.length).to.equal(1);
+            expect(vote.state).to.equal("publishing");
+            expect(vote.publishingState).to.equal("waiting-challenge");
+            expect(publishingStates).to.not.include("stopped");
+        });
+
         it("a new instance of the same publication publishes after the first one failed", async () => {
             const { post: vote, pubsub } = await createPostWithStubbedPubsub({ kind: "vote" });
             await vote.publish();
@@ -620,6 +655,59 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             expect(post.publishingState).to.equal("succeeded");
             expect(events.filter((event) => event.startsWith("challengeverification"))).to.deep.equal(["challengeverification:true"]);
             expect(pubsub.requests.length).to.equal(1);
+        });
+
+        it("leaves alone an update() a challengeverification listener started while stop() was still at work", async () => {
+            const { post, pubsub } = await createPostWithStubbedPubsub();
+            const comment = post as Comment;
+            await comment.publish();
+            const request = pubsub.requests[0];
+            const cid = "QmUFu8fzuT1th3jJYgR4oRgGpw3sgRALr4nbenA4pyoCav";
+            // Holds the step that checks the comment the community returned, which runs after the verdict is recorded
+            let releaseCommentCheck!: () => void;
+            const commentCheckGate = new Promise<void>((resolve) => (releaseCommentCheck = resolve));
+            const commentCheck = vi
+                .spyOn(
+                    comment as unknown as { _verifyDecryptedChallengeVerificationAndUpdateCommentProps: () => Promise<void> },
+                    "_verifyDecryptedChallengeVerificationAndUpdateCommentProps"
+                )
+                .mockImplementation(async () => {
+                    await commentCheckGate;
+                    comment.setCid(cid);
+                });
+            const signedComment = comment.raw.pubsubMessageToPublish!;
+            const handled = deliver(
+                pubsub,
+                await challengeVerificationFor({
+                    request,
+                    by: communitySigner,
+                    challengeSuccess: true,
+                    encryptedPlaintext: JSON.stringify({
+                        comment: { ...signedComment, depth: 0 },
+                        commentUpdate: { cid, signature: signedComment.signature, protocolVersion: env.PROTOCOL_VERSION }
+                    })
+                })
+            );
+            await vi.waitFor(() => expect(commentCheck).toHaveBeenCalled(), { timeout: 5000, interval: 10 });
+
+            let updating: Promise<void> | undefined;
+            comment.once("challengeverification", () => (updating = comment.update()));
+            const releaseUnsubscribe = holdFirstUnsubscribe(comment);
+            const stopping = comment.stop(); // held in its teardown while the verdict lands
+            releaseCommentCheck();
+            await handled;
+            await updating;
+            expect(comment.state).to.equal("updating");
+
+            releaseUnsubscribe();
+            await stopping;
+            // The update() came after the stop(), so the tail of the stop() must not undo it
+            expect(comment.publishingState).to.equal("succeeded");
+            expect(comment.state).to.equal("updating");
+            expect(pkc._updatingComments.values().length).to.equal(1);
+            await comment.stop();
+            expect(comment.state).to.equal("stopped");
+            expect(pkc._updatingComments.values().length).to.equal(0);
         });
 
         it("does not answer a challenge after stop()", async () => {
