@@ -69,16 +69,26 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
         calculateLatestUpdateTrigger(community);
         if (shouldStopPublishLoop()) return;
         const recordAlreadyRequested = !lastSyncFailed && community._communityUpdateTrigger;
-        // A request that is already there still waits a moment, so a cycle that keeps leaving the trigger set (a
-        // block that never gets removed) does not spin.
-        const waitMs = recordAlreadyRequested ? Math.min(MIN_MS_BETWEEN_PUBLISH_CYCLES, syncIntervalMs) : syncIntervalMs;
+        // No cycle starts sooner than this after the last one ended. One publication writes several times in a row
+        // and each write asks for a record: without the pause each write got a cycle and a published record of its
+        // own, where the 100ms tick of the old loop took them together. It also keeps a cycle that always leaves the
+        // trigger set (a block that never gets removed) from spinning.
+        const minPauseMs = Math.min(MIN_MS_BETWEEN_PUBLISH_CYCLES, syncIntervalMs);
+        const sleepingSince = Date.now();
         await new Promise<void>((resolve) => {
-            const wake = () => {
+            let timer: ReturnType<typeof setTimeout>;
+            const endSleep = () => {
                 clearTimeout(timer);
                 if (community._wakePublishLoop === wake) community._wakePublishLoop = undefined;
                 resolve();
             };
-            const timer = setTimeout(wake, waitMs);
+            const wake = () => {
+                const pauseLeftMs = minPauseMs - (Date.now() - sleepingSince);
+                if (pauseLeftMs <= 0 || shouldStopPublishLoop()) return endSleep();
+                clearTimeout(timer);
+                timer = setTimeout(endSleep, pauseLeftMs);
+            };
+            timer = setTimeout(endSleep, recordAlreadyRequested ? minPauseMs : syncIntervalMs);
             community._wakePublishLoop = wake;
         });
     };
