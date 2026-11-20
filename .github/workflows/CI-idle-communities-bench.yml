@@ -1,11 +1,13 @@
 # Idle cost of many communities on one node (#576): CPU of a node hosting N started communities that nothing posts to,
 # against a real Kubo daemon. See test/benchmarks/idle-communities-bench.mjs for what is measured and why.
 #
-# The job fails when one community costs more at 1,000 communities than at 250 by more than the allowed ratio, or more
+# The job fails when one community costs more at 2,000 communities than at 500 by more than the allowed ratio, or more
 # than the allowed share of a core. Every problem of #576 looked like the first: a cost per community that grew with
 # the number of communities. Runner CPUs differ, so the absolute limit is loose; the ratio is the one to watch.
-# First run on ubuntu-latest: 0.0036% of a core per community at 250, 0.0043% at 1,000, ratio 1.19. The absolute limit
-# of 0.01% is a little over twice that.
+# Two runs at 250 and 1,000 on ubuntu-latest: 0.0036% and 0.0028% of a core per community at 250, 0.0043% and 0.0046%
+# at 1,000. 250 idle communities use under 1% of a core, too little to measure to the tenth the ratio needs (1.19 and
+# 1.64 from those two runs), hence the larger counts. A cost that grows with the count would give a ratio near 4.
+# The absolute limit of 0.01% is a little over twice what was measured.
 #
 # - Nightly, and on workflow_dispatch with any counts.
 # - Pull requests labelled `performance`, on every push while the label is on.
@@ -21,11 +23,11 @@ on:
             counts:
                 description: "Community counts, smallest first"
                 required: false
-                default: "250 1000"
+                default: "500 2000"
             max_cost_ratio:
                 description: "BENCH_MAX_COST_RATIO"
                 required: false
-                default: "1.3"
+                default: "1.5"
             max_cpu_pct_per_community:
                 description: "BENCH_MAX_CPU_PCT_PER_COMMUNITY"
                 required: false
@@ -66,9 +68,9 @@ jobs:
               shell: bash
               env:
                   BENCH_CPU_PROFILE: "1"
-                  BENCH_MAX_COST_RATIO: ${{ github.event.inputs.max_cost_ratio || '1.3' }}
+                  BENCH_MAX_COST_RATIO: ${{ github.event.inputs.max_cost_ratio || '1.5' }}
                   BENCH_MAX_CPU_PCT_PER_COMMUNITY: ${{ github.event.inputs.max_cpu_pct_per_community || '0.01' }}
-              run: node --expose-gc test/benchmarks/idle-communities-bench.mjs profile ${{ github.event.inputs.counts || '250 1000' }}
+              run: node --expose-gc test/benchmarks/idle-communities-bench.mjs profile ${{ github.event.inputs.counts || '500 2000' }}
             - name: Summarize
               if: ${{ always() }}
               shell: bash

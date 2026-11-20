@@ -253,7 +253,7 @@ const measure = async ({ count, seconds, profile, startS }) => {
         publishedBeforeWindow,
         communityErrors: communityErrors - communityErrorsBeforeWindow,
         republishedInWindow: republishInWindow && count > 0,
-        nodeCpuPct: round(nodeCpuPct),
+        nodeCpuPct: round(nodeCpuPct, 2), // two digits: the gate divides differences of these by the count
         nodeCpuPctPerCommunity: count > 0 ? round(nodeCpuPct / count, 4) : 0,
         mainThreadCpuPct:
             mainThreadCpuStart === undefined || mainThreadCpuEnd === undefined
