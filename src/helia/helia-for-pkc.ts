@@ -1052,7 +1052,10 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 // ipfsPath is either a bare cid or a `<root-cid>/sub/path`; derive both parts here, once,
                 // so root and sub-path can never disagree. unixfs cat takes the root CID plus the sub-path
                 // via the `path` option. (The multiformats 13/14 split that used to force string-only cat
-                // input is gone: helia 7 and our tree share a single multiformats copy.)
+                // input is gone: helia 7 and our tree share a single multiformats copy.) That single copy
+                // depends on package.json declaring multiformats as a caret range like helia does: an exact
+                // pin gives consumers a second copy once a newer 14.x ships, and ipfs-unixfs-exporter then
+                // rejects our CID ("Path must be string or CID") because it checks `instanceof CID`.
                 const [rootCidString, ...ipfsSubPathSegments] = ipfsPath.split("/");
                 const rootCid = CID.parse(rootCidString);
                 const ipfsSubPath = ipfsSubPathSegments.length > 0 ? ipfsSubPathSegments.join("/") : undefined;
