@@ -777,8 +777,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
             challengeExchange.challengeAnswerPublishInFlight = false;
             throw e;
         }
-        // The exchange can have ended while the answer was being encrypted and signed
-        if (this._publishEndedBy) {
+        const throwIfExchangeEnded = () => {
+            if (!this._publishEndedBy) return;
             challengeExchange.challengeAnswerPublishInFlight = false;
             throw new PKCError("ERR_PUBLICATION_CHALLENGE_EXCHANGE_ENDED", {
                 publicationType: this.getType(),
@@ -786,11 +786,15 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 publishingState: this.publishingState,
                 endedBy: this._publishEndedBy
             });
-        }
+        };
+        // The exchange can have ended while the answer was being encrypted and signed
+        throwIfExchangeEnded();
 
         // TODO should be handling multiple providers with publishing challenge answer?
         // For now, let's just publish to the provider that got us the challenge and its request
         this._updatePublishingStateWithEmission("publishing-challenge-answer");
+        // A publishingstatechange listener can have called stop() for the state just emitted
+        throwIfExchangeEnded();
         this._updatePubsubState("publishing-challenge-answer", challengeExchange.providerUrl);
 
         if (this._publishingToLocalCommunity) {

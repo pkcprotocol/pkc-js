@@ -1609,9 +1609,9 @@ The comment API for publishing a comment as an author, or getting comment update
 
 > Publish the comment to the pubsub. You must then wait for the `'challenge'` event and answer with a `ChallengeAnswer`.
 
-A publication instance (`Comment`, `Vote`, `CommentEdit`, `CommentModeration`, `CommunityEdit`) runs one challenge exchange. Once `publish()` has got as far as sending a request, a second `publish()` on the same instance rejects with `ERR_PUBLICATION_PUBLISH_ALREADY_CALLED`, whatever came of the first: still in progress, succeeded, failed, or stopped with `stop()`. The error's `details` carry `state`, `publishingState`, `receivedChallenge` and `receivedChallengeVerification`, so you can tell what happened to the first attempt.
+A publication instance (`Comment`, `Vote`, `CommentEdit`, `CommentModeration`, `CommunityEdit`) runs one challenge exchange. Once `publish()` has got past its pre-flight (loading the community, then signing and validating the publication), or once `stop()` has ended a `publish()` that was called, a second `publish()` on the same instance rejects with `ERR_PUBLICATION_PUBLISH_ALREADY_CALLED`, whatever came of the first: still in progress, succeeded, failed, or stopped with `stop()`. The error's `details` carry `state`, `publishingState`, `receivedChallenge` and `receivedChallengeVerification`, so you can tell what happened to the first attempt.
 
-The one exception is a `publish()` that rejected before anything was sent, because the community could not be loaded or the publication could not be signed or validated. Nothing left the instance, so you can call `publish()` on it again. A `publish()` call made while another one is still running on the same instance rejects.
+The one exception is a `publish()` that rejected during pre-flight, because the community could not be loaded or the publication could not be signed or validated. Nothing left the instance, so you can call `publish()` on it again. A `publish()` call made while another one is still running on the same instance rejects.
 
 To publish again after that point, create a new instance and call `publish()` on that one. Call `stop()` on the old instance first if it is still publishing.
 

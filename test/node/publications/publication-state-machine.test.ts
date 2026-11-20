@@ -655,6 +655,24 @@ describe("publication publishing over a stubbed pubsub provider", () => {
             expect(post.publishingState).to.equal("stopped");
         });
 
+        it("does not send a challenge answer when a listener stops the publication on publishing-challenge-answer", async () => {
+            const { post, pubsub } = await createPostWithStubbedPubsub();
+            await post.publish();
+            await deliver(pubsub, await challengeFor({ request: pubsub.requests[0], by: communitySigner }));
+
+            let stopping: Promise<void> | undefined;
+            post.on("publishingstatechange", (state) => {
+                if (state === "publishing-challenge-answer") stopping = post.stop();
+            });
+            await expect(post.publishChallengeAnswers({ challengeAnswers: { "0": "2" } })).rejects.toMatchObject({
+                code: "ERR_PUBLICATION_CHALLENGE_EXCHANGE_ENDED"
+            });
+            await stopping;
+            // Only the request: the listener's stop() ended the exchange before the answer was dispatched
+            expect(pubsub.publishCalls).to.equal(1);
+            expect(post.publishingState).to.equal("stopped");
+        });
+
         it("leaves the states alone when stop() runs while a challenge answer is being published", async () => {
             const { post, pubsub, events } = await createPostWithStubbedPubsub();
             await post.publish();
