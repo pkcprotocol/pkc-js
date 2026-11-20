@@ -1555,7 +1555,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             const commentRpcError = error as CommentRpcErrorToTransmit;
             commentRpcError.details = {
                 ...commentRpcError.details,
-                newPublishingState: comment.publishingState
+                newPublishingState: comment.publishingState,
+                newState: comment.state
             };
             sendEvent("error", commentRpcError);
         };
@@ -1628,7 +1629,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
         const errorListener = (error: PKCError | Error) => {
             const voteRpcError = error as PublicationRpcErrorToTransmit;
-            voteRpcError.details = { ...voteRpcError.details, newPublishingState: vote.publishingState };
+            voteRpcError.details = { ...voteRpcError.details, newPublishingState: vote.publishingState, newState: vote.state };
             sendEvent("error", voteRpcError);
         };
         vote.on("error", errorListener);
@@ -1701,7 +1702,11 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
         const errorListener = (error: PKCError | Error) => {
             const editRpcError = error as PublicationRpcErrorToTransmit;
-            editRpcError.details = { ...editRpcError.details, newPublishingState: communityEdit.publishingState };
+            editRpcError.details = {
+                ...editRpcError.details,
+                newPublishingState: communityEdit.publishingState,
+                newState: communityEdit.state
+            };
             sendEvent("error", editRpcError);
         };
         communityEdit.on("error", errorListener);
@@ -1775,7 +1780,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             const commentEditRpcError = error as PublicationRpcErrorToTransmit;
             commentEditRpcError.details = {
                 ...commentEditRpcError.details,
-                newPublishingState: commentEdit.publishingState
+                newPublishingState: commentEdit.publishingState,
+                newState: commentEdit.state
             };
             sendEvent("error", commentEditRpcError);
         };
@@ -1851,7 +1857,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             const commentModRpcError = error as PublicationRpcErrorToTransmit;
             commentModRpcError.details = {
                 ...commentModRpcError.details,
-                newPublishingState: commentMod.publishingState
+                newPublishingState: commentMod.publishingState,
+                newState: commentMod.state
             };
             sendEvent("error", commentModRpcError);
         };

@@ -149,6 +149,10 @@ export class Comment
     private _postForUpdating?: CommentClientsManager["_postForUpdating"];
 
     _numOfListenersForUpdatingInstance = 0;
+    // Bumped by update() and stop(). The start-up of an update awaits pkc.createComment() for the shared instance, or the
+    // RPC commentUpdateSubscribe, and compares it afterwards: once a stop() ran, that start-up is stale and must not
+    // track, mirror, start or subscribe anything. `state` alone cannot tell, because a new update() sets it to "updating" again
+    private _updateAttempt = 0;
 
     _updatingCommentInstance?: { comment: Comment } & Pick<PublicationEvents, "error" | "updatingstatechange" | "update" | "statechange"> =
         undefined; // the comment instance we're mirroing
@@ -503,7 +507,6 @@ export class Comment
                 originalPubsubMsg: this.raw.pubsubMessageToPublish
             });
             log.error(error);
-            this.emit("error", error);
             return error;
         }
 
@@ -529,7 +532,6 @@ export class Comment
                 decryptedChallengeVerification: decryptedVerification
             });
             log.error(error);
-            this.emit("error", error);
             return error;
         }
         const commentUpdateValidity = await verifyCommentUpdate({
@@ -547,7 +549,6 @@ export class Comment
                 decryptedChallengeVerification: decryptedVerification
             });
             log.error(error);
-            this.emit("error", error);
             return error;
         }
 
@@ -558,7 +559,6 @@ export class Comment
                 decryptedChallengeVerification: decryptedVerification
             });
             log.error(error);
-            this.emit("error", error);
             return error;
         }
     }
@@ -643,8 +643,10 @@ export class Comment
 
         if (!this._pkc._pkcRpcClient) {
             // no need to validate if RPC
+            // Thrown, not emitted here: the publication ends as failed with this error. Emitting it and returning let the
+            // verdict be reported as "succeeded" for a comment that was never installed on this instance
             const errorInVerificationProps = await this._verifyChallengeVerificationCommentProps(decryptedVerification);
-            if (errorInVerificationProps) return;
+            if (errorInVerificationProps) throw errorInVerificationProps;
         }
 
         await this._updateCommentPropsFromDecryptedChallengeVerification(decryptedVerification);
@@ -1024,26 +1026,43 @@ export class Comment
         const rpcUrl = this._pkc.pkcRpcClientsOptions![0];
         if (!rpcUrl) throw Error("Failed to get rpc url");
         if (!this.cid) throw Error("Can't start updating comment without defining this.cid");
+        const updateAttempt = this._updateAttempt;
+        let subscriptionId: number;
         try {
-            const { subscriptionId } = await this._pkc._pkcRpcClient!.commentUpdateSubscribe({
+            ({ subscriptionId } = await this._pkc._pkcRpcClient!.commentUpdateSubscribe({
                 cid: this.cid,
                 ...(this.raw.comment || this.raw.commentUpdate ? { raw: this.raw } : undefined),
                 communityName: this.communityName,
                 communityPublicKey: this.communityPublicKey,
                 parentCid: this.parentCid,
                 postCid: this.postCid
-            });
-            this._updateRpcSubscriptionId = subscriptionId;
+            }));
         } catch (e) {
+            if (updateAttempt !== this._updateAttempt) {
+                // stop() already settled the states, and a newer update() may be running: this failure is not theirs
+                log.error("A commentUpdate subscribe that stop() made stale failed", e);
+                return;
+            }
             log.error("Failed to receive commentUpdate from RPC due to error", e);
             await this._stopUpdateLoop();
             this._setStateWithEmission("stopped");
             this._setUpdatingStateWithEmissionIfNewState("failed");
             throw e;
         }
+        if (updateAttempt !== this._updateAttempt) {
+            // stop() ran while subscribing: it had no subscription id to unsubscribe and already untracked this
+            // instance, so keeping the subscription would leave an untracked, live update loop until pkc.destroy().
+            // A newer update() has its own subscription or mirror
+            try {
+                await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
+            } catch (e) {
+                log.error("Failed to unsubscribe from a commentUpdate subscription stopped while subscribing", e);
+            }
+            return;
+        }
+        this._updateRpcSubscriptionId = subscriptionId;
         this._setStateWithEmission("updating");
 
-        const subscriptionId = this._updateRpcSubscriptionId;
         // Deferred so a listener attached synchronously after `await update()` resolves still
         // receives events the server emitted at subscribe time (#314); see
         // attachSubscriptionHandlersDeferred for the mechanism
@@ -1214,7 +1233,12 @@ export class Comment
         // create a new pkc._updatingComments[this.cid]
         const log = Logger("pkc-js:comment:update:_setUpNewUpdatingCommentInstance");
 
+        const updateAttempt = this._updateAttempt;
         const updatingCommentInstance = await this._pkc.createComment(this);
+        // stop() during the await above found no mirror to detach, so tracking, mirroring and starting the shared
+        // instance now would leave a stopped comment with a live update loop that nothing ever stops. After a stop() and
+        // a new update(), it would orphan one of two shared instances, and the other update() would fail to mirror
+        if (updateAttempt !== this._updateAttempt) return;
 
         trackUpdatingComment(this._pkc, updatingCommentInstance);
 
@@ -1235,7 +1259,11 @@ export class Comment
         if (this.state === "updating") return; // Do nothing if it's already updating
 
         if (!this.cid) throw Error("Can't call comment.update() without defining cid");
+        const updateAttempt = ++this._updateAttempt;
         this._setStateWithEmission("updating");
+        // A statechange listener called stop() for "updating". The start-up below reads the attempt after this point, so it
+        // would take the stop()'s attempt for its own and track, mirror and start an instance for the stopped comment
+        if (updateAttempt !== this._updateAttempt) return;
 
         const existingUpdatingComment = findUpdatingComment(this._pkc, { cid: this.cid });
         if (existingUpdatingComment) {
@@ -1350,12 +1378,25 @@ export class Comment
     }
 
     override async stop() {
+        const updateAttempt = ++this._updateAttempt; // an update() start-up still awaiting sees it is stale and leaves this comment alone
         this._abortStopOperations(
             `Aborting comment operations for ${this.cid || this.author?.address || "comment"} because comment.stop() was called`
         );
-        if (this.state === "publishing") await super.stop();
-        else await this._cancelBackgroundCommunityRefresh();
-        this._setStateWithEmission("stopped");
+        const isPublishing = () => this.state === "publishing"; // read again after an await, where the state can have changed
+        if (isPublishing()) {
+            await super.stop();
+            // A verdict recorded before this stop() still lands while the teardown above is awaited, and its listener may
+            // have called update(). That update() came after this stop(), so the rest of this stop() must not undo it
+            if (updateAttempt !== this._updateAttempt) return;
+            this._setStateWithEmission("stopped");
+        } else {
+            // The state is written after the await, not before it: until the update loop is stopped below, this is still
+            // an updating comment, and an update() called meanwhile has to see that and do nothing
+            await this._cancelBackgroundCommunityRefresh();
+            // A publish() called right after a stop() that was not awaited set "publishing", which this stop() has no
+            // business undoing
+            if (!isPublishing()) this._setStateWithEmission("stopped");
+        }
         await this._stopUpdateLoop();
         this.replies._stop();
         this._setUpdatingStateWithEmissionIfNewState("stopped");

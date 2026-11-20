@@ -83,6 +83,9 @@ import { LocalCommunity } from "../runtime/node/community/local-community.js";
 import { buildRuntimeAuthor } from "./publication-author.js";
 import { buildRuntimeCommunityFields, getCommunityNameFromWire, normalizeCommunityInputFromCommunity } from "./publication-community.js";
 
+// The providerUrl of an exchange whose request went straight to a started local community. It names no pubsub client
+const LOCAL_COMMUNITY_PROVIDER = "publishing directly to local community instance";
+
 class Publication extends TypedEmitter<PublicationEvents> {
     // Only publication props
     clients!: PublicationClientsManager["clients"];
@@ -130,7 +133,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
     _backgroundCommunityRefresh?: Promise<unknown>;
     // Aborted by stop(), so a community fetch that is already in flight unwinds immediately instead
     // of blocking the caller for the whole community-ipns timeout (issue #275). Combined once with
-    // pkc's destroy signal; recreated per publish() so a stopped publication can be published again.
+    // pkc's destroy signal; recreated by publish() when a stop() before it left the signal aborted.
     private _communityFetchAbortController?: AbortController;
     private _communityFetchAbortSignal?: AbortSignal;
     // Ends the provider-threshold waits of the current publish() run. Aborted when the run finishes
@@ -159,6 +162,22 @@ class Publication extends TypedEmitter<PublicationEvents> {
             providerUrl: string; // either kubo rpc url or libp2pjsclient key, or RPC url
         }
     > = {};
+    // A publication instance runs one challenge exchange. It is spent once publish() gets past pre-flight (the community
+    // fetch, signing, the signature hook), which is the point from which a request can leave this instance, or once
+    // stop() ends a publish() that was called. From then on publish() rejects with
+    // ERR_PUBLICATION_PUBLISH_ALREADY_CALLED whatever came of the exchange, and a retry is a new instance. A second
+    // exchange on the same instance crossed with the first one's requests, watchdog, verdict and teardown. A publish()
+    // that rejected during pre-flight has no exchange to cross with, so it does not spend the instance
+    private _isPublishSpent = false;
+    // True while a publish() call is running, pre-flight included, so a second call next to it rejects too
+    private _isPublishCallRunning = false;
+    // What ended this instance's publish: the community's verdict, a failure (no response, every provider threw, an
+    // unreadable verification, a request a local community or the RPC server rejected) or stop(). Whichever is recorded
+    // first is the end. The others then change nothing, and the work publish() still has awaiting (the community fetch,
+    // the RPC publish call, the publish loop, a message being verified or decrypted) stops changing this instance.
+    // stop() is not cancellation: without this, an await that resolved after stop() overwrote the stopped states, and a
+    // verdict that arrived while a failure was being torn down was written and then overwritten by that failure
+    private _publishEndedBy?: "verification" | "failure" | "stop" = undefined; // initialised so hideClassPrivateProps hides it
     private _publishToDifferentProviderThresholdSeconds: number;
     private _setProviderFailureThresholdSeconds: number;
     private _rpcPublishSubscriptionId?: number = undefined;
@@ -328,9 +347,19 @@ class Publication extends TypedEmitter<PublicationEvents> {
         verification: DecryptedChallengeVerificationMessageType,
         runtimeFields?: Record<string, any>
     ) {
-        const log = Logger("pkc-js:publication:_handleRpcChallengeVerification");
-        if (verification.comment)
-            await this._verifyDecryptedChallengeVerificationAndUpdateCommentProps(<DecryptedChallengeVerification>verification);
+        // The caller recorded this verdict as the end of the publish, so it lands also after a stop() during the await below
+        if (verification.comment) {
+            try {
+                await this._verifyDecryptedChallengeVerificationAndUpdateCommentProps(<DecryptedChallengeVerification>verification);
+            } catch (e) {
+                Logger("pkc-js:publication:_handleRpcChallengeVerification").error(
+                    "The comment in a successful challenge verification does not verify",
+                    e
+                );
+                await this._tearDownThenWriteFailure(e as PKCError | Error);
+                return;
+            }
+        }
         if (this instanceof Comment && runtimeFields) deepMergeRuntimeFields(this, runtimeFields);
         this._setRpcClientState("stopped");
         const newPublishingState = verification.challengeSuccess ? "succeeded" : "failed";
@@ -342,22 +371,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 args: [verification, this instanceof Comment && verification.comment ? this : undefined]
             }
         });
-        // The exchange is over. This path does its own teardown instead of going through
-        // _postSucessOrFailurePublishing, and without this every publication an RPC client verified
-        // stayed in pkc._publishingPublications (and in memory) until pkc.destroy(): Comment.stop()
-        // only reaches Publication.stop() while publishing, so nothing removed it afterwards
-        this._unregisterFromPkcOncePublishWorkSettles();
-        if (this._rpcPublishSubscriptionId) {
-            // Cleared synchronously before the awaited unsubscribe so the deferred
-            // attach-and-replay timer from _publishWithRpc (#314) sees the teardown immediately
-            const subscriptionId = this._rpcPublishSubscriptionId;
-            this._rpcPublishSubscriptionId = undefined;
-            try {
-                await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
-            } catch (e) {
-                log.error("Failed to unsubscribe from publication publish", e);
-            }
-        }
+        // The exchange is over. End it through the funnel like the pubsub path does: it unsubscribes, unregisters from
+        // pkc._publishingPublications and ends the publish run
+        await this._postSucessOrFailurePublishing();
     }
 
     private async _handleIncomingChallengePubsubMessage(msg: ChallengeMessageType) {
@@ -368,16 +384,16 @@ class Publication extends TypedEmitter<PublicationEvents> {
             communityChallengeSignerAddress: this._communityChallengeMsgSignerAddress(),
             validateTimestampRange: true
         });
+        if (this._hasPublishEnded()) return; // ended while the signature was checked
         if (!challengeMsgValidity.valid) {
             const error = new PKCError("ERR_CHALLENGE_SIGNATURE_IS_INVALID", {
                 pubsubMsg: msg,
                 reason: challengeMsgValidity.reason
             });
-            log.error("received challenge message with invalid signature", error.toString());
-            this._changePublicationStateEmitEventEmitStateChangeEvent({
-                newPublishingState: "failed",
-                event: { name: "error", args: [error] }
-            });
+            // Anyone on the topic can read our challengeRequestId and send a challenge for it. A message the community
+            // did not sign says nothing about this exchange, so it is logged and dropped: emitting it as an "error", or
+            // moving publishingState to "failed", would let any peer raise errors on a publication that then succeeds
+            log.error("Dropping a challenge message with an invalid signature", error.toString());
             return;
         }
 
@@ -392,6 +408,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         try {
             decryptedRawString = await decryptEd25519AesGcm(msg.encrypted, pubsubSigner.privateKey, this._community!.encryption.publicKey);
         } catch (e) {
+            if (this._hasPublishEnded()) return;
             const pkcError = new PKCError("ERR_PUBLICATION_FAILED_TO_DECRYPT_CHALLENGE", { decryptErr: e });
             log.error("could not decrypt challengemessage.encrypted", pkcError.toString());
             this._changePublicationStateEmitEventEmitStateChangeEvent({
@@ -406,6 +423,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         try {
             decryptedJson = await parseJsonWithPKCErrorIfFails(decryptedRawString);
         } catch (e) {
+            if (this._hasPublishEnded()) return;
             log.error("could not parse decrypted challengemessage.encrypted as a json", String(e));
             this._changePublicationStateEmitEventEmitStateChangeEvent({
                 newPublishingState: "failed",
@@ -419,6 +437,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         try {
             decryptedChallenge = parseDecryptedChallengeWithPKCErrorIfItFails(decryptedJson);
         } catch (e) {
+            if (this._hasPublishEnded()) return;
             log.error("could not parse z challengemessage.encrypted as a json", String(e));
             this._changePublicationStateEmitEventEmitStateChangeEvent({
                 newPublishingState: "failed",
@@ -438,6 +457,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
             log.trace("Received a copy of a challenge that was already handled, ignoring it");
             return;
         }
+        if (this._hasPublishEnded()) return; // ended while it was decrypted
+
         this._challengeExchanges[msg.challengeRequestId.toString()].challenge = decryptedChallengeMsg;
 
         this._updatePublishingStateWithEmission("waiting-challenge-answers");
@@ -458,16 +479,15 @@ class Publication extends TypedEmitter<PublicationEvents> {
             communityChallengeSignerAddress: this._communityChallengeMsgSignerAddress(),
             validateTimestampRange: true
         });
+        if (this._hasPublishEnded()) return; // ended while the signature was checked
         if (!signatureValidation.valid) {
             const error = new PKCError("ERR_CHALLENGE_VERIFICATION_SIGNATURE_IS_INVALID", {
                 pubsubMsg: msg,
                 reason: signatureValidation.reason
             });
-            log.error("Publication received a challenge verification with invalid signature", error);
-            this._changePublicationStateEmitEventEmitStateChangeEvent({
-                newPublishingState: "failed",
-                event: { name: "error", args: [error] }
-            });
+            // Like an invalid challenge: anyone on the topic can send one for our challengeRequestId, and it is not the
+            // community's verdict, so it is logged and dropped
+            log.error("Dropping a challenge verification with an invalid signature", error);
             return;
         }
         let decryptedChallengeVerification: DecryptedChallengeVerification | undefined;
@@ -492,7 +512,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         challenegVerificationMsg: msg
                     });
                     log.error("could not decrypt challengeverification.encrypted", pkcError);
-                    this.emit("error", pkcError);
+                    await this._endExchangeWithUnreadableChallengeVerification({ verification: msg, error: pkcError });
                     return;
                 }
 
@@ -502,7 +522,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     decryptedJson = await parseJsonWithPKCErrorIfFails(decryptedRawString);
                 } catch (e) {
                     log.error("could not parse decrypted challengeverification.encrypted as a json", e);
-                    this.emit("error", <PKCError>e);
+                    await this._endExchangeWithUnreadableChallengeVerification({ verification: msg, error: <PKCError>e });
                     return;
                 }
 
@@ -510,7 +530,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     decryptedChallengeVerification = parseDecryptedChallengeVerification(decryptedJson);
                 } catch (e) {
                     log.error("could not parse challengeverification.encrypted due to invalid schema", e);
-                    this.emit("error", <PKCError>e);
+                    await this._endExchangeWithUnreadableChallengeVerification({ verification: msg, error: <PKCError>e });
                     return;
                 }
             }
@@ -539,10 +559,19 @@ class Publication extends TypedEmitter<PublicationEvents> {
             log.trace("Received a copy of a challenge verification that was already handled, ignoring it");
             return;
         }
+        // The verdict is the end of this publish unless a failure or stop() ended it while it was being decrypted. Once
+        // recorded it lands, also if stop() runs during the awaits below
+        if (!this._claimPublishEnd("verification")) return;
         this._challengeExchanges[msg.challengeRequestId.toString()].challengeVerification = challengeVerificationMsg;
 
         if (decryptedChallengeVerification?.comment) {
-            await this._verifyDecryptedChallengeVerificationAndUpdateCommentProps(decryptedChallengeVerification);
+            try {
+                await this._verifyDecryptedChallengeVerificationAndUpdateCommentProps(decryptedChallengeVerification);
+            } catch (e) {
+                log.error("The comment in a successful challenge verification does not verify", e);
+                await this._tearDownThenWriteFailure(e as PKCError | Error);
+                return;
+            }
             log("Updated the props of this instance with challengeverification.encrypted");
         }
 
@@ -557,6 +586,61 @@ class Publication extends TypedEmitter<PublicationEvents> {
             }
         });
         await this._postSucessOrFailurePublishing();
+    }
+
+    // A success verification the community signed but whose encrypted part we cannot read. The exchange is over and the
+    // no-response watchdog stopped watching once the challenge arrived, so end it here rather than stay "publishing" and
+    // subscribed for good. It ends as failed: we cannot see what the community stored, so there is no result (for a
+    // comment, not even its cid) to report as succeeded
+    private async _endExchangeWithUnreadableChallengeVerification({
+        verification,
+        error
+    }: {
+        verification: ChallengeVerificationMessageType;
+        error: PKCError | Error;
+    }) {
+        const exchange = this._challengeExchanges[verification.challengeRequestId.toString()];
+        // A copy delivered by another provider ended it already (#349), or a failure or stop() did while it was decrypted
+        if (exchange.challengeVerification || this._hasPublishEnded()) return;
+        exchange.challengeVerification = verification;
+        await this._endPublishWithFailure(() =>
+            this._changePublicationStateEmitEventEmitStateChangeEvent({
+                newPublishingState: "failed",
+                event: { name: "error", args: [error] }
+            })
+        );
+    }
+
+    private _claimPublishEnd(endedBy: NonNullable<Publication["_publishEndedBy"]>): boolean {
+        if (this._publishEndedBy) return false;
+        this._publishEndedBy = endedBy;
+        return true;
+    }
+
+    // Asked by the work a publish() started, after each of its awaits, and by the handlers of incoming messages
+    private _hasPublishEnded(): boolean {
+        return this._publishEndedBy !== undefined || this._pkc.destroyed;
+    }
+
+    // Ends the publish as a failure, unless a verdict or stop() already ended it: then nothing is written and undefined is
+    // returned. The teardown comes first and awaits an unsubscribe, during which the subscription still delivers. The end
+    // is recorded before it, so a verdict that arrives in that window is dropped instead of being written and then
+    // overwritten by writeFailure, which writes "failed" and emits the error
+    private async _endPublishWithFailure<T>(writeFailure: () => T): Promise<T | undefined> {
+        if (!this._claimPublishEnd("failure")) return undefined;
+        await this._postSucessOrFailurePublishing();
+        return writeFailure();
+    }
+
+    // For a success verification that was recorded as the end of the publish and then turns out to be unusable: the
+    // comment the community returned does not verify. Like a verification that cannot be read, there is no result to
+    // report as succeeded, and nothing else would end the publication, which stayed "publishing" and subscribed
+    private async _tearDownThenWriteFailure(error: PKCError | Error) {
+        await this._postSucessOrFailurePublishing();
+        this._changePublicationStateEmitEventEmitStateChangeEvent({
+            newPublishingState: "failed",
+            event: { name: "error", args: [error] }
+        });
     }
 
     private async _handleChallengeExchange(pubsubMsg: IpfsHttpClientPubsubMessage) {
@@ -636,6 +720,16 @@ class Publication extends TypedEmitter<PublicationEvents> {
             });
         }
 
+        // A verdict, a failure or stop() ended the exchange: an answer published now would reach nobody who is waiting
+        // for it, and used to move a stopped publication to "waiting-challenge-verification"
+        if (this._publishEndedBy)
+            throw new PKCError("ERR_PUBLICATION_CHALLENGE_EXCHANGE_ENDED", {
+                publicationType: this.getType(),
+                state: this.state,
+                publishingState: this.publishingState,
+                endedBy: this._publishEndedBy
+            });
+
         const challengeExchangesWithChallenge = Object.values(this._challengeExchanges).filter((exchange) => exchange.challenge);
         if (challengeExchangesWithChallenge.length === 0) throw Error("No challenge exchanges with challenge");
         if (challengeExchangesWithChallenge.length > 1) throw Error("We should only have one challenge exchange with challenge");
@@ -683,10 +777,24 @@ class Publication extends TypedEmitter<PublicationEvents> {
             challengeExchange.challengeAnswerPublishInFlight = false;
             throw e;
         }
+        const throwIfExchangeEnded = () => {
+            if (!this._publishEndedBy) return;
+            challengeExchange.challengeAnswerPublishInFlight = false;
+            throw new PKCError("ERR_PUBLICATION_CHALLENGE_EXCHANGE_ENDED", {
+                publicationType: this.getType(),
+                state: this.state,
+                publishingState: this.publishingState,
+                endedBy: this._publishEndedBy
+            });
+        };
+        // The exchange can have ended while the answer was being encrypted and signed
+        throwIfExchangeEnded();
 
         // TODO should be handling multiple providers with publishing challenge answer?
         // For now, let's just publish to the provider that got us the challenge and its request
         this._updatePublishingStateWithEmission("publishing-challenge-answer");
+        // A publishingstatechange listener can have called stop() for the state just emitted
+        throwIfExchangeEnded();
         this._updatePubsubState("publishing-challenge-answer", challengeExchange.providerUrl);
 
         if (this._publishingToLocalCommunity) {
@@ -696,8 +804,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 this._challengeExchanges[challengeExchange.challengeRequest.challengeRequestId.toString()].challengeAnswerPublishError =
                     e as Error | PKCError;
                 challengeExchange.challengeAnswerPublishInFlight = false;
-                this._updatePublishingStateWithEmission("failed");
-                this._updatePubsubState("stopped", challengeExchange.providerUrl);
+                // Not when the publish ended while the answer was being published: that end settled the states
+                if (!this._publishEndedBy) {
+                    this._updatePublishingStateWithEmission("failed");
+                    this._updatePubsubState("stopped", challengeExchange.providerUrl);
+                }
                 throw e;
             }
         } else {
@@ -711,8 +822,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 this._challengeExchanges[challengeExchange.challengeRequest.challengeRequestId.toString()].challengeAnswerPublishError =
                     e as Error | PKCError;
                 challengeExchange.challengeAnswerPublishInFlight = false;
-                this._updatePublishingStateWithEmission("failed");
-                this._updatePubsubState("stopped", challengeExchange.providerUrl);
+                // Not when the publish ended while the answer was being published: that end settled the states
+                if (!this._publishEndedBy) {
+                    this._updatePublishingStateWithEmission("failed");
+                    this._updatePubsubState("stopped", challengeExchange.providerUrl);
+                }
                 throw e;
             }
         }
@@ -727,12 +841,17 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this._challengeExchanges[challengeExchange.challengeRequest.challengeRequestId.toString()].challengeAnswerPublishTimestamp =
             timestamp();
 
-        this._updatePublishingStateWithEmission("waiting-challenge-verification");
-        const challengeTopic = this._community?.pubsubTopic;
-        const providers = Object.entries(this._clientsManager.pubsubProviderSubscriptions)
-            .filter(([, pubsubTopics]) => typeof challengeTopic === "string" && pubsubTopics.includes(challengeTopic))
-            .map(([provider]) => provider);
-        providers.forEach((provider) => this._updatePubsubState("waiting-challenge-verification", provider));
+        // stop() ran while the answer was being published: the publication is stopped and waits for nothing
+        if (this._publishEndedBy === "stop") return;
+        // A verdict that was recorded meanwhile already wrote the final states
+        if (!this._publishEndedBy) {
+            this._updatePublishingStateWithEmission("waiting-challenge-verification");
+            const challengeTopic = this._community?.pubsubTopic;
+            const providers = Object.entries(this._clientsManager.pubsubProviderSubscriptions)
+                .filter(([, pubsubTopics]) => typeof challengeTopic === "string" && pubsubTopics.includes(challengeTopic))
+                .map(([provider]) => provider);
+            providers.forEach((provider) => this._updatePubsubState("waiting-challenge-verification", provider));
+        }
 
         log(`Responded to challenge  with answers`, challengeAnswers);
         this.emit("challengeanswer", decryptedChallengeAnswer);
@@ -855,8 +974,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
         this._communityFetchAbortController?.abort(
             new PKCError("ERR_GET_COMMUNITY_ABORTED", { publicationType: this.getType(), communityAddress: this.communityAddress })
         );
-        if (this._backgroundCommunityRefresh) await this._backgroundCommunityRefresh;
+        // Reset before the drain, not after it: the refresh keeps the aborted signal it was given, and a publish() or
+        // update() called right after a stop() that was not awaited must not be handed that aborted signal
+        const refresh = this._backgroundCommunityRefresh;
         this._resetCommunityFetchAbortSignal();
+        if (refresh) await refresh;
     }
 
     private _resetCommunityFetchAbortSignal() {
@@ -876,13 +998,6 @@ class Publication extends TypedEmitter<PublicationEvents> {
     private _getPublishRunWaitSignal(): AbortSignal {
         if (!this._publishRunWaitSignal) this._beginPublishRun();
         return this._publishRunWaitSignal!;
-    }
-
-    // True once the run that handed out runSignal is over. Takes the run's own signal, not the current
-    // controller: stop() followed by publish() in the same tick installs the next run's controller before
-    // the previous run's waits wake up, and they must still see their own run as over
-    private _isPublishRunOver(runSignal: AbortSignal): boolean {
-        return this._pkc.destroyed || runSignal.aborted;
     }
 
     // Fresh cache entry first, then a community instance this PKC keeps updating or running (its own loop
@@ -977,12 +1092,20 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     async stop() {
+        // Ends the publish, unless a verdict or a failure already did: that end still lands, with its own final
+        // publishingState, which this stop() must not replace with "stopped". An instance that was never published has no
+        // publish to end and stays publishable
+        const wasPublishCalled = this._isPublishSpent || this._isPublishCallRunning;
+        if (wasPublishCalled) this._isPublishSpent = true; // also a publish() that stop() catches in pre-flight
+        const endedByThisStop = wasPublishCalled ? this._claimPublishEnd("stop") : true;
         // Abort first, so the drain below unwinds an in-flight fetch instead of waiting it out. Only
         // stop() does this, never the success funnel: a refresh fired to warm a stale cache should
         // still finish after a publish succeeds.
         this._communityFetchAbortController?.abort(
             new PKCError("ERR_GET_COMMUNITY_ABORTED", { publicationType: this.getType(), communityAddress: this.communityAddress })
         );
+        // With no publish to end, a publish() may follow this stop() before it resolves, and it needs a live signal
+        if (!wasPublishCalled) this._resetCommunityFetchAbortSignal();
         try {
             await this._postSucessOrFailurePublishing();
         } finally {
@@ -991,8 +1114,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
             // fast. In a finally because pkc.destroy() catches a rejecting stop() and then clears
             // _publishingPublications, so a cleanup failure would otherwise leave the refresh
             // running past teardown, which is the exact thing this is here to prevent.
-            if (this._backgroundCommunityRefresh) await this._backgroundCommunityRefresh;
-            this._updatePublishingStateWithEmission("stopped");
+            // Only a publish this stop() ended has a refresh to drain: one that started since is not this stop()'s to wait for
+            if (wasPublishCalled && this._backgroundCommunityRefresh) await this._backgroundCommunityRefresh;
+            // A stop() that had no publish to end leaves a publish() that started since alone
+            const publishStartedSinceThisStop = !wasPublishCalled && (this._isPublishSpent || this._isPublishCallRunning);
+            if (endedByThisStop && !publishStartedSinceThisStop) this._updatePublishingStateWithEmission("stopped");
         }
     }
 
@@ -1000,9 +1126,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
         // When all providers failed to publish
         // OR they're done with waiting
 
-        if (Object.keys(this._challengeExchanges).length !== maxNumOfChallengeExchanges) return false;
+        const challengeExchanges = Object.values(this._challengeExchanges);
+        if (challengeExchanges.length !== maxNumOfChallengeExchanges) return false;
 
-        return Object.values(this._challengeExchanges).every((exchange) => {
+        return challengeExchanges.every((exchange) => {
             // An exchange that received a challenge or a verification is alive: the community is
             // talking to us on it, however old its request is. Request age only measures silence
             // (issue #340).
@@ -1029,8 +1156,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
     // re-established a subscription after teardown already ran its unsubscribe, so returning
     // without undoing it leaves it dangling on the provider. Returns true when the caller should
     // abandon this provider (issue #270).
+    // The same holds when the publish ended any other way while subscribing (a verdict on an earlier provider's request).
     private async _abandonProviderIfStoppedWhileSubscribing(providerUrl: string): Promise<boolean> {
-        if (!this._pkc.destroyed && (this.state as Publication["state"]) !== "stopped") return false;
+        if (!this._hasPublishEnded() && (this.state as Publication["state"]) !== "stopped") return false;
         const log = Logger("pkc-js:publication:publish:_abandonProviderIfStoppedWhileSubscribing");
         log("Publication was stopped while subscribing to pubsub, will not publish a challenge request", providerUrl);
         try {
@@ -1060,7 +1188,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
         const log = Logger("pkc-js:publication:_postSucessOrFailurePublishing");
         this._publishRunAbortController?.abort();
         this._unregisterFromPkcOncePublishWorkSettles();
-        this._setStateWithEmission("stopped");
+        // Only a publication that is still publishing. After a verdict the state is "stopped" already, and a listener of
+        // that verdict may have started the comment's update loop since ("updating"), which this must not undo
+        if (this.state === "publishing") this._setStateWithEmission("stopped");
         if (this._rpcPublishSubscriptionId) {
             // Cleared synchronously before the awaited unsubscribe so the deferred
             // attach-and-replay timer from _publishWithRpc (#314) sees the teardown immediately
@@ -1122,6 +1252,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
     private async _handleIncomingChallengeVerificationFromRpc(args: any) {
         const { challengeVerification: encoded, runtimeFields } = args.params.result;
         const decoded = decodeRpcChallengeVerificationPubsubMsg(encoded);
+        // The verdict is the end of this publish, unless a failure the server reported (or stop()) already ended it and is
+        // still unsubscribing: this subscription delivers until the server answers that call
+        if (!this._claimPublishEnd("verification")) return;
         this._challengeExchanges[decoded.challengeRequestId.toString()] = {
             ...this._challengeExchanges[decoded.challengeRequestId.toString()],
             challengeVerification: decoded
@@ -1143,11 +1276,28 @@ class Publication extends TypedEmitter<PublicationEvents> {
     private async _handleIncomingErrorFromRpc(args: any) {
         const log = Logger("pkc-js:publication:publish:_publishWithRpc:_handleIncomingErrorFromRpc");
         const error: PublicationRpcErrorToTransmit = args.params.result;
-        if (error.details?.newPublishingState) this._updatePublishingStateNoEmission(error.details.newPublishingState);
-        if (error.details?.publishThrowError) {
-            log.error("RPC server threw an error on publish(), will stop publication", error);
+        // The server's publish() threw, or its publication stopped with this error: either way the publish ended there, so
+        // end it here too, or this instance stays publishing, registered and subscribed until stop(). An error that left
+        // the server's publication publishing (a challenge answer that could not be published) is one the caller can
+        // still act on
+        const endedOnServer = error.details?.publishThrowError || error.details?.newState === "stopped";
+        if (endedOnServer) {
+            if (!this._claimPublishEnd("failure")) {
+                // A verdict or stop() already ended it. An error the server only emitted is still the caller's to see
+                if (!error.details?.publishThrowError) this.emit("error", error);
+                return;
+            }
+            log.error("The publication failed on the RPC server, will stop publication", error);
             await this._postSucessOrFailurePublishing();
+            // The error first, then the state change, the order a publication emits them in. The server's own state
+            // change follows its error and is ignored from here on (see _publishWithRpc)
+            this._changePublicationStateEmitEventEmitStateChangeEvent({
+                newPublishingState: error.details?.newPublishingState ?? "failed",
+                event: { name: "error", args: [error] }
+            });
+            return;
         }
+        if (error.details?.newPublishingState) this._updatePublishingStateNoEmission(error.details.newPublishingState);
         this.emit("error", error);
     }
 
@@ -1168,8 +1318,30 @@ class Publication extends TypedEmitter<PublicationEvents> {
         // Each publish method expects its specific type, but toJSONPubsubRequestToEncrypt() returns the correct shape at runtime
         const publishFn = pubNameToPublishFunction[this.getType()] as (args: DecryptedChallengeRequest) => Promise<RpcSubscriptionIdResult>;
         const { subscriptionId } = await publishFn.bind(rpcClient)(this.toJSONPubsubRequestToEncrypt());
+        if (this._hasPublishEnded()) {
+            // stop() ran while the server was starting this publish and found no subscription id to unsubscribe. The
+            // server answers only after its publish() started, so drop the subscription here or its events reach a
+            // stopped instance that nothing tracks any more
+            try {
+                await rpcClient.unsubscribe(subscriptionId);
+            } catch (e) {
+                Logger("pkc-js:publication:publish:_publishWithRpc").error(
+                    "Failed to unsubscribe from a publish stopped while starting",
+                    e
+                );
+            }
+            return;
+        }
         this._rpcPublishSubscriptionId = subscriptionId;
 
+        // The RPC client removes these handlers only once an unsubscribe call returns, so the subscription still delivers
+        // events after stop(), while its unsubscribe is pending. Like the pubsub messages of a stopped publication, they
+        // are ignored: a verdict used to land on the stopped publication
+        // The same goes for a publish that failed: the server's remaining events, such as the state change that follows
+        // its error, would land in the middle of the teardown or after it
+        const unlessStopped = (handler: (args: unknown) => unknown) => (args: unknown) => {
+            if (this._publishEndedBy !== "stop" && this._publishEndedBy !== "failure") return handler(args);
+        };
         // Deferred so a listener attached synchronously after `await publish()` resolves still
         // receives events the server emitted before the publish response (#314); see
         // attachSubscriptionHandlersDeferred for the mechanism
@@ -1178,13 +1350,13 @@ class Publication extends TypedEmitter<PublicationEvents> {
             isStale: () => this._rpcPublishSubscriptionId !== subscriptionId,
             attach: (subscription) =>
                 subscription
-                    .on("challengerequest", this._handleIncomingChallengeRequestFromRpc.bind(this))
-                    .on("challenge", this._handleIncomingChallengeFromRpc.bind(this))
-                    .on("challengeanswer", this._handleIncomingChallengeAnswerFromRpc.bind(this))
-                    .on("challengeverification", this._handleIncomingChallengeVerificationFromRpc.bind(this))
-                    .on("publishingstatechange", this._handleIncomingPublishingStateFromRpc.bind(this))
-                    .on("statechange", this._handleIncomingStateFromRpc.bind(this))
-                    .on("error", this._handleIncomingErrorFromRpc.bind(this)),
+                    .on("challengerequest", unlessStopped(this._handleIncomingChallengeRequestFromRpc.bind(this)))
+                    .on("challenge", unlessStopped(this._handleIncomingChallengeFromRpc.bind(this)))
+                    .on("challengeanswer", unlessStopped(this._handleIncomingChallengeAnswerFromRpc.bind(this)))
+                    .on("challengeverification", unlessStopped(this._handleIncomingChallengeVerificationFromRpc.bind(this)))
+                    .on("publishingstatechange", unlessStopped(this._handleIncomingPublishingStateFromRpc.bind(this)))
+                    .on("statechange", unlessStopped(this._handleIncomingStateFromRpc.bind(this)))
+                    .on("error", unlessStopped(this._handleIncomingErrorFromRpc.bind(this))),
             // Pre-deferral a replay throw rejected publish(); the helper contains it (log,
             // surface as an "error" event, stop)
             replayErrorContainment: {
@@ -1286,8 +1458,11 @@ class Publication extends TypedEmitter<PublicationEvents> {
             this._community = await this._fetchCommunityForPublishing();
             this._validateCommunityFields();
         } catch (e) {
-            this._setStateWithEmission("stopped");
-            this._updatePublishingStateWithEmission("failed");
+            // A fetch aborted by stop() rejects after stop() settled the states, which must stay "stopped"
+            if (!this._hasPublishEnded()) {
+                this._setStateWithEmission("stopped");
+                this._updatePublishingStateWithEmission("failed");
+            }
             throw e;
         }
     }
@@ -1337,7 +1512,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         currentPubsubProviderIndex: number;
         acceptedChallengeTypes: DecryptedChallengeRequestMessageType["acceptedChallengeTypes"];
     }) {
-        // The run this watchdog belongs to; every check below asks about this run, never the current one
+        // Aborted once the publish run is over, so the waits below end with it
         const runSignal = this._getPublishRunWaitSignal();
         await sleepUntilTimeoutOrAbort(this._publishToDifferentProviderThresholdSeconds * 1000, runSignal);
 
@@ -1345,7 +1520,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         // neither teardown nor garbage collection waits it out. Bail before doing any re-publish work:
         // otherwise we'd create a signer on a destroyed pkc (throwing ERR_PKC_IS_DESTROYED), re-publish a
         // stopped publication, or re-subscribe/re-dial peers that nothing is left to tear down.
-        if (this._isPublishRunOver(runSignal)) return;
+        if (this._hasPublishEnded()) return;
         if (this._didWeReceiveChallengeOrChallengeVerification()) return;
 
         // this provider did not get us a challenge or challenge verification
@@ -1357,25 +1532,23 @@ class Publication extends TypedEmitter<PublicationEvents> {
         if (this._isAllAttemptsExhausted(providers.length)) {
             // pkc-js tried all providers and still no response is received
             log.error(`Failed to receive any response for publication`, this.getType());
-            await this._postSucessOrFailurePublishing();
-            const error = new PKCError("ERR_PUBSUB_DID_NOT_RECEIVE_RESPONSE_AFTER_PUBLISHING_CHALLENGE_REQUEST", {
-                challengeExchanges: this._challengeExchangesFormattedForErrors(),
-                publishToDifferentProviderThresholdSeconds: this._publishToDifferentProviderThresholdSeconds,
-                providerHeliaContexts: this._libp2pJsClientHeliaContexts()
-            });
+            await this._endPublishWithFailure(() => {
+                const error = new PKCError("ERR_PUBSUB_DID_NOT_RECEIVE_RESPONSE_AFTER_PUBLISHING_CHALLENGE_REQUEST", {
+                    challengeExchanges: this._challengeExchangesFormattedForErrors(),
+                    publishToDifferentProviderThresholdSeconds: this._publishToDifferentProviderThresholdSeconds,
+                    providerHeliaContexts: this._libp2pJsClientHeliaContexts()
+                });
 
-            this._changePublicationStateEmitEventEmitStateChangeEvent({
-                newPublishingState: "failed",
-                event: { name: "error", args: [error] }
+                this._changePublicationStateEmitEventEmitStateChangeEvent({
+                    newPublishingState: "failed",
+                    event: { name: "error", args: [error] }
+                });
             });
         } else if (this.state === "stopped") {
             log.error(`Publication is stopped, will not re-publish`);
             await this._postSucessOrFailurePublishing();
         } else {
-            if (currentPubsubProviderIndex + 1 === providers.length) {
-                log.error(`Failed to receive any response for publication`, this.getType(), "after publishing to all providers", providers);
-                await this._postSucessOrFailurePublishing();
-            } else {
+            if (currentPubsubProviderIndex + 1 < providers.length) {
                 // let's publish to the next provider
 
                 log(
@@ -1385,8 +1558,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 currentPubsubProviderIndex += 1;
                 while (!this._didWeReceiveChallengeOrChallengeVerification() && currentPubsubProviderIndex < providers.length) {
                     const providerUrl = providers[currentPubsubProviderIndex];
-                    if (this._isPublishRunOver(runSignal)) return;
+                    if (this._hasPublishEnded()) return;
                     const challengeRequest = await this._generateChallengeRequestToPublish(providerUrl, acceptedChallengeTypes);
+                    if (this._hasPublishEnded()) return;
 
                     this._updatePublishingStateWithEmission("publishing-challenge-request");
                     this._updatePubsubState("subscribing-pubsub", providerUrl);
@@ -1406,6 +1580,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequestPublishTimestamp =
                             timestamp();
                     } catch (e) {
+                        if (this._hasPublishEnded()) return;
                         log.error("Failed to publish challenge request using provider ", providerUrl, e);
                         this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequestPublishError = e as
                             | Error
@@ -1414,6 +1589,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     } finally {
                         currentPubsubProviderIndex += 1;
                     }
+                    if (this._hasPublishEnded()) return;
                     const decryptedRequest = this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequest;
                     // The first request's challenge can land while the retry's publish call is still
                     // in flight; the publication is then already waiting for answers (or verified) and
@@ -1427,31 +1603,37 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     this.emit("challengerequest", decryptedRequest);
                     if (currentPubsubProviderIndex !== providers.length)
                         await sleepUntilTimeoutOrAbort(this._publishToDifferentProviderThresholdSeconds * 1000, runSignal);
-                    if (this._isPublishRunOver(runSignal)) return;
+                    if (this._hasPublishEnded()) return;
                 }
-                await sleepUntilTimeoutOrAbort(this._setProviderFailureThresholdSeconds * 1000, runSignal);
-                if (this._isPublishRunOver(runSignal)) return;
-                // Kept although stop() now ends the wait above through the run signal: a stopped
-                // publication must not be treated as a failure and emit ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS.
-                // The enclosing `else` narrowed `this.state` to exclude "stopped", but stop() during the
-                // awaited wait above can have set it since, so widen back to the field's declared type.
-                if ((this.state as Publication["state"]) === "stopped") return;
-                // A challenge (or the verification itself) can arrive during the wait above. That
-                // exchange is live and the no-response watchdog has nothing left to decide: the
-                // publication stays subscribed for its verification, exactly like a publication whose
-                // challenge arrived before any retry (issue #340).
-                if (this._didWeReceiveChallengeOrChallengeVerification()) {
-                    log(`Received a challenge or challenge verification while waiting for retried providers, will keep the exchange alive`);
-                    return;
-                }
-                if (this._isAllAttemptsExhausted(providers.length)) {
-                    // Read before the cleanup below, and say what actually happened. A request that
-                    // reached pubsub and was met with silence may still be accepted by a community
-                    // that is slow or busy (issue #362), so that is "no response", never "all
-                    // providers threw". Only when no request could be published at all is the
-                    // publication known not to have reached the community.
-                    const aRequestWasPublished = this._wasAnyChallengeRequestPublished();
-                    await this._postSucessOrFailurePublishing();
+            } else {
+                // The request is held by the last provider (the ones before it threw), so there is nobody left to
+                // retry with. Give it the same failure wait as a retried request below. Stopping here instead left the
+                // publication stopped with publishingState "waiting-challenge" and no error
+                log(`No response from the last provider (${currentPubsubProvider}), will wait for it until the failure threshold`);
+            }
+            await sleepUntilTimeoutOrAbort(this._setProviderFailureThresholdSeconds * 1000, runSignal);
+            if (this._hasPublishEnded()) return;
+            // Kept although stop() now ends the wait above through the run signal: a stopped
+            // publication must not be treated as a failure and emit ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS.
+            // The enclosing `else` narrowed `this.state` to exclude "stopped", but stop() during the
+            // awaited wait above can have set it since, so widen back to the field's declared type.
+            if ((this.state as Publication["state"]) === "stopped") return;
+            // A challenge (or the verification itself) can arrive during the wait above. That
+            // exchange is live and the no-response watchdog has nothing left to decide: the
+            // publication stays subscribed for its verification, exactly like a publication whose
+            // challenge arrived before any retry (issue #340).
+            if (this._didWeReceiveChallengeOrChallengeVerification()) {
+                log(`Received a challenge or challenge verification while waiting for retried providers, will keep the exchange alive`);
+                return;
+            }
+            if (this._isAllAttemptsExhausted(providers.length)) {
+                // Read before the cleanup below, and say what actually happened. A request that
+                // reached pubsub and was met with silence may still be accepted by a community
+                // that is slow or busy (issue #362), so that is "no response", never "all
+                // providers threw". Only when no request could be published at all is the
+                // publication known not to have reached the community.
+                const aRequestWasPublished = this._wasAnyChallengeRequestPublished();
+                await this._endPublishWithFailure(() => {
                     const allAttemptsFailedError = aRequestWasPublished
                         ? new PKCError("ERR_PUBSUB_DID_NOT_RECEIVE_RESPONSE_AFTER_PUBLISHING_CHALLENGE_REQUEST", {
                               challengeExchanges: this._challengeExchangesFormattedForErrors(),
@@ -1470,8 +1652,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         newPublishingState: "failed",
                         event: { name: "error", args: [allAttemptsFailedError] }
                     });
-                    return;
-                }
+                });
+                return;
             }
         }
     }
@@ -1495,6 +1677,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         );
 
         const communityChallengeListener = async (challenge: DecryptedChallengeMessageType) => {
+            if (this._hasPublishEnded()) return;
             if (challenge.challengeRequestId.toString() === challengeRequest.challengeRequestId.toString()) {
                 // need to remove encrypted fields from challenge otherwise _handleIncomingChallengePubsubMessage will throw
                 const encryptedFields = ["challenges"] as const;
@@ -1506,16 +1689,21 @@ class Publication extends TypedEmitter<PublicationEvents> {
 
         community.on("challenge", communityChallengeListener);
 
+        // The handling of the community's verdict, which records it only after its signature is checked. Set synchronously
+        // on the emission, so a rejection that follows the verdict can wait for it
+        let verificationHandling: Promise<void> | undefined;
         const communityChallengeVerificationListener = async (
             decryptedChallengeVerification: DecryptedChallengeVerificationMessageType
         ) => {
+            if (this._hasPublishEnded()) return;
             if (decryptedChallengeVerification.challengeRequestId.toString() === challengeRequest.challengeRequestId.toString()) {
                 log("Received a challenge verification from the local community", decryptedChallengeVerification);
                 // need to remove publicatioon fields from challenge verification otherwise verifyChallengeVerification will throw
                 const publicationFieldsToRemove = ["comment", "commentUpdate"] as const;
-                await this._handleIncomingChallengeVerificationPubsubMessage(
+                verificationHandling = this._handleIncomingChallengeVerificationPubsubMessage(
                     omit(decryptedChallengeVerification, publicationFieldsToRemove)
                 );
+                await verificationHandling;
             }
         };
 
@@ -1530,12 +1718,26 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     challengeRequestPublishTimestamp: timestamp()
                 };
             })
-            .catch((e) => {
+            .catch(async (e) => {
                 log.error("Failed to handle challenge request with local community", e);
-                this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequestPublishError = e as
-                    | Error
-                    | PKCError;
-                throw e;
+                const challengeRequestId = challengeRequest.challengeRequestId.toString();
+                this._challengeExchanges[challengeRequestId].challengeRequestPublishError = e as Error | PKCError;
+                // A request the community could not decrypt or parse gets a failed verdict right before this rejection. That
+                // verdict ends the publish, so wait for its handling (a rejection of it still rejects the listener above)
+                await verificationHandling?.catch(() => {});
+                // Without a verdict, nothing else can end the publish: the listeners above are removed once this settles. It
+                // used to stay "publishing" and registered until stop(), and the rejection was unhandled. After a verdict or
+                // a stop() this writes nothing
+                try {
+                    await this._endPublishWithFailure(() =>
+                        this._changePublicationStateEmitEventEmitStateChangeEvent({
+                            newPublishingState: "failed",
+                            event: { name: "error", args: [e as Error | PKCError] }
+                        })
+                    );
+                } catch (endError) {
+                    log.error("Failed to end the exchange the local community rejected", endError);
+                }
             })
             .finally(() => {
                 community.removeListener("challenge", communityChallengeListener);
@@ -1544,9 +1746,21 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     async publish() {
+        // One challenge exchange per instance, see _isPublishSpent
+        if (this._isPublishSpent || this._isPublishCallRunning) {
+            const exchanges = Object.values(this._challengeExchanges);
+            throw new PKCError("ERR_PUBLICATION_PUBLISH_ALREADY_CALLED", {
+                publicationType: this.getType(),
+                state: this.state,
+                publishingState: this.publishingState,
+                receivedChallenge: exchanges.some((exchange) => exchange.challenge),
+                receivedChallengeVerification: exchanges.some((exchange) => exchange.challengeVerification)
+            });
+        }
         this._validatePublicationFields();
-        // A previous stop() left the signal aborted, which would cancel this attempt's community
-        // fetch before it started.
+        this._isPublishCallRunning = true;
+        // An earlier stop() left the signal aborted, which would cancel this publish's community fetch before it
+        // started.
         if (this._getCommunityFetchAbortSignal().aborted) this._resetCommunityFetchAbortSignal();
         this._beginPublishRun();
         // Track before the first await so pkc.destroy() can stop us no matter how far the exchange
@@ -1568,6 +1782,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
             // pkc.destroy() can no longer reach an unregistered publication, so end the run's waits here
             this._publishRunAbortController?.abort();
             throw e;
+        } finally {
+            this._isPublishCallRunning = false;
         }
     }
 
@@ -1591,6 +1807,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
         }
 
         await this._validateSignatureHook();
+        // Stopped during the steps above: stop() settled the states, so do not start an exchange behind it
+        if (this._hasPublishEnded()) return;
+        // Pre-flight is over. From here a request can leave this instance, so it cannot publish again
+        this._isPublishSpent = true;
 
         if (this._pkc._pkcRpcClient) return this._publishWithRpc();
 
@@ -1600,31 +1820,33 @@ class Publication extends TypedEmitter<PublicationEvents> {
             | LocalCommunity
             | undefined;
         if (startedCommunity) {
-            return this._publishWithLocalCommunity(
-                startedCommunity,
-                await this._generateChallengeRequestToPublish(
-                    "publishing directly to local community instance",
-                    options.acceptedChallengeTypes
-                )
+            const challengeRequest = await this._generateChallengeRequestToPublish(
+                LOCAL_COMMUNITY_PROVIDER,
+                options.acceptedChallengeTypes
             );
+            if (this._hasPublishEnded()) return;
+            return this._publishWithLocalCommunity(startedCommunity, challengeRequest);
         }
 
         // Only the network path needs a challenge topic. Fail fast before touching pubsub so a client
         // can disable its reply UI instead of timing out against a topic nobody runs (issue #229).
         if (typeof this._community?.pubsubTopic !== "string") {
-            await this._postSucessOrFailurePublishing();
-            const error = new PKCError("ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED", {
-                communityAddress: this._community?.address ?? this.communityAddress,
-                communityName: this._community?.name ?? this.communityName,
-                communityPublicKey: this._community?.publicKey ?? this.communityPublicKey,
-                publicationType: this.getType()
+            const disabledError = await this._endPublishWithFailure(() => {
+                const error = new PKCError("ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED", {
+                    communityAddress: this._community?.address ?? this.communityAddress,
+                    communityName: this._community?.name ?? this.communityName,
+                    communityPublicKey: this._community?.publicKey ?? this.communityPublicKey,
+                    publicationType: this.getType()
+                });
+                log.error("Community has its challenge exchange disabled, will not publish", this.getType(), error);
+                this._changePublicationStateEmitEventEmitStateChangeEvent({
+                    newPublishingState: "failed",
+                    event: { name: "error", args: [error] }
+                });
+                return error;
             });
-            log.error("Community has its challenge exchange disabled, will not publish", this.getType(), error);
-            this._changePublicationStateEmitEventEmitStateChangeEvent({
-                newPublishingState: "failed",
-                event: { name: "error", args: [error] }
-            });
-            throw error;
+            if (disabledError) throw disabledError;
+            return; // stop() ended the publish first
         }
 
         // Discovered only once the network path is certain: neither the local shortcut above nor the
@@ -1635,6 +1857,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
         while (!this._didWeReceiveChallengeOrChallengeVerification() && currentPubsubProviderIndex < providers.length) {
             const providerUrl = providers[currentPubsubProviderIndex];
             const challengeRequest = await this._generateChallengeRequestToPublish(providerUrl, options.acceptedChallengeTypes);
+            if (this._hasPublishEnded()) return;
 
             this._updatePublishingStateWithEmission("publishing-challenge-request");
             this._updatePubsubState("subscribing-pubsub", providerUrl);
@@ -1655,6 +1878,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 );
                 this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequestPublishTimestamp = timestamp();
             } catch (e) {
+                if (this._hasPublishEnded()) return; // stopped meanwhile: a clean exit, not a failure
                 this._updatePubsubState("stopped", providerUrl);
                 log.error("Failed to publish challenge request using provider ", providerUrl, e);
                 currentPubsubProviderIndex += 1;
@@ -1662,20 +1886,26 @@ class Publication extends TypedEmitter<PublicationEvents> {
                     | Error
                     | PKCError;
                 if (this._isAllAttemptsExhausted(providers.length)) {
-                    await this._postSucessOrFailurePublishing();
-                    const allAttemptsFailedError = new PKCError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {
-                        challengeExchanges: this._challengeExchangesFormattedForErrors(),
-                        pubsubTopic: this._community?.pubsubTopic,
-                        providerHeliaContexts: this._libp2pJsClientHeliaContexts()
+                    const failure = await this._endPublishWithFailure(() => {
+                        const allAttemptsFailedError = new PKCError("ERR_ALL_PUBSUB_PROVIDERS_THROW_ERRORS", {
+                            challengeExchanges: this._challengeExchangesFormattedForErrors(),
+                            pubsubTopic: this._community?.pubsubTopic,
+                            providerHeliaContexts: this._libp2pJsClientHeliaContexts()
+                        });
+                        log.error("All attempts to publish", this.getType(), "has failed", allAttemptsFailedError);
+                        this._changePublicationStateEmitEventEmitStateChangeEvent({
+                            newPublishingState: "failed",
+                            event: { name: "error", args: [allAttemptsFailedError] }
+                        });
+                        return allAttemptsFailedError;
                     });
-                    log.error("All attempts to publish", this.getType(), "has failed", allAttemptsFailedError);
-                    this._changePublicationStateEmitEventEmitStateChangeEvent({
-                        newPublishingState: "failed",
-                        event: { name: "error", args: [allAttemptsFailedError] }
-                    });
-                    throw allAttemptsFailedError;
+                    if (failure) throw failure;
+                    return; // stop() ended the publish first
                 } else continue;
             }
+            // stop() landed while the request was being published and already settled the states and unsubscribed, or
+            // the community's verdict did: waiting for a challenge, or starting the no-response watchdog, would undo that
+            if (this._hasPublishEnded()) return;
             const decryptedRequest = this._challengeExchanges[challengeRequest.challengeRequestId.toString()].challengeRequest;
             this._updatePubsubState("waiting-challenge", providerUrl);
 
