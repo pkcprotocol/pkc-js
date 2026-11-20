@@ -13,7 +13,12 @@
 //
 // Dependency-free on purpose: the client manager, which the browser build includes, imports it.
 
-type PubsubTopicLister = { pubsub: { ls: () => Promise<string[]> } };
+// How long a read that every community of a node waits on may take. The kubo client's own timeout is an hour, and one
+// request that never answers would hold the publish loop of every community that joined it for that long. A read
+// each community made for itself held up only that community.
+export const SHARED_KUBO_READ_TIMEOUT_MS = 60_000;
+
+type PubsubTopicLister = { pubsub: { ls: (options?: { timeout?: number }) => Promise<string[]> } };
 
 type SharedPubsubTopicList = {
     epoch: number;
@@ -46,7 +51,7 @@ export async function listSubscribedPubsubTopicsShared({
 
     const epoch = shared.epoch;
     const promise = client.pubsub
-        .ls()
+        .ls({ timeout: SHARED_KUBO_READ_TIMEOUT_MS })
         .then((topicList): ReadonlySet<string> => {
             const topics = new Set(topicList);
             // A change that landed while the request was out may or may not be in this answer: hand it to the

@@ -6,6 +6,7 @@ import {
     reprovideOnAddressChangeIfDue,
     ADDRESS_REPROVIDE_POLL_INTERVAL_MS
 } from "../../../dist/node/runtime/node/community/local-community/reprovide-on-address-change.js";
+import { SHARED_KUBO_READ_TIMEOUT_MS } from "../../../dist/node/clients/shared-pubsub-topic-list.js";
 import type {
     AddressChangeReprovidable,
     ReprovideKuboRpcClient
@@ -239,5 +240,34 @@ describe("reprovideOnAddressChangeIfDue shares the node's addresses between its 
         expect(id).toHaveBeenCalledTimes(2);
         expect(provideCalls).toHaveLength(communities.length * 2);
         for (const community of communities) expect(community._lastProvidedBrowserDialableSelfAddrs).toEqual([WSS_ADDR_B]);
+    });
+
+    // Every due community of the node waits on the one read, so a request that never answers would hold them all
+    it("gives id() and swarm.addrs() a timeout", async () => {
+        const { client, id, swarmAddrs } = makeCountingClient();
+        await reprovideOnAddressChangeIfDue(makeCommunity(client));
+        expect(id.mock.calls[0][0]?.timeout).toEqual(SHARED_KUBO_READ_TIMEOUT_MS);
+        expect(swarmAddrs.mock.calls[0][0]?.timeout).toEqual(SHARED_KUBO_READ_TIMEOUT_MS);
+    });
+
+    // A community that is handed a read another community made has seen the addresses as they were then. Its next
+    // check is due a poll interval after that read, not a poll interval after the moment it was handed it.
+    it("a community that reused an older read checks again one poll interval after that read was made", async () => {
+        vi.useFakeTimers();
+        const { client, id, provideCalls, setIdAddrs } = makeCountingClient();
+        const first = makeCommunity(client);
+        const staggered = makeCommunity(client);
+        await reprovideOnAddressChangeIfDue(first); // reads the addresses
+        setIdAddrs([TCP_ADDR, WSS_ADDR_B]); // which rotate right after
+        vi.advanceTimersByTime(ADDRESS_REPROVIDE_POLL_INTERVAL_MS / 4 - 1);
+        await reprovideOnAddressChangeIfDue(staggered); // handed the read from before the rotation
+        expect(id).toHaveBeenCalledTimes(1);
+        expect(staggered._lastProvidedBrowserDialableSelfAddrs).toEqual([WSS_ADDR_A]);
+
+        vi.advanceTimersByTime((ADDRESS_REPROVIDE_POLL_INTERVAL_MS * 3) / 4 + 1);
+        await reprovideOnAddressChangeIfDue(staggered);
+        expect(id).toHaveBeenCalledTimes(2);
+        expect(staggered._lastProvidedBrowserDialableSelfAddrs).toEqual([WSS_ADDR_B]);
+        expect(provideCalls.length).toBeGreaterThan(0);
     });
 });

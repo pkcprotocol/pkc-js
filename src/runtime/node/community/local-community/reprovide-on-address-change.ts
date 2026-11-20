@@ -1,6 +1,7 @@
 import Logger from "../../../../logger.js";
 import { flat, isDeepEqual, unique } from "remeda";
 import { CID } from "multiformats/cid";
+import { SHARED_KUBO_READ_TIMEOUT_MS } from "../../../../clients/shared-pubsub-topic-list.js";
 
 // How often LocalCommunity polls its own node for browser-dialable address changes. One minute is
 // short enough that a rotated WebRTC certhash or a re-issued AutoTLS name is noticed while the old
@@ -21,8 +22,12 @@ export function normalizeSelfAddrsForProvider(addrs: string[], peerId: string): 
 // unit-tested with a fake client without dragging in the full kubo-rpc-client surface. The real
 // LocalCommunity client is structurally assignable to this.
 export type ReprovideKuboRpcClient = {
-    id: () => Promise<{ id: { toString: () => string }; addresses: Array<{ toString: () => string }> }>;
-    swarm: { addrs: () => Promise<Array<{ id: { toString: () => string }; addrs: Array<{ toString: () => string }> }>> };
+    id: (options?: { timeout?: number }) => Promise<{ id: { toString: () => string }; addresses: Array<{ toString: () => string }> }>;
+    swarm: {
+        addrs: (options?: {
+            timeout?: number;
+        }) => Promise<Array<{ id: { toString: () => string }; addrs: Array<{ toString: () => string }> }>>;
+    };
     routing: { provide: (cid: CID, options?: { recursive?: boolean }) => AsyncIterable<unknown> };
 };
 
@@ -48,10 +53,10 @@ export function isBrowserDialableAddr(addr: string): boolean {
 // Fetch the node's current browser-dialable self-addresses, normalized the way a provider record carries
 // them (strip the trailing /p2p/<peerId>, dedupe), then sorted so the result can be compared by value
 // across calls.
-export async function getBrowserDialableSelfAddrs(client: ReprovideKuboRpcClient): Promise<string[]> {
-    const idRes = await client.id();
+export async function getBrowserDialableSelfAddrs(client: ReprovideKuboRpcClient, options?: { timeout?: number }): Promise<string[]> {
+    const idRes = await client.id(options);
     const peerId = idRes.id.toString();
-    const swarmAddrsRes = await client.swarm.addrs();
+    const swarmAddrsRes = await client.swarm.addrs(options);
     const swarmListeningAddresses = swarmAddrsRes.filter((swarmAddr) => swarmAddr.id.toString() === peerId);
 
     const normalized = normalizeSelfAddrsForProvider(
@@ -67,8 +72,10 @@ export async function getBrowserDialableSelfAddrs(client: ReprovideKuboRpcClient
 
 // A node's own addresses are the same for every community on it, and swarm.addrs() lists every peer the node knows,
 // so one read serves all of them (issue #576): overlapping callers join one request, and its result is reused for
-// `maxAgeMs`. Keyed by the kubo client, which the communities of a PKC share.
-const sharedSelfAddrsByClient = new WeakMap<object, { inFlight?: Promise<string[]>; stored?: { addrs: string[]; fetchedAtMs: number } }>();
+// `maxAgeMs`. Keyed by the kubo client, which the communities of a PKC share. Every caller is told when the read it
+// was handed was made. The requests carry a timeout because all the communities that joined one wait on it together.
+type SelfAddrsRead = { addrs: string[]; readAtMs: number };
+const sharedSelfAddrsByClient = new WeakMap<object, { inFlight?: Promise<SelfAddrsRead>; stored?: SelfAddrsRead }>();
 
 export async function getBrowserDialableSelfAddrsShared({
     client,
@@ -76,19 +83,19 @@ export async function getBrowserDialableSelfAddrsShared({
 }: {
     client: ReprovideKuboRpcClient;
     maxAgeMs: number;
-}): Promise<string[]> {
+}): Promise<SelfAddrsRead> {
     let shared = sharedSelfAddrsByClient.get(client);
     if (!shared) {
         shared = {};
         sharedSelfAddrsByClient.set(client, shared);
     }
     const sharedOfClient = shared;
-    if (sharedOfClient.stored && Date.now() - sharedOfClient.stored.fetchedAtMs < maxAgeMs) return sharedOfClient.stored.addrs;
+    if (sharedOfClient.stored && Date.now() - sharedOfClient.stored.readAtMs < maxAgeMs) return sharedOfClient.stored;
     if (sharedOfClient.inFlight) return sharedOfClient.inFlight;
-    const inFlight = getBrowserDialableSelfAddrs(client)
+    const inFlight = getBrowserDialableSelfAddrs(client, { timeout: SHARED_KUBO_READ_TIMEOUT_MS })
         .then((addrs) => {
-            sharedOfClient.stored = { addrs, fetchedAtMs: Date.now() };
-            return addrs;
+            sharedOfClient.stored = { addrs, readAtMs: Date.now() };
+            return sharedOfClient.stored;
         })
         .finally(() => {
             if (sharedOfClient.inFlight === inFlight) sharedOfClient.inFlight = undefined;
@@ -120,22 +127,22 @@ export async function reprovideConnectionCidsIfBrowserAddrsChanged(
     community: AddressChangeReprovidable,
     // How old a read of the node's addresses another community made may be. 0 always asks kubo.
     { selfAddrsMaxAgeMs = 0 }: { selfAddrsMaxAgeMs?: number } = {}
-): Promise<{ reprovided: boolean; providedCids: string[]; browserAddrs: string[] }> {
+): Promise<{ reprovided: boolean; providedCids: string[]; browserAddrs: string[]; browserAddrsReadAtMs: number }> {
     const log = Logger("pkc-js:local-community:_reprovideConnectionCidsIfBrowserAddrsChanged");
     const client = community._clientsManager.getDefaultKuboRpcClient()._client;
-    const current =
+    const { addrs: current, readAtMs: browserAddrsReadAtMs } =
         selfAddrsMaxAgeMs > 0
             ? await getBrowserDialableSelfAddrsShared({ client, maxAgeMs: selfAddrsMaxAgeMs })
-            : await getBrowserDialableSelfAddrs(client);
+            : { addrs: await getBrowserDialableSelfAddrs(client), readAtMs: Date.now() };
     const previous = community._lastProvidedBrowserDialableSelfAddrs;
 
     if (previous === undefined) {
         // First observation: just establish the baseline; start() already provided these CIDs with fresh addresses.
         community._lastProvidedBrowserDialableSelfAddrs = current;
-        return { reprovided: false, providedCids: [], browserAddrs: current };
+        return { reprovided: false, providedCids: [], browserAddrs: current, browserAddrsReadAtMs };
     }
 
-    if (isDeepEqual(previous, current)) return { reprovided: false, providedCids: [], browserAddrs: current };
+    if (isDeepEqual(previous, current)) return { reprovided: false, providedCids: [], browserAddrs: current, browserAddrsReadAtMs };
 
     // Record the snapshot before providing so a slow/failing provide doesn't make us re-announce every tick.
     community._lastProvidedBrowserDialableSelfAddrs = current;
@@ -164,7 +171,7 @@ export async function reprovideConnectionCidsIfBrowserAddrsChanged(
         { browserAddrs: current }
     );
 
-    return { reprovided: providedCids.length > 0, providedCids, browserAddrs: current };
+    return { reprovided: providedCids.length > 0, providedCids, browserAddrs: current, browserAddrsReadAtMs };
 }
 
 /**
@@ -182,6 +189,10 @@ export async function reprovideOnAddressChangeIfDue(community: AddressChangeRepr
     community._lastAddressReprovideCheckAt = now;
     // Communities spread their checks over the poll interval, so a read reused for a quarter of it costs the node
     // about four id() + swarm.addrs() calls per interval however many communities it hosts (issue #576). A rotated
-    // address is noticed at most that much later.
-    await reprovideConnectionCidsIfBrowserAddrsChanged(community, { selfAddrsMaxAgeMs: ADDRESS_REPROVIDE_POLL_INTERVAL_MS / 4 });
+    // address is noticed at most that much later: the next check is due one interval after the read this one was
+    // handed, not one interval after now, or a read that was already old would be trusted for a whole interval more.
+    const { browserAddrsReadAtMs } = await reprovideConnectionCidsIfBrowserAddrsChanged(community, {
+        selfAddrsMaxAgeMs: ADDRESS_REPROVIDE_POLL_INTERVAL_MS / 4
+    });
+    community._lastAddressReprovideCheckAt = Math.min(now, browserAddrsReadAtMs);
 }
