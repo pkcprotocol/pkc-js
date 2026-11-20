@@ -420,7 +420,28 @@ export async function editPropsOnStartedCommunity(
     return community;
 }
 
+// Marked for its whole run, from before its first await: a start() of this instance waits for the mark (see
+// startCommunity). The edit works on the community's DB connection as that of a stopped community, and a rename closes
+// it and moves the DB to its new filename. A start() that ran meanwhile took the start lock on that connection: the
+// close was refused (see DbHandler.destoryConnection), the DB and its sidecar moved all the same, and the community ran
+// on the old file with a lock no other process could see.
 export async function editPropsOnNotStartedCommunity(
+    community: LocalCommunity,
+    parsedEditOptions: ParsedCommunityEditOptions,
+    pagesEdit?: PagesEdit
+): Promise<LocalCommunity> {
+    let settle!: () => void;
+    const inFlight = new Promise<void>((resolve) => (settle = resolve));
+    community._stoppedEditsInFlight.add(inFlight);
+    try {
+        return await editPropsOnNotStartedCommunityWhileMarked(community, parsedEditOptions, pagesEdit);
+    } finally {
+        community._stoppedEditsInFlight.delete(inFlight);
+        settle();
+    }
+}
+
+async function editPropsOnNotStartedCommunityWhileMarked(
     community: LocalCommunity,
     parsedEditOptions: ParsedCommunityEditOptions,
     pagesEdit?: PagesEdit
@@ -457,7 +478,7 @@ export async function editPropsOnNotStartedCommunity(
         await community.initInternalCommunityAfterFirstUpdateNoMerge(mergedInternalState);
     else await community.initInternalCommunityBeforeFirstUpdateNoMerge(mergedInternalState);
     await applyPagesEdit(community, pagesEdit);
-    // A start() called while the awaits above ran owns the connection now, and holds the start lock on it
+    // A start() called while the awaits above ran is waiting for this edit, and will take the start lock on this connection
     if (!isStartInFlight(community) && !community._dbHandler.holdsStartLock()) community._dbHandler.destoryConnection();
     community.emit("update", community);
     return community;

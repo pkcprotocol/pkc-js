@@ -192,6 +192,10 @@ export async function start(community: LocalCommunity) {
 
 async function startCommunity({ community, releaseMark }: { community: LocalCommunity; releaseMark: () => void }) {
     const log = Logger("pkc-js:local-community:start");
+    // An edit of this instance as a stopped community is still running: it may be closing the DB connection and
+    // renaming the DB (see editPropsOnNotStartedCommunity). Waited for under this start's own mark, so nothing else
+    // starts or edits meanwhile; the start then runs on what the edit left, under the new address after a rename.
+    while (community._stoppedEditsInFlight.size > 0) await Promise.allSettled([...community._stoppedEditsInFlight]);
     community._stopHasBeenCalled = false;
     // Re-baseline address-change re-provide for this run (start() provides everything fresh below).
     community._lastProvidedBrowserDialableSelfAddrs = undefined;
