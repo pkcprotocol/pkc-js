@@ -21,6 +21,7 @@ import {
     listenToIncomingRequests,
     providePubsubTopicRoutingCidsIfNeeded
 } from "../../../../dist/node/runtime/node/community/local-community/pubsub.js";
+import { SHARED_KUBO_READ_TIMEOUT_MS } from "../../../../dist/node/clients/shared-pubsub-topic-list.js";
 import { invalidateSharedPubsubTopicList } from "../../../../dist/node/clients/shared-pubsub-topic-list.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 
@@ -261,6 +262,20 @@ describe("pubsub: listenToIncomingRequests shares the node's subscription list",
             expect(community._clientsManager.pubsubSubscribe).not.toHaveBeenCalled();
             expect(community._clientsManager.pubsubUnsubscribe).not.toHaveBeenCalled();
         }
+    });
+
+    // Every community of the node waits on the one request, so a request that never answers would hold them all
+    it("gives the shared pubsub.ls() a timeout, and a read that failed is not kept for the next cycle", async () => {
+        const ls = vi.fn<(options?: { timeout?: number }) => Promise<string[]>>();
+        ls.mockRejectedValueOnce(new Error("the request timed out")).mockResolvedValue(["topic-a"]);
+        const pubsubClient = { _client: { pubsub: { ls } }, url: "http://localhost:5001" };
+        const community = communityOnSharedNode({ topic: "topic-a", pubsubClient, publishInterval: 20_000 });
+
+        await expect(listenToIncomingRequests(community)).rejects.toThrow("the request timed out");
+        await listenToIncomingRequests(community);
+
+        expect(ls).toHaveBeenCalledTimes(2);
+        for (const [options] of ls.mock.calls) expect(options?.timeout).to.equal(SHARED_KUBO_READ_TIMEOUT_MS);
     });
 
     afterEach(() => {

@@ -411,10 +411,16 @@ function readLocalCommunityIdentity(
 // of that one lock. Checking every lock on every refresh made creating or deleting one community cost a lock check per
 // community, each of them a synchronous open of a file (issue #576). The price: a `started` that went wrong with no
 // event, which is a holder that was killed, is no longer put right by the next refresh of something else.
-function listCommunitiesEntriesSync(pkc: PKC, communityWithChangedStartLock?: string): PKCCommunitiesEntry[] {
+function listCommunitiesEntriesSync(
+    pkc: PKC,
+    {
+        communityWithChangedStartLock,
+        recheckEveryStartLock
+    }: { communityWithChangedStartLock?: string; recheckEveryStartLock?: boolean } = {}
+): PKCCommunitiesEntry[] {
     const communityAddresses = listCommunitiesSync(pkc);
     const listedStarted = new Map<string, boolean>();
-    for (const listed of pkc.communities ?? []) listedStarted.set(listed.address, listed.started);
+    if (!recheckEveryStartLock) for (const listed of pkc.communities ?? []) listedStarted.set(listed.address, listed.started);
     // A Set, not Array.includes: with N communities these two loops were N scans of an N-long list on every refresh,
     // and a node starting N communities refreshes at least N times (issue #576)
     const listedAddresses = new Set(communityAddresses);
@@ -474,10 +480,13 @@ export function findLocalCommunityAddress(pkc: PKC, lookup: CommunitiesEntryLook
 // calls it on every change, and a rename calls it right after moving the DB file: the watcher fires later (much later on
 // macOS), and until then pkc.createCommunity and the RPC server would resolve the old address (issue #430).
 // A community that starts or stops sets its own entry instead (setStartedOfListedCommunity). The refresh reads the
-// start lock of communities it lists for the first time and of `communityWithChangedStartLock`, and of no other (see
-// listCommunitiesEntriesSync).
-export function refreshCommunitiesList(pkc: PKC, { communityWithChangedStartLock }: { communityWithChangedStartLock?: string } = {}) {
-    const communities = listCommunitiesEntriesSync(pkc, communityWithChangedStartLock);
+// start lock of communities it lists for the first time and of `communityWithChangedStartLock`, and of no other
+// unless `recheckEveryStartLock` (see listCommunitiesEntriesSync).
+export function refreshCommunitiesList(
+    pkc: PKC,
+    options: { communityWithChangedStartLock?: string; recheckEveryStartLock?: boolean } = {}
+) {
+    const communities = listCommunitiesEntriesSync(pkc, options);
     if (deterministicStringify(communities) !== deterministicStringify(pkc.communities)) pkc.emit("communitieschange", { communities });
 }
 
@@ -861,7 +870,11 @@ export async function monitorCommunitiesDirectory(pkc: PKC) {
 
         isProcessingChange = true;
         try {
-            refreshCommunitiesList(pkc, { communityWithChangedStartLock: communityOfStartLockFile(filename) });
+            // An event that does not name its file may be any community's start lock, so every lock is read again
+            refreshCommunitiesList(pkc, {
+                communityWithChangedStartLock: communityOfStartLockFile(filename),
+                recheckEveryStartLock: typeof filename !== "string"
+            });
         } catch (error) {
             // pkc.communities keeps its last list until a later event refreshes it, e.g. when one community's start lock
             // check fails (EACCES, EIO), which aborts the whole refresh

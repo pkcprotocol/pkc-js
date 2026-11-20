@@ -253,6 +253,19 @@ describe("pkc.communities: what a change costs with many communities", () => {
         expect(lockChecks.filter((address) => address !== addresses[11])).to.deep.equal([]);
     });
 
+    // Some platforms report a change without saying which file. It may have been any community's start lock, so
+    // this is the one event that has to look at all of them.
+    it("an event with no filename rechecks the start lock of every community", async () => {
+        const { pkc } = createFakePkc();
+        await monitorCommunitiesDirectory(pkc);
+        lockChecks.length = 0;
+
+        lockedAddresses.add(addresses[15]); // another process took the lock
+        watchCallbacks[0]("change", null);
+        expect(startedAddresses(pkc)).to.deep.equal([addresses[15]]);
+        expect([...lockChecks].sort()).to.deep.equal(addresses);
+    });
+
     // The price of not rechecking: a holder that is killed changes nothing on disk, so nothing tells the list. Its entry
     // stays `started` until that community's lock next changes, or until the list is built again from nothing.
     it("a lock that changed without an event is not seen by a refresh, and is seen when the list is built from nothing", async () => {
