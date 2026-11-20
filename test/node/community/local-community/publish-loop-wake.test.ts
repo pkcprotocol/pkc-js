@@ -250,4 +250,36 @@ describe("publish loop: every publication write asks for a record", () => {
                 await dbHandler.destoryConnection();
             }
         });
+
+    // The dry run of an incoming comment or edit (the check that it is stored verbatim) writes inside a savepoint that
+    // is always rolled back. Nothing was written, so it must not wake the loop: it runs for every incoming comment,
+    // also for one that is then rejected.
+    it("a write that readBackWithoutStoring rolls back does not set the community's update trigger", async () => {
+        const { community, dbHandler } = await createDbHandlerOfCommunity();
+        try {
+            const read = dbHandler.readBackWithoutStoring({
+                write: () => {
+                    dbHandler.insertComments([]);
+                    dbHandler.insertCommentEdits([]);
+                },
+                read: () => "read back"
+            });
+            expect(read).to.equal("read back");
+            expect(community._communityUpdateTrigger).to.equal(false);
+
+            // a write that throws leaves the next real write able to ask for a record
+            expect(() =>
+                dbHandler.readBackWithoutStoring({
+                    write: () => {
+                        throw new Error("the dry run failed");
+                    },
+                    read: (): string => "never read"
+                })
+            ).to.throw("the dry run failed");
+            dbHandler.insertComments([]);
+            expect(community._communityUpdateTrigger).to.equal(true);
+        } finally {
+            await dbHandler.destoryConnection();
+        }
+    });
 });

@@ -144,11 +144,13 @@ export class DbHandler {
 
     // Every method that writes a publication (a vote, comment, edit, moderation, an approval, a purge) calls this.
     // Besides dropping what was memoized from the old rows, it asks the community for a new record, which wakes its
-    // publish loop: the loop does not poll the DB for changes (issue #576).
+    // publish loop: the loop does not poll the DB for changes (issue #576). A write inside readBackWithoutStoring is
+    // rolled back, so it still drops the memo (the rows did change for the read that follows) but asks for no record.
     private _notePublicationWrite(): void {
         this._publicationWriteGeneration++;
-        if (this._community) this._community._communityUpdateTrigger = true;
+        if (this._community && this._readBackWithoutStoringDepth === 0) this._community._communityUpdateTrigger = true;
     }
+    private _readBackWithoutStoringDepth = 0;
     private _preparedStatements: Map<string, Statement>;
     // The address this handler has claimed the start of, from lockCommunityStart until unlockCommunityStart
     private _startLockAddress: string | undefined = undefined;
@@ -361,10 +363,14 @@ export class DbHandler {
     // no transaction open (issue #417).
     readBackWithoutStoring<T>(opts: { write: () => void; read: () => T }): T {
         this._db.exec("SAVEPOINT read_back_without_storing");
+        this._readBackWithoutStoringDepth++;
         try {
             opts.write();
             return opts.read();
         } finally {
+            this._readBackWithoutStoringDepth--;
+            // what was memoized inside the savepoint was read from rows that are about to be gone
+            this._publicationWriteGeneration++;
             this._db.exec("ROLLBACK TO read_back_without_storing");
             this._db.exec("RELEASE read_back_without_storing");
         }
