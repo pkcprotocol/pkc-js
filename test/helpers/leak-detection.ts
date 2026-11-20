@@ -10,11 +10,12 @@
 // - createCollectionTracker(): instances the caller has dropped must be garbage collectable. A
 //   registry, subscription or listener that closes over an instance keeps it alive and fails this.
 // - countOpenFds(): open file descriptors, Linux only.
+// - countOpenFdsOnPath(): the ones on files whose path includes a given string, Linux only.
 // - countActiveResources(): process.getActiveResourcesInfo() grouped by resource type.
 //
 // Registry sizes (RPC client subscription maps, DbHandler statement cache, ...) are read directly
 // by each test, since they are private fields that only that test knows about.
-import { readdirSync } from "node:fs";
+import { readdirSync, readlinkSync } from "node:fs";
 import { EventEmitter, getEventListeners } from "node:events";
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
@@ -81,6 +82,27 @@ export function countOpenFds(): number | undefined {
     } catch {
         return undefined;
     }
+}
+
+// Open file descriptors on files whose path includes `pathPart`, Linux only. For a test whose claim is about
+// one file (a community's DB): the whole-process count also moves with every socket that opens or closes
+// meanwhile, such as the mock pubsub client of mockPKC() still connecting in the background.
+export function countOpenFdsOnPath(pathPart: string): number | undefined {
+    let fds: string[];
+    try {
+        fds = readdirSync("/proc/self/fd");
+    } catch {
+        return undefined;
+    }
+    let count = 0;
+    for (const fd of fds) {
+        try {
+            if (readlinkSync(`/proc/self/fd/${fd}`).includes(pathPart)) count++;
+        } catch {
+            // closed since the listing, or the descriptor of the listing itself
+        }
+    }
+    return count;
 }
 
 export function countActiveResources(): Record<string, number> {

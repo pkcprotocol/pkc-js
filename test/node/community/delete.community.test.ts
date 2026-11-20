@@ -58,6 +58,7 @@ describe(`community.delete`, async () => {
         const stateLockFilename = `${community.address}.state.lock`;
         expect(communityFiles).to.not.include(startLockFilename);
         expect(communityFiles).to.not.include(stateLockFilename);
+        expect(communityFiles).to.not.include(`${community.address}.start.lock.db`);
     });
 
     // Under RPC the fs operations happen inside the RPC server process against its own dataPath,

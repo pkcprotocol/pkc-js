@@ -42,7 +42,7 @@ import type {
     DbPostsFormat
 } from "../../publications/comment/types.js";
 import { DbHandler } from "./community/db-handler.js";
-import { isCommunityStartLockedSync } from "./community/start-lock.js";
+import { getStartLockPath, isCommunityStartLockedSync, START_LOCK_FILE_SUFFIX } from "./community/start-lock.js";
 import { doesCommunitiesEntryMatch, toCommunitiesEntry } from "../../community/communities-entry-util.js";
 import type { CommunitiesEntryIdentity, CommunitiesEntryLookup } from "../../community/communities-entry-util.js";
 import type { PKCCommunitiesEntry } from "../../clients/rpc-client/types.js";
@@ -281,6 +281,8 @@ export async function tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc: PKC
             const communityPath = path.join(<string>pkc.dataPath, "communities", communityAddress);
             try {
                 await fsPromises.rm(communityPath, { force: true });
+                // its start lock sidecar was kept for as long as the DB was there
+                await fsPromises.rm(getStartLockPath({ dataPath: <string>pkc.dataPath, communityAddress }), { force: true });
                 log(`Succeeded in deleting old db path (${communityAddress})`);
                 communitiesThatWereDeletedSuccessfully.push(communityAddress);
             } catch (e) {
@@ -478,6 +480,9 @@ export function listCommunitiesSync(pkc: PKC) {
     // delete flow, `.backup_before_migration/` from db-handler) and must never be opened: openSync()
     // succeeds on a directory, readSync() then throws EISDIR, and before #380 the fd was leaked on
     // every call until the process hit EMFILE.
+    // A start lock sidecar (`<address>.start.lock.db`, skipped by the ".lock" in its name) must stay out of the header
+    // check below for another reason too: that check opens and closes the file with plain fs calls, which in the process
+    // holding the lock would drop it (see start-lock.ts).
     const files = readdirSync(communitiesPath, { recursive: false, withFileTypes: true })
         .filter((dirent) => dirent.isFile())
         .map((dirent) => dirent.name)
@@ -738,6 +743,9 @@ export async function moveCommunityDbToDeletedDirectory(communityAddress: string
         if (os.type() === "Windows_NT") {
             await deleteOldCommunityInWindows(oldPath, pkc);
         } else await fsPromises.rm(oldPath, { force: true });
+        // The start lock sidecar goes with its community, and only then (see start-lock.ts): on Windows the DB may
+        // still be there, to be removed by tryToDeleteCommunitiesThatFailedToBeDeletedBefore()
+        if (!existsSync(oldPath)) await fsPromises.rm(getStartLockPath({ dataPath: pkc.dataPath, communityAddress }), { force: true });
     } catch (error: any) {
         error.details = { ...error.details, oldPath, newPath };
         throw error;
@@ -767,19 +775,18 @@ export async function createKuboRpcClient(kuboRpcClientOptions: KuboRpcClient["_
 }
 
 const COMMUNITIES_DIR_EXTENSIONS_TO_IGNORE = [".lock", "-journal", "-shm", "-wal"];
-const START_LOCK_SUFFIX = ".start.lock";
 
 // Whether a filesystem event on this file in dataPath/communities can change pkc.communities. A start lock decides a
-// community's `started` (issue #455), but proper-lockfile also touches a held lock's mtime every few seconds, and the
-// watcher reports that touch with the same event type as taking or releasing the lock ("rename" on Linux). A full
-// refresh stats every community's lock, so refreshing on every touch costs O(started × communities) sync work every
-// few seconds per PKC instance, which blocked the event loop on the Windows CI runner. So a start lock event only
-// counts when that one community's `started` no longer matches its listed entry. Runs in the watcher callback, where a
-// throw is uncaught, so a lock check that fails (EACCES, EIO) counts as a change and the refresh handles the error
+// community's `started` (issue #455), and it is a file lock on the community's sidecar (see start-lock.ts): taking it
+// writes the sidecar and releasing it touches the sidecar's mtime, so both reach the watcher as an event on that file.
+// A full refresh checks every community's lock, so a sidecar event only counts when that one community's `started` no
+// longer matches its listed entry. A holder that is killed changes nothing on disk, so its entry stays `started` until
+// the next refresh. Runs in the watcher callback, where a throw is uncaught, so a lock check that fails (EACCES, EIO)
+// counts as a change and the refresh handles the error
 export function isCommunitiesListChangeEvent({ pkc, filename }: { pkc: PKC; filename: string | null }): boolean {
     if (typeof filename !== "string") return true;
-    if (filename.endsWith(START_LOCK_SUFFIX)) {
-        const communityAddress = filename.slice(0, -START_LOCK_SUFFIX.length);
+    if (filename.endsWith(START_LOCK_FILE_SUFFIX)) {
+        const communityAddress = filename.slice(0, -START_LOCK_FILE_SUFFIX.length);
         const entry = pkc.communities.find((listed) => listed.address === communityAddress);
         if (!entry) return true;
         try {

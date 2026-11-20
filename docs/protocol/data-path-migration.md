@@ -65,7 +65,7 @@ On app startup, before creating PKC instance:
 ### Important Notes
 
 - Migration must happen **before** creating the PKC instance. The constructor may create directories at the new paths if they don't exist, which would block migration.
-- Lock files (`*.start.lock`, `*.state.lock`) inside the communities directory keep the same format — only the parent directory name changes.
+- Start lock files (`*.start.lock.db`) inside the communities directory keep the same format, only the parent directory name changes. A leftover `*.start.lock` or `*.state.lock` directory comes from the lock of an older version and decides nothing.
 - If the user provides a custom `dataPath` (not the default), only step 3 (subdirectory rename) applies.
 - The `storage.db` file inside the data directory does not need renaming — it stays as-is.
 

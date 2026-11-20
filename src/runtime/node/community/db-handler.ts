@@ -23,8 +23,7 @@ import env from "../../../version.js";
 import Database, { type Database as BetterSqlite3Database, type Statement } from "better-sqlite3";
 import { sha256 } from "js-sha256";
 
-import lockfile from "@pkcprotocol/proper-lock-file";
-import { isCommunityStartLocked } from "./start-lock.js";
+import { getStartLockPath, isCommunityStartLocked, releaseStartLock, takeStartLock } from "./start-lock.js";
 import type { PageOptions } from "./page-generator.js";
 import type {
     InternalCommunityRecordAfterFirstUpdateType,
@@ -142,8 +141,8 @@ export class DbHandler {
     // update cycle's author memo (CommunityAuthorMemo) is only reused while it stays the same.
     private _publicationWriteGeneration = 0;
     private _preparedStatements: Map<string, Statement>;
-    // Identifies the start lock this handler holds, from lockCommunityStart until unlockCommunityStart or its loss
-    private _heldStartLock: object | undefined = undefined;
+    // The address whose start lock this handler's connection holds, from lockCommunityStart until unlockCommunityStart
+    private _startLockAddress: string | undefined = undefined;
 
     constructor(community: DbHandler["_community"]) {
         this._community = community;
@@ -253,7 +252,9 @@ export class DbHandler {
                 `Community (${this._community.address}) failed to create/migrate tables. Current db version (${this.getDbVersion()}), latest db version (${env.DB_VERSION}). Error`,
                 e
             );
-            await this.destoryConnection();
+            // A start() that fails here holds the start lock on this connection, and its stop() releases the lock and
+            // closes the connection
+            if (this._startLockAddress === undefined) this.destoryConnection();
             throw e;
         }
         hideClassPrivateProps(this);
@@ -287,6 +288,19 @@ export class DbHandler {
 
     destoryConnection() {
         const log = Logger("pkc-js:local-community:dbHandler:destroyConnection");
+        // The start lock lives on this connection (see start-lock.ts), so closing it releases the lock: another process
+        // could then start the community next to this one. stop() releases the lock before it gets here, so anything
+        // else that does is a caller that took a starting or started community for a stopped one. The connection stays
+        // open and the lock held. Under vitest it throws, so a test that reaches such a path fails.
+        if (this.holdsStartLock()) {
+            const error = new Error(
+                `Refused to close the DB connection of community (${this._startLockAddress}) while it holds the community's start lock (issue #561)`
+            );
+            log.error(error);
+            if (process.env["VITEST"]) throw error;
+            return;
+        }
+        this._startLockAddress = undefined;
         this._preparedStatements.clear(); // statements belong to the connection
         if (this._db && this._db.open) {
             try {
@@ -615,7 +629,6 @@ export class DbHandler {
 
         if (needToMigrate) {
             if (dbExistsAlready && currentDbVersion > 0) {
-                this.destoryConnection();
                 backupDbPath = path.join(
                     path.dirname(dbPath),
                     ".backup_before_migration",
@@ -623,11 +636,9 @@ export class DbHandler {
                 );
                 log(`Copying db ${path.basename(dbPath)} to ${backupDbPath} before migration`);
                 if (!fs.existsSync(path.dirname(backupDbPath))) await fs.promises.mkdir(path.dirname(backupDbPath), { recursive: true });
-                const sourceDb = new Database(dbPath, { fileMustExist: true });
-                await sourceDb.backup(backupDbPath); // Use better-sqlite3's native backup method
-                sourceDb.close();
-                this._db = new Database(dbPath);
-                this._db.pragma("journal_mode = WAL");
+                // Through the open connection, which is not closed: start() migrates while holding the start lock, and
+                // the lock lives on this connection (see start-lock.ts)
+                await this._db.backup(backupDbPath);
             }
             this._db.exec("PRAGMA foreign_keys = OFF");
             const tablesToDrop = ["challengeRequests", "challenges", "challengeAnswers", "challengeVerifications", "signers"];
@@ -3604,6 +3615,10 @@ export class DbHandler {
                 await forgetCommunityThatFailedToBeDeleted({ communityAddress: newDbName, pkc: this._community._pkc });
                 if (os.type() === "Windows_NT") await deleteOldCommunityInWindows(oldPathString, this._community._pkc);
                 else await fs.promises.rm(oldPathString, { force: true });
+                // No community lives at the old address any more, so its start lock sidecar goes too. Not while the old
+                // file is still there, which it is on Windows when it could not be removed yet (see start-lock.ts)
+                if (!fs.existsSync(oldPathString))
+                    await fs.promises.rm(getStartLockPath({ dataPath, communityAddress: oldDbName }), { force: true });
             }
         } catch (error) {
             log.error(`Failed to backup/rename database from ${oldPathString} to ${newPathString}: `, error);
@@ -3613,95 +3628,73 @@ export class DbHandler {
         log(`Changed db path from (${oldPathString}) to (${newPathString})`);
     }
 
-    // The lock library keeps the lock fresh from a timer. When this event loop is blocked past the lock's 10s stale
-    // threshold (a VACUUM or migration of a large DB, a suspended process), another process on the same dataPath sees it
-    // as stale and takes it over; the library then reports it compromised and onCompromised is called. The library also
-    // reports a lock directory that disappeared (ENOENT), even one whose taker released it again. Either way this process
-    // no longer holds the lock from that point on, so it must stop running the community.
-    async lockCommunityStart({ onCompromised }: { onCompromised: (error: Error) => void }) {
+    // Takes the community's start lock on this handler's connection (see start-lock.ts), which holds it until
+    // unlockCommunityStart(). Closing the connection would release it too, which destoryConnection() refuses to do
+    // silently. A process that dies releases it without any of this running.
+    async lockCommunityStart() {
         const log = Logger("pkc-js:local-community:db-handler:lock:start");
         const communityAddress = this._community.address;
-
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${communityAddress}.start.lock`);
-        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", communityAddress);
-
-        const startLock = {};
-        try {
-            await lockfile.lock(communityDbPath, {
-                lockfilePath,
-                onCompromised: (error) => {
-                    // The library can still report a lock after it was released, which is not a lock this process lost
-                    if (this._heldStartLock !== startLock) return;
-                    this._heldStartLock = undefined;
-                    log.error(`Lost the start lock of community (${communityAddress}), taken over or removed`, error);
-                    onCompromised(error);
-                }
-            });
-            this._heldStartLock = startLock;
-            log(`Locked the start of community (${communityAddress}) successfully`);
-        } catch (e: unknown) {
-            if (e instanceof Error && e.message === "Lock file is already being held")
-                throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { communityAddress: communityAddress, error: e });
-            else {
-                log(`Error while trying to lock start of community (${communityAddress}): ${e}`);
-                throw e;
-            }
+        const dataPath = this._community._pkc.dataPath!;
+        await this.initDbIfNeeded();
+        // The lock directory of the mtime lock this one replaced, left by a process that was killed before an upgrade.
+        // Removed before the lock is taken: nothing may fail or wait between taking the lock and returning, since a
+        // start() that fails here has not entered the started state, whose teardown is what releases the lock
+        await fs.promises.rm(path.join(dataPath, "communities", `${communityAddress}.start.lock`), { recursive: true, force: true });
+        if (!takeStartLock({ db: this._db, dataPath, communityAddress }))
+            throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { communityAddress });
+        // The connection was opened some awaits ago. Another process that deleted or renamed the community since has
+        // moved its DB away and removed its sidecar, and the lock just taken is on a new sidecar, for a community with
+        // no DB at its path: it would run, publish and write to a file nothing reads again. Given back at once (no
+        // await since the lock was taken), and the sidecar with it, as nothing is left for it to guard.
+        if (!fs.existsSync(path.join(dataPath, "communities", communityAddress))) {
+            releaseStartLock({ db: this._db, dataPath, communityAddress });
+            fs.rmSync(getStartLockPath({ dataPath, communityAddress }), { force: true });
+            throw new PKCError("CAN_NOT_LOAD_LOCAL_COMMUNITY_IF_DB_DOES_NOT_EXIST", { communityAddress, dataPath });
         }
+        this._startLockAddress = communityAddress;
+        log(`Locked the start of community (${communityAddress}) successfully`);
     }
 
-    async unlockCommunityStart(communityAddress = this._community.address) {
+    // Whether this handler's connection holds the community's start lock, i.e. this instance is starting or started
+    holdsStartLock(): boolean {
+        return this._startLockAddress !== undefined && this._db?.open === true;
+    }
+
+    async unlockCommunityStart() {
         const log = Logger("pkc-js:local-community:db-handler:unlock:start");
-        log.trace(`Attempting to unlock the start of community (${communityAddress})`);
-        this._heldStartLock = undefined;
-
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${communityAddress}.start.lock`);
-        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", communityAddress);
-        if (!fs.existsSync(lockfilePath) || !fs.existsSync(communityDbPath)) return;
-
-        try {
-            await lockfile.unlock(communityDbPath, { lockfilePath });
-            log(`Unlocked start of community (${communityAddress})`);
-        } catch (e: unknown) {
-            log(`Error while trying to unlock start of community (${communityAddress}): ${e}`);
-            throw e;
-        }
+        const communityAddress = this._startLockAddress;
+        if (communityAddress === undefined) return;
+        this._startLockAddress = undefined;
+        if (!this._db?.open) return; // the lock went with the connection
+        releaseStartLock({ db: this._db, dataPath: this._community._pkc.dataPath!, communityAddress });
+        log(`Unlocked start of community (${communityAddress})`);
     }
 
     async isCommunityStartLocked(communityAddress = this._community.address): Promise<boolean> {
         return isCommunityStartLocked({ dataPath: this._community._pkc.dataPath!, communityAddress });
     }
 
-    // Community state lock
-
-    async lockCommunityState() {
-        const log = Logger("pkc-js:local-community:db-handler:lock:lockCommunityState");
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${this._community.address}.state.lock`);
-        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
+    // Runs `write` as one write transaction on the community DB: SQLite lets one connection write at a time, across
+    // processes too, and the lock is the kernel's, so a killed writer leaves nothing behind. `write` must be synchronous
+    // (issue #417). A transaction that is already open on this connection is joined. Used for a read-modify-write of
+    // the community's internal state, which a lock file guarded before (issue #561).
+    runInWriteTransaction<T>(write: () => T): T {
+        if (this._db.inTransaction) return write();
         try {
-            await lockfile.lock(communityDbPath, {
-                lockfilePath,
-                retries: 5,
-                onCompromised: () => {}
-            });
-        } catch (e: unknown) {
-            log.error(`Error when attempting to lock community state`, this._community.address, e);
-            if (e instanceof Error && e.message === "Lock file is already being held")
+            this._db.exec("BEGIN IMMEDIATE");
+        } catch (e) {
+            // another connection kept writing for longer than this connection's busy timeout
+            if (typeof (e as { code?: unknown }).code === "string" && (e as { code: string }).code.startsWith("SQLITE_BUSY"))
                 throw new PKCError("ERR_COMMUNITY_STATE_LOCKED", { communityAddress: this._community.address, error: e });
-            // Not sure, do we need to throw error here
+            throw e;
         }
-    }
-
-    async unlockCommunityState() {
-        const log = Logger("pkc-js:local-community:db-handler:lock:unlockCommunityState");
-
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${this._community.address}.state.lock`);
-        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
-        if (!fs.existsSync(lockfilePath)) return;
         try {
-            await lockfile.unlock(communityDbPath, { lockfilePath });
-        } catch (e: unknown) {
-            log.error(`Error when attempting to unlock community state`, this._community.address, e);
-            if (e instanceof Error && "code" in e && e.code !== "ENOTACQUIRED") throw e;
+            const result = write();
+            this._db.exec("COMMIT");
+            return result;
+        } catch (e) {
+            if (this._db.inTransaction) this._db.exec("ROLLBACK");
+            throw e;
         }
     }
 

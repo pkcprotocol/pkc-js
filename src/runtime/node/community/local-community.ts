@@ -165,14 +165,16 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _reportedChallengeLoadFailures: string | undefined = undefined;
     _dbHandler!: DbHandler;
     _stopHasBeenCalled: boolean; // we use this to track if community.stop() has been called after community.start() or community.update()
-    // This process lost the start lock of this run (see lockCommunityStart), so another process may be running the community.
-    // The publish loop and stop() then skip every write: no more cycles, no internal state write, no unpinning.
-    _startLockLost: boolean = false;
     _publishLoopPromise?: Promise<void> = undefined;
     _updateLoopPromise?: Promise<void> = undefined;
     _startOrUpdateInFlight?: Promise<void> = undefined; // settles once start() or update() is done setting up, stop() waits for it
     _stopInFlight?: Promise<void> = undefined; // settles once stop() is done tearing down, a stop() or edit() called meanwhile waits for it
+    _deleteInFlight?: Promise<void> = undefined; // settles once delete() is done, a start() called meanwhile is refused
+    _stoppedEditsInFlight = new Set<Promise<void>>(); // edits of this instance as a stopped community, a start() called meanwhile waits for them
     _editStoresInFlight = new Set<Promise<unknown>>(); // the DB writes of edit() calls on this started community, stop() waits for them
+    // The props of edit() calls on this started community that are in the DB and not on this instance yet. A writer of the
+    // whole record builds it from the instance, and adds these so it does not write the record over such an edit.
+    _editsStoredNotApplied = new Set<Partial<InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType>>();
     _updateLoopAbortController?: AbortController;
     _internalStateUpdateId: InternalCommunityRecordBeforeFirstUpdateType["_internalStateUpdateId"] = "";
     _lastPubsubTopicRoutingProvideAt?: number = undefined;
@@ -524,8 +526,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         try {
             return { moderations: this._dbHandler.queryAllCommentModerations(opts) };
         } finally {
-            // Don't leave a DB connection open on a community that isn't running.
-            if (this.state === "stopped") this._dbHandler.destoryConnection();
+            // Don't leave a DB connection open on a community that isn't running. A start() in flight is still "stopped"
+            // and owns the connection, on which it holds the start lock once it has taken it
+            if (this.state === "stopped" && !this._startOrUpdateInFlight) this._dbHandler.destoryConnection();
         }
     }
 
@@ -546,8 +549,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // community._xxx = async () => { throw ... } to inject failures into the start/publish
     // loops. Production callers in lifecycle.ts/db-state.ts/etc. go through these methods
     // (not the bare imports) so the patches still take effect.
-    async _getDbInternalState(includeMutable: boolean = false) {
-        return getDbInternalState(this, includeMutable);
+    // Synchronous: updateDbInternalState() reads through it inside its write transaction
+    _getDbInternalState() {
+        return getDbInternalState(this);
     }
 
     async _listenToIncomingRequests() {

@@ -41,7 +41,7 @@ describe(`community.startedState`, async () => {
     itSkipIfRpc(`community.startedState = failed if a failure occurs`, async () => {
         const localCommunity = community as LocalCommunity;
         const originalFunction = localCommunity._getDbInternalState.bind(localCommunity);
-        localCommunity._getDbInternalState = async () => {
+        localCommunity._getDbInternalState = () => {
             throw Error("Failed to load sub from db ");
         };
         await publishRandomPost({ communityAddress: community.address, pkc: pkc });
