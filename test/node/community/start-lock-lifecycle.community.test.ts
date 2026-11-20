@@ -213,6 +213,43 @@ describeSkipIfRpc("the start lock through a community's life", () => {
         }
     });
 
+    // The edit used to leave its connection open for a start() in flight to take over. A start() that failed before it
+    // got to the DB (no IPFS client, the community started elsewhere) never did, and nothing closed it: an open handle
+    // on a stopped community, which on Windows keeps the DB file locked.
+    it("a start() that fails after waiting for an edit of the stopped community leaves no DB connection open", async () => {
+        const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+        const newAddress = `failed-start-during-rename-${Date.now()}.bso`;
+        const dbIsOpen = () => (community._dbHandler as unknown as { _db?: { open: boolean } })._db?.open === true;
+
+        const mfs = community._clientsManager.getDefaultKuboRpcClient()._client.files;
+        const realMv = mfs.mv.bind(mfs);
+        let starting: Promise<void> | undefined;
+        vi.spyOn(mfs, "mv").mockImplementation(async (...args) => {
+            if (!starting) {
+                // the first thing start() checks once the edit is done
+                vi.spyOn(community._clientsManager, "getDefaultKuboRpcClientOrHelia").mockImplementation(() => {
+                    throw new Error("no IPFS client for this start");
+                });
+                starting = community.start();
+                starting.catch(() => {});
+            }
+            return realMv(...args);
+        });
+
+        try {
+            await community.edit({ address: newAddress });
+            expect(starting, "the rename never reached its kubo call").to.not.be.undefined;
+            await expect(starting).rejects.toThrow("no IPFS client for this start");
+
+            expect(community.state).to.equal("stopped");
+            expect(community.address).to.equal(newAddress);
+            expect(dbIsOpen(), "the stopped community's DB connection is still open").to.be.false;
+        } finally {
+            vi.restoreAllMocks();
+            await community.delete();
+        }
+    });
+
     it("exportCommunityModLogs() during a start() does not close the connection that holds the lock", async () => {
         const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
 

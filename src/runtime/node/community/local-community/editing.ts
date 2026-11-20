@@ -478,8 +478,10 @@ async function editPropsOnNotStartedCommunityWhileMarked(
         await community.initInternalCommunityAfterFirstUpdateNoMerge(mergedInternalState);
     else await community.initInternalCommunityBeforeFirstUpdateNoMerge(mergedInternalState);
     await applyPagesEdit(community, pagesEdit);
-    // A start() called while the awaits above ran is waiting for this edit, and will take the start lock on this connection
-    if (!isStartInFlight(community) && !community._dbHandler.holdsStartLock()) community._dbHandler.destoryConnection();
+    // Closed even when a start() was called while the awaits above ran: it is waiting for this edit and has not touched
+    // the connection, and it opens its own. Left open for it, a start() that then failed before it got to the DB left
+    // the connection open on a stopped community.
+    community._dbHandler.destoryConnection();
     community.emit("update", community);
     return community;
 }

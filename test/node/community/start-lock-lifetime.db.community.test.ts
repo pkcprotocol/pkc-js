@@ -125,7 +125,11 @@ describeSkipIfRpc("how long a start lock stays held", () => {
         expect(dbHandler.holdsStartLock()).to.be.false;
         expect((error as { code?: string }).code).to.equal("CAN_NOT_LOAD_LOCAL_COMMUNITY_IF_DB_DOES_NOT_EXIST");
         expect(fs.existsSync(dbPath), "a DB file was created at the deleted community's path").to.be.false;
-        expect(fs.existsSync(`${dbPath}.start.lock.db`), "a sidecar was left for a community that is gone").to.be.false;
+
+        // The sidecar the refused take created stays, unlocked. Removing it could unlink the one a process that
+        // recreated the community meanwhile holds, and whoever takes the address next uses it as it is.
+        new Database(dbPath).close();
+        expect(await anotherProcessIsRefused(), "a community recreated at the address can't be started").to.be.false;
     });
 
     it("survives garbage collection in the holder's process, as long as the handler is referenced", async () => {

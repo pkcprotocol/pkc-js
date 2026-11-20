@@ -3640,10 +3640,11 @@ export class DbHandler {
         // The connection was opened some awaits ago. Another process that deleted or renamed the community since has
         // moved its DB away and removed its sidecar, and the lock just taken is on a new sidecar, for a community with
         // no DB at its path: it would run, publish and write to a file nothing reads again. Given back at once (no
-        // await since the lock was taken), and the sidecar with it, as nothing is left for it to guard.
+        // await since the lock was taken). The new sidecar stays: by the time it could be removed, a process that
+        // recreated the community may hold its lock on it, and unlinking it would let a third one start the community
+        // too. Whoever takes the address next uses it as it is.
         if (!fs.existsSync(path.join(dataPath, "communities", communityAddress))) {
             releaseStartLock({ db: this._db, dataPath, communityAddress });
-            fs.rmSync(getStartLockPath({ dataPath, communityAddress }), { force: true });
             throw new PKCError("CAN_NOT_LOAD_LOCAL_COMMUNITY_IF_DB_DOES_NOT_EXIST", { communityAddress, dataPath });
         }
         this._startLockAddress = communityAddress;
