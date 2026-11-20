@@ -169,6 +169,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     _updateLoopPromise?: Promise<void> = undefined;
     _startOrUpdateInFlight?: Promise<void> = undefined; // settles once start() or update() is done setting up, stop() waits for it
     _stopInFlight?: Promise<void> = undefined; // settles once stop() is done tearing down, a stop() or edit() called meanwhile waits for it
+    _deleteInFlight?: Promise<void> = undefined; // settles once delete() is done, a start() called meanwhile is refused
     _editStoresInFlight = new Set<Promise<unknown>>(); // the DB writes of edit() calls on this started community, stop() waits for them
     // The props of edit() calls on this started community that are in the DB and not on this instance yet. A writer of the
     // whole record builds it from the instance, and adds these so it does not write the record over such an edit.

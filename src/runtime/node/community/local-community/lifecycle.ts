@@ -184,6 +184,9 @@ export async function start(community: LocalCommunity) {
     // the publish loop it waits for running forever, and a second start() tore the first one down once it lost the lock.
     if (community.state === "started" || community._startOrUpdateInFlight)
         throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: community.address });
+    // A start() let through here would take the start lock on the connection the delete() is about to close, and run
+    // on a DB that is being moved away (see deleteCommunity)
+    if (community._deleteInFlight) throw new PKCError("ERR_COMMUNITY_IS_BEING_DELETED", { address: community.address });
     await runAsStartOrUpdateInFlight({ community, setUp: (releaseMark) => startCommunity({ community, releaseMark }) });
 }
 
@@ -607,8 +610,27 @@ async function stopCommunity(community: LocalCommunity) {
 // How many comments delete() reads, queues and unpins at a time (issue #389). 5,000 cids is a few hundred KB.
 export const DELETE_UNPIN_SLICE_SIZE = 5000;
 
+// Marked for its whole run, from before its first await: start() refuses while the mark is set. The delete closes the
+// community's DB connection and moves the DB away, and a start() that ran meanwhile held the start lock on that
+// connection: the close was refused (see DbHandler.destoryConnection), the DB and its sidecar went all the same, and the
+// community stayed started on a file that was no longer there, startable by another process too.
 export async function deleteCommunity(community: LocalCommunity) {
+    let settle!: () => void;
+    const inFlight = new Promise<void>((resolve) => (settle = resolve));
+    community._deleteInFlight = inFlight;
+    try {
+        await deleteCommunityWhileMarked(community);
+    } finally {
+        if (community._deleteInFlight === inFlight) community._deleteInFlight = undefined;
+        settle();
+    }
+}
+
+async function deleteCommunityWhileMarked(community: LocalCommunity) {
     const log = Logger("pkc-js:local-community:delete");
+    // A start() or update() still setting this instance up: its state is "stopped" until it is done, so the stop below
+    // would be skipped and the delete would run next to it. Waited for, as stop() and edit() do, then stopped below.
+    while (community._startOrUpdateInFlight) await community._startOrUpdateInFlight;
     log.trace(`Attempting to stop the community (${community.address}) before deleting, if needed`);
 
     const startedCommunity = <LocalCommunity | undefined>(

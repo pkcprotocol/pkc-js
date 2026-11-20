@@ -129,6 +129,52 @@ describeSkipIfRpc("the start lock through a community's life", () => {
         await community.delete();
     });
 
+    // delete() only stopped a community whose state was "started", and a start() is "stopped" until it holds the lock
+    // and has set itself up. A delete() overlapping one went on to close the connection that held the lock (refused,
+    // see DbHandler.destoryConnection) and moved the DB and its sidecar away under a community that stayed started.
+    const expectDeletedAndNotRunning = (community: LocalCommunity, address: string) => {
+        expect(community.state).to.equal("stopped");
+        expect(community._dbHandler.holdsStartLock(), "the instance still holds the start lock").to.be.false;
+        expect(fs.existsSync(path.join(pkc.dataPath!, "communities", address)), "the DB is still there").to.be.false;
+        expect(fs.existsSync(getStartLockPath({ dataPath: pkc.dataPath!, communityAddress: address })), "the sidecar is still there").to.be
+            .false;
+        expect(pkc.communities.map((entry) => entry.address)).to.not.include(address);
+    };
+
+    it("a delete() called right after start() waits for it, and leaves no started community behind", async () => {
+        const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+        const address = community.address;
+        try {
+            const starting = community.start();
+            starting.catch(() => {});
+            await community.delete();
+            await starting; // the start was let through, and the delete stopped what it set up
+
+            expectDeletedAndNotRunning(community, address);
+        } finally {
+            if (community.state !== "stopped") await community.stop().catch(() => {});
+        }
+    });
+
+    it("a start() called during a delete() is refused, and the community is deleted", async () => {
+        const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+        const address = community.address;
+        try {
+            const deleting = community.delete();
+            deleting.catch(() => {});
+            const startError = await community.start().then(
+                (): PKCError | undefined => undefined,
+                (e: PKCError) => e
+            );
+            await deleting;
+
+            expect(startError?.code).to.equal("ERR_COMMUNITY_IS_BEING_DELETED");
+            expectDeletedAndNotRunning(community, address);
+        } finally {
+            if (community.state !== "stopped") await community.stop().catch(() => {});
+        }
+    });
+
     it("exportCommunityModLogs() during a start() does not close the connection that holds the lock", async () => {
         const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
 
