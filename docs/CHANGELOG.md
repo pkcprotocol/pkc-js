@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.153](https://github.com/pkcprotocol/pkc-js/compare/v0.0.152...v0.0.153) (2026-11-17)
+
+### Bug Fixes
+
+* **comment-update:** sign and store challenge commentUpdate extra keys ([#573](https://github.com/pkcprotocol/pkc-js/issues/573)) ([1c2a0c8](https://github.com/pkcprotocol/pkc-js/commit/1c2a0c8529f9a9874b2d2186b23a621b0ae7fadd)), closes [#572](https://github.com/pkcprotocol/pkc-js/issues/572)
+
 ## [0.0.152](https://github.com/pkcprotocol/pkc-js/compare/v0.0.151...v0.0.152) (2026-11-17)
 
 ### ⚠ BREAKING CHANGES

@@ -461,7 +461,8 @@ export class DbHandler {
                 lastReplyTimestamp INTEGER NULLABLE, 
                 postUpdatesBucket INTEGER NULLABLE,
                 publishedToPostUpdatesMFS INTEGER NOT NULL, -- BOOLEAN (0/1)
-                insertedAt INTEGER NOT NULL 
+                insertedAt INTEGER NOT NULL,
+                extraProps TEXT NULLABLE -- JSON: unknown keys of the signed record (issue #572); a snapshot, this table is rebuilt on every DB_VERSION bump
             )
         `);
     }
@@ -1287,8 +1288,8 @@ export class DbHandler {
 
         const stmt = this._prepareCached(`
             INSERT INTO ${TABLES.COMMENT_UPDATES} 
-            (cid, edit, upvoteCount, downvoteCount, replyCount, childCount, number, postNumber, flairs, spoiler, nsfw, pinned, locked, archived, removed, approved, reason, updatedAt, protocolVersion, signature, author, replies, lastChildCid, lastReplyTimestamp, postUpdatesBucket, publishedToPostUpdatesMFS, insertedAt)
-            VALUES (@cid, @edit, @upvoteCount, @downvoteCount, @replyCount, @childCount, @number, @postNumber, @flairs, @spoiler, @nsfw, @pinned, @locked, @archived, @removed, @approved, @reason, @updatedAt, @protocolVersion, @signature, @author, @replies, @lastChildCid, @lastReplyTimestamp, @postUpdatesBucket, @publishedToPostUpdatesMFS, @insertedAt)
+            (cid, edit, upvoteCount, downvoteCount, replyCount, childCount, number, postNumber, flairs, spoiler, nsfw, pinned, locked, archived, removed, approved, reason, updatedAt, protocolVersion, signature, author, replies, lastChildCid, lastReplyTimestamp, postUpdatesBucket, publishedToPostUpdatesMFS, insertedAt, extraProps)
+            VALUES (@cid, @edit, @upvoteCount, @downvoteCount, @replyCount, @childCount, @number, @postNumber, @flairs, @spoiler, @nsfw, @pinned, @locked, @archived, @removed, @approved, @reason, @updatedAt, @protocolVersion, @signature, @author, @replies, @lastChildCid, @lastReplyTimestamp, @postUpdatesBucket, @publishedToPostUpdatesMFS, @insertedAt, @extraProps)
             ON CONFLICT(cid) DO UPDATE SET
                 edit = excluded.edit, upvoteCount = excluded.upvoteCount, downvoteCount = excluded.downvoteCount, replyCount = excluded.replyCount, childCount = excluded.childCount,
                 number = COALESCE(excluded.number, ${TABLES.COMMENT_UPDATES}.number),
@@ -1298,7 +1299,8 @@ export class DbHandler {
                 signature = excluded.signature, author = excluded.author, replies = excluded.replies, lastChildCid = excluded.lastChildCid,
                 lastReplyTimestamp = excluded.lastReplyTimestamp, postUpdatesBucket = excluded.postUpdatesBucket,
                 publishedToPostUpdatesMFS = excluded.publishedToPostUpdatesMFS,
-                insertedAt = excluded.insertedAt
+                insertedAt = excluded.insertedAt,
+                extraProps = excluded.extraProps
         `);
 
         const defaults = mapToObj(columnNames, (column) => [column, null]);
@@ -1459,9 +1461,12 @@ export class DbHandler {
     // The column set of a page entry: every CommentIpfs column plus extraProps, and every CommentUpdate column
     // unless the caller excludes some (a flat page drops `replies`). Compiled mappers are cached per column set.
     private _pageEntryMapper(commentUpdateFieldsToExclude?: (keyof CommentUpdateType)[], existingOnly = false): PositionalCommentRowMapper {
-        const commentUpdateCols = keys(
-            commentUpdateFieldsToExclude ? omit(CommentUpdateSchema.shape, commentUpdateFieldsToExclude) : CommentUpdateSchema.shape
-        );
+        const commentUpdateCols = [
+            ...keys(
+                commentUpdateFieldsToExclude ? omit(CommentUpdateSchema.shape, commentUpdateFieldsToExclude) : CommentUpdateSchema.shape
+            ),
+            "extraProps" // the signed record's unknown keys, spread back by the mapper (comment-update-row.ts)
+        ];
         const commentIpfsCols = [...keys(CommentIpfsSchema.shape), "extraProps"];
         return this._positionalMapperFor({
             commentIpfsCols: existingOnly ? this._existingColumns(TABLES.COMMENTS, commentIpfsCols) : commentIpfsCols,
