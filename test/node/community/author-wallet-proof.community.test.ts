@@ -1,7 +1,9 @@
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     createAuthorWalletEntry,
     createSubWithNoChallenge,
+    disableValidationOfSignatureBeforePublishing,
     ensurePublicationIsSigned,
     mockPKC,
     publishRandomPost,
@@ -9,15 +11,19 @@ import {
     resolveWhenConditionIsTrue,
     setExtraPropOnCommentAndSign,
     setExtraPropOnCommentEditAndSign,
+    setExtraPropOnCommentModerationAndSign,
     setExtraPropOnVoteAndSign
 } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { messages } from "../../../dist/node/errors.js";
 import { getPKCAddressFromPublicKeySync } from "../../../dist/node/signer/util.js";
+import { _signJson, cleanUpBeforePublishing } from "../../../dist/node/signer/signatures.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type Vote from "../../../dist/node/publications/vote/vote.js";
 import type { CommentEdit } from "../../../dist/node/publications/comment-edit/comment-edit.js";
+import type { CommentModeration } from "../../../dist/node/publications/comment-moderation/comment-moderation.js";
+import type { SignerType } from "../../../dist/node/signer/types.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 
@@ -36,6 +42,7 @@ describeSkipIfRpc.sequential("LocalCommunity verifies author.wallets proofs (BSI
     let pkc: PKC;
     let community: LocalCommunity | RpcLocalCommunity;
     let targetPost: Comment;
+    let moderatorSigner: SignerType;
 
     beforeAll(async () => {
         pkc = await mockPKC();
@@ -43,6 +50,23 @@ describeSkipIfRpc.sequential("LocalCommunity verifies author.wallets proofs (BSI
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         targetPost = await publishRandomPost({ communityAddress: community.address, pkc });
+
+        // commentModeration needs a moderator and communityEdit the owner, so give the community both roles
+        moderatorSigner = await pkc.createSigner();
+        const ownerSigner = community.signer;
+        if (!ownerSigner?.address) throw Error("Expected the local community to have an owner signer");
+        await community.edit({
+            roles: {
+                ...(community.roles || {}),
+                [moderatorSigner.address]: { role: "moderator" },
+                [ownerSigner.address]: { role: "owner" }
+            }
+        });
+        await resolveWhenConditionIsTrue({
+            toUpdate: community,
+            predicate: async () =>
+                community.roles?.[moderatorSigner.address]?.role === "moderator" && community.roles?.[ownerSigner.address]?.role === "owner"
+        });
     });
 
     afterAll(async () => {
@@ -146,6 +170,61 @@ describeSkipIfRpc.sequential("LocalCommunity verifies author.wallets proofs (BSI
             await setExtraPropOnCommentEditAndSign(commentEdit as CommentEdit, { author: { wallets: { eth: entry } } }, true);
             await publishWithExpectedResult({
                 publication: commentEdit,
+                expectedChallengeSuccess: false,
+                expectedReason: INVALID_PROOF_REASON
+            });
+        });
+
+        it("rejects a commentModeration with an invalid wallet entry", async () => {
+            if (!targetPost.cid) throw Error("Expected target post to have a CID");
+            const commentModeration = await pkc.createCommentModeration({
+                communityAddress: community.address,
+                commentCid: targetPost.cid,
+                commentModeration: { reason: `wallet proof moderation ${Date.now()}`, spoiler: true },
+                signer: moderatorSigner
+            });
+            await ensurePublicationIsSigned(commentModeration, community);
+            const entry = withBrokenSignature(createAuthorWalletEntry({ authorPublicKey: moderatorSigner.address }));
+            await setExtraPropOnCommentModerationAndSign(
+                commentModeration as CommentModeration,
+                { author: { wallets: { eth: entry } } },
+                true
+            );
+            await publishWithExpectedResult({
+                publication: commentModeration,
+                expectedChallengeSuccess: false,
+                expectedReason: INVALID_PROOF_REASON
+            });
+        });
+
+        it("rejects a communityEdit with an invalid wallet entry", async () => {
+            const ownerSigner = community.signer as SignerType;
+            if (!ownerSigner?.address) throw Error("Expected the local community to expose its owner signer");
+            const communityEdit = await pkc.createCommunityEdit({
+                communityAddress: community.address,
+                communityEdit: { description: `wallet proof community edit ${Date.now()}` },
+                signer: ownerSigner
+            });
+            await ensurePublicationIsSigned(communityEdit, community);
+            const entry = withBrokenSignature(createAuthorWalletEntry({ authorPublicKey: ownerSigner.address }));
+            // No setExtraPropOn helper exists for a communityEdit: add the wallets to the signed record and sign it again,
+            // with author among the signed property names so the entry is covered by the signature
+            const signed = communityEdit.raw.pubsubMessageToPublish!;
+            const withWallets = { ...signed, author: { ...(signed.author || {}), wallets: { eth: entry } } };
+            const signedPropertyNames = signed.signature.signedPropertyNames.includes("author")
+                ? signed.signature.signedPropertyNames
+                : [...signed.signature.signedPropertyNames, "author"];
+            withWallets.signature = await _signJson(
+                signedPropertyNames,
+                cleanUpBeforePublishing(withWallets),
+                communityEdit.signer!,
+                Logger("pkc-js:test:author-wallet-proof:communityEdit")
+            );
+            communityEdit.raw.pubsubMessageToPublish = withWallets;
+            communityEdit.signature = withWallets.signature;
+            disableValidationOfSignatureBeforePublishing(communityEdit);
+            await publishWithExpectedResult({
+                publication: communityEdit,
                 expectedChallengeSuccess: false,
                 expectedReason: INVALID_PROOF_REASON
             });
