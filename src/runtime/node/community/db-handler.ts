@@ -23,7 +23,7 @@ import env from "../../../version.js";
 import Database, { type Database as BetterSqlite3Database, type Statement } from "better-sqlite3";
 import { sha256 } from "js-sha256";
 
-import { getCommunitiesRegistry, type StartOwnership } from "./communities-registry.js";
+import { getCommunitiesRegistry, markCommunityDbAsBeingWritten, type StartOwnership } from "./communities-registry.js";
 import type { PageOptions } from "./page-generator.js";
 import type {
     InternalCommunityRecordAfterFirstUpdateType,
@@ -3601,7 +3601,7 @@ export class DbHandler {
         await fs.promises.mkdir(path.dirname(newPathString), { recursive: true });
 
         // The copy at the new path is not a community until it is complete: the caller lists it then
-        const doneWritingNewDbFile = getCommunitiesRegistry(this._community._pkc).markFileAsBeingWritten(newDbName);
+        const doneWritingNewDbFile = markCommunityDbAsBeingWritten({ dataPath, communityAddress: newDbName });
         try {
             // Check if oldDb exists before attempting to open for backup
             if (!fs.existsSync(oldPathString)) {

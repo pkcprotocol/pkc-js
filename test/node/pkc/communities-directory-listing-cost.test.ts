@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import path from "path";
+import fs from "fs";
 
 // Every listing of a `communities` directory is recorded, with the path it listed
 const { directoryListings } = vi.hoisted(() => ({ directoryListings: [] as string[] }));
@@ -48,12 +49,18 @@ describeSkipIfRpc("pkc.communities: the communities directory is not listed per 
     };
 
     beforeAll(async () => {
-        pkc = await mockPKC();
+        // A dataPath of its own: the default one is shared with the test server and every other test file, whose
+        // communities and filesystem events are not this test's
+        pkc = await mockPKC({
+            dataPath: path.join(process.cwd(), ".tmp", `communities-directory-listing-cost-${Date.now()}-${process.pid}`)
+        });
         for (let i = 0; i < 5; i++) existingAddresses.push((await pkc.createCommunity()).address);
     });
 
     afterAll(async () => {
+        const dataPath = pkc.dataPath!;
         await pkc.destroy();
+        await fs.promises.rm(dataPath, { recursive: true, force: true });
     });
 
     it("createCommunity({ address }) of an existing local community lists nothing", async () => {

@@ -82,6 +82,20 @@ const isIgnoredFilename = (filename: string) => FILE_SUFFIXES_TO_IGNORE.some((su
 // a creation opened the half-written DB to look for its identity. Counted, since two calls may create the same DB
 const filesBeingWrittenByThisProcess = new Map<string, number>();
 
+// Marks a community DB as being created or moved into place by this process, until the returned function is called
+export function markCommunityDbAsBeingWritten({ dataPath, communityAddress }: { dataPath: string; communityAddress: string }): () => void {
+    const filePath = path.resolve(getDbFilePath(dataPath, communityAddress));
+    filesBeingWrittenByThisProcess.set(filePath, (filesBeingWrittenByThisProcess.get(filePath) ?? 0) + 1);
+    let done = false;
+    return () => {
+        if (done) return;
+        done = true;
+        const count = (filesBeingWrittenByThisProcess.get(filePath) ?? 1) - 1;
+        if (count <= 0) filesBeingWrittenByThisProcess.delete(filePath);
+        else filesBeingWrittenByThisProcess.set(filePath, count);
+    };
+}
+
 function getDbFilePath(dataPath: string, communityAddress: string): string {
     return path.join(dataPath, "communities", communityAddress);
 }
@@ -327,9 +341,10 @@ export class CommunitiesRegistry {
 
     // Whether a community DB is stored under exactly this address
     hasCommunityDb(communityAddress: string): boolean {
-        if (this._closed) return false;
         const dbFilePath = getDbFilePath(this.dataPath, communityAddress);
         if (!existsSync(dbFilePath)) return false;
+        // Still answered after close(), from the file: something of a destroyed PKC may run a moment longer
+        if (this._closed) return isSqliteFile(dbFilePath) === true;
         return Boolean(this._selectRow.get(communityAddress)) || isSqliteFile(dbFilePath) === true;
     }
 
@@ -358,20 +373,6 @@ export class CommunitiesRegistry {
             this._registerFile(newAddress);
         });
         this._emitListIfOutdated();
-    }
-
-    // Marks a DB file as being created or moved into place by this process, until the returned function is called
-    markFileAsBeingWritten(communityAddress: string): () => void {
-        const filePath = path.resolve(getDbFilePath(this.dataPath, communityAddress));
-        filesBeingWrittenByThisProcess.set(filePath, (filesBeingWrittenByThisProcess.get(filePath) ?? 0) + 1);
-        let done = false;
-        return () => {
-            if (done) return;
-            done = true;
-            const count = (filesBeingWrittenByThisProcess.get(filePath) ?? 1) - 1;
-            if (count <= 0) filesBeingWrittenByThisProcess.delete(filePath);
-            else filesBeingWrittenByThisProcess.set(filePath, count);
-        };
     }
 
     // ---- started ----
@@ -497,19 +498,27 @@ export class CommunitiesRegistry {
 
     // Writes the row of the DB file stored under this address, from the file. Returns the row, or undefined when there
     // is no such file or it is not a SQLite database. `evenIfNotACommunityDb` writes a row all the same, without an
-    // identity: start() claims a community by its row
+    // identity: start() claims a community by its row.
+    // The file is read inside the write transaction, so two instances registering one file do so one after the other.
+    // Read outside of it, an instance that had read a DB while it was still being created could write "no identity"
+    // over the identity its creator had registered since, and the community was gone from every list
     private _registerFile(communityAddress: string, { evenIfNotACommunityDb = false } = {}): RegistryRow | undefined {
         const dbFilePath = getDbFilePath(this.dataPath, communityAddress);
-        const fileId = getFileId(dbFilePath);
-        const isCommunityDb = fileId !== undefined && isSqliteFile(dbFilePath) === true;
-        if (!isCommunityDb && !evenIfNotACommunityDb) return undefined;
-        const publicKey = isCommunityDb ? readCommunityPublicKeyFromDb(dbFilePath) ?? null : null;
         return this._write(() => {
+            const fileId = getFileId(dbFilePath) ?? null;
+            const isCommunityDb = fileId !== null && isSqliteFile(dbFilePath) === true;
             const existing = this._selectRow.get(communityAddress);
-            if (!existing || existing.publicKey !== publicKey || existing.fileId !== (fileId ?? null)) {
-                this._upsertIdentity.run(communityAddress, publicKey, fileId ?? null);
-                this._recordChange(communityAddress);
+            if (!isCommunityDb && !evenIfNotACommunityDb) {
+                if (this._onChange) this._mirrorRow(communityAddress, existing);
+                return undefined;
             }
+            let publicKey = isCommunityDb ? readCommunityPublicKeyFromDb(dbFilePath) ?? null : null;
+            // a read that failed says nothing about a file whose identity is known
+            if (publicKey === null && existing && existing.fileId === fileId) publicKey = existing.publicKey;
+            if (!existing || existing.publicKey !== publicKey || existing.fileId !== fileId) {
+                this._upsertIdentity.run(communityAddress, publicKey, fileId);
+                this._recordChange(communityAddress);
+            } else if (this._onChange) this._mirrorRow(communityAddress, existing); // written by another instance
             return this._selectRow.get(communityAddress);
         });
     }
@@ -760,4 +769,11 @@ export function getCommunitiesRegistry(pkc: { dataPath?: string }): CommunitiesR
         registries.set(pkc, registry);
     }
     return registry;
+}
+
+// Closes the registry of an object that stood in for a PKC and forgets it, so its connection to storage.db does not
+// outlive it. A PKC closes its own when it is destroyed
+export function closeCommunitiesRegistry(pkc: { dataPath?: string }) {
+    registries.get(pkc)?.close();
+    registries.delete(pkc);
 }

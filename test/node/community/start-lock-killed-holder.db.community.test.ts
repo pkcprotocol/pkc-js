@@ -4,7 +4,11 @@ import path from "node:path";
 import { v4 as uuidV4 } from "uuid";
 import Database from "better-sqlite3";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
-import { isCommunityStartLocked, isCommunityStartLockedSync } from "../../../dist/node/runtime/node/community/communities-registry.js";
+import {
+    closeCommunitiesRegistry,
+    isCommunityStartLocked,
+    isCommunityStartLockedSync
+} from "../../../dist/node/runtime/node/community/communities-registry.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { holdStartLockInAnotherProcess } from "../../helpers/start-lock-holder.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
@@ -16,8 +20,12 @@ import type { PKCError } from "../../../dist/node/pkc-error.js";
 // to start its communities with ERR_COMMUNITY_ALREADY_STARTED and never hosted them again (issue #546). The lock is
 // held in the kernel now, which releases it the moment the holding process dies, and not before (issue #561).
 
+// What stands in for the PKC instance of each handler, to close its communities registry with
+const instances: { dataPath: string }[] = [];
+
 function createDbHandler({ dataPath, address }: { dataPath: string; address: string }): DbHandler {
     const fakeCommunity = { address, _pkc: { dataPath } };
+    instances.push(fakeCommunity._pkc);
     return new DbHandler(fakeCommunity as unknown as LocalCommunity);
 }
 
@@ -42,6 +50,8 @@ describeSkipIfRpc("the start lock of a community whose holder is another process
         holder = undefined;
         await dbHandler.unlockCommunityStart().catch(() => {});
         dbHandler.destoryConnection();
+        // its connection to storage.db would keep the dataPath from being removed on Windows
+        for (const instance of instances.splice(0)) closeCommunitiesRegistry(instance);
         await fs.promises.rm(dataPath, { recursive: true, force: true });
     });
 

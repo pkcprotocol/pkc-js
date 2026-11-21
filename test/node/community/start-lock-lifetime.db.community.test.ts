@@ -5,6 +5,7 @@ import { v4 as uuidV4 } from "uuid";
 import Database from "better-sqlite3";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import {
+    closeCommunitiesRegistry,
     getCommunitiesRegistry,
     isCommunityStartLocked,
     isCommunityStartLockedSync
@@ -23,8 +24,12 @@ import type { PKC } from "../../../dist/node/pkc/pkc.js";
 // community next to a live one, silently. These cases pin what keeps a community claimed for as long as its holder
 // wants it. Whether it is claimed is always asked of a second OS process, the only view that counts.
 
+// What stands in for the PKC instance of each handler, to close its communities registry with
+const instances: { dataPath: string }[] = [];
+
 function createDbHandler({ dataPath, address }: { dataPath: string; address: string }): DbHandler {
     const fakeCommunity = { address, _pkc: { dataPath } };
+    instances.push(fakeCommunity._pkc);
     return new DbHandler(fakeCommunity as unknown as LocalCommunity);
 }
 
@@ -61,6 +66,8 @@ describeSkipIfRpc("how long a start lock stays held", () => {
         holder = undefined;
         await dbHandler.unlockCommunityStart().catch(() => {});
         dbHandler.destoryConnection();
+        // its connection to storage.db would keep the dataPath from being removed on Windows
+        for (const instance of instances.splice(0)) closeCommunitiesRegistry(instance);
         await fs.promises.rm(dataPath, { recursive: true, force: true });
     });
 
@@ -139,7 +146,9 @@ describeSkipIfRpc("how long a start lock stays held", () => {
 
         for (let i = 0; i < 50; i++) expect(isCommunityStartLockedSync({ dataPath, communityAddress: address })).to.be.true;
         // a second instance in this process: it sweeps the lock files of dead instances and lists the directory
-        const otherRegistry = getCommunitiesRegistry({ dataPath });
+        const otherInstance = { dataPath };
+        instances.push(otherInstance);
+        const otherRegistry = getCommunitiesRegistry(otherInstance);
         try {
             otherRegistry.startMonitoring({ onChange: () => {} });
             for (let i = 0; i < 50; i++) otherRegistry.readChangesOfOtherInstances();

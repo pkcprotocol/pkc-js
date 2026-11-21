@@ -5,9 +5,10 @@ import { v4 as uuidv4 } from "uuid";
 import Database from "better-sqlite3";
 
 // Every listing of a `communities` directory and every open of a database is recorded
-const { directoryListings, openedDbFilenames } = vi.hoisted(() => ({
+const { directoryListings, openedDbFilenames, failNextOpenOf } = vi.hoisted(() => ({
     directoryListings: [] as string[],
-    openedDbFilenames: [] as string[]
+    openedDbFilenames: [] as string[],
+    failNextOpenOf: new Set<string>()
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -25,7 +26,11 @@ vi.mock("better-sqlite3", async (importOriginal) => {
     const pathModule = await import("path");
     class CountingDatabase extends original.default {
         constructor(...args: ConstructorParameters<typeof Database>) {
-            if (typeof args[0] === "string") openedDbFilenames.push(pathModule.basename(args[0]));
+            if (typeof args[0] === "string") {
+                const filename = pathModule.basename(args[0]);
+                openedDbFilenames.push(filename);
+                if (failNextOpenOf.delete(filename)) throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" });
+            }
             super(...args);
         }
     }
@@ -36,7 +41,8 @@ import { monitorCommunitiesDirectory } from "../../../dist/node/runtime/node/uti
 import {
     COMMUNITIES_REGISTRY_TICK_MS,
     getCommunitiesRegistry,
-    isCommunityStartLockedSync
+    isCommunityStartLockedSync,
+    markCommunityDbAsBeingWritten
 } from "../../../dist/node/runtime/node/community/communities-registry.js";
 import { STORAGE_KEYS } from "../../../dist/node/constants.js";
 import { holdStartLockInAnotherProcess } from "../../helpers/start-lock-holder.js";
@@ -111,6 +117,7 @@ describe("communities registry", () => {
     };
 
     beforeEach(() => {
+        failNextOpenOf.clear();
         dataPath = path.join(process.cwd(), ".tmp", `communities-registry-${uuidv4()}`);
         communitiesPath = path.join(dataPath, "communities");
         fs.mkdirSync(communitiesPath, { recursive: true });
@@ -261,7 +268,7 @@ describe("communities registry", () => {
 
         it("is not acted on while this process says it is writing it, and is listed when the writer registers it", async () => {
             const { addresses, registry } = await createInstance();
-            const doneWriting = registry.markFileAsBeingWritten("being-created.bso");
+            const doneWriting = markCommunityDbAsBeingWritten({ dataPath, communityAddress: "being-created.bso" });
             resetCounts();
             const filePath = createCommunityDb("being-created.bso");
             await settle();
@@ -273,6 +280,44 @@ describe("communities registry", () => {
             expect(addresses()).to.deep.equal(["being-created.bso"]);
             expect(fs.existsSync(filePath)).to.be.true;
         });
+    });
+
+    // Several instances register the same file, each when its own filesystem event arrives. One that could not read the
+    // DB at that moment (it is locked, the process is out of file descriptors) must not write "no identity" over the
+    // identity another has registered: the community would be gone from every list until its file next changed
+    it("a DB whose identity is registered stays listed when a later read of it fails", async () => {
+        createCommunityDb("read-fails.bso");
+        const { addresses, registry } = await createInstance();
+        expect(addresses()).to.deep.equal(["read-fails.bso"]);
+
+        failNextOpenOf.add("read-fails.bso");
+        registry.registerCommunity("read-fails.bso");
+        expect(failNextOpenOf.size, "the read was not attempted").to.equal(0);
+        expect(addresses()).to.deep.equal(["read-fails.bso"]);
+        expect(registry.findAddress({ publicKey: "12D3KooWread-fails.bso" })).to.equal("read-fails.bso");
+    });
+
+    // Another instance wrote the row first: this one finds nothing to write, and must list the community all the same
+    it("a DB that another instance registered first is listed by an instance that registers it too", async () => {
+        const first = await createInstance();
+        const second = await createInstance();
+        const doneWriting = markCommunityDbAsBeingWritten({ dataPath, communityAddress: "registered-twice.bso" });
+        createCommunityDb("registered-twice.bso");
+        doneWriting();
+        first.registry.registerCommunity("registered-twice.bso");
+        expect(second.addresses(), "listed before it was registered or read").to.deep.equal([]);
+        second.registry.registerCommunity("registered-twice.bso");
+        expect(second.addresses()).to.deep.equal(["registered-twice.bso"]);
+    });
+
+    it("an instance that is closed still says whether a community DB is there, and finds none by lookup", async () => {
+        createCommunityDb("after-close.bso");
+        const { registry } = await createInstance();
+        registry.close();
+        expect(registry.hasCommunityDb("after-close.bso")).to.be.true;
+        expect(registry.hasCommunityDb("not-there.bso")).to.be.false;
+        expect(registry.findAddress({ address: "after-close.bso" })).to.be.undefined;
+        expect(registry.isStarted("after-close.bso")).to.be.false;
     });
 
     describe("lookups", () => {

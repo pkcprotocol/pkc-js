@@ -31,7 +31,7 @@ import type {
     DbPostsFormat
 } from "../../publications/comment/types.js";
 import { DbHandler } from "./community/db-handler.js";
-import { getCommunitiesRegistry } from "./community/communities-registry.js";
+import { getCommunitiesRegistry, markCommunityDbAsBeingWritten } from "./community/communities-registry.js";
 import type { CommunitiesEntryLookup } from "../../community/communities-entry-util.js";
 import Database from "better-sqlite3";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comment/schema.js";
@@ -315,7 +315,7 @@ export function unregisterLocalCommunity(pkc: PKC, communityAddress: string) {
 // Marks a community DB as being created or moved into place by this process: the filesystem events of its writes are
 // not acted on until the returned function is called. Whoever writes the file registers it once it is complete
 export function markLocalCommunityDbAsBeingWritten(pkc: PKC, communityAddress: string): () => void {
-    return getCommunitiesRegistry(pkc).markFileAsBeingWritten(communityAddress);
+    return markCommunityDbAsBeingWritten({ dataPath: pkc.dataPath!, communityAddress });
 }
 
 export async function importSignerIntoKuboNode(
