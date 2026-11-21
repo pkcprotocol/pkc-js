@@ -4,7 +4,7 @@ import { LRUCache } from "lru-cache";
 import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
 import { pubsubTopicToDhtKey, removeMfsFilesSafely, sleepUntilTimeoutOrAbort } from "../../../../util.js";
-import { moveCommunityDbToDeletedDirectory, refreshCommunitiesList } from "../../util.js";
+import { moveCommunityDbToDeletedDirectory, unregisterLocalCommunity } from "../../util.js";
 import { deriveCommunityChallengesOrThrow } from "../challenges/index.js";
 import { collectChallengeSettingsValidationFailures } from "../challenges/validate-challenge-settings.js";
 import {
@@ -74,6 +74,20 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
     };
 
     while (!shouldStopPublishLoop()) {
+        // Two instances publishing one community would each sign records under the same key, with the same sequence
+        // numbers. start() can't let that happen, so this is a second line: whatever took this instance's claim from
+        // it while it was running, the community goes down here and says why (issue #585)
+        if (isCommunityStartTakenByAnotherInstance(community, log)) {
+            const error = new PKCError("ERR_COMMUNITY_START_TAKEN_BY_ANOTHER_PKC_INSTANCE", {
+                address: community.address,
+                dataPath: community._pkc.dataPath
+            });
+            log.error(error);
+            community.emit("error", error);
+            // not awaited: stop() waits for this loop to end
+            community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after its start was taken`, e));
+            break;
+        }
         let lastSyncFailed = false;
         try {
             await syncIpnsWithDb(community);
@@ -96,6 +110,16 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
         }
     }
     log("Stopping the publishing loop of community", community.address);
+}
+
+// A failure to read the registry is not a verdict: the cycle runs and the next one asks again
+function isCommunityStartTakenByAnotherInstance(community: LocalCommunity, log: Logger): boolean {
+    try {
+        return community._dbHandler.confirmCommunityStartIsStillOurs() === "taken";
+    } catch (e) {
+        log.error(`Failed to confirm that community (${community.address}) is still started by this PKC instance`, e);
+        return false;
+    }
 }
 
 export async function initBeforeStarting(community: LocalCommunity) {
@@ -615,9 +639,9 @@ async function stopCommunity(community: LocalCommunity) {
 export const DELETE_UNPIN_SLICE_SIZE = 5000;
 
 // Marked for its whole run, from before its first await: start() refuses while the mark is set. The delete closes the
-// community's DB connection and moves the DB away, and a start() that ran meanwhile held the start lock on that
-// connection: the close was refused (see DbHandler.destoryConnection), the DB and its sidecar went all the same, and the
-// community stayed started on a file that was no longer there, startable by another process too.
+// community's DB connection and moves the DB away, and a start() that ran meanwhile had the community started on that
+// connection: the close was refused (see DbHandler.destoryConnection), the DB went all the same, and the community
+// stayed started on a file that was no longer there.
 export async function deleteCommunity(community: LocalCommunity) {
     let settle!: () => void;
     const inFlight = new Promise<void>((resolve) => (settle = resolve));
@@ -735,7 +759,7 @@ async function deleteCommunityWhileMarked(community: LocalCommunity) {
     }
 
     await moveCommunityDbToDeletedDirectory(community.address, community._pkc);
-    refreshCommunitiesList(community._pkc); // unlist the address now, not when the filesystem watcher fires
+    unregisterLocalCommunity(community._pkc, community.address); // unlist the address now, not when the filesystem watcher fires
 
     log(`Deleted community (${community.address}) successfully`);
 }

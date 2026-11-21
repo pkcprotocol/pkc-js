@@ -4,7 +4,7 @@ import path from "node:path";
 import { v4 as uuidV4 } from "uuid";
 import Database from "better-sqlite3";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
-import { isCommunityStartLocked, isCommunityStartLockedSync } from "../../../dist/node/runtime/node/community/start-lock.js";
+import { isCommunityStartLocked, isCommunityStartLockedSync } from "../../../dist/node/runtime/node/community/communities-registry.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { holdStartLockInAnotherProcess } from "../../helpers/start-lock-holder.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";

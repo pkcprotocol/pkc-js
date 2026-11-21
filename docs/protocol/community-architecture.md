@@ -62,6 +62,19 @@ verified against the terminal/minter name (`ipnsHops.at(-1)`). See
 - **Challenge Processing**: Receives encrypted challenge requests from pubsub, processes them
 - **Page Generation**: Rebuilds sorted/paginated pages when comments change (`src/runtime/node/community/page-generator.ts`)
 
+## The communities registry
+
+Which local communities a data path holds, and which PKC instance has started each, is kept in two tables of `${dataPath}/storage.db` (`src/runtime/node/community/communities-registry.ts`, issue #585). `pkc.communities`, the local-or-remote decision of `pkc.createCommunity`, `community.started` and the RPC server's lookups all read it. None of them lists `dataPath/communities`.
+
+- **The DB files are the truth, the registry is their index.** A file with no row gets one, a row whose file is gone is removed. Creating a community writes the file first and the row second. A DB file deleted by hand under a running community gets no special handling: its row goes, and the community fails on its own.
+- **One row per DB file**: its filename (the community's address), its identity key, and `startedBy`, the id of the PKC instance that started it. A DB whose identity can't be read yet (mid-creation, mid-migration, corrupt) may have a row with no key, and is left out of `pkc.communities` until it can.
+- **`started`** means `startedBy` names an instance whose lock is held. Each PKC instance holds one kernel lock for its lifetime (`pkc-instance-lock.ts`), however many communities it runs. `start()` claims the row in one SQLite write transaction, which is atomic across processes, and takes it over from an instance that died. `stop()` gives it back. There is no lock file per community.
+- **A started community checks at each publish cycle that it is still its instance's.** If another live instance has it claimed, it emits `ERR_COMMUNITY_START_TAKEN_BY_ANOTHER_PKC_INSTANCE` and stops itself, so two instances never keep publishing one community.
+- **The directory is listed once per PKC**, when it is created, and again only for a filesystem event that does not name its file. Any other event concerns one file: ignored when the file has a row and is still there (so a write to a community's DB costs one lookup in memory), registered when it has none (so a DB moved or copied in by hand is picked up when its last write lands).
+- **What another PKC instance on the data path does reaches `pkc.communities` within about two seconds** (`COMMUNITIES_REGISTRY_TICK_MS`). SQLite does not notify another process of a write, and a killed process writes nothing, so every instance reads the rows changed since its last read, and tries the lock of each other instance that has communities started, on a timer. What an instance does itself is in its own list at once. Only the list can be late: `start()`, `createCommunity()` and `community.started` read the tables.
+- **A filesystem event the kernel drops** (Linux drops events past 16,384 queued, with no error) leaves `pkc.communities` without a DB that was copied in by hand, until that file's next event or the next PKC on the data path. `createCommunity({ address })` finds the file all the same.
+- Every process on a data path must run the same pkc-js version, and the data path must be on a local filesystem.
+
 ## Key Invariants
 
 - `LocalCommunity` lives under `src/runtime/node/`, it **must not** be imported from browser code.

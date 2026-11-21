@@ -4,18 +4,18 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import env from "../../../dist/node/version.js";
 import { mockPKC, createSubWithNoChallenge, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
-import { getStartLockPath, isCommunityStartLockedSync } from "../../../dist/node/runtime/node/community/start-lock.js";
+import { isCommunityStartLockedSync } from "../../../dist/node/runtime/node/community/communities-registry.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { holdStartLockInAnotherProcess, startCommunityInAnotherProcess } from "../../helpers/start-lock-holder.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 
-// A community's start lock lives on its connection to its DB (issue #561, see start-lock.ts), so every step of a
-// community's life that touches that connection can drop the lock: the community would keep running while another
-// process starts it too. After each step here a second OS process asks for the lock, and must be refused for exactly as
-// long as the community is started. The DB handler also throws under vitest when the connection is closed while it
-// holds the lock, so each step doubles as a check that nothing on its path does that.
+// A community is started for as long as the PKC instance that started it says so in the communities registry (issue
+// #585, see communities-registry.ts). No step of a community's life may give that claim up while the community runs:
+// another process could then start it too. After each step here a second OS process asks to start the community, and
+// must be refused for exactly as long as it is started. The DB handler also throws under vitest when the connection of
+// a started community is closed, so each step doubles as a check that nothing on its path does that.
 
 // A second OS process asks for the start lock in the local dataPath; over RPC the community runs in the server's process
 describeSkipIfRpc("the start lock through a community's life", () => {
@@ -72,7 +72,7 @@ describeSkipIfRpc("the start lock through a community's life", () => {
         await community.start();
         expect(await lockAsAnotherProcessSeesIt(community.address)).to.equal("held");
         await community.delete();
-        expect(fs.existsSync(getStartLockPath({ dataPath: pkc.dataPath!, communityAddress: community.address }))).to.be.false;
+        expect(isCommunityStartLockedSync({ dataPath: pkc.dataPath!, communityAddress: community.address })).to.be.false;
     });
 
     // Issue #546 end to end: a server that was killed and restarted within 10s used to find the start locks of its
@@ -136,8 +136,7 @@ describeSkipIfRpc("the start lock through a community's life", () => {
         expect(community.state).to.equal("stopped");
         expect(community._dbHandler.holdsStartLock(), "the instance still holds the start lock").to.be.false;
         expect(fs.existsSync(path.join(pkc.dataPath!, "communities", address)), "the DB is still there").to.be.false;
-        expect(fs.existsSync(getStartLockPath({ dataPath: pkc.dataPath!, communityAddress: address })), "the sidecar is still there").to.be
-            .false;
+        expect(isCommunityStartLockedSync({ dataPath: pkc.dataPath!, communityAddress: address }), "it is still started").to.be.false;
         expect(pkc.communities.map((entry) => entry.address)).to.not.include(address);
     };
 

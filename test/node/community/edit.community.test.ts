@@ -20,7 +20,7 @@ import { timestamp } from "../../../dist/node/util.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import fs from "fs";
 import path from "path";
-import { getStartLockPath, isCommunityStartLockedSync } from "../../../dist/node/runtime/node/community/start-lock.js";
+import { isCommunityStartLockedSync } from "../../../dist/node/runtime/node/community/communities-registry.js";
 import { isDeepEqual, pick } from "remeda";
 
 import { v4 as uuidV4 } from "uuid";
@@ -169,7 +169,7 @@ for (const editKey of ["address", "name"] as const) {
         it(`Start locks are moved to the new address`, async () => {
             // Check for locks
             const dataPath = community._pkc.dataPath!;
-            expect(fs.existsSync(getStartLockPath({ dataPath, communityAddress: community.signer.address }))).to.be.false;
+            expect(isCommunityStartLockedSync({ dataPath, communityAddress: community.signer.address })).to.be.false;
             expect(isCommunityStartLockedSync({ dataPath, communityAddress: bsoNameAddress })).to.be.true;
         });
 
@@ -332,8 +332,8 @@ for (const editKey of ["address", "name"] as const) {
 
         it(`start locks are moved from signer/.eth to .bso`, async () => {
             const dataPath = community._pkc.dataPath!;
-            expect(fs.existsSync(getStartLockPath({ dataPath, communityAddress: community.signer.address }))).to.be.false;
-            expect(fs.existsSync(getStartLockPath({ dataPath, communityAddress: ethAddress }))).to.be.false;
+            expect(isCommunityStartLockedSync({ dataPath, communityAddress: community.signer.address })).to.be.false;
+            expect(isCommunityStartLockedSync({ dataPath, communityAddress: ethAddress })).to.be.false;
             expect(isCommunityStartLockedSync({ dataPath, communityAddress: bsoAddress })).to.be.true;
         });
 
