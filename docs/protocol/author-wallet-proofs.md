@@ -9,7 +9,7 @@
 | Community, on acceptance | Verifies every entry of `author.wallets` of every publication type (comment, vote, comment edit, comment moderation, community edit), after the publication's own signature is verified. An **invalid** entry rejects the publication, and the `reason` names the chain ticker. An **unknown** entry is accepted. | Implemented, **off** until `authorWalletProofEnforcement.enabled` is flipped (`src/signer/author-wallet-proof.ts`). Do not turn it on before challenges and clients use the BSIP-22 string, or every author with a saved wallet is rejected. |
 | Publisher, before the exchange | `publication.publish()` runs the same check on the signed record after signing and throws `ERR_AUTHOR_WALLET_PROOF_IS_INVALID` (details: `chainTicker`, `reason`) before anything is sent; the instance is left `stopped` and can be retried. | Implemented, **off** with the same switch: a proof signed with the pre-BSIP-22 string reads as invalid, so checking first would block authors with a saved wallet in every community. |
 | Loading | Request and list schemas check only the shape of an entry (`address`, `timestamp`, `signature.signature`, `signature.type`). A missing `signature` or `type` is rejected there. BSIP-15 list loading never verifies a proof. | On |
-| Library API | pkc-js exports no verifier. Copy the snippet below. | n/a |
+| Library API | pkc-js exports no verifier. Copy the verifier file, see "Verifier to copy". | n/a |
 
 Three outcomes, per entry:
 
@@ -29,44 +29,12 @@ A client MUST verify an entry itself before it relies on it (shows the address a
 
 ## Verifier to copy
 
-```js verify-author-wallet
-import { secp256k1 } from "@noble/curves/secp256k1.js";
-import { keccak_256 } from "@noble/hashes/sha3.js";
-import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
+pkc-js exports no verifier, and this doc carries no second copy of one, so there is nothing to drift. Two places to copy from:
 
-const HALF_ORDER = secp256k1.Point.Fn.ORDER >> 1n;
-const isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+- `src/signer/author-wallet-proof.ts`: the verifier pkc-js runs. One small file, no imports besides `@noble/curves` and `@noble/hashes`. `verifyAuthorWalletEntry({ entry, authorPublicKey, nowSeconds })` returns `valid`, `invalid` (with a reason) or `unknown`. Copy the file as it is.
+- `assets/verify-vectors.mjs` in the [BSIPs repo](https://github.com/bitsocialnet/BSIPs): the BSIP-22 reference check, written with Node built-ins only, for a verifier that cannot depend on `@noble`.
 
-// entry: one value of author.wallets. authorPublicKey: key address (12D3KooW...) of the signature.publicKey of the
-// publication or list that carries it. Returns "valid", "invalid" or "unknown".
-export function verifyAuthorWalletEntry({ entry, authorPublicKey, nowSeconds = Math.floor(Date.now() / 1000) }) {
-    if (!isObject(entry) || typeof entry.address !== "string" || !Number.isInteger(entry.timestamp)) return "invalid";
-    const { address, timestamp, signature } = entry;
-    if (!isObject(signature) || typeof signature.signature !== "string" || typeof signature.type !== "string") return "invalid";
-    if (signature.type !== "eip191") return "unknown";
-    if (!/^0x[0-9a-fA-F]{40}$/.test(address) || timestamp < 0 || timestamp > nowSeconds + 300) return "invalid";
-    if (!/^0x[0-9a-fA-F]{130}$/.test(signature.signature)) return "invalid";
-    const bytes = hexToBytes(signature.signature.slice(2));
-    if (bytes[64] !== 27 && bytes[64] !== 28) return "invalid";
-    if (BigInt("0x" + bytesToHex(bytes.slice(32, 64))) > HALF_ORDER) return "invalid";
-    const message = `{"domainSeparator":"bitsocial-author-wallet","authorPublicKey":"${authorPublicKey}","walletAddress":"${address.toLowerCase()}","timestamp":${timestamp}}`;
-    const messageBytes = utf8ToBytes(message);
-    const prefix = utf8ToBytes(`\x19Ethereum Signed Message:\n${messageBytes.length}`);
-    const digest = keccak_256(new Uint8Array([...prefix, ...messageBytes]));
-    try {
-        const publicKey = secp256k1.Signature.fromBytes(bytes.slice(0, 64), "compact")
-            .addRecoveryBit(bytes[64] - 27)
-            .recoverPublicKey(digest)
-            .toBytes(false);
-        const recovered = "0x" + bytesToHex(keccak_256(publicKey.slice(1)).slice(12));
-        return recovered === address.toLowerCase() ? "valid" : "invalid";
-    } catch {
-        return "invalid";
-    }
-}
-```
-
-The signature of the carrying publication must be valid too: a proof counts only when its record is validly signed. `test/node/signatures/author-wallet-proof-docs-snippet.test.ts` runs this block against the BSIP-22 vectors, so it cannot drift.
+Whichever you use, run it against the BSIP-22 test vectors (`test/fixtures/author-wallet-proof/wallet-proof-vectors.json` here, copied from the BSIPs repo). `authorPublicKey` is the key address (`12D3KooW...`) of the `signature.publicKey` of the publication or list that carries the entry. The carrying record's own signature must be valid too: a proof counts only when its record is validly signed.
 
 ## Tests
 
