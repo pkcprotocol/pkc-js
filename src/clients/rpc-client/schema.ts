@@ -60,8 +60,8 @@ export const RpcUnsubscribeParamSchema = z.object({ subscriptionId: Subscription
 
 // Result schemas for events that were previously bare values
 export const RpcStateChangeEventResultSchema = z.object({ state: z.string() });
-// One entry of pkc.communities as it crosses the RPC wire (issue #455). `started` is whether the community's start lock
-// is held, the same check as community.started. The runtime-only `address` is not sent: each side computes it
+// One entry of pkc.communities as it crosses the RPC wire (issue #455). `started` is whether a live PKC instance
+// has the community started, the same check as community.started. The runtime-only `address` is not sent: each side computes it
 export const PKCCommunitiesWireEntrySchema = z.object({
     name: z.string().min(1).optional(),
     publicKey: z.string().min(1),

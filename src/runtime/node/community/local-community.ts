@@ -42,7 +42,7 @@ import type {
 import { storePublication } from "./local-community/publication-store.js";
 import type { IpfsHttpClientPubsubMessage } from "../../../types.js";
 import { verifyCommunity } from "../../../signer/signatures.js";
-import { deriveCommentIpfsFromCommentTableRow, refreshCommunitiesList } from "../util.js";
+import { deriveCommentIpfsFromCommentTableRow } from "../util.js";
 import { SignerWithPublicKeyAddress } from "../../../signer/index.js";
 import { RpcLocalCommunity } from "../../../community/rpc-local-community.js";
 import { omit, pick } from "remeda";
@@ -313,14 +313,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     }
 
     async _updateStartedValue() {
+        // Read from the communities registry, which is also where `started` in pkc.communities comes from, so the two
+        // always agree (issues #455 and #585). A start or a stop changes the registry, and with it the list, itself
         this.started = await this._dbHandler.isCommunityStartLocked(this.address);
-        // `started` in pkc.communities is the same start-lock check, so refresh it now rather than when the filesystem
-        // watcher fires (issue #455). Only a list refresh: a failure here must not fail the start or stop around it
-        try {
-            refreshCommunitiesList(this._pkc);
-        } catch (e) {
-            Logger("pkc-js:local-community:_updateStartedValue").error("Failed to refresh pkc.communities", e);
-        }
     }
 
     async initNewLocalCommunityPropsNoMerge(newProps: CreateNewLocalCommunityParsedOptions) {

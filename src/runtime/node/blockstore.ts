@@ -29,8 +29,8 @@ export const DEFAULT_IN_MEMORY_BLOCKSTORE_MAX_BYTES = 100 * 1024 * 1024;
  * under node), since there is nowhere to put a directory.
  *
  * Each libp2p-js client key gets its own directory. Two processes pointed at the same dataPath and
- * the same key share one directory. Unlike the community databases (which take a start lock, see
- * community/start-lock.ts) this is deliberately NOT locked: a lock would stop the second process
+ * the same key share one directory. Unlike the community databases (which one PKC instance at a time may
+ * start, see community/communities-registry.ts) this is deliberately NOT locked: a lock would stop the second process
  * from running at all, which is the wrong trade for a cache that both can safely use. Measured
  * behaviour when shared:
  *   - concurrent writes of the same block are safe; blockstore-fs writes via steno (temp file plus

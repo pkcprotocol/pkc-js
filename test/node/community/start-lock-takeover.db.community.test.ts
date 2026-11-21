@@ -4,7 +4,7 @@ import path from "node:path";
 import { v4 as uuidV4 } from "uuid";
 import Database from "better-sqlite3";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
-import { isCommunityStartLocked } from "../../../dist/node/runtime/node/community/start-lock.js";
+import { closeCommunitiesRegistry, isCommunityStartLocked } from "../../../dist/node/runtime/node/community/communities-registry.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { holdStartLockInAnotherProcess } from "../../helpers/start-lock-holder.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
@@ -17,8 +17,12 @@ import type { PKCError } from "../../../dist/node/pkc-error.js";
 // is no takeover to report. What a started community does about another process is covered by
 // start-lock-takeover.community.test.ts.
 
+// What stands in for the PKC instance of each handler, to close its communities registry with
+const instances: { dataPath: string }[] = [];
+
 function createDbHandler({ dataPath, address }: { dataPath: string; address: string }): DbHandler {
     const fakeCommunity = { address, _pkc: { dataPath } };
+    instances.push(fakeCommunity._pkc);
     return new DbHandler(fakeCommunity as unknown as LocalCommunity);
 }
 
@@ -43,6 +47,8 @@ describeSkipIfRpc("DbHandler.lockCommunityStart against a holder that cannot los
         holder = undefined;
         await dbHandler.unlockCommunityStart().catch(() => {});
         dbHandler.destoryConnection();
+        // its connection to storage.db would keep the dataPath from being removed on Windows
+        for (const instance of instances.splice(0)) closeCommunitiesRegistry(instance);
         await fs.promises.rm(dataPath, { recursive: true, force: true });
     });
 

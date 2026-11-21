@@ -15,7 +15,7 @@ import {
 import { itSkipIfRpc, itIfRpc } from "../../helpers/conditional-tests.js";
 import path from "path";
 import fs from "fs";
-import { isCommunityStartLockedSync } from "../../../dist/node/runtime/node/community/start-lock.js";
+import { isCommunityStartLockedSync } from "../../../dist/node/runtime/node/community/communities-registry.js";
 import signers from "../../fixtures/signers.js";
 import { v4 as uuidV4 } from "uuid";
 
@@ -286,16 +286,25 @@ describe(`Start lock`, async () => {
         }
     );
 
-    it(`Can start community next to a lock directory left by the mtime lock of an older version, and removes it`, async () => {
-        // The start lock used to be a directory whose mtime its holder refreshed, held for 10s after the last refresh.
-        // The lock is held in the kernel now (issue #561) and that directory decides nothing.
+    // Skipped under RPC: the leftovers are removed when a PKC is created on the dataPath, and under RPC that PKC is the
+    // server's, which exists long before this test
+    itSkipIfRpc(`Can start community next to the start locks left by older versions, which the next PKC removes`, async () => {
+        // The start lock used to be a directory whose mtime its holder refreshed (held for 10s after the last refresh),
+        // then a lock file beside each community's DB (issue #561). Which instance has a community started is in the
+        // communities registry now (issue #585), and neither leftover decides anything.
         const community = await createSubWithNoChallenge({}, pkc);
 
         const lockPath = path.join(dataPath, "communities", `${community.address}.start.lock`);
-        await fs.promises.mkdir(lockPath); // Artifically create a start lock of the old kind
+        const sidecarPath = path.join(dataPath, "communities", `${community.address}.start.lock.db`);
+        await fs.promises.mkdir(lockPath); // Artifically create a start lock of the oldest kind
+        await fs.promises.writeFile(sidecarPath, ""); // and of the kind after it
+
+        const nextPkc = await mockPKC({ dataPath });
+        await nextPkc.destroy();
+        expect(fs.existsSync(lockPath)).to.be.false;
+        expect(fs.existsSync(sidecarPath)).to.be.false;
 
         await community.start();
-        expect(fs.existsSync(lockPath)).to.be.false;
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         const post = await publishRandomPost({ communityAddress: community.address, pkc: pkc });
         await waitTillPostInCommunityPages(post as Comment & { cid: string }, pkc);
