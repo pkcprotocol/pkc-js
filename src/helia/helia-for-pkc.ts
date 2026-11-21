@@ -51,6 +51,12 @@ const log = Logger("pkc-js:libp2p-js");
 const libp2pJsClients: Partial<Record<string, Libp2pJsClient>> = {}; // key => pkc.clients.libp2pJsClients[key]
 const creatingLibp2pJsClients: Partial<Record<string, Promise<Libp2pJsClient>>> = {};
 
+// ipfs-unixfs-exporter accepts a CID object only from its own multiformats copy (it checks `instanceof CID`), and a
+// consumer's install can hold a second copy next to ours whatever range package.json declares: a Yarn lockfile keeps
+// both until `yarn dedupe`. A CID string is parsed by the exporter's own copy, so unixfs cat/stat get the root that way.
+type UnixfsRoot = Parameters<ReturnType<typeof unixfs>["cat"]>[0];
+const asUnixfsRoot = (rootCidString: string): UnixfsRoot => rootCidString as unknown as UnixfsRoot;
+
 // TODO need to call ipnsRouter.cancel when our community stops updating
 // TODO we may need to remove libp2pJsClients and creatingLibp2pJsClients, I actually don't think they're needed
 
@@ -1050,12 +1056,9 @@ export async function createLibp2pJsClientOrUseExistingOne(
                 // needs a blockstore, and blocks fetched through the session land in the same
                 // underlying blockstore helia uses, so nothing else changes.
                 // ipfsPath is either a bare cid or a `<root-cid>/sub/path`; derive both parts here, once,
-                // so root and sub-path can never disagree. unixfs cat takes the root CID plus the sub-path
-                // via the `path` option. (The multiformats 13/14 split that used to force string-only cat
-                // input is gone: helia 7 and our tree share a single multiformats copy.) That single copy
-                // depends on package.json declaring multiformats as a caret range like helia does: an exact
-                // pin gives consumers a second copy once a newer 14.x ships, and ipfs-unixfs-exporter then
-                // rejects our CID ("Path must be string or CID") because it checks `instanceof CID`.
+                // so root and sub-path can never disagree. unixfs cat takes the root plus the sub-path via
+                // the `path` option. The root goes in as a string (see asUnixfsRoot); rootCid, parsed with
+                // our copy, validates it and seeds the session.
                 const [rootCidString, ...ipfsSubPathSegments] = ipfsPath.split("/");
                 const rootCid = CID.parse(rootCidString);
                 const ipfsSubPath = ipfsSubPathSegments.length > 0 ? ipfsSubPathSegments.join("/") : undefined;
@@ -1101,7 +1104,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                             const session = createSeededBitswapSession(rootCid, bitswapSessionSeedScopeIpnsPubsubTopic);
                             let yieldedAnyBytes = false;
                             try {
-                                const catIterable = unixfs({ blockstore: session }).cat(rootCid, {
+                                const catIterable = unixfs({ blockstore: session }).cat(asUnixfsRoot(rootCidString), {
                                     ...unixfsCatOptions,
                                     path: ipfsSubPath,
                                     signal: controller.signal
@@ -1246,7 +1249,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     for (let attempt = 0; ; attempt++) {
                         const session = createSeededBitswapSession(rootCid, options?.bitswapSessionSeedScopeIpnsPubsubTopic);
                         try {
-                            const stats = await unixfs({ blockstore: session }).stat(rootCid, {
+                            const stats = await unixfs({ blockstore: session }).stat(asUnixfsRoot(rootCidString), {
                                 path: subPathSegments.length > 0 ? subPathSegments.join("/") : undefined,
                                 signal: controller.signal
                             });
