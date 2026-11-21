@@ -31,6 +31,12 @@
 //                            spread evenly over it. This is what the 15 minute republish of an unchanged
 //                            community costs: at N communities the real rate is N / 900 records a second, and a
 //                            window of BENCH_WINDOW_S makes it N / BENCH_WINDOW_S
+//   BENCH_RESTART (unset)    set to 1 to restart the node after the largest count: destroy the PKC, make a new one
+//                            on the same data and start every community again. Prints one more JSON line with
+//                            stopS (destroy), pkcInitS (the new PKC, which lists every community) and restartS
+//                            (createCommunity({ address }) + start() of all of them). This is what a node that
+//                            already hosts N communities pays when its process is restarted; startS above also
+//                            creates each community and publishes its anchor record
 //   BENCH_API_PORT (5301), BENCH_SWARM_PORT (4301), BENCH_GATEWAY_PORT (8380)
 //
 // The gate, for CI (.github/workflows/CI-idle-communities-bench.yml). The cost of one community is the node CPU of a
@@ -42,6 +48,7 @@
 import { spawn, execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import inspector from "node:inspector/promises";
+import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay, performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
@@ -67,6 +74,7 @@ const gatewayPort = envNumber("BENCH_GATEWAY_PORT", 8380);
 const cpuProfile = process.env.BENCH_CPU_PROFILE === "1";
 const republishInWindow = process.env.BENCH_REPUBLISH_IN_WINDOW === "1";
 const startProfile = process.env.BENCH_START_PROFILE === "1";
+const restartAfter = process.env.BENCH_RESTART === "1";
 const maxCostRatio = process.env.BENCH_MAX_COST_RATIO ? envNumber("BENCH_MAX_COST_RATIO", 0) : undefined;
 const maxCpuPctPerCommunity = process.env.BENCH_MAX_CPU_PCT_PER_COMMUNITY ? envNumber("BENCH_MAX_CPU_PCT_PER_COMMUNITY", 0) : undefined;
 
@@ -146,13 +154,17 @@ const mainThreadCpuSeconds = () => {
 };
 
 const kuboUrl = `http://127.0.0.1:${apiPort}/api/v0`;
-const pkc = await PKC({
-    kuboRpcClientsOptions: [kuboUrl],
-    pubsubKuboRpcClientsOptions: [kuboUrl],
-    dataPath: path.join(runDir, "pkc"),
-    httpRoutersOptions: []
-});
-pkc.on("error", (error) => console.error("pkc error", error?.message));
+const createPkc = async () => {
+    const created = await PKC({
+        kuboRpcClientsOptions: [kuboUrl],
+        pubsubKuboRpcClientsOptions: [kuboUrl],
+        dataPath: path.join(runDir, "pkc"),
+        httpRoutersOptions: []
+    });
+    created.on("error", (error) => console.error("pkc error", error?.message));
+    return created;
+};
+let pkc = await createPkc();
 
 const profileOptions = (anchorAddress) => ({
     anchor: { publicKey: anchorAddress },
@@ -184,6 +196,34 @@ const addOne = async () => {
     await community.publishAnchorRecord(record);
     await community.start();
     started.push(community);
+};
+
+// What a restart of the process costs a node that already hosts these communities
+const restartNode = async () => {
+    const addresses = started.map((community) => community.address);
+    const stopTime = Date.now();
+    await pkc.destroy();
+    const stopS = round((Date.now() - stopTime) / 1000, 1);
+    started.length = 0;
+
+    const session = startProfile ? await startCpuProfile() : undefined;
+    const initTime = Date.now();
+    pkc = await createPkc();
+    const pkcInitS = round((Date.now() - initTime) / 1000, 1);
+    const restartTime = Date.now();
+    const startOne = async (address) => {
+        const community = await pkc.createCommunity({ address });
+        community.on("error", () => communityErrors++);
+        await community.start();
+        started.push(community);
+    };
+    for (let next = 0; next < addresses.length; next += startConcurrency)
+        await Promise.all(addresses.slice(next, next + startConcurrency).map(startOne));
+    const restartS = round((Date.now() - restartTime) / 1000, 1);
+    if (session) await writeCpuProfile({ session, name: `${mode}-${addresses.length}-restart` });
+    const result = { mode, n: addresses.length, stopS, pkcInitS, restartS, loadAverage1m: round(os.loadavg()[0], 1) };
+    console.log(JSON.stringify(result));
+    return result;
 };
 
 const round = (value, digits = 1) => Number(value.toFixed(digits));
@@ -253,6 +293,8 @@ const measure = async ({ count, seconds, profile, startS }) => {
         publishedBeforeWindow,
         communityErrors: communityErrors - communityErrorsBeforeWindow,
         republishedInWindow: republishInWindow && count > 0,
+        // other work on the machine shows here: the bench itself uses about nodeCpuPct + kuboCpuPct of one core
+        loadAverage1m: round(os.loadavg()[0], 1),
         nodeCpuPct: round(nodeCpuPct, 2), // two digits: the gate divides differences of these by the count
         nodeCpuPctPerCommunity: count > 0 ? round(nodeCpuPct / count, 4) : 0,
         mainThreadCpuPct:
@@ -320,8 +362,9 @@ try {
         console.error(`${target} started in ${startS}s`);
         results.push(await measure({ count: target, seconds: windowS, profile: cpuProfile && isLargest, startS }));
     }
+    const restart = restartAfter ? await restartNode() : undefined;
     const verdict = gate({ empty, results });
-    writeFileSync(path.join(outDir, `report-${mode}.json`), JSON.stringify({ empty, results, ...verdict }, null, 2));
+    writeFileSync(path.join(outDir, `report-${mode}.json`), JSON.stringify({ empty, results, restart, ...verdict }, null, 2));
     console.error(`cost per community (% of a core): ${JSON.stringify(verdict.costPerCommunityPct)}, ratio ${verdict.costRatio}`);
     for (const failure of verdict.failures) console.error(`GATE FAILED: ${failure}`);
     if (verdict.failures.length > 0) exitCode = 1;
