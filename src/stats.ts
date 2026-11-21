@@ -81,7 +81,11 @@ export default class Stats {
             return this._gatewayScore(failureCounts, successCounts, successAverageMs);
         };
 
-        const gatewaysSorted = sortBy(gateways, score);
-        return gatewaysSorted;
+        // Await every score before sorting: sortBy compares the values its callback returns, and
+        // promises all compare equal, which left the configured order unchanged. A higher score is
+        // a better gateway, so it goes first.
+        const scores = await Promise.all(gateways.map(score));
+        const gatewaysWithScore = gateways.map((gatewayUrl, i) => ({ gatewayUrl, score: scores[i] }));
+        return sortBy(gatewaysWithScore, [({ score }) => score, "desc"]).map(({ gatewayUrl }) => gatewayUrl);
     }
 }
