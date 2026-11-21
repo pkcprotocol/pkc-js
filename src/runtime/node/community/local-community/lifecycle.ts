@@ -5,6 +5,7 @@ import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
 import { pubsubTopicToDhtKey, removeMfsFilesSafely, sleepUntilTimeoutOrAbort } from "../../../../util.js";
 import { moveCommunityDbToDeletedDirectory, refreshCommunitiesList } from "../../util.js";
+import { holdEventLoopWatch } from "../../event-loop-watch.js";
 import { deriveCommunityChallengesOrThrow } from "../challenges/index.js";
 import { collectChallengeSettingsValidationFailures } from "../challenges/validate-challenge-settings.js";
 import {
@@ -35,6 +36,8 @@ import type { CommunityState, CommunityUpdatingState } from "../../../../communi
 import type { DecryptedChallengeAnswer } from "../../../../pubsub-messages/types.js";
 import type { RemoteCommunity } from "../../../../community/remote-community.js";
 
+const MIN_MS_BETWEEN_PUBLISH_CYCLES = 100;
+
 export async function publishLoop(community: LocalCommunity, syncIntervalMs: number) {
     const log = Logger("pkc-js:local-community:_publishLoop");
     // After stop() the loop runs on while an edit is pending so the record carrying it goes out before the community
@@ -50,52 +53,79 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
         );
     };
 
-    // A failed cycle leaves the update trigger set, so waking on it would retry on the next 100ms tick and emit the same
-    // error about ten times a second (issue #430). After a failure the loop wakes only for a new request for a record
-    // (an edit, a new publication), counted by _updateTriggerGeneration, and otherwise waits the full sync interval.
+    // The loop sleeps until something asks for a record or the sync interval passes, whichever is first. It does not
+    // poll: every write that needs a new record sets _communityUpdateTrigger (the DB handler does on each publication
+    // write), the trigger's setter calls _wakePublishLoop, and so does stop(). A community on which nothing happens
+    // costs one timer per interval here (issue #576; it used to be a 100ms interval running two queries per tick).
+    //
+    // A failed cycle leaves the update trigger set, so waking on it would retry at once and emit the same error over
+    // and over (issue #430). After a failure the loop wakes only for a new request for a record (an edit, a new
+    // publication: each one sets the trigger again, which is what calls _wakePublishLoop), and otherwise waits the
+    // full sync interval.
     const waitUntilNextSync = async ({ lastSyncFailed }: { lastSyncFailed: boolean }) => {
-        const doneWithLoopTime = Date.now();
-        // the state the failed cycle tried to publish is not a new request: take it in before the snapshot
-        if (lastSyncFailed) calculateLatestUpdateTrigger(community);
-        const triggerGenerationAfterFailure = community._updateTriggerGeneration;
-        await new Promise((resolve) => {
-            const checkInterval = setInterval(() => {
-                const syncIntervalMsPassedSinceDoneWithLoop = Date.now() - doneWithLoopTime >= syncIntervalMs;
-                calculateLatestUpdateTrigger(community); // will update community._communityUpdateTrigger
-                const wokenByTrigger = lastSyncFailed
-                    ? community._updateTriggerGeneration !== triggerGenerationAfterFailure
-                    : community._communityUpdateTrigger;
-                if (wokenByTrigger || shouldStopPublishLoop() || syncIntervalMsPassedSinceDoneWithLoop) {
-                    clearInterval(checkInterval);
-                    resolve(1);
-                }
-            }, 100);
+        // What the cycle left behind and no write will announce: a block it could not remove, an edit that is still
+        // pending, a record that is now too old. After a failure this is the state the failed cycle tried to publish,
+        // not a new request, and the trigger is already set, so it changes nothing.
+        calculateLatestUpdateTrigger(community);
+        if (shouldStopPublishLoop()) return;
+        const recordAlreadyRequested = !lastSyncFailed && community._communityUpdateTrigger;
+        // No cycle starts sooner than this after the last one ended. One publication writes several times in a row
+        // and each write asks for a record: without the pause each write got a cycle and a published record of its
+        // own, where the 100ms tick of the old loop took them together. It also keeps a cycle that always leaves the
+        // trigger set (a block that never gets removed) from spinning.
+        const minPauseMs = Math.min(MIN_MS_BETWEEN_PUBLISH_CYCLES, syncIntervalMs);
+        const sleepingSince = Date.now();
+        await new Promise<void>((resolve) => {
+            let timer: ReturnType<typeof setTimeout>;
+            const endSleep = () => {
+                clearTimeout(timer);
+                if (community._wakePublishLoop === wake) community._wakePublishLoop = undefined;
+                resolve();
+            };
+            const wake = () => {
+                const pauseLeftMs = minPauseMs - (Date.now() - sleepingSince);
+                if (pauseLeftMs <= 0 || shouldStopPublishLoop()) return endSleep();
+                clearTimeout(timer);
+                timer = setTimeout(endSleep, pauseLeftMs);
+            };
+            timer = setTimeout(endSleep, recordAlreadyRequested ? minPauseMs : syncIntervalMs);
+            community._wakePublishLoop = wake;
         });
     };
 
-    while (!shouldStopPublishLoop()) {
-        let lastSyncFailed = false;
-        try {
-            await syncIpnsWithDb(community);
-            // Re-announce browser-dialable (WSS/WebRTC) addresses to HTTP routers when they rotate, so browsers
-            // don't hit NoValidAddressesError against stale addresses. Throttled internally; runs inside the
-            // publish loop so it's torn down with the loop on stop(). Its own failures must not break publishing.
-            await reprovideOnAddressChangeIfDue(community).catch((e) =>
-                log.error("Failed to re-provide connection CIDs on address change", e)
-            );
-            // Keep the anchor -> minter binding alive: its routers expire it, and this node is the only
-            // party online that can put it (the owner holds As and is offline by design). Its failures
-            // must not break publishing either.
-            await reprovideAnchorRecordIfDue(community).catch((e) => log.error("Failed to re-provide the anchor record", e));
-        } catch (e) {
-            lastSyncFailed = true;
-            if (community._stopHasBeenCalled) syncFailedSinceStop = true;
-            community.emit("error", e as Error);
-        } finally {
-            await waitUntilNextSync({ lastSyncFailed });
-        }
+    // reports when the main thread is held up, for as long as any community of this process is running
+    const releaseEventLoopWatch = holdEventLoopWatch();
+    try {
+        await runCyclesUntilStopped();
+    } finally {
+        releaseEventLoopWatch();
     }
     log("Stopping the publishing loop of community", community.address);
+
+    async function runCyclesUntilStopped() {
+        while (!shouldStopPublishLoop()) {
+            let lastSyncFailed = false;
+            try {
+                await syncIpnsWithDb(community);
+                // Re-announce browser-dialable (WSS/WebRTC) addresses to HTTP routers when they rotate, so browsers
+                // don't hit NoValidAddressesError against stale addresses. Throttled internally; runs inside the
+                // publish loop so it's torn down with the loop on stop(). Its own failures must not break publishing.
+                await reprovideOnAddressChangeIfDue(community).catch((e) =>
+                    log.error("Failed to re-provide connection CIDs on address change", e)
+                );
+                // Keep the anchor -> minter binding alive: its routers expire it, and this node is the only
+                // party online that can put it (the owner holds As and is offline by design). Its failures
+                // must not break publishing either.
+                await reprovideAnchorRecordIfDue(community).catch((e) => log.error("Failed to re-provide the anchor record", e));
+            } catch (e) {
+                lastSyncFailed = true;
+                if (community._stopHasBeenCalled) syncFailedSinceStop = true;
+                community.emit("error", e as Error);
+            } finally {
+                await waitUntilNextSync({ lastSyncFailed });
+            }
+        }
+    }
 }
 
 export async function initBeforeStarting(community: LocalCommunity) {
@@ -505,6 +535,7 @@ export async function update(community: LocalCommunity) {
 
 export async function stop(community: LocalCommunity) {
     community._stopHasBeenCalled = true;
+    community._wakePublishLoop?.(); // the publish loop sleeps between cycles and has to see the line above now
     // Set above first, so the publish or update loop the start() or update() launches ends at its first check. Also waits
     // for a start() begun while it waited (from a listener during a failed start()'s teardown), so it stops that one too.
     // A stop() that is tearing down is waited for as well: two teardowns at once each released the start lock and closed
@@ -513,6 +544,7 @@ export async function stop(community: LocalCommunity) {
     while (community._startOrUpdateInFlight || community._stopInFlight || community._editStoresInFlight.size > 0) {
         await (community._startOrUpdateInFlight ?? community._stopInFlight ?? Promise.allSettled([...community._editStoresInFlight]));
         community._stopHasBeenCalled = true; // a start() begun meanwhile cleared it
+        community._wakePublishLoop?.();
     }
     let settle!: () => void;
     const stopInFlight = new Promise<void>((resolve) => (settle = resolve));

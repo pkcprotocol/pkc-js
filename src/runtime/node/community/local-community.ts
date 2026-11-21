@@ -42,7 +42,7 @@ import type {
 import { storePublication } from "./local-community/publication-store.js";
 import type { IpfsHttpClientPubsubMessage } from "../../../types.js";
 import { verifyCommunity } from "../../../signer/signatures.js";
-import { deriveCommentIpfsFromCommentTableRow, refreshCommunitiesList } from "../util.js";
+import { deriveCommentIpfsFromCommentTableRow, setStartedOfListedCommunity } from "../util.js";
 import { SignerWithPublicKeyAddress } from "../../../signer/index.js";
 import { RpcLocalCommunity } from "../../../community/rpc-local-community.js";
 import { omit, pick } from "remeda";
@@ -150,7 +150,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     set _communityUpdateTrigger(value: boolean) {
         if (value) this._updateTriggerGeneration++;
         this._communityUpdateTriggerValue = value;
+        if (value) this._wakePublishLoop?.();
     }
+    // Set by the publish loop while it sleeps between cycles: ends the sleep. Called on every request for a new
+    // record (the setter above) and by stop(), which is what lets the loop sleep without polling (issue #576)
+    _wakePublishLoop?: () => void = undefined;
     _combinedHashOfPendingCommentsCids: string = sha256("");
 
     _pageGenerator!: PageGenerator;
@@ -314,10 +318,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     async _updateStartedValue() {
         this.started = await this._dbHandler.isCommunityStartLocked(this.address);
-        // `started` in pkc.communities is the same start-lock check, so refresh it now rather than when the filesystem
-        // watcher fires (issue #455). Only a list refresh: a failure here must not fail the start or stop around it
+        // `started` in pkc.communities is the same start-lock check, so set it now rather than when the filesystem
+        // watcher fires (issue #455). Only a list update: a failure here must not fail the start or stop around it
         try {
-            refreshCommunitiesList(this._pkc);
+            setStartedOfListedCommunity({ pkc: this._pkc, communityAddress: this.address, started: this.started });
         } catch (e) {
             Logger("pkc-js:local-community:_updateStartedValue").error("Failed to refresh pkc.communities", e);
         }
