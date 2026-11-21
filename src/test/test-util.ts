@@ -1,3 +1,7 @@
+import { secp256k1 } from "@noble/curves/secp256k1.js";
+import { keccak_256 } from "@noble/hashes/sha3.js";
+import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
+import { getAuthorWalletProofMessage, verifyAuthorWalletEntry } from "../signer/author-wallet-proof.js";
 import PKCIndex from "../index.js";
 import type { PKCCommunitiesEntry } from "../clients/rpc-client/types.js";
 import {
@@ -212,6 +216,29 @@ function generateRandomTimestamp(parentTimestamp?: number): number {
     }
 
     return randomTimestamp;
+}
+
+// An author.wallets entry signed the way a wallet signs a BSIP-22 proof (EIP-191 personal_sign, low s, v of 27 or 28),
+// for the key address of the publication that will carry it. The default wallet key is a test key: never use it elsewhere.
+export function createAuthorWalletEntry({
+    authorPublicKey,
+    entryTimestamp = timestamp(),
+    walletPrivateKeyHex = "02".repeat(32)
+}: {
+    authorPublicKey: string;
+    entryTimestamp?: number;
+    walletPrivateKeyHex?: string;
+}) {
+    const walletPrivateKey = hexToBytes(walletPrivateKeyHex);
+    const address = `0x${bytesToHex(keccak_256(secp256k1.getPublicKey(walletPrivateKey, false).slice(1)).slice(12))}`;
+    const messageBytes = utf8ToBytes(getAuthorWalletProofMessage({ authorPublicKey, walletAddress: address, timestamp: entryTimestamp }));
+    const digest = keccak_256(new Uint8Array([...utf8ToBytes(`\x19Ethereum Signed Message:\n${messageBytes.length}`), ...messageBytes]));
+    const compact = bytesToHex(secp256k1.sign(digest, walletPrivateKey, { prehash: false }));
+    for (const v of [27, 28]) {
+        const entry = { address, timestamp: entryTimestamp, signature: { signature: `0x${compact}${v.toString(16)}`, type: "eip191" } };
+        if (verifyAuthorWalletEntry({ entry, authorPublicKey, nowSeconds: entryTimestamp }).outcome === "valid") return entry;
+    }
+    throw Error("createAuthorWalletEntry: failed to produce a valid wallet entry");
 }
 
 export async function generateMockPost({

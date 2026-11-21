@@ -41,7 +41,7 @@ import {
 import { TypedEmitter } from "tiny-typed-emitter";
 import { Comment } from "./comment/comment.js";
 import { PKCError } from "../pkc-error.js";
-import { authorWalletProofEnforcement, verifyAuthorWalletEntry } from "../signer/author-wallet-proof.js";
+import { verifyAuthorWalletEntry } from "../signer/author-wallet-proof.js";
 import { getHeliaDebugContext, type HeliaDebugContext } from "../helia/util.js";
 import { getBufferedPKCAddressFromPublicKey, getPKCAddressFromPublicKeySync } from "../signer/util.js";
 import * as cborg from "cborg";
@@ -869,11 +869,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
     }
 
     // BSIP-22: run the check a community runs on acceptance before the exchange starts, so an author with an
-    // invalid wallet entry gets a clear error here instead of a rejection from the community. Gated by the same
-    // rollout switch as the community: before it is on, a legacy proof reads as invalid and would block publishing
-    // everywhere. Reads the signed wire record, not the runtime fields, so it checks exactly what is sent.
+    // invalid wallet entry gets a clear error here instead of a rejection from the community. Reads the signed wire record, not the runtime fields, so it checks exactly what is sent.
     private _validateAuthorWalletProofs() {
-        if (!authorWalletProofEnforcement.enabled) return;
         const signed = this.raw.pubsubMessageToPublish as
             | { author?: { wallets?: Record<string, unknown> }; signature?: { publicKey?: string } }
             | undefined;

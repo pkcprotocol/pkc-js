@@ -1,10 +1,7 @@
-import { beforeAll, afterAll, afterEach, describe, it, expect } from "vitest";
-import { secp256k1 } from "@noble/curves/secp256k1.js";
-import { keccak_256 } from "@noble/hashes/sha3.js";
-import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
+import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import {
+    createAuthorWalletEntry,
     createSubWithNoChallenge,
-    disableValidationOfSignatureBeforePublishing,
     ensurePublicationIsSigned,
     mockPKC,
     publishRandomPost,
@@ -16,13 +13,7 @@ import {
 } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { messages } from "../../../dist/node/errors.js";
-import {
-    authorWalletProofEnforcement,
-    getAuthorWalletProofMessage,
-    verifyAuthorWalletEntry
-} from "../../../dist/node/signer/author-wallet-proof.js";
 import { getPKCAddressFromPublicKeySync } from "../../../dist/node/signer/util.js";
-import { timestamp } from "../../../dist/node/util.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type Vote from "../../../dist/node/publications/vote/vote.js";
@@ -30,29 +21,17 @@ import type { CommentEdit } from "../../../dist/node/publications/comment-edit/c
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
 
-const WALLET_PRIVATE_KEY_HEX = "02".repeat(32);
+type WalletEntry = ReturnType<typeof createAuthorWalletEntry>;
 
-// What a wallet does for personal_sign: EIP-191 digest, low-s ECDSA, v of 27 or 28.
-function signWalletEntry({ authorPublicKey, entryTimestamp }: { authorPublicKey: string; entryTimestamp: number }) {
-    const walletPublicKey = secp256k1.getPublicKey(hexToBytes(WALLET_PRIVATE_KEY_HEX), false);
-    const address = `0x${bytesToHex(keccak_256(walletPublicKey.slice(1)).slice(12))}`;
-    const message = getAuthorWalletProofMessage({ authorPublicKey, walletAddress: address, timestamp: entryTimestamp });
-    const messageBytes = utf8ToBytes(message);
-    const prefix = utf8ToBytes(`\x19Ethereum Signed Message:\n${messageBytes.length}`);
-    const digest = keccak_256(new Uint8Array([...prefix, ...messageBytes]));
-    const compact = secp256k1.sign(digest, hexToBytes(WALLET_PRIVATE_KEY_HEX), { prehash: false });
-    for (const v of [27, 28]) {
-        const entry = {
-            address,
-            timestamp: entryTimestamp,
-            signature: { signature: `0x${bytesToHex(compact)}${v.toString(16)}`, type: "eip191" }
-        };
-        if (verifyAuthorWalletEntry({ entry, authorPublicKey, nowSeconds: entryTimestamp }).outcome === "valid") return entry;
-    }
-    throw Error("Failed to produce a valid wallet entry for the test");
-}
+const INVALID_PROOF_REASON = `${messages.ERR_AUTHOR_WALLET_PROOF_IS_INVALID}. Chain ticker: eth. signature does not recover the wallet address`;
 
-// RPC skipped because enforcement is a module-level switch of the community's process, and the RPC server is a different process
+// An eip191 entry whose signature recovers no wallet address is invalid under BSIP-22
+const withBrokenSignature = (entry: WalletEntry): WalletEntry => ({
+    ...entry,
+    signature: { ...entry.signature, signature: `0x${"00".repeat(64)}1b` }
+});
+
+// RPC skipped because these tests craft wire payloads and publish them to a community run in this process
 describeSkipIfRpc.sequential("LocalCommunity verifies author.wallets proofs (BSIP-22, issue #566)", () => {
     let pkc: PKC;
     let community: LocalCommunity | RpcLocalCommunity;
@@ -66,102 +45,69 @@ describeSkipIfRpc.sequential("LocalCommunity verifies author.wallets proofs (BSI
         targetPost = await publishRandomPost({ communityAddress: community.address, pkc });
     });
 
-    afterEach(() => {
-        authorWalletProofEnforcement.enabled = false;
-    });
-
     afterAll(async () => {
-        authorWalletProofEnforcement.enabled = false;
         await community.delete();
         await pkc.destroy();
     });
 
     async function newComment() {
-        const signer = await pkc.createSigner();
         const comment = await pkc.createComment({
             communityAddress: community.address,
             title: `wallet proof ${Date.now()}`,
             content: `wallet proof content ${Date.now()}`,
-            signer
+            signer: await pkc.createSigner()
         });
         await ensurePublicationIsSigned(comment, community);
         return { comment, authorPublicKey: getPKCAddressFromPublicKeySync(comment.signature.publicKey) };
     }
 
-    const invalidEntry = (entry: ReturnType<typeof signWalletEntry>) => ({
-        ...entry,
-        // an eip191 signature made for another author key never verifies
-        signature: { ...entry.signature, signature: `0x${"00".repeat(64)}1b` }
-    });
-
-    it("enforcement is off by default: a comment with an invalid wallet entry is accepted", async () => {
-        expect(authorWalletProofEnforcement.enabled).to.equal(false);
-        const { comment, authorPublicKey } = await newComment();
-        const entry = invalidEntry(signWalletEntry({ authorPublicKey, entryTimestamp: timestamp() }));
-        await setExtraPropOnCommentAndSign(comment, { author: { wallets: { eth: entry } } }, true);
-        await publishWithExpectedResult({ publication: comment, expectedChallengeSuccess: true });
-    });
-
-    describe("with enforcement on", () => {
-        beforeAll(() => {
-            authorWalletProofEnforcement.enabled = true;
-        });
-        afterAll(() => {
-            authorWalletProofEnforcement.enabled = false;
-        });
-        // afterEach above resets the flag, so each test turns it back on
-        const enforce = () => {
-            authorWalletProofEnforcement.enabled = true;
-        };
-
+    describe("community acceptance", () => {
         it("accepts a comment whose wallet entry is valid", async () => {
-            enforce();
             const { comment, authorPublicKey } = await newComment();
-            const entry = signWalletEntry({ authorPublicKey, entryTimestamp: timestamp() });
-            await setExtraPropOnCommentAndSign(comment, { author: { wallets: { eth: entry } } }, true);
+            await setExtraPropOnCommentAndSign(
+                comment,
+                { author: { wallets: { eth: createAuthorWalletEntry({ authorPublicKey }) } } },
+                true
+            );
             await publishWithExpectedResult({ publication: comment, expectedChallengeSuccess: true });
         });
 
         it("accepts a comment whose wallet entry has an unknown signature type", async () => {
-            enforce();
             const { comment, authorPublicKey } = await newComment();
-            const entry = signWalletEntry({ authorPublicKey, entryTimestamp: timestamp() });
+            const entry = createAuthorWalletEntry({ authorPublicKey });
             const unknownEntry = { ...entry, signature: { ...entry.signature, type: "ed25519" } };
             await setExtraPropOnCommentAndSign(comment, { author: { wallets: { sol: unknownEntry } } }, true);
             await publishWithExpectedResult({ publication: comment, expectedChallengeSuccess: true });
         });
 
         it("rejects a comment with an invalid wallet entry and names the chain ticker", async () => {
-            enforce();
             const { comment, authorPublicKey } = await newComment();
-            const entry = invalidEntry(signWalletEntry({ authorPublicKey, entryTimestamp: timestamp() }));
+            const entry = withBrokenSignature(createAuthorWalletEntry({ authorPublicKey }));
             await setExtraPropOnCommentAndSign(comment, { author: { wallets: { eth: entry } } }, true);
             await publishWithExpectedResult({
                 publication: comment,
                 expectedChallengeSuccess: false,
-                expectedReason: `${messages.ERR_AUTHOR_WALLET_PROOF_IS_INVALID}. Chain ticker: eth. signature does not recover the wallet address`
+                expectedReason: INVALID_PROOF_REASON
             });
         });
 
         it("rejects a comment that carries a proof made for another author key", async () => {
-            enforce();
             const { comment } = await newComment();
             const otherSigner = await pkc.createSigner();
-            const entry = signWalletEntry({ authorPublicKey: otherSigner.address, entryTimestamp: timestamp() });
+            const entry = createAuthorWalletEntry({ authorPublicKey: otherSigner.address });
             await setExtraPropOnCommentAndSign(comment, { author: { wallets: { eth: entry } } }, true);
             await publishWithExpectedResult({
                 publication: comment,
                 expectedChallengeSuccess: false,
-                expectedReason: `${messages.ERR_AUTHOR_WALLET_PROOF_IS_INVALID}. Chain ticker: eth. signature does not recover the wallet address`
+                expectedReason: INVALID_PROOF_REASON
             });
         });
 
         // The request schema (WalletSchema) already requires signature and type, so an entry without them is rejected
-        // at parse time, before the BSIP-22 check runs, and with or without the enforcement switch.
+        // at parse time, before the BSIP-22 check runs.
         it("rejects a comment whose wallet entry has no signature.type", async () => {
-            enforce();
             const { comment, authorPublicKey } = await newComment();
-            const entry = signWalletEntry({ authorPublicKey, entryTimestamp: timestamp() });
+            const entry = createAuthorWalletEntry({ authorPublicKey });
             const typeless = { address: entry.address, timestamp: entry.timestamp, signature: { signature: entry.signature.signature } };
             await setExtraPropOnCommentAndSign(comment, { author: { wallets: { eth: typeless } } }, true);
             await publishWithExpectedResult({
@@ -172,7 +118,6 @@ describeSkipIfRpc.sequential("LocalCommunity verifies author.wallets proofs (BSI
         });
 
         it("rejects a vote with an invalid wallet entry", async () => {
-            enforce();
             if (!targetPost.cid) throw Error("Expected target post to have a CID");
             const vote = await pkc.createVote({
                 commentCid: targetPost.cid,
@@ -182,17 +127,12 @@ describeSkipIfRpc.sequential("LocalCommunity verifies author.wallets proofs (BSI
             });
             await ensurePublicationIsSigned(vote, community);
             const authorPublicKey = getPKCAddressFromPublicKeySync(vote.signature.publicKey);
-            const entry = invalidEntry(signWalletEntry({ authorPublicKey, entryTimestamp: timestamp() }));
+            const entry = withBrokenSignature(createAuthorWalletEntry({ authorPublicKey }));
             await setExtraPropOnVoteAndSign(vote as Vote, { author: { wallets: { eth: entry } } }, true);
-            await publishWithExpectedResult({
-                publication: vote,
-                expectedChallengeSuccess: false,
-                expectedReason: `${messages.ERR_AUTHOR_WALLET_PROOF_IS_INVALID}. Chain ticker: eth. signature does not recover the wallet address`
-            });
+            await publishWithExpectedResult({ publication: vote, expectedChallengeSuccess: false, expectedReason: INVALID_PROOF_REASON });
         });
 
         it("rejects a commentEdit with an invalid wallet entry", async () => {
-            enforce();
             if (!targetPost.cid || !targetPost.signer) throw Error("Expected target post with a CID and a signer");
             const commentEdit = await pkc.createCommentEdit({
                 commentCid: targetPost.cid,
@@ -202,45 +142,31 @@ describeSkipIfRpc.sequential("LocalCommunity verifies author.wallets proofs (BSI
             });
             await ensurePublicationIsSigned(commentEdit, community);
             const authorPublicKey = getPKCAddressFromPublicKeySync(commentEdit.signature.publicKey);
-            const entry = invalidEntry(signWalletEntry({ authorPublicKey, entryTimestamp: timestamp() }));
+            const entry = withBrokenSignature(createAuthorWalletEntry({ authorPublicKey }));
             await setExtraPropOnCommentEditAndSign(commentEdit as CommentEdit, { author: { wallets: { eth: entry } } }, true);
             await publishWithExpectedResult({
                 publication: commentEdit,
                 expectedChallengeSuccess: false,
-                expectedReason: `${messages.ERR_AUTHOR_WALLET_PROOF_IS_INVALID}. Chain ticker: eth. signature does not recover the wallet address`
+                expectedReason: INVALID_PROOF_REASON
             });
         });
     });
 
     describe("local pre-publish check", () => {
-        const enforce = () => {
-            authorWalletProofEnforcement.enabled = true;
-        };
-        async function commentWithWallet(entry: unknown, signer: Awaited<ReturnType<typeof pkc.createSigner>>) {
+        async function commentWithWallet(entry: WalletEntry, signer: Awaited<ReturnType<typeof pkc.createSigner>>) {
             return pkc.createComment({
                 communityAddress: community.address,
                 title: `local check ${Date.now()}`,
                 content: "local check content",
-                author: { wallets: { eth: entry as ReturnType<typeof signWalletEntry> } },
+                author: { wallets: { eth: entry } },
                 signer
             });
         }
 
-        it("is off with the rollout switch: a legacy eip191 entry still publishes", async () => {
-            expect(authorWalletProofEnforcement.enabled).to.equal(false);
-            const signer = await pkc.createSigner();
-            const comment = await commentWithWallet(
-                invalidEntry(signWalletEntry({ authorPublicKey: signer.address, entryTimestamp: timestamp() })),
-                signer
-            );
-            await publishWithExpectedResult({ publication: comment, expectedChallengeSuccess: true });
-        });
-
         it("publish() throws ERR_AUTHOR_WALLET_PROOF_IS_INVALID naming the ticker, sends nothing and leaves the instance stopped", async () => {
-            enforce();
             const signer = await pkc.createSigner();
             const comment = await commentWithWallet(
-                invalidEntry(signWalletEntry({ authorPublicKey: signer.address, entryTimestamp: timestamp() })),
+                withBrokenSignature(createAuthorWalletEntry({ authorPublicKey: signer.address })),
                 signer
             );
             await expect(comment.publish()).rejects.toMatchObject({
@@ -251,24 +177,19 @@ describeSkipIfRpc.sequential("LocalCommunity verifies author.wallets proofs (BSI
         });
 
         it("checks the signed record, not the runtime author fields", async () => {
-            enforce();
             const { comment, authorPublicKey } = await newComment();
-            const entry = invalidEntry(signWalletEntry({ authorPublicKey, entryTimestamp: timestamp() }));
+            const entry = withBrokenSignature(createAuthorWalletEntry({ authorPublicKey }));
             await setExtraPropOnCommentAndSign(comment, { author: { wallets: { eth: entry } } }, true);
-            // setExtraPropOnCommentAndSign turns the local check off to craft wire payloads; put the real one back
-            // by clearing the instance override so the prototype method runs
+            // setExtraPropOnCommentAndSign turns the local check off to craft wire payloads; clear that instance
+            // override so the prototype method runs
             delete (comment as unknown as Record<string, unknown>)._validateAuthorWalletProofs;
-            comment.author.wallets = {}; // runtime field now says no wallets, the signed record still carries the bad entry
+            comment.author.wallets = {}; // the runtime field now says no wallets, the signed record still carries the bad entry
             await expect(comment.publish()).rejects.toMatchObject({ code: "ERR_AUTHOR_WALLET_PROOF_IS_INVALID" });
         });
 
         it("publish() accepts a valid wallet entry", async () => {
-            enforce();
             const signer = await pkc.createSigner();
-            const comment = await commentWithWallet(
-                signWalletEntry({ authorPublicKey: signer.address, entryTimestamp: timestamp() }),
-                signer
-            );
+            const comment = await commentWithWallet(createAuthorWalletEntry({ authorPublicKey: signer.address }), signer);
             await publishWithExpectedResult({ publication: comment, expectedChallengeSuccess: true });
         });
     });

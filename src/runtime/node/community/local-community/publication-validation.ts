@@ -28,7 +28,7 @@ import {
     verifyVote
 } from "../../../../signer/signatures.js";
 import { getPKCAddressFromPublicKey } from "../../../../signer/util.js";
-import { authorWalletProofEnforcement, verifyAuthorWalletEntry } from "../../../../signer/author-wallet-proof.js";
+import { verifyAuthorWalletEntry } from "../../../../signer/author-wallet-proof.js";
 import { timestamp as pkcTimestamp } from "../../../../util.js";
 import { getAuthorNameFromWire } from "../../../../publications/publication-author.js";
 import { authorIdentityMatcherForRequest, authorNameResolveFailureReason } from "./author-identity.js";
@@ -177,7 +177,6 @@ async function checkWireFormatAndCommunityAuthor(
 // because the author signed over `author`. Runs after the publication's own signature was verified: a proof
 // counts only when the record that carries it is validly signed.
 async function checkAuthorWalletProofs(publication: PublicationFromDecryptedChallengeRequest, log: Logger): Promise<string | undefined> {
-    if (!authorWalletProofEnforcement.enabled) return undefined;
     const wallets = publication.author?.wallets;
     if (!wallets) return undefined;
     const authorPublicKey = await getPKCAddressFromPublicKey(publication.signature.publicKey);
