@@ -164,6 +164,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // uninstalled is reported once instead of on every cycle (issue #428).
     _reportedChallengeLoadFailures: string | undefined = undefined;
     _dbHandler!: DbHandler;
+    _startTakenByAnotherInstance = false; // set by the publish loop when another PKC instance has claimed this started community, read by the teardown of stop()
     _stopHasBeenCalled: boolean; // we use this to track if community.stop() has been called after community.start() or community.update()
     _publishLoopPromise?: Promise<void> = undefined;
     _updateLoopPromise?: Promise<void> = undefined;

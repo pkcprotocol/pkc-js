@@ -84,10 +84,10 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
             });
             log.error(error);
             community.emit("error", error);
+            // Read by the teardown, also by that of a stop() that is waiting for this loop already
+            community._startTakenByAnotherInstance = true;
             // not awaited: stop() waits for this loop to end
-            stop(community, { startTakenByAnotherInstance: true }).catch((e) =>
-                log.error(`Failed to stop community (${community.address}) after its start was taken`, e)
-            );
+            community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after its start was taken`, e));
             break;
         }
         let lastSyncFailed = false;
@@ -223,6 +223,7 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
     // starts or edits meanwhile; the start then runs on what the edit left, under the new address after a rename.
     while (community._stoppedEditsInFlight.size > 0) await Promise.allSettled([...community._stoppedEditsInFlight]);
     community._stopHasBeenCalled = false;
+    community._startTakenByAnotherInstance = false;
     // Re-baseline address-change re-provide for this run (start() provides everything fresh below).
     community._lastProvidedBrowserDialableSelfAddrs = undefined;
     community._lastAddressReprovideCheckAt = undefined;
@@ -529,9 +530,7 @@ export async function update(community: LocalCommunity) {
     });
 }
 
-// `startTakenByAnotherInstance`: the community's DB and its files in Kubo are another PKC instance's now. This one lets
-// go of what it holds and writes nothing
-export async function stop(community: LocalCommunity, { startTakenByAnotherInstance = false } = {}) {
+export async function stop(community: LocalCommunity) {
     community._stopHasBeenCalled = true;
     // Set above first, so the publish or update loop the start() or update() launches ends at its first check. Also waits
     // for a start() begun while it waited (from a listener during a failed start()'s teardown), so it stops that one too.
@@ -546,14 +545,14 @@ export async function stop(community: LocalCommunity, { startTakenByAnotherInsta
     const stopInFlight = new Promise<void>((resolve) => (settle = resolve));
     community._stopInFlight = stopInFlight;
     try {
-        await stopCommunity(community, { startTakenByAnotherInstance });
+        await stopCommunity(community);
     } finally {
         if (community._stopInFlight === stopInFlight) community._stopInFlight = undefined;
         settle();
     }
 }
 
-async function stopCommunity(community: LocalCommunity, { startTakenByAnotherInstance }: { startTakenByAnotherInstance: boolean }) {
+async function stopCommunity(community: LocalCommunity) {
     const log = Logger("pkc-js:local-community:stop");
     if (community._updateLoopAbortController) {
         community._updateLoopAbortController.abort();
@@ -587,8 +586,11 @@ async function stopCommunity(community: LocalCommunity, { startTakenByAnotherIns
             community._publishLoopPromise = undefined;
         }
 
-        // Not when another instance has taken the community over: the record this instance holds is older than what
-        // that one has stored, and the cids this instance thinks stale may be in what that one publishes
+        // Not when another instance has taken the community over (the publish loop, which has ended by now, found it
+        // so): the community's DB and its files in Kubo are that instance's. The record this one holds is older than
+        // what that one has stored, and the cids this one thinks stale may be in what that one publishes
+        const startTakenByAnotherInstance = community._startTakenByAnotherInstance;
+        community._startTakenByAnotherInstance = false;
         if (!startTakenByAnotherInstance) {
             try {
                 // Bypass the unpin grace period: this is the process's last chance to unpin, and a
@@ -767,7 +769,13 @@ async function deleteCommunityWhileMarked(community: LocalCommunity) {
     }
 
     await moveCommunityDbToDeletedDirectory(community.address, community._pkc);
-    unregisterLocalCommunity(community._pkc, community.address); // unlist the address now, not when the filesystem watcher fires
+    try {
+        unregisterLocalCommunity(community._pkc, community.address); // unlist the address now, not when the filesystem watcher fires
+    } catch (e) {
+        // The community is deleted: its DB has moved. A row that could not be removed (storage.db locked for too long)
+        // goes with the filesystem event of the move, or with the next lookup of the address
+        log.error(`Failed to remove deleted community (${community.address}) from the communities registry`, e);
+    }
 
     log(`Deleted community (${community.address}) successfully`);
 }

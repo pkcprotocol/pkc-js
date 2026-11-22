@@ -7,13 +7,18 @@ import Database from "better-sqlite3";
 // Every listing of a `communities` directory and every open of a database is recorded
 // `afterNextListing` runs once, between a listing of the directory and what its caller does with it. `onOpenOf` runs
 // when the database of that filename is opened
-const { directoryListings, openedDbFilenames, failNextOpenOf, hooks, onOpenOf } = vi.hoisted(() => ({
-    directoryListings: [] as string[],
-    openedDbFilenames: [] as string[],
-    failNextOpenOf: new Set<string>(),
-    hooks: { afterNextListing: undefined as (() => void) | undefined },
-    onOpenOf: new Map<string, () => void>()
-}));
+const { directoryListings, openedDbFilenames, failNextOpenOf, hooks, onOpenOf, seenAsMissingOnce, statFailsOf, fileOpenFailsOnceOf } =
+    vi.hoisted(() => ({
+        directoryListings: [] as string[],
+        openedDbFilenames: [] as string[],
+        failNextOpenOf: new Set<string>(),
+        hooks: { afterNextListing: undefined as (() => void) | undefined },
+        onOpenOf: new Map<string, () => void>(),
+        // by absolute path: seen as missing once, a stat that fails, an open (of the file, not of the database) that fails once
+        seenAsMissingOnce: new Set<string>(),
+        statFailsOf: new Set<string>(),
+        fileOpenFailsOnceOf: new Set<string>()
+    }));
 
 vi.mock("node:fs", async (importOriginal) => {
     const original = await importOriginal<typeof import("node:fs")>();
@@ -29,7 +34,21 @@ vi.mock("node:fs", async (importOriginal) => {
         }
         return listed;
     };
-    return { ...original, default: { ...original, readdirSync }, readdirSync };
+    const errorWithCode = (code: string) => Object.assign(new Error(`${code}: made up by the test`), { code });
+    const existsSync = (...args: unknown[]) => {
+        if (seenAsMissingOnce.delete(pathModule.resolve(String(args[0])))) return false;
+        return Reflect.apply(original.existsSync, original, args);
+    };
+    const statSync = (...args: unknown[]) => {
+        if (statFailsOf.has(pathModule.resolve(String(args[0])))) throw errorWithCode("EIO");
+        return Reflect.apply(original.statSync, original, args);
+    };
+    const openSync = (...args: unknown[]) => {
+        if (fileOpenFailsOnceOf.delete(pathModule.resolve(String(args[0])))) throw errorWithCode("EMFILE");
+        return Reflect.apply(original.openSync, original, args);
+    };
+    const mocked = { readdirSync, existsSync, statSync, openSync };
+    return { ...original, default: { ...original, ...mocked }, ...mocked };
 });
 
 vi.mock("better-sqlite3", async (importOriginal) => {
@@ -145,6 +164,9 @@ describe("communities registry", () => {
     beforeEach(() => {
         failNextOpenOf.clear();
         onOpenOf.clear();
+        seenAsMissingOnce.clear();
+        statFailsOf.clear();
+        fileOpenFailsOnceOf.clear();
         hooks.afterNextListing = undefined;
         dataPath = path.join(process.cwd(), ".tmp", `communities-registry-${uuidv4()}`);
         communitiesPath = path.join(dataPath, "communities");
@@ -428,7 +450,7 @@ describe("communities registry", () => {
     // nothing could start the community again until that process ended
     it("a release that could not be written is written again on the timer, and does not keep this instance from starting the community", async () => {
         createCommunityDb("release-fails.bso");
-        const { registry } = await createInstance();
+        const { registry, started } = await createInstance();
         (registry as unknown as { _db: Database.Database })._db.pragma("busy_timeout = 50");
         expect(registry.claimStart("release-fails.bso")).to.be.true;
 
@@ -442,6 +464,7 @@ describe("communities registry", () => {
         }
         expect(isCommunityStartLockedSync({ dataPath, communityAddress: "release-fails.bso" }), "the release was written").to.be.true;
         expect(registry.isStarted("release-fails.bso")).to.be.false;
+        expect(started(), "pkc.communities of the instance that stopped it").to.deep.equal([]);
 
         registry.readChangesOfOtherInstances();
         expect(isCommunityStartLockedSync({ dataPath, communityAddress: "release-fails.bso" })).to.be.false;
@@ -456,10 +479,89 @@ describe("communities registry", () => {
             blocker.exec("ROLLBACK");
             blocker.close();
         }
+        expect(started()).to.deep.equal([]);
         expect(registry.claimStart("release-fails.bso")).to.be.true;
         expect(registry.isStarted("release-fails.bso")).to.be.true;
+        expect(started()).to.deep.equal(["release-fails.bso"]);
         registry.readChangesOfOtherInstances(); // nothing left to release
         expect(registry.isStarted("release-fails.bso")).to.be.true;
+    });
+
+    // An address comes from whoever calls createCommunity, an RPC client included, and is looked for as a file in
+    // dataPath/communities. One that is not a plain filename reached other files: "../storage.db" was registered and
+    // then opened as a community, "deleted/<address>" found a deleted one
+    it("an address that is not a plain filename is not a local community, and nothing is registered for it", async () => {
+        fs.mkdirSync(path.join(communitiesPath, "deleted"));
+        createCommunityDb("gone.bso", undefined, path.join(communitiesPath, "deleted"));
+        const { registry } = await createInstance();
+        const notFilenames = [
+            "../storage.db",
+            "deleted/gone.bso",
+            `deleted${path.sep}gone.bso`,
+            path.join(dataPath, "storage.db"),
+            "..",
+            "."
+        ];
+        for (const address of notFilenames) {
+            expect(registry.findAddress({ address }), address).to.be.undefined;
+            expect(registry.findAddress({ name: address }), address).to.be.undefined;
+            expect(registry.hasCommunityDb(address), address).to.be.false;
+            expect(() => registry.registerCommunity(address), address).to.throw();
+            expect(() => registry.claimStart(address), address).to.throw();
+        }
+        expect(registeredAddresses()).to.deep.equal([]);
+    });
+
+    // An .eth/.bso name is one name in any case and in either spelling (issue #424), and its DB is stored as it was
+    // typed. Looked up by the exact filename only, a community named MyForum.bso was not local for myforum.bso
+    it("a community with an .eth/.bso name is found in any case and either spelling, and any other name only as it is", async () => {
+        createCommunityDb("MyForum.bso");
+        createCommunityDb("12D3KooWMixedCase", "12D3KooWMixedCase");
+        createCommunityDb("Other.xyz");
+        const { registry } = await createInstance();
+        for (const spelling of ["MyForum.bso", "myforum.bso", "MyForum.eth", "MYFORUM.ETH"]) {
+            expect(registry.findAddress({ address: spelling }), spelling).to.equal("MyForum.bso");
+            expect(registry.findAddress({ name: spelling, publicKey: "12D3KooWMyForum.bso" }), spelling).to.equal("MyForum.bso");
+        }
+        expect(registry.findAddress({ address: "12d3koowmixedcase" })).to.be.undefined;
+        expect(registry.findAddress({ address: "other.xyz" })).to.be.undefined;
+        expect(registry.findAddress({ address: "Other.xyz" })).to.equal("Other.xyz");
+        expect(registeredAddresses()).to.deep.equal(["12D3KooWMixedCase", "MyForum.bso", "Other.xyz"]);
+    });
+
+    // The lookup saw the file missing, and it was there again when the registry looked inside its write transaction
+    it("a lookup finds a community whose DB was seen missing and is there after all", async () => {
+        const filePath = createCommunityDb("back-again.bso");
+        const { registry, addresses } = await createInstance();
+        seenAsMissingOnce.add(path.resolve(filePath));
+        expect(registry.findAddress({ address: "back-again.bso" })).to.equal("back-again.bso");
+        expect(seenAsMissingOnce.size, "the file was not looked for").to.equal(0);
+        expect(addresses()).to.deep.equal(["back-again.bso"]);
+    });
+
+    // "Could not look at the file" is not "the file is gone": the row, and the start claim in it, stay
+    it("a DB that can't be looked at keeps its row and its start claim", async () => {
+        const filePath = createCommunityDb("stat-fails.bso");
+        const { registry, started } = await createInstance();
+        expect(registry.claimStart("stat-fails.bso")).to.be.true;
+        statFailsOf.add(path.resolve(filePath));
+        (registry as unknown as { _onFileEvent: (eventType: string, filename: string) => void })._onFileEvent("rename", "stat-fails.bso");
+        registry.findAddress({ address: "stat-fails.bso" });
+        statFailsOf.clear();
+        expect(registeredAddresses()).to.deep.equal(["stat-fails.bso"]);
+        expect(started()).to.deep.equal(["stat-fails.bso"]);
+        expect(isCommunityStartLockedSync({ dataPath, communityAddress: "stat-fails.bso" })).to.be.true;
+    });
+
+    // Out of file descriptors at the first look into the file, before its database is opened
+    it("a DB whose file could not be opened for a passing reason is read again on the timer", async () => {
+        const filePath = createCommunityDb("open-failed-once.bso");
+        fileOpenFailsOnceOf.add(path.resolve(filePath));
+        const { addresses, registry } = await createInstance();
+        expect(fileOpenFailsOnceOf.size, "the file was not opened").to.equal(0);
+        expect(addresses()).to.deep.equal([]);
+        registry.readChangesOfOtherInstances();
+        expect(addresses()).to.deep.equal(["open-failed-once.bso"]);
     });
 
     // pkc.createCommunity({ address }) of a community that is not local is a lookup: it must not wait for, or fail on,

@@ -5,6 +5,7 @@ import {
     openSync,
     readdirSync,
     readSync,
+    realpathSync,
     rmSync,
     statSync,
     watch as fsWatch,
@@ -15,7 +16,7 @@ import { randomUUID } from "node:crypto";
 import Database, { type Database as BetterSqlite3Database, type Statement } from "better-sqlite3";
 import Logger from "../../../logger.js";
 import { STORAGE_KEYS } from "../../../constants.js";
-import { areEquivalentNames, isEthAliasDomain, isStringDomain } from "../../../domain-util.js";
+import { areEquivalentNames, isEthAliasDomain, isStringDomain, normalizeEthAliasDomain } from "../../../domain-util.js";
 import { doesCommunitiesEntryMatch, toCommunitiesEntry } from "../../../community/communities-entry-util.js";
 import type { CommunitiesEntryIdentity, CommunitiesEntryLookup } from "../../../community/communities-entry-util.js";
 import type { PKCCommunitiesEntry } from "../../../clients/rpc-client/types.js";
@@ -111,8 +112,51 @@ export function markCommunityDbAsBeingWritten({ dataPath, communityAddress }: { 
     };
 }
 
+// An address is given by whoever calls createCommunity, an RPC client included, and is the filename of the DB. One with
+// a path in it would reach files outside dataPath/communities ("../storage.db"), or below it ("deleted/<address>")
+function isPlainFilename(filename: string): boolean {
+    return (
+        filename.length > 0 &&
+        filename !== "." &&
+        filename !== ".." &&
+        !filename.includes("/") &&
+        !filename.includes("\\") &&
+        !filename.includes("\0") &&
+        path.basename(filename) === filename
+    );
+}
+
 function getDbFilePath(dataPath: string, communityAddress: string): string {
+    if (!isPlainFilename(communityAddress))
+        throw Error(`A community DB can't be stored under an address that is not a filename (${communityAddress})`);
     return path.join(dataPath, "communities", communityAddress);
+}
+
+// What a row is looked up by. An .eth/.bso name is one name in any case and in either spelling (issue #424), and its
+// DB is stored under the name as it was typed. Any other address is itself
+function lookupKeyOf(communityAddress: string): string {
+    return isEthAliasDomain(communityAddress) ? normalizeEthAliasDomain(communityAddress.toLowerCase()) : communityAddress;
+}
+
+// The filename a file is stored under. On a filesystem that ignores case a file is found under any spelling of its
+// name, and must have one row
+function filenameAsStored(filePath: string): string {
+    const filename = path.basename(filePath);
+    try {
+        const stored = path.basename(realpathSync.native(filePath));
+        return stored.toLowerCase() === filename.toLowerCase() ? stored : filename; // not the target of a link
+    } catch {
+        return filename;
+    }
+}
+
+// Whether there is no file at this path. A file that could not be looked at is not gone
+function isFileGone(filePath: string): boolean {
+    try {
+        return !statSync(filePath).isFile();
+    } catch (e) {
+        return e instanceof Error && "code" in e && (e.code === "ENOENT" || e.code === "ENOTDIR");
+    }
 }
 
 // Identifies the file itself, not its content: a DB that is deleted and created again under the same filename is
@@ -127,8 +171,8 @@ function getFileId(filePath: string): string | undefined {
     }
 }
 
-// undefined if the header could not be read
-function isSqliteFile(filePath: string): boolean | undefined {
+// "could-not-read" when the file is there and its header could not be read (the process is out of file descriptors)
+function isSqliteFile(filePath: string): boolean | "could-not-read" {
     try {
         // Look for the SQLite file header "SQLite format 3\0"
         const fd = openSync(filePath, "r");
@@ -141,9 +185,9 @@ function isSqliteFile(filePath: string): boolean | undefined {
         return buffer.toString().startsWith("SQLite format 3");
     } catch (e) {
         // ENOENT is expected: the file can be removed between the event and the read (community delete)
-        if (!(e instanceof Error && "code" in e && e.code === "ENOENT"))
-            Logger("pkc-js:communities-registry").error(`Failed to check whether ${filePath} is a SQLite file, skipping it`, e);
-        return undefined;
+        if (e instanceof Error && "code" in e && e.code === "ENOENT") return false;
+        Logger("pkc-js:communities-registry").error(`Failed to check whether ${filePath} is a SQLite file, skipping it for now`, e);
+        return "could-not-read";
     }
 }
 
@@ -195,7 +239,7 @@ export class CommunitiesRegistry {
 
     private _selectRow: Statement<[string], RegistryRow>;
     private _selectAllRows: Statement<[], RegistryRow>;
-    private _upsertIdentity: Statement<[string, string | null, string | null]>;
+    private _upsertIdentity: Statement<[string, string | null, string | null, string]>;
     private _deleteRow: Statement<[string]>;
     private _setStartedBy: Statement<[string | null, string]>;
     private _releaseStartedBy: Statement<[string, string]>;
@@ -240,17 +284,20 @@ export class CommunitiesRegistry {
                 address TEXT PRIMARY KEY,
                 publicKey TEXT,
                 fileId TEXT,
-                startedBy TEXT
+                startedBy TEXT,
+                lookupKey TEXT
             ) WITHOUT ROWID;
             CREATE INDEX IF NOT EXISTS ${COMMUNITIES_TABLE}_publicKey ON ${COMMUNITIES_TABLE} (publicKey);
             CREATE INDEX IF NOT EXISTS ${COMMUNITIES_TABLE}_startedBy ON ${COMMUNITIES_TABLE} (startedBy) WHERE startedBy IS NOT NULL;
             CREATE TABLE IF NOT EXISTS ${CHANGES_TABLE} (seq INTEGER PRIMARY KEY AUTOINCREMENT, address TEXT NOT NULL);
         `);
+        this._addLookupKeyColumnIfMissing();
+        this._db.exec(`CREATE INDEX IF NOT EXISTS ${COMMUNITIES_TABLE}_lookupKey ON ${COMMUNITIES_TABLE} (lookupKey)`);
         this._selectRow = this._db.prepare(`SELECT address, publicKey, fileId, startedBy FROM ${COMMUNITIES_TABLE} WHERE address = ?`);
         this._selectAllRows = this._db.prepare(`SELECT address, publicKey, fileId, startedBy FROM ${COMMUNITIES_TABLE}`);
         this._upsertIdentity = this._db.prepare(
-            `INSERT INTO ${COMMUNITIES_TABLE} (address, publicKey, fileId) VALUES (?, ?, ?)
-             ON CONFLICT (address) DO UPDATE SET publicKey = excluded.publicKey, fileId = excluded.fileId`
+            `INSERT INTO ${COMMUNITIES_TABLE} (address, publicKey, fileId, lookupKey) VALUES (?, ?, ?, ?)
+             ON CONFLICT (address) DO UPDATE SET publicKey = excluded.publicKey, fileId = excluded.fileId, lookupKey = excluded.lookupKey`
         );
         this._deleteRow = this._db.prepare(`DELETE FROM ${COMMUNITIES_TABLE} WHERE address = ?`);
         this._setStartedBy = this._db.prepare(`UPDATE ${COMMUNITIES_TABLE} SET startedBy = ? WHERE address = ?`);
@@ -265,6 +312,23 @@ export class CommunitiesRegistry {
         this._selectChangedAddresses = this._db.prepare(`SELECT DISTINCT address FROM ${CHANGES_TABLE} WHERE seq > ?`);
 
         takeInstanceLock({ db: this._db, lockPath: getInstanceLockPath({ dataPath, instanceId: this.instanceId }) });
+    }
+
+    // The table of a data path that ran this registry before its rows had a lookup key
+    private _addLookupKeyColumnIfMissing() {
+        const columns = this._db.pragma(`table_info(${COMMUNITIES_TABLE})`) as { name: string }[];
+        if (columns.some((column) => column.name === "lookupKey")) return;
+        this._db
+            .transaction(() => {
+                // another instance may have added it since
+                const columnsNow = this._db.pragma(`table_info(${COMMUNITIES_TABLE})`) as { name: string }[];
+                if (columnsNow.some((column) => column.name === "lookupKey")) return;
+                this._db.exec(`ALTER TABLE ${COMMUNITIES_TABLE} ADD COLUMN lookupKey TEXT`);
+                const setLookupKey = this._db.prepare(`UPDATE ${COMMUNITIES_TABLE} SET lookupKey = ? WHERE address = ?`);
+                for (const { address } of this._db.prepare(`SELECT address FROM ${COMMUNITIES_TABLE}`).all() as { address: string }[])
+                    setLookupKey.run(lookupKeyOf(address), address);
+            })
+            .immediate();
     }
 
     get closed() {
@@ -339,19 +403,21 @@ export class CommunitiesRegistry {
         if (this._closed) return undefined;
         const identifiers = [lookup.address, lookup.name, lookup.publicKey].filter((id): id is string => typeof id === "string");
         if (identifiers.length === 0) return undefined;
-        const filenames = [...new Set(identifiers.flatMap(filenamesOfIdentifier))];
+        const filenames = [...new Set(identifiers.flatMap(filenamesOfIdentifier))].filter(isPlainFilename);
         const matchesFilename = (filename: string) => identifiers.every((id) => areEquivalentNames(filename, id));
         const rowMatches = (row: RegistryRow) =>
             row.publicKey !== null
                 ? doesCommunitiesEntryMatch(identityOfRow({ ...row, publicKey: row.publicKey }), lookup)
                 : matchesFilename(row.address);
 
-        for (const row of this._selectRowsByFilenameOrPublicKey({ filenames, publicKeys: identifiers })) {
+        const lookupKeys = [...new Set(identifiers.map(lookupKeyOf))];
+        for (const row of this._selectRowsByLookupKeyOrPublicKey({ lookupKeys, publicKeys: identifiers })) {
             if (!rowMatches(row)) continue;
             if (existsSync(getDbFilePath(this.dataPath, row.address))) return row.address;
-            // the file was removed without this instance being told, yet
-            this._removeRowIfFileIsGone(row.address);
+            // the file was removed without this instance being told, yet. Unless it is there after all
+            const rowNow = this._removeRowIfFileIsGone(row.address);
             this._emitListIfOutdated();
+            if (rowNow && rowMatches(rowNow)) return rowNow.address;
         }
         // A DB file that has no row yet: another process created it or somebody copied it in, and its filesystem event
         // has not arrived (on macOS it arrives late)
@@ -359,22 +425,28 @@ export class CommunitiesRegistry {
             if (isIgnoredFilename(filename) || this._selectRow.get(filename)) continue;
             // Nothing is written for a community that is not local, which is what most lookups are about: a write
             // waits for whoever is writing to storage.db, and fails when that takes too long
-            if (!existsSync(getDbFilePath(this.dataPath, filename))) continue;
-            const registered = this._registerFile(filename);
+            const dbFilePath = getDbFilePath(this.dataPath, filename);
+            if (!existsSync(dbFilePath)) continue;
+            // Found under another spelling than it is stored under, on a filesystem that ignores case: only a name
+            // that ignores case is the same community, and a row it has under its own spelling did not match above
+            const storedAs = filenameAsStored(dbFilePath);
+            if (storedAs !== filename && (!areEquivalentNames(storedAs, filename) || this._selectRow.get(storedAs))) continue;
+            const registered = this._registerFile(storedAs);
             this._emitListIfOutdated();
-            if (registered && rowMatches(registered)) return filename;
+            if (registered && rowMatches(registered)) return storedAs;
         }
         return undefined;
     }
 
     // Whether a community DB is stored under exactly this address
     hasCommunityDb(communityAddress: string): boolean {
+        if (!isPlainFilename(communityAddress)) return false;
         const dbFilePath = getDbFilePath(this.dataPath, communityAddress);
         if (!existsSync(dbFilePath)) return false;
         // Still answered after close(), from the file: something of a destroyed PKC may run a moment longer
         if (this._closed) return isSqliteFile(dbFilePath) === true;
         if (this._selectRow.get(communityAddress)) return true;
-        if (isSqliteFile(dbFilePath) !== true) return false;
+        if (isSqliteFile(dbFilePath) !== true || filenameAsStored(dbFilePath) !== communityAddress) return false;
         // A DB without a row, e.g. of a creation whose registration failed: registered now. The DB is there whether
         // or not that works
         if (!filesBeingWrittenByThisProcess.has(path.resolve(dbFilePath))) {
@@ -434,7 +506,7 @@ export class CommunitiesRegistry {
             this._recordChange(communityAddress);
             return true;
         });
-        if (claimed) this._releasesToWriteAgain.delete(communityAddress);
+        if (claimed && this._releasesToWriteAgain.delete(communityAddress)) this._mirrorStartedAgain(communityAddress);
         this._emitListIfOutdated();
         return claimed;
     }
@@ -452,6 +524,7 @@ export class CommunitiesRegistry {
             this._releasesToWriteAgain.delete(communityAddress);
         } catch (error) {
             this._releasesToWriteAgain.add(communityAddress);
+            this._mirrorStartedAgain(communityAddress);
             this._log.error("Failed to write that community", communityAddress, "is stopped, will try again", error);
         }
         this._emitListIfOutdated();
@@ -552,10 +625,15 @@ export class CommunitiesRegistry {
     // Removes the row of a DB file that was seen to be gone. Looked at again inside the write transaction: what was seen
     // is old by then, and another instance may have created the file and registered it since. Its row was deleted
     // otherwise, and the community left every list while its creator ran it
-    private _removeRowIfFileIsGone(communityAddress: string) {
-        this._write(() => {
-            if (getFileId(getDbFilePath(this.dataPath, communityAddress)) === undefined) this._removeRow(communityAddress);
-            else this._registerFile(communityAddress);
+    // Returns the row the address is left with, if any. A file that can't be looked at is not gone: its row stays, and
+    // the start claim in it
+    private _removeRowIfFileIsGone(communityAddress: string): RegistryRow | undefined {
+        return this._write(() => {
+            if (isFileGone(getDbFilePath(this.dataPath, communityAddress))) {
+                this._removeRow(communityAddress);
+                return undefined;
+            }
+            return this._registerFile(communityAddress) ?? this._selectRow.get(communityAddress);
         });
     }
 
@@ -569,14 +647,20 @@ export class CommunitiesRegistry {
         const dbFilePath = getDbFilePath(this.dataPath, communityAddress);
         return this._write(() => {
             const fileId = getFileId(dbFilePath) ?? null;
-            const isCommunityDb = fileId !== null && isSqliteFile(dbFilePath) === true;
+            const header = fileId !== null ? isSqliteFile(dbFilePath) : false;
+            const isCommunityDb = header === true;
             const existing = this._selectRow.get(communityAddress);
             if (!isCommunityDb && !evenIfNotACommunityDb) {
-                this._identityReadsToRetry.delete(communityAddress);
+                // a file that could not be opened to look at its header is looked at again, like one whose DB could not
+                if (header !== "could-not-read") this._identityReadsToRetry.delete(communityAddress);
+                else if (this._onChange && !this._identityReadsToRetry.has(communityAddress))
+                    this._identityReadsToRetry.set(communityAddress, IDENTITY_READ_RETRIES);
                 if (this._onChange) this._mirrorRow(communityAddress, existing);
                 return undefined;
             }
-            const identityRead = isCommunityDb ? readCommunityPublicKeyFromDb(dbFilePath) : { failureMayPass: false };
+            const identityRead: { publicKey?: string; failureMayPass: boolean } = isCommunityDb
+                ? readCommunityPublicKeyFromDb(dbFilePath)
+                : { failureMayPass: header === "could-not-read" };
             let publicKey = identityRead.publicKey ?? null;
             // a read that failed says nothing about a file whose identity is known
             if (publicKey === null && existing && existing.fileId === fileId) publicKey = existing.publicKey;
@@ -585,26 +669,26 @@ export class CommunitiesRegistry {
             else if (this._onChange && !this._identityReadsToRetry.has(communityAddress))
                 this._identityReadsToRetry.set(communityAddress, IDENTITY_READ_RETRIES);
             if (!existing || existing.publicKey !== publicKey || existing.fileId !== fileId) {
-                this._upsertIdentity.run(communityAddress, publicKey, fileId);
+                this._upsertIdentity.run(communityAddress, publicKey, fileId, lookupKeyOf(communityAddress));
                 this._recordChange(communityAddress);
             } else if (this._onChange) this._mirrorRow(communityAddress, existing); // written by another instance
             return this._selectRow.get(communityAddress);
         });
     }
 
-    private _selectRowsByFilenameOrPublicKey({ filenames, publicKeys }: { filenames: string[]; publicKeys: string[] }): RegistryRow[] {
-        const key = `${filenames.length}:${publicKeys.length}`;
+    private _selectRowsByLookupKeyOrPublicKey({ lookupKeys, publicKeys }: { lookupKeys: string[]; publicKeys: string[] }): RegistryRow[] {
+        const key = `${lookupKeys.length}:${publicKeys.length}`;
         let statement = this._lookupStatements.get(key);
         if (!statement) {
             const placeholders = (count: number) => Array.from({ length: count }, () => "?").join(", ");
             statement = this._db.prepare(
                 `SELECT address, publicKey, fileId, startedBy FROM ${COMMUNITIES_TABLE}
-                 WHERE address IN (${placeholders(filenames.length)}) OR publicKey IN (${placeholders(publicKeys.length)})
+                 WHERE lookupKey IN (${placeholders(lookupKeys.length)}) OR publicKey IN (${placeholders(publicKeys.length)})
                  ORDER BY address`
             );
             this._lookupStatements.set(key, statement);
         }
-        return statement.all(...filenames, ...publicKeys);
+        return statement.all(...lookupKeys, ...publicKeys);
     }
 
     private _isOtherInstanceAliveNow(instanceId: string): boolean {
@@ -664,7 +748,11 @@ export class CommunitiesRegistry {
                 }
             });
         this._write(() => {
-            for (const { address } of this._selectAllRows.all()) if (!filenames.has(address)) this._removeRowIfFileIsGone(address);
+            for (const { address } of this._selectAllRows.all()) {
+                if (filenames.has(address)) continue;
+                if (isPlainFilename(address)) this._removeRowIfFileIsGone(address);
+                else this._removeRow(address); // never the row of a file in this directory
+            }
         });
     }
 
@@ -745,6 +833,12 @@ export class CommunitiesRegistry {
         this._listIsOutdated = true;
     }
 
+    // `started` of this address changed in this instance's list without its row changing (see releaseStart)
+    private _mirrorStartedAgain(communityAddress: string) {
+        const row = this._rows.get(communityAddress);
+        if (this._onChange && row) this._mirrorRow(communityAddress, row, { startedMayHaveChanged: true });
+    }
+
     // The entry of pkc.communities for a row, or undefined for a row that is not listed
     private _entryOfRow(row: RegistryRow | undefined): PKCCommunitiesEntry | undefined {
         if (!row || row.publicKey === null) return undefined;
@@ -803,7 +897,7 @@ export class CommunitiesRegistry {
 
     private _isRowStarted(row: RegistryRow): boolean {
         if (row.startedBy === null) return false;
-        if (row.startedBy === this.instanceId) return true;
+        if (row.startedBy === this.instanceId) return !this._releasesToWriteAgain.has(row.address);
         let alive = this._otherInstancesAlive.get(row.startedBy);
         if (alive === undefined) {
             alive = this._isOtherInstanceAliveNow(row.startedBy);
