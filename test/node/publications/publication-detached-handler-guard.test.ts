@@ -7,6 +7,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { readFileSync } from "node:fs";
 import { mockRemotePKC, mockPKC, generateMockPost, createSubWithNoChallenge } from "../../../dist/node/test/test-util.js";
 import { captureProcessFatalErrors } from "../../helpers/hostile-props.js";
+import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 
@@ -297,7 +298,10 @@ describe("every detached entry point of a publication is wrapped", () => {
 
 // The real trigger: the publisher's teardown throws (the uncaught TypeError that ended the shared test server).
 // A community and a publisher on separate throwaway PKCs, nothing published to a shared community.
-describe("a publisher whose teardown throws, publishing to a real throwaway community", () => {
+// Skipped under RPC: the publisher is an RPC client there, so the pubsub subscription belongs to the RPC server and the
+// publisher's own _clientsManager.pubsubUnsubscribe is never called. The counter these cases assert on cannot move.
+// The RPC teardown is covered by the "RPC verdict" case above.
+describeSkipIfRpc("a publisher whose teardown throws, publishing to a real throwaway community", () => {
     let pkc: PKC;
     let communityPKC: PKC;
     let communityAddress: string;
@@ -351,7 +355,10 @@ describe("a publisher whose teardown throws, publishing to a real throwaway comm
 
 // A listener of the application throws while the verdict is being emitted. The verdict is already the end of the
 // publish, so the guard only reports; the teardown that follows the emit must still happen.
-describe("a throwing application listener on the verdict, publishing to a real throwaway community", () => {
+// Skipped under RPC: the publisher is an RPC client there, so the pubsub subscription belongs to the RPC server and the
+// publisher's own _clientsManager.pubsubUnsubscribe is never called. The counter these cases assert on cannot move.
+// The RPC teardown is covered by the "RPC verdict" case above.
+describeSkipIfRpc("a throwing application listener on the verdict, publishing to a real throwaway community", () => {
     let pkc: PKC;
     let communityPKC: PKC;
     let communityAddress: string;

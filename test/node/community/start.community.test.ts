@@ -68,8 +68,9 @@ describe(`community.start`, async () => {
         const listedTopics = async () => await localCommunity._pkc._clientsManager.getDefaultKuboPubsubClient()!._client.pubsub.ls();
         expect(await listedTopics()).to.not.include(community.address);
 
-        await new Promise((resolve) => setTimeout(resolve, localCommunity._pkc.publishInterval * 2));
-        expect(await listedTopics()).to.include(community.address);
+        // The community resubscribes at the start of its next sync cycle, so the wait is bounded by whatever cycle is in
+        // flight plus the idle interval, not by a fixed multiple of publishInterval. Poll instead of sleeping (#481).
+        await vi.waitFor(async () => expect(await listedTopics()).to.include(community.address), { timeout: 30_000, interval: 250 });
 
         await publishRandomPost({ communityAddress: community.address, pkc: pkc }); // Should receive publication since subscription to pubsub topic has been restored
     });
