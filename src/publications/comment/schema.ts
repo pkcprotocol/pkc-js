@@ -332,7 +332,36 @@ const additionalCommentReservedFields = [
     // Runtime-only, accepted by pkc.getComment({cid, abortSignal}) and stripped before the rest
     // reaches createComment. Reserved so a record arriving on the wire carrying that key is rejected
     // rather than carried onto the instance (issue #278).
-    "abortSignal"
+    "abortSignal",
+    // Methods of a Comment instance (own, EventEmitter's included). A record carrying one would replace the method on
+    // every reader that copies unknown props onto the instance. Properties are covered by the lists above and by the
+    // CommentJson check below; methods are not, so test/node-and-browser/comment-reserved-members.test.ts compares this
+    // list with a live Comment and fails when a method is added without being reserved.
+    "publish",
+    "publishChallengeAnswers",
+    "update",
+    "stop",
+    "getType",
+    "setCid",
+    "setCommunityAddress",
+    "startCommentUpdateCommunitySubscription",
+    "loadCommentIpfsAndStartCommentUpdateSubscription",
+    "toJSONPubsubRequestToEncrypt",
+    "setMaxListeners",
+    "getMaxListeners",
+    "emit",
+    "addListener",
+    "on",
+    "prependListener",
+    "once",
+    "prependOnceListener",
+    "removeListener",
+    "off",
+    "removeAllListeners",
+    "listeners",
+    "rawListeners",
+    "listenerCount",
+    "eventNames"
 ] as const;
 
 type AdditionalCommentReservedField = (typeof additionalCommentReservedFields)[number];

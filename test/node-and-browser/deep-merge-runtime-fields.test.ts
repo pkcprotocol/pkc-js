@@ -157,4 +157,85 @@ describe("deepMergeRuntimeFields", () => {
         expect(target.updatingState).to.equal("succeeded");
         expect(target.someField).to.equal("updated");
     });
+    describe("keys that reach the prototype machinery, as a malicious RPC server could send them", () => {
+        class Instance {
+            author = { name: "n" };
+            update() {
+                return "real";
+            }
+        }
+        const parse = (json: string) => <Record<string, unknown>>JSON.parse(json);
+
+        it("an own __proto__ key does not recurse into the prototype of the target", () => {
+            const target = new Instance();
+            deepMergeRuntimeFields(target, parse('{"__proto__": {"update": "hostile", "polluted": true}}'));
+            expect(target.update()).to.equal("real");
+            expect(Object.getPrototypeOf(target)).to.equal(Instance.prototype);
+            expect(({} as Record<string, unknown>).polluted).to.equal(undefined);
+        });
+
+        it("an own __proto__ key nested inside a merged object does not reach Object.prototype", () => {
+            const target = new Instance();
+            deepMergeRuntimeFields(target, parse('{"author": {"__proto__": {"polluted": true}, "nameResolved": true}}'));
+            expect(({} as Record<string, unknown>).polluted).to.equal(undefined);
+            expect((target.author as Record<string, unknown>).polluted).to.equal(undefined);
+            expect((target.author as Record<string, unknown>).nameResolved).to.equal(true);
+        });
+
+        it("constructor and prototype keys are ignored, ordinary keys in the same object still merge", () => {
+            const target = new Instance();
+            deepMergeRuntimeFields(
+                target,
+                parse('{"constructor": {"prototype": {"polluted": true}}, "prototype": {"x": 1}, "title": "ok"}')
+            );
+            expect(Object.getPrototypeOf(target).constructor).to.equal(Instance);
+            expect(({} as Record<string, unknown>).polluted).to.equal(undefined);
+            expect((target as unknown as Record<string, unknown>).title).to.equal("ok");
+        });
+
+        it("does not pollute through arrays of objects either", () => {
+            const target = { comments: [{ author: {} }] };
+            deepMergeRuntimeFields(target, parse('{"comments": [{"__proto__": {"polluted": true}}]}'));
+            expect(({} as Record<string, unknown>).polluted).to.equal(undefined);
+        });
+
+        describe("names of members of the instance, as a malicious RPC server could send them", () => {
+            class Member {
+                state = "stopped";
+                _clientsManager = { real: true };
+                _pkc = { validatePages: true };
+                update() {
+                    return "real update";
+                }
+                stop() {
+                    return "real stop";
+                }
+            }
+            const asBag = (x: object) => <Record<string, unknown>>(<unknown>x);
+
+            for (const [name, value] of <[string, unknown][]>[
+                ["update", 1],
+                ["stop", { x: 1 }],
+                ["_clientsManager", 0]
+            ])
+                it(`${name} does not replace a member of the target`, () => {
+                    const target = new Member();
+                    const before = asBag(target)[name];
+                    deepMergeRuntimeFields(target, parse(JSON.stringify({ [name]: value })));
+                    expect(asBag(target)[name]).to.equal(before);
+                });
+
+            it("a nested _pkc object is not merged into the shared pkc of the target", () => {
+                const target = new Member();
+                deepMergeRuntimeFields(target, parse('{"_pkc": {"validatePages": false}}'));
+                expect(target._pkc.validatePages).to.equal(true);
+            });
+
+            it("ordinary runtime fields still merge into existing members (state is a runtime field)", () => {
+                const target = new Member();
+                deepMergeRuntimeFields(target, parse('{"state": "updating"}'));
+                expect(target.state).to.equal("updating");
+            });
+        });
+    });
 });

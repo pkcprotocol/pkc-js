@@ -1,3 +1,4 @@
+import { forbiddenKeysOf } from "../../../unknown-props.js";
 import {
     getEquivalentCommunityAddresses,
     hideClassPrivateProps,
@@ -694,6 +695,10 @@ export class DbHandler {
             if (currentDbVersion < 29) this._backfillApprovedCommentNumbers();
             if (currentDbVersion < 31) this._backfillTargetAuthorSignerAddress();
             if (currentDbVersion < 32) this._backfillTargetAuthorDomain();
+            // v47: records are refused when a key is named like an object member or starts with `_` (the purges above
+            // apply that rule to the comments and edits stored by an older version). The challenge extras a row holds are
+            // community-chosen, not author-signed, so the offending keys are dropped from them instead of the row
+            if (currentDbVersion < 47) this._stripForbiddenKeysFromChallengeCommentUpdates();
 
             this._db.exec("PRAGMA foreign_keys = ON");
             this._db.pragma(`user_version = ${env.DB_VERSION}`);
@@ -842,6 +847,39 @@ export class DbHandler {
 
         updateMany(moderationsToUpdate);
         log(`Backfilled targetAuthorSignerAddress for ${moderationsToUpdate.length} comment moderations`);
+    }
+
+    // comments.challengeCommentUpdate is spread into every CommentUpdate the community signs, and a CommentUpdate with a
+    // forbidden key (see isForbiddenRecordKey) no longer verifies, so a stored extra with such a key would stall the
+    // update cycle. The comment stays, only the key goes
+    private _stripForbiddenKeysFromChallengeCommentUpdates() {
+        const log = Logger("pkc-js:local-community:db-handler:_stripForbiddenKeysFromChallengeCommentUpdates");
+        const rows = this._db
+            .prepare(`SELECT cid, challengeCommentUpdate FROM ${TABLES.COMMENTS} WHERE challengeCommentUpdate IS NOT NULL`)
+            .all() as { cid: string; challengeCommentUpdate: string }[];
+        const update = this._db.prepare(`UPDATE ${TABLES.COMMENTS} SET challengeCommentUpdate = ? WHERE cid = ?`);
+        for (const row of rows) {
+            let extras: Record<string, unknown>;
+            try {
+                extras = JSON.parse(row.challengeCommentUpdate);
+            } catch {
+                continue; // not valid JSON: the query path reports it, this sweep only strips keys
+            }
+            if (typeof extras !== "object" || extras === null) continue;
+            const topLevel = forbiddenKeysOf(extras);
+            const author = extras.author as Record<string, unknown> | undefined;
+            const authorKeys = forbiddenKeysOf(author);
+            if (topLevel.length === 0 && authorKeys.length === 0) continue;
+            log(`Comment ${row.cid} has challenge commentUpdate keys that are no longer allowed, dropping`, [...topLevel, ...authorKeys]);
+            const cleaned: Record<string, unknown> = {};
+            for (const [key, value] of Object.entries(extras)) if (!topLevel.includes(key)) cleaned[key] = value;
+            if (author && authorKeys.length > 0) {
+                const cleanedAuthor: Record<string, unknown> = {};
+                for (const [key, value] of Object.entries(author)) if (!authorKeys.includes(key)) cleanedAuthor[key] = value;
+                cleaned.author = cleanedAuthor;
+            }
+            update.run(Object.keys(cleaned).length > 0 ? JSON.stringify(cleaned) : null, row.cid);
+        }
     }
 
     private _backfillTargetAuthorDomain() {

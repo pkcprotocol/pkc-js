@@ -90,7 +90,7 @@ gallery?: {
 - `replies`: pre-loaded first page of replies
 - `signature`: community owner's signature
 - `updatedAt`, `protocolVersion`
-- Challenge extras: a challenge's `commentUpdate` may set keys `CommentUpdateSchema` does not know (anything outside `CommentUpdateReservedFields`). They are listed in `signature.signedPropertyNames`, ride in the CommentUpdate, and readers parse the record loosely (unknown keys land on the `Comment` instance)
+- Challenge extras: a challenge's `commentUpdate` may set keys `CommentUpdateSchema` does not know (anything outside `CommentUpdateReservedFields`). They are listed in `signature.signedPropertyNames`, ride in the CommentUpdate, and readers parse the record loosely (unknown keys land on the `Comment` instance through `assignUnknownProps`, which skips any name that is already a member of the instance or starts with `_`, and the community refuses a challenge extra with such a name; see [wire-vs-runtime.md](./wire-vs-runtime.md#unknown-props-and-author-keys-from-a-record))
 
 ## One Signed Record, Two Deliveries
 

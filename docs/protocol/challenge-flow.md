@@ -154,6 +154,15 @@ On **failure**:
 
 Three reasons exist so that a publication the community could not republish byte-for-byte is refused instead of stored (issue #387): `ERR_PUBLICATION_AUTHOR_IS_AN_EMPTY_OBJECT` and `ERR_PUBLICATION_HAS_MALFORMED_UNICODE_STRING` from validation (`checkPublicationValidity`), and `ERR_COMMUNITY_CANNOT_STORE_PUBLICATION_VERBATIM` from the store-time gate, which rebuilds the comment or author edit from a read-back of its row (inserted in a savepoint that is rolled back, issue #417) and refuses to store it if the rebuilt record no longer hashes to its cid or verifies. See `docs/protocol/signing.md`.
 
+## A Throwing Handler Ends One Publication, Not The Process
+
+A publication is driven by entry points nothing awaits: the pubsub handler (`_handleChallengeExchange`), the RPC subscription handlers (`_handleIncoming*FromRpc`), the listeners put on a local community, and the no-response watchdog. A throw in one is an unhandled rejection, which ends a Node process. `Publication._guardDetachedHandler` wraps each of them. When one throws it logs, runs the teardown (itself guarded) and reports `ERR_PUBLICATION_INTERNAL_ERROR` with the entry point and the original as `cause`:
+
+- before the verdict: the publication ends in `publishingState: "failed"` and `error` is emitted through the usual state-change path;
+- after the verdict: the outcome stands, `error` is emitted and nothing else changes.
+
+The reporting never throws, even when nothing listens to `error`. A new async listener, timer or fire-and-forget call in `publication.ts` must go through the wrapper: `test/node/publications/publication-detached-handler-guard.test.ts` reads the source and fails when one does not.
+
 ## Duplicate and Overlapping Requests
 
 A challenge request carries a signed publication, and the signature is the identity of that publication. A publisher may send the same signed publication more than once: after a lost verification, or as an automatic retry to another pubsub provider when no response arrives within its provider-switch threshold (the retry uses a new `challengeRequestId`). The community answers by signature, in `src/runtime/node/community/local-community/challenges.ts`:

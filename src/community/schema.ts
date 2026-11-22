@@ -602,6 +602,10 @@ export const CommunityIpfsReservedFields = difference(
         "nameResolved",
         "ipnsHops",
         "anchor",
+        // derived by the client from the address it loaded; a record that signed them would pick the pubsub topic
+        "ipnsName",
+        "ipnsPubsubTopic",
+        "ipnsPubsubTopicRoutingCid",
         "raw",
         "shortCommunityAddress",
         "deleted",
