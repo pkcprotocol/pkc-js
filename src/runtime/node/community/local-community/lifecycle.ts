@@ -574,7 +574,6 @@ export async function update(community: LocalCommunity) {
 
 export async function stop(community: LocalCommunity) {
     community._stopHasBeenCalled = true;
-    community._wakePublishLoop?.(); // the publish loop sleeps between cycles and has to see the line above now
     // Set above first, so the publish or update loop the start() or update() launches ends at its first check. Also waits
     // for a start() begun while it waited (from a listener during a failed start()'s teardown), so it stops that one too.
     // A stop() that is tearing down is waited for as well: two teardowns at once each released the start lock and closed
@@ -583,8 +582,11 @@ export async function stop(community: LocalCommunity) {
     while (community._startOrUpdateInFlight || community._stopInFlight || community._editStoresInFlight.size > 0) {
         await (community._startOrUpdateInFlight ?? community._stopInFlight ?? Promise.allSettled([...community._editStoresInFlight]));
         community._stopHasBeenCalled = true; // a start() begun meanwhile cleared it
-        community._wakePublishLoop?.();
     }
+    // The publish loop sleeps between cycles and has to see _stopHasBeenCalled now. Woken only here, after the edits
+    // whose DB write was running: such an edit is pending once its write is done, and the loop, which goes on while an
+    // edit is pending, ended without publishing it when it was woken before that.
+    community._wakePublishLoop?.();
     let settle!: () => void;
     const stopInFlight = new Promise<void>((resolve) => (settle = resolve));
     community._stopInFlight = stopInFlight;
