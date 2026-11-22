@@ -39,4 +39,4 @@ Whichever you use, run it against the BSIP-22 test vectors (`test/fixtures/autho
 ## Tests
 
 - `test/node-and-browser/signatures/author-wallet-proof.test.ts`: the BSIP-22 vectors (`test/fixtures/author-wallet-proof/wallet-proof-vectors.json`, copied from the BSIPs repo) against `src/signer/author-wallet-proof.ts`.
-- `test/node/community/author-wallet-proof.community.test.ts`: community acceptance with enforcement on and off, and the local pre-publish check.
+- `test/node/community/author-wallet-proof.community.test.ts`: rejection of invalid proofs, acceptance of valid and unknown ones, and the local pre-publish check.
