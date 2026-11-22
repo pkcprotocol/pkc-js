@@ -4,7 +4,7 @@ import { LRUCache } from "lru-cache";
 import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
 import { pubsubTopicToDhtKey, removeMfsFilesSafely, sleepUntilTimeoutOrAbort } from "../../../../util.js";
-import { moveCommunityDbToDeletedDirectory, refreshCommunitiesList } from "../../util.js";
+import { moveCommunityDbToDeletedDirectory, unregisterLocalCommunity } from "../../util.js";
 import { deriveCommunityChallengesOrThrow } from "../challenges/index.js";
 import { collectChallengeSettingsValidationFailures } from "../challenges/validate-challenge-settings.js";
 import {
@@ -74,6 +74,28 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
     };
 
     while (!shouldStopPublishLoop()) {
+        // Two instances publishing one community would each sign records under the same key, with the same sequence
+        // numbers. start() can't let that happen, so this is a second line: whatever took this instance's claim from
+        // it while it was running, the community goes down here and says why (issue #585)
+        if (isCommunityStartTakenByAnotherInstance(community, log)) {
+            const error = new PKCError("ERR_COMMUNITY_START_TAKEN_BY_ANOTHER_PKC_INSTANCE", {
+                address: community.address,
+                dataPath: community._pkc.dataPath
+            });
+            log.error(error);
+            // Read by the teardown, also by that of a stop() that is waiting for this loop already. Set before anything
+            // that may throw: a teardown that does not see it writes to what is another instance's
+            community._startTakenByAnotherInstance = true;
+            try {
+                community.emit("error", error);
+            } catch (e) {
+                // nobody listens for errors, or a listener threw. The community goes down all the same
+                log.error(`A listener of the error of community (${community.address}) threw, or there is none`, e);
+            }
+            // not awaited: stop() waits for this loop to end
+            community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after its start was taken`, e));
+            break;
+        }
         let lastSyncFailed = false;
         try {
             await syncIpnsWithDb(community);
@@ -96,6 +118,16 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
         }
     }
     log("Stopping the publishing loop of community", community.address);
+}
+
+// A failure to read the registry is not a verdict: the cycle runs and the next one asks again
+function isCommunityStartTakenByAnotherInstance(community: LocalCommunity, log: Logger): boolean {
+    try {
+        return community._dbHandler.confirmCommunityStartIsStillOurs() === "taken";
+    } catch (e) {
+        log.error(`Failed to confirm that community (${community.address}) is still started by this PKC instance`, e);
+        return false;
+    }
 }
 
 export async function initBeforeStarting(community: LocalCommunity) {
@@ -197,6 +229,7 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
     // starts or edits meanwhile; the start then runs on what the edit left, under the new address after a rename.
     while (community._stoppedEditsInFlight.size > 0) await Promise.allSettled([...community._stoppedEditsInFlight]);
     community._stopHasBeenCalled = false;
+    community._startTakenByAnotherInstance = false;
     // Re-baseline address-change re-provide for this run (start() provides everything fresh below).
     community._lastProvidedBrowserDialableSelfAddrs = undefined;
     community._lastAddressReprovideCheckAt = undefined;
@@ -559,21 +592,30 @@ async function stopCommunity(community: LocalCommunity) {
             community._publishLoopPromise = undefined;
         }
 
-        try {
-            // Bypass the unpin grace period: this is the process's last chance to unpin, and a
-            // community that never starts again would otherwise leak its queued pins forever.
-            await unpinStaleCids(community, { bypassGracePeriod: true });
-        } catch (e) {
-            log.error("Failed to unpin stale cids and remove mfs paths before stopping", e);
-        }
+        // Not when another instance has taken the community over (the publish loop, which has ended by now, found it
+        // so): the community's DB and its files in Kubo are that instance's. The record this one holds is older than
+        // what that one has stored, and the cids this one thinks stale may be in what that one publishes
+        // Asked here too: the loop ends on a stop request without having looked
+        const startTakenByAnotherInstance =
+            community._startTakenByAnotherInstance || isCommunityStartTakenByAnotherInstance(community, log);
+        community._startTakenByAnotherInstance = false;
+        if (!startTakenByAnotherInstance) {
+            try {
+                // Bypass the unpin grace period: this is the process's last chance to unpin, and a
+                // community that never starts again would otherwise leak its queued pins forever.
+                await unpinStaleCids(community, { bypassGracePeriod: true });
+            } catch (e) {
+                log.error("Failed to unpin stale cids and remove mfs paths before stopping", e);
+            }
 
-        try {
-            // built inside the write transaction, so it keeps an edit stored meanwhile (see updateDbInternalState)
-            await updateDbInternalState(community, () =>
-                community.updateCid ? community.toJSONInternalAfterFirstUpdate() : community.toJSONInternalBeforeFirstUpdate()
-            );
-        } catch (e) {
-            log.error("Failed to update db internal state before stopping", e);
+            try {
+                // built inside the write transaction, so it keeps an edit stored meanwhile (see updateDbInternalState)
+                await updateDbInternalState(community, () =>
+                    community.updateCid ? community.toJSONInternalAfterFirstUpdate() : community.toJSONInternalBeforeFirstUpdate()
+                );
+            } catch (e) {
+                log.error("Failed to update db internal state before stopping", e);
+            }
         }
 
         try {
@@ -615,9 +657,9 @@ async function stopCommunity(community: LocalCommunity) {
 export const DELETE_UNPIN_SLICE_SIZE = 5000;
 
 // Marked for its whole run, from before its first await: start() refuses while the mark is set. The delete closes the
-// community's DB connection and moves the DB away, and a start() that ran meanwhile held the start lock on that
-// connection: the close was refused (see DbHandler.destoryConnection), the DB and its sidecar went all the same, and the
-// community stayed started on a file that was no longer there, startable by another process too.
+// community's DB connection and moves the DB away, and a start() that ran meanwhile had the community started on that
+// connection: the close was refused (see DbHandler.destoryConnection), the DB went all the same, and the community
+// stayed started on a file that was no longer there.
 export async function deleteCommunity(community: LocalCommunity) {
     let settle!: () => void;
     const inFlight = new Promise<void>((resolve) => (settle = resolve));
@@ -735,7 +777,13 @@ async function deleteCommunityWhileMarked(community: LocalCommunity) {
     }
 
     await moveCommunityDbToDeletedDirectory(community.address, community._pkc);
-    refreshCommunitiesList(community._pkc); // unlist the address now, not when the filesystem watcher fires
+    try {
+        unregisterLocalCommunity(community._pkc, community.address); // unlist the address now, not when the filesystem watcher fires
+    } catch (e) {
+        // The community is deleted: its DB has moved. A row that could not be removed (storage.db locked for too long)
+        // goes with the filesystem event of the move, or with the next lookup of the address
+        log.error(`Failed to remove deleted community (${community.address}) from the communities registry`, e);
+    }
 
     log(`Deleted community (${community.address}) successfully`);
 }

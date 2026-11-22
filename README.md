@@ -1279,7 +1279,7 @@ const signerFromPrivateKey = await pkc.createSigner({privateKey: 'AbCd...', type
 | `name` | `string` (optional) | The community's domain name, e.g. `memes.bso`. Absent for a community without a name |
 | `publicKey` | `string` | The community's IPNS public key, its identity |
 | `address` | `string` | Runtime-only, computed the same way as `community.address`: `name` when there is one, else `publicKey`. It is not sent over the RPC wire, each side computes it |
-| `started` | `boolean` | Whether the community is running, the same check as `community.started`: its start lock on the `dataPath` is held, by this process or another one |
+| `started` | `boolean` | Whether the community is running, the same check as `community.started`: a live PKC instance on the `dataPath` has it started, in this process or another one. A start or stop by another process shows up within about two seconds |
 
 The list updates when a community is created, deleted, renamed, started or stopped. Run one process with the RPC server and have other processes connect to it, rather than sharing a `dataPath` between processes.
 
@@ -1370,7 +1370,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| name | `string` or `undefined` | Crypto domain of the community, e.g. `'memes.bso'`. Changing it renames the community (its address, DB and start lock move to the new name) and hides the comments signed with the old name; `undefined` drops the name and the address becomes the public key, see [Changing a community's name](docs/protocol/names-and-addresses.md#changing-a-communitys-name). Owner-only over pubsub, see [Community roles and permissions](#community-roles-and-permissions) |
+| name | `string` or `undefined` | Crypto domain of the community, e.g. `'memes.bso'`. Changing it renames the community (its address and DB move to the new name) and hides the comments signed with the old name; `undefined` drops the name and the address becomes the public key, see [Changing a community's name](docs/protocol/names-and-addresses.md#changing-a-communitys-name). Owner-only over pubsub, see [Community roles and permissions](#community-roles-and-permissions) |
 | address | `string` or `undefined` | Legacy alias of `name`, kept for backward compatibility: a domain passed here is applied as `name`, the community's public key drops the name. Passing both `name` and `address` with different values throws `ERR_COMMUNITY_EDIT_NAME_AND_ADDRESS_MISMATCH`, see [Changing a community's name](docs/protocol/names-and-addresses.md#changing-a-communitys-name) |
 | title | `string` or `undefined` | Title of the community |
 | description | `string` or `undefined` | Description of the community |

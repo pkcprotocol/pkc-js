@@ -42,7 +42,7 @@ import type {
 import { storePublication } from "./local-community/publication-store.js";
 import type { IpfsHttpClientPubsubMessage } from "../../../types.js";
 import { verifyCommunity } from "../../../signer/signatures.js";
-import { deriveCommentIpfsFromCommentTableRow, refreshCommunitiesList } from "../util.js";
+import { deriveCommentIpfsFromCommentTableRow } from "../util.js";
 import { SignerWithPublicKeyAddress } from "../../../signer/index.js";
 import { RpcLocalCommunity } from "../../../community/rpc-local-community.js";
 import { omit, pick } from "remeda";
@@ -164,6 +164,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // uninstalled is reported once instead of on every cycle (issue #428).
     _reportedChallengeLoadFailures: string | undefined = undefined;
     _dbHandler!: DbHandler;
+    _startTakenByAnotherInstance = false; // set by the publish loop when another PKC instance has claimed this started community, read by the teardown of stop()
     _stopHasBeenCalled: boolean; // we use this to track if community.stop() has been called after community.start() or community.update()
     _publishLoopPromise?: Promise<void> = undefined;
     _updateLoopPromise?: Promise<void> = undefined;
@@ -313,14 +314,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     }
 
     async _updateStartedValue() {
+        // Read from the communities registry, which is also where `started` in pkc.communities comes from (issues #455
+        // and #585). A start or a stop by this PKC instance changes the registry, and with it the list, itself. One by
+        // another instance is read here at once and reaches the list on its timer, so this can be ahead of the list
         this.started = await this._dbHandler.isCommunityStartLocked(this.address);
-        // `started` in pkc.communities is the same start-lock check, so refresh it now rather than when the filesystem
-        // watcher fires (issue #455). Only a list refresh: a failure here must not fail the start or stop around it
-        try {
-            refreshCommunitiesList(this._pkc);
-        } catch (e) {
-            Logger("pkc-js:local-community:_updateStartedValue").error("Failed to refresh pkc.communities", e);
-        }
     }
 
     async initNewLocalCommunityPropsNoMerge(newProps: CreateNewLocalCommunityParsedOptions) {

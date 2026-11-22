@@ -121,7 +121,7 @@ import type {
 } from "../../clients/rpc-client/types.js";
 import type { CommunityExportRecord } from "../../community/types.js";
 import { findStartedCommunity } from "../../pkc/tracked-instance-registry-util.js";
-import { findLocalCommunityAddress, listCommunitiesSync } from "../../runtime/node/util.js";
+import { findLocalCommunityAddress, isLocalCommunityAddress } from "../../runtime/node/util.js";
 
 // store started communities to be able to stop them
 // store as a singleton because not possible to start the same community twice at the same time
@@ -496,12 +496,11 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         // `fetch failed`. Wait for the reconcile to settle before touching the node.
         await pkc._waitForHttpRoutersSetupToSettle();
 
-        const localCommunities = listCommunitiesSync(pkc); // the filenames, which are what community_states stores
-
         // Filter phase: determine which communities need starting
         const communitiesToStart: string[] = [];
         for (const row of rows) {
-            if (!localCommunities.includes(row.address)) {
+            // community_states stores the filename of the community's DB
+            if (!isLocalCommunityAddress(pkc, row.address)) {
                 autoStartLog(`Skipping auto-start for ${row.address} - community no longer exists`);
                 this._removeCommunityState(row.address);
                 continue;
