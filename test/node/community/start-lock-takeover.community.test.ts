@@ -54,70 +54,81 @@ describeSkipIfRpc("a started community whose start lock another process asks for
         expect(await isCommunityStartLocked({ dataPath: pkc.dataPath!, communityAddress: community.address })).to.be.false;
     });
 
-    it("stops itself with an error at its next publish cycle when the registry names another live instance", async () => {
-        const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
-        const errors: PKCError[] = [];
-        // A listener that throws, which is also what emitting "error" with no listener does: the community must go
-        // down all the same, and not stay started with no publish loop
-        community.on("error", (error) => {
-            errors.push(error as PKCError);
-            throw new Error("thrown by an error listener");
-        });
-        await community.start();
-        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
-
-        // Another live instance on the dataPath, written into the registry as the one that has the community started.
-        // start() never lets that happen, so it is written by hand
-        const otherInstance = { dataPath: pkc.dataPath! };
-        const otherRegistry = getCommunitiesRegistry(otherInstance);
-        try {
-            const storage = new Database(path.join(pkc.dataPath!, "storage.db"));
-            try {
-                storage
-                    .prepare("UPDATE localCommunities SET startedBy = ? WHERE address = ?")
-                    .run(otherRegistry.instanceId, community.address);
-            } finally {
-                storage.close();
-            }
-            // What the instance that took the community over has stored in its DB since
-            const internalStateKey = `keyv:${STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]}`;
-            const readStoredInternalState = () => {
-                const db = new Database(path.join(pkc.dataPath!, "communities", community.address), { readonly: true });
-                try {
-                    const row = db.prepare("SELECT value FROM keyv WHERE key = ?").get(internalStateKey) as { value: string };
-                    return JSON.parse(row.value).value as { title?: string; _internalStateUpdateId?: string };
-                } finally {
-                    db.close();
-                }
-            };
-            const stateOfNewOwner = { ...readStoredInternalState(), title: "stored by the new owner", _internalStateUpdateId: "new-owner" };
-            const communityDb = new Database(path.join(pkc.dataPath!, "communities", community.address));
-            try {
-                communityDb
-                    .prepare("UPDATE keyv SET value = ? WHERE key = ?")
-                    .run(JSON.stringify({ value: stateOfNewOwner }), internalStateKey);
-            } finally {
-                communityDb.close();
-            }
-            // the publish loop wakes for a new cycle
-            community._communityUpdateTrigger = true;
-
-            await resolveWhenConditionIsTrue({
-                toUpdate: community,
-                predicate: async () => community.state === "stopped",
-                eventName: "statechange"
+    // Found by the publish loop at its next cycle, or by a stop() that the user calls before that cycle: the loop ends
+    // on the stop request then, without having looked
+    for (const foundBy of ["its next publish cycle", "a stop() called before its next publish cycle"] as const)
+        it(`writes nothing to the community once the registry names another live instance, found by ${foundBy}`, async () => {
+            const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+            const errors: PKCError[] = [];
+            // A listener that throws, which is also what emitting "error" with no listener does: the community must go
+            // down all the same, and not stay started with no publish loop
+            community.on("error", (error) => {
+                errors.push(error as PKCError);
+                throw new Error("thrown by an error listener");
             });
-            expect(errors.map((error) => error.code)).to.include("ERR_COMMUNITY_START_TAKEN_BY_ANOTHER_PKC_INSTANCE");
-            // it did not take the other instance's claim away on its way down
-            expect(otherRegistry.isStarted(community.address)).to.be.true;
-            expect(community._dbHandler.holdsStartLock()).to.be.false;
-            // nor did it write its own, older state over what the other instance had stored
-            const stored = readStoredInternalState();
-            expect(stored.title).to.equal("stored by the new owner");
-            expect(stored._internalStateUpdateId).to.equal("new-owner");
-        } finally {
-            otherRegistry.close();
-            if (community.state !== "stopped") await community.stop().catch(() => {});
-        }
-    });
+            await community.start();
+            await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+
+            // Another live instance on the dataPath, written into the registry as the one that has the community started.
+            // start() never lets that happen, so it is written by hand
+            const otherInstance = { dataPath: pkc.dataPath! };
+            const otherRegistry = getCommunitiesRegistry(otherInstance);
+            try {
+                const storage = new Database(path.join(pkc.dataPath!, "storage.db"));
+                try {
+                    storage
+                        .prepare("UPDATE localCommunities SET startedBy = ? WHERE address = ?")
+                        .run(otherRegistry.instanceId, community.address);
+                } finally {
+                    storage.close();
+                }
+                // What the instance that took the community over has stored in its DB since
+                const internalStateKey = `keyv:${STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]}`;
+                const readStoredInternalState = () => {
+                    const db = new Database(path.join(pkc.dataPath!, "communities", community.address), { readonly: true });
+                    try {
+                        const row = db.prepare("SELECT value FROM keyv WHERE key = ?").get(internalStateKey) as { value: string };
+                        return JSON.parse(row.value).value as { title?: string; _internalStateUpdateId?: string };
+                    } finally {
+                        db.close();
+                    }
+                };
+                const stateOfNewOwner = {
+                    ...readStoredInternalState(),
+                    title: "stored by the new owner",
+                    _internalStateUpdateId: "new-owner"
+                };
+                const communityDb = new Database(path.join(pkc.dataPath!, "communities", community.address));
+                try {
+                    communityDb
+                        .prepare("UPDATE keyv SET value = ? WHERE key = ?")
+                        .run(JSON.stringify({ value: stateOfNewOwner }), internalStateKey);
+                } finally {
+                    communityDb.close();
+                }
+                if (foundBy === "its next publish cycle") {
+                    // the publish loop wakes for a new cycle, and the community stops itself with an error
+                    community._communityUpdateTrigger = true;
+                    await resolveWhenConditionIsTrue({
+                        toUpdate: community,
+                        predicate: async () => community.state === "stopped",
+                        eventName: "statechange"
+                    });
+                    expect(errors.map((error) => error.code)).to.include("ERR_COMMUNITY_START_TAKEN_BY_ANOTHER_PKC_INSTANCE");
+                } else {
+                    await community.stop();
+                    expect(community.state).to.equal("stopped");
+                }
+                // it did not take the other instance's claim away on its way down
+                expect(otherRegistry.isStarted(community.address)).to.be.true;
+                expect(community._dbHandler.holdsStartLock()).to.be.false;
+                // nor did it write its own, older state over what the other instance had stored
+                const stored = readStoredInternalState();
+                expect(stored.title).to.equal("stored by the new owner");
+                expect(stored._internalStateUpdateId).to.equal("new-owner");
+            } finally {
+                otherRegistry.close();
+                if (community.state !== "stopped") await community.stop().catch(() => {});
+            }
+        });
 });

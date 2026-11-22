@@ -595,7 +595,9 @@ async function stopCommunity(community: LocalCommunity) {
         // Not when another instance has taken the community over (the publish loop, which has ended by now, found it
         // so): the community's DB and its files in Kubo are that instance's. The record this one holds is older than
         // what that one has stored, and the cids this one thinks stale may be in what that one publishes
-        const startTakenByAnotherInstance = community._startTakenByAnotherInstance;
+        // Asked here too: the loop ends on a stop request without having looked
+        const startTakenByAnotherInstance =
+            community._startTakenByAnotherInstance || isCommunityStartTakenByAnotherInstance(community, log);
         community._startTakenByAnotherInstance = false;
         if (!startTakenByAnotherInstance) {
             try {
