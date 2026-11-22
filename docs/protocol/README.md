@@ -15,6 +15,7 @@ Concise protocol reference for AI agents and contributors. Each doc covers one d
 | [page-sorts.md](page-sorts.md) | `settings.pages`: choosing and preloading sorts, reserved options, `community.pageSorts`, writing a page sort file or package |
 | [crossposts.md](crossposts.md) | `comment.crosspost`, the embedded record, tier-1 vs tier-2 verification, `features.noCrossposts` |
 | [author-communities.md](author-communities.md) | Profiles as a community configuration: identity-key address, owner-only posting via challenge excludes, crosspost feed |
+| [author-wallet-proofs.md](author-wallet-proofs.md) | `author.wallets` proofs (BSIP-22, issue #566): valid / invalid / unknown, where pkc-js verifies, and where clients and challenges copy a verifier from |
 | [challenge-flow.md](challenge-flow.md) | 4-message encrypted challenge exchange |
 | [challenge-settings.md](challenge-settings.md) | Private (`settings.challenges`) vs public (`challenges`) boundary, sensitive options |
 | [challenge-authoring.md](challenge-authoring.md) | For challenge package authors: core `optionInputs` validation, the `validateChallengeSettings` hook, publication obligations |

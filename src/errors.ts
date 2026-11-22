@@ -196,6 +196,7 @@ export enum messages {
     ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY = "The community name resolves to a different public key than the one provided. The community may have migrated to a new key.",
     ERR_AUTHOR_NOT_MATCHING_SIGNATURE = "comment.author.address doesn't match comment.signature.publicKey",
     ERR_AUTHOR_NAME_MUST_BE_A_DOMAIN = "author.name must be a domain name (e.g. 'example.bso')",
+    ERR_AUTHOR_WALLET_PROOF_IS_INVALID = "An entry of author.wallets has an invalid proof (BSIP-22). The author must sign the wallet again",
     ERR_AUTHOR_NAME_HAS_CAPITAL_LETTER = "author.name has an uppercase letter. Author domain names should be lowercase",
     ERR_COMMUNITY_IPNS_NAME_DOES_NOT_MATCH_SIGNATURE_PUBLIC_KEY = "The IPNS name of community doesn't match community.signature.publicKey",
     ERR_COMMUNITY_ENCRYPTION_PUBLIC_KEY_DOES_NOT_MATCH_SIGNATURE_PUBLIC_KEY = "community.encryption.publicKey doesn't match community.signature.publicKey. The key that runs the challenge exchange must be the key that signed the record",

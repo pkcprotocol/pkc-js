@@ -41,6 +41,7 @@ import {
 import { TypedEmitter } from "tiny-typed-emitter";
 import { Comment } from "./comment/comment.js";
 import { PKCError } from "../pkc-error.js";
+import { verifyAuthorWalletEntry } from "../signer/author-wallet-proof.js";
 import { getHeliaDebugContext, type HeliaDebugContext } from "../helia/util.js";
 import { getBufferedPKCAddressFromPublicKey, getPKCAddressFromPublicKeySync } from "../signer/util.js";
 import * as cborg from "cborg";
@@ -884,6 +885,25 @@ class Publication extends TypedEmitter<PublicationEvents> {
             throw new PKCError("ERR_PUBLICATION_MISSING_FIELD", { type: this.getType(), authorAddress: this.author?.address });
         if (typeof this.communityAddress !== "string")
             throw new PKCError("ERR_PUBLICATION_MISSING_FIELD", { type: this.getType(), communityAddress: this.communityAddress });
+    }
+
+    // BSIP-22: run the check a community runs on acceptance before the exchange starts, so an author with an
+    // invalid wallet entry gets a clear error here instead of a rejection from the community. Reads the signed wire record, not the runtime fields, so it checks exactly what is sent.
+    private _validateAuthorWalletProofs() {
+        const signed = this.raw.pubsubMessageToPublish as
+            | { author?: { wallets?: Record<string, unknown> }; signature?: { publicKey?: string } }
+            | undefined;
+        const wallets = signed?.author?.wallets;
+        if (!wallets || !signed?.signature?.publicKey) return;
+        const authorPublicKey = getPKCAddressFromPublicKeySync(signed.signature.publicKey);
+        for (const [chainTicker, entry] of Object.entries(wallets)) {
+            const result = verifyAuthorWalletEntry({ entry, authorPublicKey, nowSeconds: timestamp() });
+            if (result.outcome === "invalid") {
+                // Nothing was sent and the instance is not spent. Leave "publishing" unless stop() already ended the attempt
+                if (this.state === "publishing") this._setStateWithEmission("stopped");
+                throw new PKCError("ERR_AUTHOR_WALLET_PROOF_IS_INVALID", { chainTicker, reason: result.reason, entry });
+            }
+        }
     }
 
     private _validateCommunityFields() {
@@ -1930,6 +1950,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
         }
 
         await this._validateSignatureHook();
+        // Before _isPublishSpent, so an invalid wallet entry fails with nothing sent and the instance stays usable
+        this._validateAuthorWalletProofs();
         // Stopped during the steps above: stop() settled the states, so do not start an exchange behind it
         if (this._hasPublishEnded()) return;
         // Pre-flight is over. From here a request can leave this instance, so it cannot publish again
