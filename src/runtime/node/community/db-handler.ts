@@ -3751,6 +3751,17 @@ export class DbHandler {
         );
     }
 
+    // A postUpdates bucket that MFS no longer holds takes its posts' CommentUpdate files with it, and the posts
+    // already marked as published are never written again by a cycle. Marking them rewrites the bucket whole.
+    // Returns how many posts were marked.
+    markPublishedPostsOfBucketAsUnpublished(bucket: number): number {
+        return this._db
+            .prepare(
+                `UPDATE ${TABLES.COMMENT_UPDATES} SET publishedToPostUpdatesMFS = 0 WHERE postUpdatesBucket = ? AND publishedToPostUpdatesMFS = 1`
+            )
+            .run(bucket).changes;
+    }
+
     forceUpdateOnAllComments(): void {
         this._db.prepare(`UPDATE ${TABLES.COMMENT_UPDATES} SET publishedToPostUpdatesMFS = 0`).run();
     }

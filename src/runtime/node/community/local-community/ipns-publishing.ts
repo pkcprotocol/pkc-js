@@ -14,6 +14,7 @@ import env from "../../../../version.js";
 import { PKCError } from "../../../../pkc-error.js";
 import { STORAGE_KEYS } from "../../../../constants.js";
 import { calculateExpectedSignatureSize } from "../../util.js";
+import { isAbsentPathError, markPostsOfLostBucketForRewrite } from "./post-updates-bucket.js";
 import { iterateOverPageCidsToFindAllCids } from "../../../../pages/util.js";
 import { cleanUpBeforePublishing, signCommunity } from "../../../../signer/signatures.js";
 import { CommunityIpfsSchema } from "../../../../community/schema.js";
@@ -44,7 +45,16 @@ export async function calculateNewPostUpdates(community: LocalCommunity): Promis
             // Retries on transient Kubo connection errors so a daemon blip doesn't silently drop a bucket.
             const statRes = await statMfsPathSafely({ kuboRpcClient, path: `/${community.address}/postUpdates/${timeBucket}` });
             if (statRes.blocks !== 0) postUpdates[String(timeBucket)] = String(statRes.cid);
-        } catch {}
+        } catch (error) {
+            // The previous record listed the bucket and MFS does not have it any more. A bucket that was never there is
+            // normal (a young community has no week bucket), and any other error is a Kubo hiccup that is retried above.
+            if (isAbsentPathError(error) && community.postUpdates?.[String(timeBucket)])
+                markPostsOfLostBucketForRewrite({
+                    community,
+                    bucket: timeBucket,
+                    log: Logger("pkc-js:local-community:sync:calculateNewPostUpdates")
+                });
+        }
     }
     if (isEmpty(postUpdates)) return undefined;
     return postUpdates;

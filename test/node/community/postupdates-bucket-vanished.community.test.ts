@@ -6,6 +6,10 @@ import {
     calculateNewCommentUpdate,
     syncPostUpdatesWithIpfs
 } from "../../../dist/node/runtime/node/community/local-community/comment-updates.js";
+import {
+    addAllCidsUnderPurgedCommentToBeRemoved,
+    rmUnneededMfsPaths
+} from "../../../dist/node/runtime/node/community/local-community/cleanup.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
@@ -114,5 +118,88 @@ describeSkipIfRpc("postUpdates bucket that vanishes from MFS after a swap that K
                     ).to.be.true,
                 { timeout: 30_000, interval: 250 }
             );
+    }, 120_000);
+
+    it("notices a vanished bucket when the community record is built, with no new post to write into it", async () => {
+        await vi.waitFor(async () => expect(await existsInMfs(updateFileOf(postA))).to.be.true, { timeout: 30_000, interval: 250 });
+        const bucket = bucketPath.split("/").pop()!;
+        expect(community.postUpdates?.[bucket], "the last record lists the bucket").to.be.a("string");
+
+        await kubo().files.rm(bucketPath, { recursive: true });
+        expect(await existsInMfs(bucketPath)).to.be.false;
+
+        // Nothing is published: an edit makes the community build a record, which stats the bucket
+        const updatedAtBefore = community.updatedAt!;
+        await community.edit({ description: `a record after the bucket vanished ${Date.now()}` });
+        await vi.waitFor(() => expect(community.updatedAt).to.be.greaterThan(updatedAtBefore), { timeout: 30_000, interval: 250 });
+
+        for (const [name, post] of [
+            ["A", postA],
+            ["B", postB]
+        ] as const)
+            await vi.waitFor(
+                async () => expect(await existsInMfs(updateFileOf(post)), `post ${name}'s CommentUpdate was not written again`).to.be.true,
+                { timeout: 30_000, interval: 250 }
+            );
+    }, 120_000);
+});
+
+// The other side of the repair: a bucket whose only post was purged is not a loss. The purge deletes the post
+// from the DB before it removes the MFS path, so there is nothing to rewrite, and no swap of the bucket may
+// follow (Kubo leaves the emptied directory in place, so the bucket is not even absent).
+describeSkipIfRpc("postUpdates bucket whose only post was purged", () => {
+    let pkc: PKCType;
+    let community: LocalCommunity;
+
+    beforeAll(async () => {
+        pkc = await mockPKC();
+        community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+    }, 120_000);
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    afterAll(async () => {
+        await community.delete();
+        await pkc.destroy();
+    });
+
+    it("is not written again after the purge and the records that follow it", async () => {
+        const post = await publishRandomPost({ communityAddress: community.address, pkc });
+        const bucket = await vi.waitFor(
+            async () => {
+                const key = community.postUpdates && Object.keys(community.postUpdates)[0];
+                expect(key, "the record lists the bucket").to.be.a("string");
+                return key!;
+            },
+            { timeout: 30_000, interval: 250 }
+        );
+        const bucketPath = `/${community.address}/postUpdates/${bucket}`;
+        const kubo = community._clientsManager.getDefaultKuboRpcClient()._client;
+        const mvSpy = vi.spyOn(kubo.files, "mv");
+
+        // What storeCommentModeration does for a purge: the DB row first, then the MFS paths
+        for (const purgedRow of community._dbHandler.purgeComment(post.cid!))
+            await addAllCidsUnderPurgedCommentToBeRemoved(community, purgedRow);
+        await rmUnneededMfsPaths(community);
+
+        // Records are built after the purge (an edit forces one) and more cycles run
+        const updatedAtBefore = community.updatedAt!;
+        await community.edit({ description: "a record after the purge" });
+        await vi.waitFor(() => expect(community.updatedAt).to.be.greaterThan(updatedAtBefore), { timeout: 30_000, interval: 250 });
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+
+        expect(
+            mvSpy.mock.calls.filter((args) => args[1] === bucketPath),
+            "the bucket was swapped after its only post was purged"
+        ).to.have.lengthOf(0);
+        const postEntryStillInMfs = await kubo.files.stat(`${bucketPath}/${post.cid}/update`).then(
+            () => true,
+            () => false
+        );
+        expect(postEntryStillInMfs, "the purged post was written again").to.be.false;
     }, 120_000);
 });

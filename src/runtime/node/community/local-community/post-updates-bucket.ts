@@ -48,7 +48,7 @@ const MAX_ATTEMPTS_TO_SWAP_POST_UPDATES_BUCKET = 4;
 
 type KuboRpcClient = ReturnType<LocalCommunity["_clientsManager"]["getDefaultKuboRpcClient"]>;
 
-const isAbsentPathError = (error: unknown) => error instanceof Error && error.message.includes("file does not exist");
+export const isAbsentPathError = (error: unknown) => error instanceof Error && error.message.includes("file does not exist");
 
 async function statMfsPathOrUndefined(kuboRpcClient: KuboRpcClient, path: string, log: Logger) {
     try {
@@ -57,6 +57,27 @@ async function statMfsPathOrUndefined(kuboRpcClient: KuboRpcClient, path: string
         if (isAbsentPathError(error)) return undefined;
         throw error;
     }
+}
+
+// A bucket that MFS does not hold but that held posts: the files of the posts already marked as published are
+// gone with it and no cycle writes them again, so they are marked to be written with the next cycle (#590).
+// Posts of a bucket that was emptied on purpose (a purge, or the post moved to a wider bucket) are not marked as
+// published in it any more, so this finds nothing to do for them. Returns how many posts were marked.
+export function markPostsOfLostBucketForRewrite({
+    community,
+    bucket,
+    log
+}: {
+    community: LocalCommunity;
+    bucket: number;
+    log: Logger;
+}): number {
+    const marked = community._dbHandler.markPublishedPostsOfBucketAsUnpublished(bucket);
+    if (marked > 0)
+        log.error(
+            `The postUpdates bucket ${bucket} of community ${community.address} is not in MFS, and ${marked} posts were published in it. They will be written again by the next cycle`
+        );
+    return marked;
 }
 
 // The posts' `<postCid>/update` files, as the bucket's entries for them (each a `<postCid>` directory
@@ -206,6 +227,8 @@ export async function writePostUpdatesToBucket({
     };
 
     let live = await recoverInterruptedBucketSwap(kuboRpcClient, bucketPath, log);
+    // No bucket to patch: the one this builds holds these posts only. Posts published in it before are not in it.
+    if (!live) markPostsOfLostBucketForRewrite({ community, bucket: Number(bucketPath.split("/").pop()), log });
     let bucketExisted = false;
     for (let attempt = 1; ; attempt++) {
         if (live) bucketExisted = true;
