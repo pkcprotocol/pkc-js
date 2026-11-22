@@ -57,7 +57,12 @@ describeSkipIfRpc("a started community whose start lock another process asks for
     it("stops itself with an error at its next publish cycle when the registry names another live instance", async () => {
         const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
         const errors: PKCError[] = [];
-        community.on("error", (error) => void errors.push(error as PKCError));
+        // A listener that throws, which is also what emitting "error" with no listener does: the community must go
+        // down all the same, and not stay started with no publish loop
+        community.on("error", (error) => {
+            errors.push(error as PKCError);
+            throw new Error("thrown by an error listener");
+        });
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 

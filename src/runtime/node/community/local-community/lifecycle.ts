@@ -83,9 +83,15 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
                 dataPath: community._pkc.dataPath
             });
             log.error(error);
-            community.emit("error", error);
-            // Read by the teardown, also by that of a stop() that is waiting for this loop already
+            // Read by the teardown, also by that of a stop() that is waiting for this loop already. Set before anything
+            // that may throw: a teardown that does not see it writes to what is another instance's
             community._startTakenByAnotherInstance = true;
+            try {
+                community.emit("error", error);
+            } catch (e) {
+                // nobody listens for errors, or a listener threw. The community goes down all the same
+                log.error(`A listener of the error of community (${community.address}) threw, or there is none`, e);
+            }
             // not awaited: stop() waits for this loop to end
             community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after its start was taken`, e));
             break;
