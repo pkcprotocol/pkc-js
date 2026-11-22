@@ -30,7 +30,7 @@ import {
     updateInstancePropsWithStartedCommunityOrDb,
     updateInstanceStateWithDbState
 } from "./db-state.js";
-import { calculateLatestUpdateTrigger, syncIpnsWithDb } from "./ipns-publishing.js";
+import { calculateLatestUpdateTrigger, msUntilLastPublishIsTooOld, syncIpnsWithDb } from "./ipns-publishing.js";
 import { getPersistedAnchorRecordBytes, reprovideAnchorRecordIfDue, reprovideAnchorRecordIfNeeded } from "./anchor-publishing.js";
 import type { CommunityState, CommunityUpdatingState } from "../../../../community/types.js";
 import type { DecryptedChallengeAnswer } from "../../../../pubsub-messages/types.js";
@@ -74,6 +74,12 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
         // own, where the 100ms tick of the old loop took them together. It also keeps a cycle that always leaves the
         // trigger set (a block that never gets removed) from spinning.
         const minPauseMs = Math.min(MIN_MS_BETWEEN_PUBLISH_CYCLES, syncIntervalMs);
+        // With nothing requested the loop sleeps the sync interval, but not past the moment the last record gets too
+        // old: no write announces that, and a publish interval above 15 minutes would sleep through it. Not after a
+        // failure, which waits the interval out whatever the age of the record (issue #430).
+        const idleSleepMs = lastSyncFailed
+            ? syncIntervalMs
+            : Math.min(syncIntervalMs, Math.max(minPauseMs, msUntilLastPublishIsTooOld(community)));
         const sleepingSince = Date.now();
         await new Promise<void>((resolve) => {
             let timer: ReturnType<typeof setTimeout>;
@@ -88,7 +94,7 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
                 clearTimeout(timer);
                 timer = setTimeout(endSleep, pauseLeftMs);
             };
-            timer = setTimeout(endSleep, recordAlreadyRequested ? minPauseMs : syncIntervalMs);
+            timer = setTimeout(endSleep, recordAlreadyRequested ? minPauseMs : idleSleepMs);
             community._wakePublishLoop = wake;
         });
     };

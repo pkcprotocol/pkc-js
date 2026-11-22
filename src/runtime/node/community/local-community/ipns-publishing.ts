@@ -50,8 +50,18 @@ export async function calculateNewPostUpdates(community: LocalCommunity): Promis
     return postUpdates;
 }
 
+// A community record is published every 15 minutes at least: clients take a community whose updatedAt is older for
+// one that is offline
+const MAX_SECONDS_BETWEEN_COMMUNITY_RECORDS = 60 * 15;
+
+// How long until calculateLatestUpdateTrigger finds the last record too old. Nothing announces that moment, so the
+// publish loop sleeps no longer than this. timestamp() rounds to the second, hence the half second
+export function msUntilLastPublishIsTooOld(community: LocalCommunity): number {
+    return ((community.updatedAt || 0) + MAX_SECONDS_BETWEEN_COMMUNITY_RECORDS) * 1000 + 500 - Date.now();
+}
+
 export function calculateLatestUpdateTrigger(community: LocalCommunity) {
-    const lastPublishTooOld = (community.updatedAt || 0) < timestamp() - 60 * 15; // Publish a community record every 15 minutes at least
+    const lastPublishTooOld = (community.updatedAt || 0) < timestamp() - MAX_SECONDS_BETWEEN_COMMUNITY_RECORDS;
 
     // these two checks below are for rare cases where a purged comments or post is not forcing community for a new update
     const lastPostCidChanged = community.lastPostCid !== community._dbHandler.queryLatestPostCid()?.cid;

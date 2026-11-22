@@ -178,6 +178,44 @@ describe("publish loop: sleeping between cycles", () => {
         await endLoop(community, loop);
     });
 
+    // The record is published every 15 minutes at least, whatever the publish interval is: clients take a community
+    // whose updatedAt is too old for one that is offline. Nothing asks for that record, so the loop has to wake for it
+    it("a publish interval above 15 minutes does not put off the record that is due when the last one is 15 minutes old", async () => {
+        const { community } = createIdleStartedCommunity();
+        const publishedAt = community.updatedAt!;
+        const loop = publishLoop(community, 60 * 60 * 1000);
+        await settle();
+        expect(syncIpnsWithDbMock).toHaveBeenCalledTimes(1);
+
+        // the record is too old once the clock, rounded to the second, is more than 15 minutes past its updatedAt
+        const tooOldAtMs = (publishedAt + 15 * 60) * 1000 + 500;
+        await vi.advanceTimersByTimeAsync(tooOldAtMs - Date.now() - 1);
+        expect(syncIpnsWithDbMock).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(syncIpnsWithDbMock).toHaveBeenCalledTimes(2);
+
+        await endLoop(community, loop);
+    });
+
+    it("a publish interval above 15 minutes is still waited out after a failed cycle", async () => {
+        const { community, errorListener } = createIdleStartedCommunity();
+        syncIpnsWithDbMock.mockImplementation(async (failedCommunity) => {
+            failedCommunity._communityUpdateTrigger = true;
+            throw new Error("the cycle failed");
+        });
+        const loop = publishLoop(community, 60 * 60 * 1000);
+        await settle();
+        expect(errorListener).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(60 * 60 * 1000 - 1);
+        expect(syncIpnsWithDbMock).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(syncIpnsWithDbMock).toHaveBeenCalledTimes(2);
+
+        await endLoop(community, loop);
+    });
+
     // Issue #430: the trigger a failed cycle leaves set is not a new request
     it("after a failed cycle only a new request wakes the loop before the interval has passed", async () => {
         const { community, errorListener } = createIdleStartedCommunity();
