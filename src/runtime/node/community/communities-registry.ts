@@ -51,6 +51,8 @@ import {
 //   read the tables.
 
 export const COMMUNITIES_REGISTRY_TICK_MS = 2000;
+// How many files of the directory are registered in one write transaction
+export const COMMUNITIES_REGISTRY_RECONCILE_BATCH_SIZE = 100;
 
 const COMMUNITIES_TABLE = "localCommunities";
 const CHANGES_TABLE = "localCommunitiesChanges";
@@ -65,6 +67,19 @@ const INSTANCE_LOCK_MIN_AGE_TO_SWEEP_MS = 60_000;
 // designs before this one
 const FILE_SUFFIXES_TO_IGNORE = [".lock", ".lock.db", "-journal", "-shm", "-wal"];
 const LEGACY_START_LOCK_SUFFIXES = [".start.lock.db", ".start.lock"];
+// What reading a DB's identity fails with when the file itself may be fine. SQLITE_CANTOPEN is also what SQLite makes of
+// a process that is out of file descriptors
+const ERROR_CODES_OF_A_READ_THAT_MAY_PASS = [
+    "SQLITE_BUSY",
+    "SQLITE_LOCKED",
+    "SQLITE_CANTOPEN",
+    "SQLITE_IOERR",
+    "SQLITE_PROTOCOL",
+    "EMFILE",
+    "ENFILE"
+];
+// How many times the timer reads again the identity of a DB whose read failed for a reason that may pass
+const IDENTITY_READ_RETRIES = 5;
 
 type RegistryRow = {
     address: string; // the filename of the DB in dataPath/communities
@@ -135,8 +150,9 @@ function isSqliteFile(filePath: string): boolean | undefined {
 // Reads the identity key from the DB's internal record. A delegated community is identified by its anchor, not by the
 // minter it signs with. The name is not read from the DB but taken from the filename, which is the community's address,
 // i.e. its name when it has one (issue #430): a rename moves the file before it writes the new name into the DB.
-// Returns undefined if the DB can't be read yet (mid-creation, mid-migration, corrupt)
-function readCommunityPublicKeyFromDb(dbPath: string): string | undefined {
+// No publicKey if the DB can't be read yet (mid-creation, mid-migration, corrupt). `failureMayPass` when the read failed
+// for a reason that has nothing to do with what is in the file: it is locked, the process is out of file descriptors
+function readCommunityPublicKeyFromDb(dbPath: string): { publicKey?: string; failureMayPass: boolean } {
     const log = Logger("pkc-js:communities-registry:readCommunityPublicKeyFromDb");
     let db: BetterSqlite3Database | undefined;
     try {
@@ -148,12 +164,13 @@ function readCommunityPublicKeyFromDb(dbPath: string): string | undefined {
         const publicKey = internalState?.anchor?.publicKey ?? internalState?.signer?.address;
         if (typeof publicKey !== "string") {
             log(`Community DB (${dbPath}) has no internal state yet, leaving it out of pkc.communities for now`);
-            return undefined;
+            return { failureMayPass: false };
         }
-        return publicKey;
+        return { publicKey, failureMayPass: false };
     } catch (e) {
         log.error(`Failed to read the identity of community DB (${dbPath}), leaving it out of pkc.communities for now`, e);
-        return undefined;
+        const code = e instanceof Error && "code" in e && typeof e.code === "string" ? e.code : "";
+        return { failureMayPass: ERROR_CODES_OF_A_READ_THAT_MAY_PASS.some((passing) => code.startsWith(passing)) };
     } finally {
         db?.close();
     }
@@ -202,6 +219,10 @@ export class CommunitiesRegistry {
     // Whether each other instance that has communities started is alive, as of the last time its lock was tried
     private _otherInstancesAlive = new Map<string, boolean>();
     private _startedCountByInstance = new Map<string, number>();
+    // The DBs whose identity could not be read for a reason that may pass, and how many more times the timer tries
+    private _identityReadsToRetry = new Map<string, number>();
+    // The communities this instance has stopped whose release could not be written (see releaseStart)
+    private _releasesToWriteAgain = new Set<string>();
     private _watcher: FSWatcher | undefined;
     private _timer: ReturnType<typeof setInterval> | undefined;
 
@@ -260,13 +281,8 @@ export class CommunitiesRegistry {
         const communitiesPath = path.join(this.dataPath, "communities");
         mkdirSync(communitiesPath, { recursive: true });
         this._onChange = onChange;
-        this._sweepInstanceLocksOfDeadInstances();
-        this._reloadAllRows();
-        this._reconcileWithDirectory();
-        this._clearDeadInstances();
-        this._listIsOutdated = true; // a PKC waits for its first list, also when it is empty
-        this._emitListIfOutdated();
-
+        // Watching before the directory is listed: a DB that is put in it while it is listed is in the listing or in an
+        // event. An event is delivered after this function has returned, never in the middle of it
         this._watcher = fsWatch(communitiesPath, { persistent: false }, (eventType, filename) => {
             // Runs in the watcher callback, where a throw is uncaught
             try {
@@ -286,6 +302,13 @@ export class CommunitiesRegistry {
             }
         }, COMMUNITIES_REGISTRY_TICK_MS);
         this._timer.unref();
+
+        this._sweepInstanceLocksOfDeadInstances();
+        this._reloadAllRows();
+        this._reconcileWithDirectory();
+        this._clearDeadInstances();
+        this._listIsOutdated = true; // a PKC waits for its first list, also when it is empty
+        this._emitListIfOutdated();
     }
 
     // What the timer runs. Public so a caller that can't wait for the timer may run it now
@@ -301,6 +324,8 @@ export class CommunitiesRegistry {
                 this._lastSeq = maxSeq;
             }
         }
+        this._readAgainIdentitiesThatFailedToBeRead();
+        for (const address of [...this._releasesToWriteAgain]) this.releaseStart(address);
         this._clearDeadInstances();
         this._emitListIfOutdated();
     }
@@ -325,13 +350,16 @@ export class CommunitiesRegistry {
             if (!rowMatches(row)) continue;
             if (existsSync(getDbFilePath(this.dataPath, row.address))) return row.address;
             // the file was removed without this instance being told, yet
-            this._removeRow(row.address);
+            this._removeRowIfFileIsGone(row.address);
             this._emitListIfOutdated();
         }
         // A DB file that has no row yet: another process created it or somebody copied it in, and its filesystem event
         // has not arrived (on macOS it arrives late)
         for (const filename of filenames) {
             if (isIgnoredFilename(filename) || this._selectRow.get(filename)) continue;
+            // Nothing is written for a community that is not local, which is what most lookups are about: a write
+            // waits for whoever is writing to storage.db, and fails when that takes too long
+            if (!existsSync(getDbFilePath(this.dataPath, filename))) continue;
             const registered = this._registerFile(filename);
             this._emitListIfOutdated();
             if (registered && rowMatches(registered)) return filename;
@@ -345,7 +373,19 @@ export class CommunitiesRegistry {
         if (!existsSync(dbFilePath)) return false;
         // Still answered after close(), from the file: something of a destroyed PKC may run a moment longer
         if (this._closed) return isSqliteFile(dbFilePath) === true;
-        return Boolean(this._selectRow.get(communityAddress)) || isSqliteFile(dbFilePath) === true;
+        if (this._selectRow.get(communityAddress)) return true;
+        if (isSqliteFile(dbFilePath) !== true) return false;
+        // A DB without a row, e.g. of a creation whose registration failed: registered now. The DB is there whether
+        // or not that works
+        if (!filesBeingWrittenByThisProcess.has(path.resolve(dbFilePath))) {
+            try {
+                this._registerFile(communityAddress);
+                this._emitListIfOutdated();
+            } catch (error) {
+                this._log.error("Failed to register the community DB found without a row", communityAddress, error);
+            }
+        }
+        return true;
     }
 
     // ---- changes this instance makes ----
@@ -387,21 +427,33 @@ export class CommunitiesRegistry {
                 this._registerFile(communityAddress, { evenIfNotACommunityDb: true });
                 row = this._selectRow.get(communityAddress)!;
             }
-            if (row.startedBy === this.instanceId) return false;
-            if (row.startedBy !== null && this._isOtherInstanceAliveNow(row.startedBy)) return false;
+            // its own claim, unless that is one it has given up and could not write the release of
+            if (row.startedBy === this.instanceId && !this._releasesToWriteAgain.has(communityAddress)) return false;
+            if (row.startedBy !== null && row.startedBy !== this.instanceId && this._isOtherInstanceAliveNow(row.startedBy)) return false;
             this._setStartedBy.run(this.instanceId, communityAddress);
             this._recordChange(communityAddress);
             return true;
         });
+        if (claimed) this._releasesToWriteAgain.delete(communityAddress);
         this._emitListIfOutdated();
         return claimed;
     }
 
+    // Does not throw when the release can't be written (storage.db locked by another process for longer than SQLite
+    // waits): the community is stopped all the same. The claim would stay, in the name of a live instance, and nothing
+    // could start the community until this process ended. So the release is written again on the timer, and until then
+    // this instance does not count the claim as one
     releaseStart(communityAddress: string) {
         if (this._closed) return;
-        this._write(() => {
-            if (this._releaseStartedBy.run(communityAddress, this.instanceId).changes > 0) this._recordChange(communityAddress);
-        });
+        try {
+            this._write(() => {
+                if (this._releaseStartedBy.run(communityAddress, this.instanceId).changes > 0) this._recordChange(communityAddress);
+            });
+            this._releasesToWriteAgain.delete(communityAddress);
+        } catch (error) {
+            this._releasesToWriteAgain.add(communityAddress);
+            this._log.error("Failed to write that community", communityAddress, "is stopped, will try again", error);
+        }
         this._emitListIfOutdated();
     }
 
@@ -410,7 +462,8 @@ export class CommunitiesRegistry {
         if (this._closed) return false;
         const startedBy = this._selectRow.get(communityAddress)?.startedBy ?? null;
         if (startedBy === null) return false;
-        return startedBy === this.instanceId || this._isOtherInstanceAliveNow(startedBy);
+        if (startedBy === this.instanceId) return !this._releasesToWriteAgain.has(communityAddress);
+        return this._isOtherInstanceAliveNow(startedBy);
     }
 
     // For a community this instance is running: whether it is still this instance's. "taken" means another live
@@ -496,6 +549,16 @@ export class CommunitiesRegistry {
         });
     }
 
+    // Removes the row of a DB file that was seen to be gone. Looked at again inside the write transaction: what was seen
+    // is old by then, and another instance may have created the file and registered it since. Its row was deleted
+    // otherwise, and the community left every list while its creator ran it
+    private _removeRowIfFileIsGone(communityAddress: string) {
+        this._write(() => {
+            if (getFileId(getDbFilePath(this.dataPath, communityAddress)) === undefined) this._removeRow(communityAddress);
+            else this._registerFile(communityAddress);
+        });
+    }
+
     // Writes the row of the DB file stored under this address, from the file. Returns the row, or undefined when there
     // is no such file or it is not a SQLite database. `evenIfNotACommunityDb` writes a row all the same, without an
     // identity: start() claims a community by its row.
@@ -509,12 +572,18 @@ export class CommunitiesRegistry {
             const isCommunityDb = fileId !== null && isSqliteFile(dbFilePath) === true;
             const existing = this._selectRow.get(communityAddress);
             if (!isCommunityDb && !evenIfNotACommunityDb) {
+                this._identityReadsToRetry.delete(communityAddress);
                 if (this._onChange) this._mirrorRow(communityAddress, existing);
                 return undefined;
             }
-            let publicKey = isCommunityDb ? readCommunityPublicKeyFromDb(dbFilePath) ?? null : null;
+            const identityRead = isCommunityDb ? readCommunityPublicKeyFromDb(dbFilePath) : { failureMayPass: false };
+            let publicKey = identityRead.publicKey ?? null;
             // a read that failed says nothing about a file whose identity is known
             if (publicKey === null && existing && existing.fileId === fileId) publicKey = existing.publicKey;
+            // Nothing else reads it again: a community that is not started is not written to, so no event follows
+            if (publicKey !== null || !identityRead.failureMayPass) this._identityReadsToRetry.delete(communityAddress);
+            else if (this._onChange && !this._identityReadsToRetry.has(communityAddress))
+                this._identityReadsToRetry.set(communityAddress, IDENTITY_READ_RETRIES);
             if (!existing || existing.publicKey !== publicKey || existing.fileId !== fileId) {
                 this._upsertIdentity.run(communityAddress, publicKey, fileId);
                 this._recordChange(communityAddress);
@@ -554,7 +623,7 @@ export class CommunitiesRegistry {
         const fileId = getFileId(dbFilePath);
         if (fileId === undefined) {
             // gone, or not a file. Asked of the table, not the copy: another instance may have registered it
-            if (row || this._selectRow.get(filename)) this._removeRow(filename);
+            if (row || this._selectRow.get(filename)) this._removeRowIfFileIsGone(filename);
             return;
         }
         if (row && row.publicKey !== null && row.fileId === fileId) return; // the file this instance knows
@@ -579,16 +648,38 @@ export class CommunitiesRegistry {
             // Only regular files can be community DBs. Subdirectories live here too (`deleted/`, `.backup_before_migration/`)
             if (dirent.isFile() && !isIgnoredFilename(dirent.name)) filenames.add(dirent.name);
         }
+        // In steps, each its own write transaction: registering a file opens it, and the first PKC on a data path of an
+        // older version registers every file. As one transaction that kept every other process from writing to
+        // storage.db for longer than SQLite waits (5 s), which fails a start() there. A file is still read inside the
+        // transaction that writes its row (see _registerFile)
+        const filenamesInOrder = [...filenames];
+        for (let i = 0; i < filenamesInOrder.length; i += COMMUNITIES_REGISTRY_RECONCILE_BATCH_SIZE)
+            this._write(() => {
+                for (const filename of filenamesInOrder.slice(i, i + COMMUNITIES_REGISTRY_RECONCILE_BATCH_SIZE)) {
+                    const dbFilePath = getDbFilePath(this.dataPath, filename);
+                    if (filesBeingWrittenByThisProcess.has(path.resolve(dbFilePath))) continue;
+                    const row = this._selectRow.get(filename);
+                    if (!row || row.publicKey === null || row.fileId !== getFileId(dbFilePath)) this._registerFile(filename);
+                    else if (this._onChange) this._mirrorRow(filename, row);
+                }
+            });
         this._write(() => {
-            const rows = new Map(this._selectAllRows.all().map((row) => [row.address, row]));
-            for (const filename of filenames) {
-                if (filesBeingWrittenByThisProcess.has(path.resolve(getDbFilePath(this.dataPath, filename)))) continue;
-                const row = rows.get(filename);
-                if (!row || row.publicKey === null || row.fileId !== getFileId(getDbFilePath(this.dataPath, filename)))
-                    this._registerFile(filename);
-            }
-            for (const address of rows.keys()) if (!filenames.has(address)) this._removeRow(address);
+            for (const { address } of this._selectAllRows.all()) if (!filenames.has(address)) this._removeRowIfFileIsGone(address);
         });
+    }
+
+    // What the timer does for the DBs whose identity could not be read for a reason that may pass
+    private _readAgainIdentitiesThatFailedToBeRead() {
+        for (const [address, retriesLeft] of [...this._identityReadsToRetry]) {
+            try {
+                this._registerFile(address);
+            } catch (error) {
+                this._log.error("Failed to read again the identity of community DB", address, error);
+            }
+            if (!this._identityReadsToRetry.has(address)) continue; // read, or not a community DB any more
+            if (retriesLeft <= 1) this._identityReadsToRetry.delete(address);
+            else this._identityReadsToRetry.set(address, retriesLeft - 1);
+        }
     }
 
     // The lock files of instances that died without removing theirs
@@ -724,8 +815,14 @@ export class CommunitiesRegistry {
     private _emitListIfOutdated() {
         if (!this._listIsOutdated || !this._onChange || this._db.inTransaction) return;
         this._listIsOutdated = false;
-        // A copy: this array keeps changing, and what a PKC was given as its list must not
-        this._onChange(this._entries.slice());
+        try {
+            // A copy: this array keeps changing, and what a PKC was given as its list must not
+            this._onChange(this._entries.slice());
+        } catch (error) {
+            // A `communitieschange` listener of the user threw. Whatever changed the list (a start, a stop, a creation)
+            // has been written, and must not fail on it: a start that threw here kept a claim nothing released
+            this._log.error("A listener of the list of local communities threw", error);
+        }
     }
 }
 

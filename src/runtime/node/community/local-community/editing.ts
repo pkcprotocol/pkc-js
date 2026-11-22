@@ -183,8 +183,17 @@ export function deriveNameAndAddressEdit<T extends Pick<ParsedCommunityEditOptio
 
 // Lists the new address now, not when the filesystem watcher fires (issue #430). The DB still holds the old name at
 // this point, which is fine: pkc.communities takes a community's name from its DB's filename (issue #455)
+// The files have moved by now and the rename goes on whatever happens here: the registry is an index of the files, and
+// one that could not be written (storage.db locked for too long) is put right by the next lookup of either address
 function listRenamedCommunityNow(community: LocalCommunity, { oldAddress, newAddress }: { oldAddress: string; newAddress: string }) {
-    getCommunitiesRegistry(community._pkc).renameCommunity({ oldAddress, newAddress });
+    try {
+        getCommunitiesRegistry(community._pkc).renameCommunity({ oldAddress, newAddress });
+    } catch (error) {
+        Logger("pkc-js:local-community:edit").error(
+            `Failed to list the renamed community under its new address (${newAddress}) in the communities registry`,
+            error
+        );
+    }
 }
 
 // Moves the postUpdates folder back under the old address after the DB rename that follows the move failed (issue

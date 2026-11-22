@@ -397,7 +397,7 @@ export enum messages {
     ERR_COMMUNITY_STATE_LOCKED = "The internal state of the community in DB is locked",
     ERR_COMMUNITY_CREATION_LOCKED = "Community creation is locked",
     ERR_COMMUNITY_ALREADY_STARTED = "Community already started",
-    ERR_COMMUNITY_START_TAKEN_BY_ANOTHER_PKC_INSTANCE = "Another PKC instance on the same dataPath has started this community while this instance was running it. This instance has stopped the community, so that the two do not publish it at the same time",
+    ERR_COMMUNITY_START_TAKEN_BY_ANOTHER_PKC_INSTANCE = "Another PKC instance on the same dataPath has started this community while this instance was running it. This instance is stopping the community, so that the two do not publish it at the same time",
     ERR_COMMUNITY_IS_BEING_DELETED = "The community is being deleted, it can't be started",
     ERR_FAILED_TO_IMPORT_IPFS_KEY = "Community failed to import IPFS key",
     ERR_LOCAL_COMMUNITY_PRODUCED_INVALID_RECORD = "The local community has produced a new IPNS record with invalid signature. This is a critical error",

@@ -85,7 +85,9 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
             log.error(error);
             community.emit("error", error);
             // not awaited: stop() waits for this loop to end
-            community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after its start was taken`, e));
+            stop(community, { startTakenByAnotherInstance: true }).catch((e) =>
+                log.error(`Failed to stop community (${community.address}) after its start was taken`, e)
+            );
             break;
         }
         let lastSyncFailed = false;
@@ -527,7 +529,9 @@ export async function update(community: LocalCommunity) {
     });
 }
 
-export async function stop(community: LocalCommunity) {
+// `startTakenByAnotherInstance`: the community's DB and its files in Kubo are another PKC instance's now. This one lets
+// go of what it holds and writes nothing
+export async function stop(community: LocalCommunity, { startTakenByAnotherInstance = false } = {}) {
     community._stopHasBeenCalled = true;
     // Set above first, so the publish or update loop the start() or update() launches ends at its first check. Also waits
     // for a start() begun while it waited (from a listener during a failed start()'s teardown), so it stops that one too.
@@ -542,14 +546,14 @@ export async function stop(community: LocalCommunity) {
     const stopInFlight = new Promise<void>((resolve) => (settle = resolve));
     community._stopInFlight = stopInFlight;
     try {
-        await stopCommunity(community);
+        await stopCommunity(community, { startTakenByAnotherInstance });
     } finally {
         if (community._stopInFlight === stopInFlight) community._stopInFlight = undefined;
         settle();
     }
 }
 
-async function stopCommunity(community: LocalCommunity) {
+async function stopCommunity(community: LocalCommunity, { startTakenByAnotherInstance }: { startTakenByAnotherInstance: boolean }) {
     const log = Logger("pkc-js:local-community:stop");
     if (community._updateLoopAbortController) {
         community._updateLoopAbortController.abort();
@@ -583,21 +587,25 @@ async function stopCommunity(community: LocalCommunity) {
             community._publishLoopPromise = undefined;
         }
 
-        try {
-            // Bypass the unpin grace period: this is the process's last chance to unpin, and a
-            // community that never starts again would otherwise leak its queued pins forever.
-            await unpinStaleCids(community, { bypassGracePeriod: true });
-        } catch (e) {
-            log.error("Failed to unpin stale cids and remove mfs paths before stopping", e);
-        }
+        // Not when another instance has taken the community over: the record this instance holds is older than what
+        // that one has stored, and the cids this instance thinks stale may be in what that one publishes
+        if (!startTakenByAnotherInstance) {
+            try {
+                // Bypass the unpin grace period: this is the process's last chance to unpin, and a
+                // community that never starts again would otherwise leak its queued pins forever.
+                await unpinStaleCids(community, { bypassGracePeriod: true });
+            } catch (e) {
+                log.error("Failed to unpin stale cids and remove mfs paths before stopping", e);
+            }
 
-        try {
-            // built inside the write transaction, so it keeps an edit stored meanwhile (see updateDbInternalState)
-            await updateDbInternalState(community, () =>
-                community.updateCid ? community.toJSONInternalAfterFirstUpdate() : community.toJSONInternalBeforeFirstUpdate()
-            );
-        } catch (e) {
-            log.error("Failed to update db internal state before stopping", e);
+            try {
+                // built inside the write transaction, so it keeps an edit stored meanwhile (see updateDbInternalState)
+                await updateDbInternalState(community, () =>
+                    community.updateCid ? community.toJSONInternalAfterFirstUpdate() : community.toJSONInternalBeforeFirstUpdate()
+                );
+            } catch (e) {
+                log.error("Failed to update db internal state before stopping", e);
+            }
         }
 
         try {

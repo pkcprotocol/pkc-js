@@ -64,6 +64,7 @@ On app startup, before creating PKC instance:
 
 ### Important Notes
 
+- Stop every process that uses the old or the new data path before migrating, and start them again on the same pkc-js version. A process of an older version that keeps running does not know the registry, and its start locks are removed by the first PKC of the new version.
 - Migration must happen **before** creating the PKC instance. The constructor may create directories at the new paths if they don't exist, which would block migration.
 - A leftover `*.start.lock.db` file, or a `*.start.lock` or `*.state.lock` directory, inside the communities directory comes from the start lock of an older version and decides nothing. The first PKC created on the data path removes the `*.start.lock.db` files and the `*.start.lock` directories. Which instance has a community started is kept in `storage.db` and in `pkc-instances/` (see `data-permanence.md`), both of which move with the data path.
 - If the user provides a custom `dataPath` (not the default), only step 3 (subdirectory rename) applies.

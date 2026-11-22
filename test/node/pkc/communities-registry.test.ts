@@ -5,18 +5,29 @@ import { v4 as uuidv4 } from "uuid";
 import Database from "better-sqlite3";
 
 // Every listing of a `communities` directory and every open of a database is recorded
-const { directoryListings, openedDbFilenames, failNextOpenOf } = vi.hoisted(() => ({
+// `afterNextListing` runs once, between a listing of the directory and what its caller does with it. `onOpenOf` runs
+// when the database of that filename is opened
+const { directoryListings, openedDbFilenames, failNextOpenOf, hooks, onOpenOf } = vi.hoisted(() => ({
     directoryListings: [] as string[],
     openedDbFilenames: [] as string[],
-    failNextOpenOf: new Set<string>()
+    failNextOpenOf: new Set<string>(),
+    hooks: { afterNextListing: undefined as (() => void) | undefined },
+    onOpenOf: new Map<string, () => void>()
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
     const original = await importOriginal<typeof import("node:fs")>();
     const pathModule = await import("path");
     const readdirSync = (...args: unknown[]) => {
-        if (pathModule.basename(String(args[0])) === "communities") directoryListings.push(String(args[0]));
-        return Reflect.apply(original.readdirSync, original, args);
+        const isCommunitiesDirectory = pathModule.basename(String(args[0])) === "communities";
+        if (isCommunitiesDirectory) directoryListings.push(String(args[0]));
+        const listed = Reflect.apply(original.readdirSync, original, args);
+        if (isCommunitiesDirectory && hooks.afterNextListing) {
+            const afterListing = hooks.afterNextListing;
+            hooks.afterNextListing = undefined;
+            afterListing();
+        }
+        return listed;
     };
     return { ...original, default: { ...original, readdirSync }, readdirSync };
 });
@@ -29,6 +40,7 @@ vi.mock("better-sqlite3", async (importOriginal) => {
             if (typeof args[0] === "string") {
                 const filename = pathModule.basename(args[0]);
                 openedDbFilenames.push(filename);
+                onOpenOf.get(filename)?.();
                 if (failNextOpenOf.delete(filename)) throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" });
             }
             super(...args);
@@ -39,6 +51,7 @@ vi.mock("better-sqlite3", async (importOriginal) => {
 
 import { monitorCommunitiesDirectory } from "../../../dist/node/runtime/node/util.js";
 import {
+    COMMUNITIES_REGISTRY_RECONCILE_BATCH_SIZE,
     COMMUNITIES_REGISTRY_TICK_MS,
     getCommunitiesRegistry,
     isCommunityStartLockedSync,
@@ -90,9 +103,11 @@ describe("communities registry", () => {
         const pkc = {
             dataPath,
             communities: undefined as PKCCommunitiesEntry[] | undefined,
+            listenerThrows: false, // as a `communitieschange` listener of the user that throws
             emit: (_eventName: string, { communities }: { communities: PKCCommunitiesEntry[] }) => {
                 pkc.communities = communities;
                 emitted.push(communities);
+                if (pkc.listenerThrows) throw new Error("thrown by a communitieschange listener");
                 return true;
             }
         };
@@ -116,8 +131,21 @@ describe("communities registry", () => {
         openedDbFilenames.length = 0;
     };
 
+    const registeredAddresses = () => {
+        const db = new Database(path.join(dataPath, "storage.db"), { readonly: true });
+        try {
+            return (db.prepare("SELECT address FROM localCommunities ORDER BY address").all() as { address: string }[]).map(
+                (row) => row.address
+            );
+        } finally {
+            db.close();
+        }
+    };
+
     beforeEach(() => {
         failNextOpenOf.clear();
+        onOpenOf.clear();
+        hooks.afterNextListing = undefined;
         dataPath = path.join(process.cwd(), ".tmp", `communities-registry-${uuidv4()}`);
         communitiesPath = path.join(dataPath, "communities");
         fs.mkdirSync(communitiesPath, { recursive: true });
@@ -308,6 +336,160 @@ describe("communities registry", () => {
         expect(second.addresses(), "listed before it was registered or read").to.deep.equal([]);
         second.registry.registerCommunity("registered-twice.bso");
         expect(second.addresses()).to.deep.equal(["registered-twice.bso"]);
+    });
+
+    // The directory is listed before the registry is written, and another instance may create and register a community
+    // in between. Its row is then one the listing does not have, and it was deleted as the row of a file that is gone:
+    // the community left every list, and a third instance could have claimed it while its creator ran it
+    it("a community that another instance creates right after this one listed the directory keeps its row", async () => {
+        const first = await createInstance();
+        hooks.afterNextListing = () => {
+            const doneWriting = markCommunityDbAsBeingWritten({ dataPath, communityAddress: "created-meanwhile.bso" });
+            createCommunityDb("created-meanwhile.bso");
+            doneWriting();
+            first.registry.registerCommunity("created-meanwhile.bso");
+            first.registry.claimStart("created-meanwhile.bso");
+        };
+        const second = await createInstance(); // lists the directory, then reconciles the registry with what it listed
+        expect(hooks.afterNextListing, "the directory was not listed").to.be.undefined;
+        expect(registeredAddresses()).to.deep.equal(["created-meanwhile.bso"]);
+        expect(second.addresses()).to.deep.equal(["created-meanwhile.bso"]);
+        expect(second.started()).to.deep.equal(["created-meanwhile.bso"]);
+        expect(first.registry.confirmStart("created-meanwhile.bso")).to.equal("owned");
+    });
+
+    // The first PKC on a data path of an older version registers every community, which opens every DB. Done as one
+    // write transaction, no other process could write to storage.db until the last one was read: at 10,000 communities
+    // that is longer than SQLite waits, and a start() in that process failed with SQLITE_BUSY
+    it("the communities of a directory are registered in steps, each committed before the next", async () => {
+        const count = COMMUNITIES_REGISTRY_RECONCILE_BATCH_SIZE * 2 + 5;
+        const addresses = Array.from({ length: count }, (_, i) => `step-${String(i).padStart(4, "0")}.bso`);
+        for (const address of addresses) createCommunityDb(address);
+        const committedWhenOpened: number[] = [];
+        let opened = 0;
+        const countCommitted = () => {
+            opened++;
+            if (opened === COMMUNITIES_REGISTRY_RECONCILE_BATCH_SIZE + 1 || opened === count)
+                committedWhenOpened.push(registeredAddresses().length);
+        };
+        for (const address of addresses) onOpenOf.set(address, countCommitted);
+
+        const { addresses: listed } = await createInstance();
+        expect(listed()).to.deep.equal(addresses);
+        expect(committedWhenOpened, "rows another process could see while later DBs were still being read").to.deep.equal([
+            COMMUNITIES_REGISTRY_RECONCILE_BATCH_SIZE,
+            COMMUNITIES_REGISTRY_RECONCILE_BATCH_SIZE * 2
+        ]);
+    });
+
+    // A read that fails for a reason that passes (the DB is locked, the process is out of file descriptors) leaves a
+    // row without an identity. A stopped community is not written to, so no filesystem event followed and it stayed
+    // out of pkc.communities until the next PKC on the data path
+    it("a DB whose identity could not be read for a passing reason is read again on the timer", async () => {
+        createCommunityDb("read-failed-once.bso");
+        failNextOpenOf.add("read-failed-once.bso");
+        const { addresses, registry } = await createInstance();
+        expect(failNextOpenOf.size, "the read was not attempted").to.equal(0);
+        expect(addresses()).to.deep.equal([]);
+        registry.readChangesOfOtherInstances();
+        expect(addresses()).to.deep.equal(["read-failed-once.bso"]);
+    });
+
+    it("a file that is not a database is not read again on the timer", async () => {
+        fs.writeFileSync(
+            path.join(communitiesPath, "not-a-database.bso"),
+            Buffer.concat([Buffer.from("SQLite format 3\0"), Buffer.alloc(4096, "x")])
+        );
+        createStatelessDb(path.join(communitiesPath, "stateless.bso")); // a community still being created
+        const { registry } = await createInstance();
+        resetCounts();
+        for (let i = 0; i < 3; i++) registry.readChangesOfOtherInstances();
+        expect(openedDbFilenames.filter((opened) => opened.endsWith(".bso"))).to.deep.equal([]);
+    });
+
+    // `communitieschange` used to be emitted from the filesystem watcher only. It is now emitted by whatever changes
+    // the list, so a listener that throws threw out of start(), stop() and createCommunity(): out of claimStart() after
+    // the claim was committed, which left a claim nothing released
+    it("a communitieschange listener that throws does not fail the call that changed the list", async () => {
+        createCommunityDb("listener-throws.bso");
+        const { pkc, registry, started } = await createInstance();
+        pkc.listenerThrows = true;
+        expect(registry.claimStart("listener-throws.bso")).to.be.true;
+        expect(started()).to.deep.equal(["listener-throws.bso"]);
+        registry.releaseStart("listener-throws.bso");
+        expect(started()).to.deep.equal([]);
+        expect(isCommunityStartLockedSync({ dataPath, communityAddress: "listener-throws.bso" })).to.be.false;
+        registry.unregisterCommunity("listener-throws.bso");
+        registry.registerCommunity("listener-throws.bso");
+        expect(registry.findAddress({ address: "listener-throws.bso" })).to.equal("listener-throws.bso");
+    });
+
+    // The release of a stopped community that can't be written must not leave a claim in the name of a live instance:
+    // nothing could start the community again until that process ended
+    it("a release that could not be written is written again on the timer, and does not keep this instance from starting the community", async () => {
+        createCommunityDb("release-fails.bso");
+        const { registry } = await createInstance();
+        (registry as unknown as { _db: Database.Database })._db.pragma("busy_timeout = 50");
+        expect(registry.claimStart("release-fails.bso")).to.be.true;
+
+        const writer = new Database(path.join(dataPath, "storage.db"), { timeout: 0 });
+        writer.exec("BEGIN IMMEDIATE"); // another instance, writing for longer than SQLite waits
+        try {
+            registry.releaseStart("release-fails.bso");
+        } finally {
+            writer.exec("ROLLBACK");
+            writer.close();
+        }
+        expect(isCommunityStartLockedSync({ dataPath, communityAddress: "release-fails.bso" }), "the release was written").to.be.true;
+        expect(registry.isStarted("release-fails.bso")).to.be.false;
+
+        registry.readChangesOfOtherInstances();
+        expect(isCommunityStartLockedSync({ dataPath, communityAddress: "release-fails.bso" })).to.be.false;
+
+        // and without waiting for the timer: started again right away
+        expect(registry.claimStart("release-fails.bso")).to.be.true;
+        const blocker = new Database(path.join(dataPath, "storage.db"), { timeout: 0 });
+        blocker.exec("BEGIN IMMEDIATE");
+        try {
+            registry.releaseStart("release-fails.bso");
+        } finally {
+            blocker.exec("ROLLBACK");
+            blocker.close();
+        }
+        expect(registry.claimStart("release-fails.bso")).to.be.true;
+        expect(registry.isStarted("release-fails.bso")).to.be.true;
+        registry.readChangesOfOtherInstances(); // nothing left to release
+        expect(registry.isStarted("release-fails.bso")).to.be.true;
+    });
+
+    // pkc.createCommunity({ address }) of a community that is not local is a lookup: it must not wait for, or fail on,
+    // whoever is writing to storage.db
+    it("a lookup of a community that is not local does not write to storage.db", async () => {
+        const { registry } = await createInstance();
+        const writer = new Database(path.join(dataPath, "storage.db"), { timeout: 0 });
+        writer.exec("BEGIN IMMEDIATE"); // another instance, in the middle of a write
+        try {
+            const startedAt = Date.now();
+            expect(registry.findAddress({ address: "remote.bso", publicKey: "12D3KooWRemote" })).to.be.undefined;
+            expect(registry.hasCommunityDb("remote.bso")).to.be.false;
+            expect(Date.now() - startedAt, "it waited for the writer").to.be.lessThan(1000);
+        } finally {
+            writer.exec("ROLLBACK");
+            writer.close();
+        }
+    });
+
+    // A creation whose registration failed (storage.db was locked for too long) left a complete DB with no row. Its
+    // filesystem events were not acted on while it was written, so nothing listed it until the next PKC
+    it("a DB found without a row when asked whether it is there is registered", async () => {
+        const { registry, addresses } = await createInstance();
+        const doneWriting = markCommunityDbAsBeingWritten({ dataPath, communityAddress: "never-registered.bso" });
+        createCommunityDb("never-registered.bso");
+        await settle(); // its filesystem events, not acted on
+        doneWriting();
+        expect(addresses()).to.deep.equal([]);
+        expect(registry.hasCommunityDb("never-registered.bso")).to.be.true;
+        expect(addresses()).to.deep.equal(["never-registered.bso"]);
     });
 
     it("an instance that is closed still says whether a community DB is there, and finds none by lookup", async () => {

@@ -164,7 +164,14 @@ const createPkc = async () => {
     created.on("error", (error) => console.error("pkc error", error?.message));
     return created;
 };
-let pkc = await createPkc();
+// Kubo is running by now, and is not left behind by a PKC that fails to be created
+let pkc;
+try {
+    pkc = await createPkc();
+} catch (error) {
+    daemon.kill("SIGTERM");
+    throw error;
+}
 
 const profileOptions = (anchorAddress) => ({
     anchor: { publicKey: anchorAddress },

@@ -313,8 +313,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     }
 
     async _updateStartedValue() {
-        // Read from the communities registry, which is also where `started` in pkc.communities comes from, so the two
-        // always agree (issues #455 and #585). A start or a stop changes the registry, and with it the list, itself
+        // Read from the communities registry, which is also where `started` in pkc.communities comes from (issues #455
+        // and #585). A start or a stop by this PKC instance changes the registry, and with it the list, itself. One by
+        // another instance is read here at once and reaches the list on its timer, so this can be ahead of the list
         this.started = await this._dbHandler.isCommunityStartLocked(this.address);
     }
 

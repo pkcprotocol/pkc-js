@@ -557,7 +557,13 @@ export async function monitorCommunitiesDirectory(pkc: PKC) {
     const watchAbortController = new AbortController();
     const registry = getCommunitiesRegistry(pkc);
     watchAbortController.signal.addEventListener("abort", () => registry.close(), { once: true });
-    registry.startMonitoring({ onChange: (communities) => pkc.emit("communitieschange", { communities }) });
+    try {
+        registry.startMonitoring({ onChange: (communities) => pkc.emit("communitieschange", { communities }) });
+    } catch (error) {
+        // nobody gets the controller of a PKC that failed to be created: its connection and its lock end here
+        registry.close();
+        throw error;
+    }
     return watchAbortController;
 }
 

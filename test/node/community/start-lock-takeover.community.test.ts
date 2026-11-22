@@ -3,6 +3,7 @@ import { mockPKC, createSubWithNoChallenge, resolveWhenConditionIsTrue } from ".
 import Database from "better-sqlite3";
 import path from "node:path";
 import { getCommunitiesRegistry, isCommunityStartLocked } from "../../../dist/node/runtime/node/community/communities-registry.js";
+import { STORAGE_KEYS } from "../../../dist/node/constants.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { holdStartLockInAnotherProcess } from "../../helpers/start-lock-holder.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
@@ -73,7 +74,28 @@ describeSkipIfRpc("a started community whose start lock another process asks for
             } finally {
                 storage.close();
             }
-            await community.edit({ title: `wakes the publish loop ${Date.now()}` }).catch(() => {});
+            // What the instance that took the community over has stored in its DB since
+            const internalStateKey = `keyv:${STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]}`;
+            const readStoredInternalState = () => {
+                const db = new Database(path.join(pkc.dataPath!, "communities", community.address), { readonly: true });
+                try {
+                    const row = db.prepare("SELECT value FROM keyv WHERE key = ?").get(internalStateKey) as { value: string };
+                    return JSON.parse(row.value).value as { title?: string; _internalStateUpdateId?: string };
+                } finally {
+                    db.close();
+                }
+            };
+            const stateOfNewOwner = { ...readStoredInternalState(), title: "stored by the new owner", _internalStateUpdateId: "new-owner" };
+            const communityDb = new Database(path.join(pkc.dataPath!, "communities", community.address));
+            try {
+                communityDb
+                    .prepare("UPDATE keyv SET value = ? WHERE key = ?")
+                    .run(JSON.stringify({ value: stateOfNewOwner }), internalStateKey);
+            } finally {
+                communityDb.close();
+            }
+            // the publish loop wakes for a new cycle
+            community._communityUpdateTrigger = true;
 
             await resolveWhenConditionIsTrue({
                 toUpdate: community,
@@ -84,6 +106,10 @@ describeSkipIfRpc("a started community whose start lock another process asks for
             // it did not take the other instance's claim away on its way down
             expect(otherRegistry.isStarted(community.address)).to.be.true;
             expect(community._dbHandler.holdsStartLock()).to.be.false;
+            // nor did it write its own, older state over what the other instance had stored
+            const stored = readStoredInternalState();
+            expect(stored.title).to.equal("stored by the new owner");
+            expect(stored._internalStateUpdateId).to.equal("new-owner");
         } finally {
             otherRegistry.close();
             if (community.state !== "stopped") await community.stop().catch(() => {});
