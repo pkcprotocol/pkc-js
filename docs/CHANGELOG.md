@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.157](https://github.com/pkcprotocol/pkc-js/compare/v0.0.156...v0.0.157) (2026-11-23)
+
+### Performance
+
+* **community:** idle communities stop polling, and share the node-wide Kubo calls ([#579](https://github.com/pkcprotocol/pkc-js/issues/579)) ([c5b3bde](https://github.com/pkcprotocol/pkc-js/commit/c5b3bdec288edf8be029591a8b41e73295254526)), closes [#576](https://github.com/pkcprotocol/pkc-js/issues/576) [#430](https://github.com/pkcprotocol/pkc-js/issues/430) [#576](https://github.com/pkcprotocol/pkc-js/issues/576) [#576](https://github.com/pkcprotocol/pkc-js/issues/576) [#430](https://github.com/pkcprotocol/pkc-js/issues/430)
+
 ## [0.0.156](https://github.com/pkcprotocol/pkc-js/compare/v0.0.155...v0.0.156) (2026-11-23)
 
 ## [0.0.155](https://github.com/pkcprotocol/pkc-js/compare/v0.0.154...v0.0.155) (2026-11-23)
