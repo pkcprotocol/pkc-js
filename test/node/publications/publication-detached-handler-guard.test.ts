@@ -298,9 +298,9 @@ describe("every detached entry point of a publication is wrapped", () => {
 
 // The real trigger: the publisher's teardown throws (the uncaught TypeError that ended the shared test server).
 // A community and a publisher on separate throwaway PKCs, nothing published to a shared community.
-// Skipped under RPC: the publisher is an RPC client there, so the pubsub subscription belongs to the RPC server and the
-// publisher's own _clientsManager.pubsubUnsubscribe is never called. The counter these cases assert on cannot move.
-// The RPC teardown is covered by the "RPC verdict" case above.
+// These two drive the client's own pubsub teardown (`_clientsManager.pubsubUnsubscribe`) while publishing to a community. Under RPC
+// the publisher goes through the RPC server and the client never subscribes to pubsub itself, so there is no client teardown to
+// break or count; the RPC end of the publish is covered by the RPC verdict tests above.
 describeSkipIfRpc("a publisher whose teardown throws, publishing to a real throwaway community", () => {
     let pkc: PKC;
     let communityPKC: PKC;
@@ -355,9 +355,9 @@ describeSkipIfRpc("a publisher whose teardown throws, publishing to a real throw
 
 // A listener of the application throws while the verdict is being emitted. The verdict is already the end of the
 // publish, so the guard only reports; the teardown that follows the emit must still happen.
-// Skipped under RPC: the publisher is an RPC client there, so the pubsub subscription belongs to the RPC server and the
-// publisher's own _clientsManager.pubsubUnsubscribe is never called. The counter these cases assert on cannot move.
-// The RPC teardown is covered by the "RPC verdict" case above.
+// These two drive the client's own pubsub teardown (`_clientsManager.pubsubUnsubscribe`) while publishing to a community. Under RPC
+// the publisher goes through the RPC server and the client never subscribes to pubsub itself, so there is no client teardown to
+// break or count; the RPC end of the publish is covered by the RPC verdict tests above.
 describeSkipIfRpc("a throwing application listener on the verdict, publishing to a real throwaway community", () => {
     let pkc: PKC;
     let communityPKC: PKC;
