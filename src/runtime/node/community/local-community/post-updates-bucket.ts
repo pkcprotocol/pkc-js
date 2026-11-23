@@ -96,10 +96,7 @@ export async function markPostsMissingFromBucketForRewrite({
     return missing.length;
 }
 
-// What MFS holds at a bucket that this process has just written or removed from, to compare the next stat against
-export async function rememberPostUpdatesBucketsOfPaths({ community, mfsPaths }: { community: LocalCommunity; mfsPaths: string[] }) {
-    const log = Logger("pkc-js:local-community:sync:rememberPostUpdatesBuckets");
-    const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
+const bucketsOfPaths = (community: LocalCommunity, mfsPaths: string[]): number[] => {
     const prefix = `/${community.address}/postUpdates/`;
     const buckets = new Set<number>();
     for (const path of mfsPaths)
@@ -107,8 +104,50 @@ export async function rememberPostUpdatesBucketsOfPaths({ community, mfsPaths }:
             const bucket = Number(path.slice(prefix.length).split("/")[0]);
             if (Number.isFinite(bucket)) buckets.add(bucket);
         }
-    for (const bucket of buckets) {
-        const stat = await statMfsPathOrUndefined(kuboRpcClient, `${prefix}${bucket}`, log).catch(() => undefined);
+    return [...buckets];
+};
+
+// What MFS holds at the buckets that paths are about to be removed from: the cid, undefined for an absent bucket, and
+// null when it could not be read
+export async function statBucketsOfPaths({
+    community,
+    mfsPaths
+}: {
+    community: LocalCommunity;
+    mfsPaths: string[];
+}): Promise<Map<number, string | undefined | null>> {
+    const log = Logger("pkc-js:local-community:sync:statBucketsOfPaths");
+    const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
+    const stats = new Map<number, string | undefined | null>();
+    for (const bucket of bucketsOfPaths(community, mfsPaths))
+        stats.set(
+            bucket,
+            await statMfsPathOrUndefined(kuboRpcClient, `/${community.address}/postUpdates/${bucket}`, log).then(
+                (stat) => stat?.cid.toString(),
+                () => null
+            )
+        );
+    return stats;
+}
+
+// After this process removed paths from buckets: what MFS holds there now is what they should hold, but only for a
+// bucket that held what this process left before the removal. One that differed already is not made the baseline by
+// a removal, or the loss would be forgotten and a later write would build on it.
+export async function rememberPostUpdatesBucketsOfPaths({
+    community,
+    mfsPaths,
+    before
+}: {
+    community: LocalCommunity;
+    mfsPaths: string[];
+    before: Map<number, string | undefined | null>;
+}) {
+    const log = Logger("pkc-js:local-community:sync:rememberPostUpdatesBuckets");
+    const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
+    for (const bucket of bucketsOfPaths(community, mfsPaths)) {
+        const remembered = community._postUpdatesBucketCids.get(bucket);
+        if (remembered !== undefined && before.get(bucket) !== remembered) continue;
+        const stat = await statMfsPathOrUndefined(kuboRpcClient, `/${community.address}/postUpdates/${bucket}`, log).catch(() => undefined);
         if (stat) community._postUpdatesBucketCids.set(bucket, stat.cid.toString());
         else community._postUpdatesBucketCids.delete(bucket);
     }
@@ -271,6 +310,21 @@ export async function writePostUpdatesToBucket({
         // either: fail the cycle so that none of it is acknowledged
         if (bucketWasHere)
             throw new PKCError("ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST", { communityAddress: community.address, bucketPath, attempt: 0 });
+    }
+    const rememberedCid = community._postUpdatesBucketCids.get(bucket);
+    if (live && rememberedCid !== undefined && rememberedCid !== live.cid.toString()) {
+        // Not the bucket this process left: it may have lost posts, and patching it would make the patched bucket
+        // the one that is expected, hiding the loss from the record build's check. The cycle may also hold earlier
+        // slices written into the old bucket that are not marked as published yet, so it fails and writes them again.
+        community._postUpdatesBucketCids.set(bucket, live.cid.toString());
+        await markPostsMissingFromBucketForRewrite({ community, bucket, log });
+        throw new PKCError("ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST", {
+            communityAddress: community.address,
+            bucketPath,
+            attempt: 0,
+            bucketCidInMfs: live.cid.toString(),
+            bucketCidRemembered: rememberedCid
+        });
     }
     let bucketExisted = false;
     for (let attempt = 1; ; attempt++) {

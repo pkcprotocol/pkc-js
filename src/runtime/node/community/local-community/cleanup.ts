@@ -6,7 +6,7 @@ import type { DbRepliesSortEntry } from "../../../../publications/comment/types.
 import type { PurgedCommentTableRows } from "../db-handler-types.js";
 import type { LocalCommunity } from "../local-community.js";
 import { calculateLocalMfsPathForCommentUpdate } from "./comment-updates.js";
-import { rememberPostUpdatesBucketsOfPaths } from "./post-updates-bucket.js";
+import { rememberPostUpdatesBucketsOfPaths, statBucketsOfPaths } from "./post-updates-bucket.js";
 
 // pin.ls probe with the same retry policy as statMfsPathSafely (3 retries, 1s/2s/4s backoff). It
 // does not distinguish transient errors (`fetch failed`, ECONNRESET, ETIMEDOUT...) from deterministic
@@ -209,6 +209,7 @@ export async function rmUnneededMfsPaths(community: LocalCommunity, opts?: { num
         const toDeleteMfsPaths = Array.from(community._mfsPathsToRemove.values());
         const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
         for (const watcher of community._mfsPathRemovalWatchers) for (const path of toDeleteMfsPaths) watcher.add(path);
+        const bucketsBefore = await statBucketsOfPaths({ community, mfsPaths: toDeleteMfsPaths });
         try {
             await removeMfsFilesSafely({
                 kuboRpcClient: kuboRpc,
@@ -217,7 +218,7 @@ export async function rmUnneededMfsPaths(community: LocalCommunity, opts?: { num
                 inputNumOfRetries: opts?.numOfRetries
             });
             toDeleteMfsPaths.forEach((path) => community._mfsPathsToRemove.delete(path));
-            await rememberPostUpdatesBucketsOfPaths({ community, mfsPaths: toDeleteMfsPaths });
+            await rememberPostUpdatesBucketsOfPaths({ community, mfsPaths: toDeleteMfsPaths, before: bucketsBefore });
             return toDeleteMfsPaths;
         } catch (e) {
             const error = <Error>e;
@@ -225,7 +226,7 @@ export async function rmUnneededMfsPaths(community: LocalCommunity, opts?: { num
                 // An absent path is already removed, so dequeue it like a successful rm. Left queued, the
                 // publish cycle's per-pass drain would retry it forever (issue #420)
                 toDeleteMfsPaths.forEach((path) => community._mfsPathsToRemove.delete(path));
-                await rememberPostUpdatesBucketsOfPaths({ community, mfsPaths: toDeleteMfsPaths });
+                await rememberPostUpdatesBucketsOfPaths({ community, mfsPaths: toDeleteMfsPaths, before: bucketsBefore });
                 return toDeleteMfsPaths;
             } else {
                 log.error("Failed to remove paths from MFS", toDeleteMfsPaths, e);

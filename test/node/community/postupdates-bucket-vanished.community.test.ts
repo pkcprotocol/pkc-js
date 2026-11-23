@@ -180,6 +180,72 @@ describeSkipIfRpc("postUpdates bucket that vanishes from MFS after a swap that K
             );
     }, 120_000);
 
+    const rowOf = (post: Comment) =>
+        calculateNewCommentUpdate({ community, comment: community._dbHandler.queryComment(post.cid!)!, batchStartTimestamp: timestamp() });
+    const waitForBothPostsInTheBucket = async () => {
+        await vi.waitFor(
+            async () => {
+                expect(await existsInMfs(updateFileOf(postA))).to.be.true;
+                expect(await existsInMfs(updateFileOf(postB))).to.be.true;
+                expect(community._postUpdatesBucketCids.has(Number(bucketPath.split("/").pop())), "a bucket this process wrote").to.be.true;
+            },
+            { timeout: 30_000, interval: 250 }
+        );
+    };
+
+    it("does not patch a bucket that lost the entry of a post into a baseline that hides the loss", async () => {
+        await waitForBothPostsInTheBucket();
+        await new Promise((resolve) => setTimeout(resolve, 1100)); // updatedAt is in seconds
+        const rowB = await rowOf(postB);
+
+        // Somebody else drops post A's entry. The cycle then writes another post into the same bucket, as it does
+        // for the active bucket every time, and the patched bucket must not become what the bucket should be
+        await kubo().files.rm(`${bucketPath}/${postA.cid}`, { recursive: true });
+        const error = await writePostUpdatesToMfs(community, [rowB]).then(
+            (): undefined => undefined,
+            (e: PKCError) => e
+        );
+        expect(error?.code, "the bucket that had lost post A was patched as if it were whole").to.equal(
+            "ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST"
+        );
+
+        await community.edit({ description: `a record after a patched partial loss ${Date.now()}` });
+        await vi.waitFor(
+            async () => expect(await existsInMfs(updateFileOf(postA)), "post A's CommentUpdate was not written again").to.be.true,
+            {
+                timeout: 30_000,
+                interval: 250
+            }
+        );
+    }, 120_000);
+
+    it("fails the cycle when a removal in the vanished bucket comes between two slices of it", async () => {
+        await waitForBothPostsInTheBucket();
+        await new Promise((resolve) => setTimeout(resolve, 1100)); // updatedAt is in seconds
+        const rowA = await rowOf(postA);
+        const rowB = await rowOf(postB);
+
+        await writePostUpdatesToMfs(community, [rowA]); // slice 1
+        await kubo().files.rm(bucketPath, { recursive: true });
+        // Slice 2 removes a path inside the bucket first (a purge, or a post that moved to a wider bucket)
+        community._mfsPathsToRemove.add(`${bucketPath}/${"Qm" + "a".repeat(44)}`);
+        const error = await writePostUpdatesToMfs(community, [rowB]).then(
+            (): undefined => undefined,
+            (e: PKCError) => e
+        );
+        expect(error?.code, "slice 2 built the bucket from its own posts").to.equal("ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST");
+
+        await community.edit({ description: `a record after a removal between slices ${Date.now()}` });
+        for (const post of [postA, postB])
+            await vi.waitFor(
+                async () => expect(await existsInMfs(updateFileOf(post)), "a CommentUpdate was not written again").to.be.true,
+                {
+                    timeout: 30_000,
+                    interval: 250
+                }
+            );
+    }, 120_000);
+
     it("notices a bucket that is still there and has lost the entries of some posts", async () => {
         await vi.waitFor(
             async () => {
