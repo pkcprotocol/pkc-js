@@ -200,8 +200,12 @@ export const verifyBufferEd25519 = async (bufferToSign: Uint8Array, bufferSignat
     // anyone can post, vote and edit as. This guard sits before the WebCrypto fast-accept path because WebCrypto may
     // accept such keys too. A key that does not decode to a curve point is left to the verifiers
     // below, which reject it, keeping prior reject-on-invalid behavior unchanged.
+    // fromBytes(_, true) decodes with ZIP-215 rules, matching ed25519.verify below. Without it the
+    // strict (canonical) decoder throws on a non-canonical encoding of a small-order point (e.g. the
+    // identity point re-encoded as y = 1 + p), the catch would swallow that, and verify would then
+    // accept the forgery under ZIP-215 — so the guard must decode exactly as verify does.
     try {
-        if (ed25519.Point.fromBytes(publicKeyBuffer).isSmallOrder()) return false;
+        if (ed25519.Point.fromBytes(publicKeyBuffer, true).isSmallOrder()) return false;
     } catch {}
     // WebCrypto (native, off-main-thread, ~13x faster than noble) is a fast-accept path only.
     // Noble's ZIP215 acceptance is a superset of WebCrypto's, so a WebCrypto reject (or any

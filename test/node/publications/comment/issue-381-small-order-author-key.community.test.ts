@@ -40,6 +40,18 @@ describe("issue #381 spin-off: small-order ed25519 public keys are rejected", ()
         }
     });
 
+    it("rejects a non-canonical encoding of the identity point too (ZIP-215 decode, not just canonical)", async () => {
+        // y = 1 + p (= 2^255 - 18) is a non-canonical encoding of the identity point's y = 1. The
+        // strict decoder rejects it but ed25519.verify accepts it under ZIP-215, so the guard must
+        // decode the same way or the forged signature slips through (issue #596, CodeRabbit catch).
+        const nonCanonicalIdentity = new Uint8Array(32);
+        nonCanonicalIdentity[0] = 0xee;
+        for (let i = 1; i < 31; i++) nonCanonicalIdentity[i] = 0xff;
+        nonCanonicalIdentity[31] = 0x7f;
+        const nonCanonicalKey = uint8ArrayToString(nonCanonicalIdentity, "base64");
+        expect(await verifyBufferEd25519(new TextEncoder().encode("forge me"), identitySignatureBuf, nonCanonicalKey)).to.equal(false);
+    });
+
     it("verifyBufferEd25519 still accepts a genuine signature from a full-order key (fix is not over-broad)", async () => {
         const privateKey = uint8ArrayToString(crypto.getRandomValues(new Uint8Array(32)), "base64");
         const publicKey = await getPublicKeyFromPrivateKey(privateKey);
@@ -76,9 +88,10 @@ describe("issue #381 spin-off: small-order ed25519 public keys are rejected", ()
             // author carries no `address` on the wire (it is reserved there); the community derives
             // the author's address from signature.publicKey, i.e. from the forged identity key.
             const originalToJSON = post.toJSONPubsubRequestToEncrypt.bind(post);
-            (post as any).toJSONPubsubRequestToEncrypt = () => {
+            post.toJSONPubsubRequestToEncrypt = () => {
                 const request = originalToJSON();
-                const forgedComment = request.comment as any;
+                const forgedComment = request.comment;
+                if (!forgedComment) throw Error("expected a comment in the challenge request");
                 forgedComment.signature = {
                     type: "ed25519",
                     publicKey: identityPublicKey,
