@@ -127,7 +127,9 @@ async function createPublishingTestContext({
             queryCommentUpdateTimestampBucketReplies: (): undefined => undefined,
             queryStoredCommentUpdate: (): undefined => undefined,
             queryCalculatedCommentUpdate: (opts: Parameters<DbHandler["queryCalculatedCommentUpdate"]>[0]) =>
-                clone(calculatedUpdates.get(opts.comment.cid))
+                clone(calculatedUpdates.get(opts.comment.cid)),
+            // No alias in this fixture, so no pseudonymityAuthorTag (issue #381): the comment is not aliased.
+            queryPseudonymityAliasByCommentCid: (): undefined => undefined
         }
     };
 

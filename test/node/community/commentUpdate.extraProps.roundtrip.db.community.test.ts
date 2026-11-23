@@ -50,6 +50,7 @@ const baseUpdate = (cid: string): CommentUpdateType =>
         author: { community: { postScore: 1, replyScore: 2, firstCommentTimestamp: now - 10, lastCommentCid: OTHER_CID } },
         lastChildCid: OTHER_CID,
         lastReplyTimestamp: now - 5,
+        pseudonymityAuthorTag: "nBUe3DGZKQ8fBcP6YGnpRQ",
         protocolVersion: "1.0.0",
         signature: { type: "ed25519", signature: "sig", publicKey: "pk", signedPropertyNames: [] }
     }) as unknown as CommentUpdateType;
