@@ -87,7 +87,7 @@ CommentModeration extends Publication {
     reason?: string
     author?: {
       flairs?: Flair[]
-      banExpiresAt?: number
+      banExpiresAt?: number // a future timestamp bans the author and marks this comment, a past timestamp lifts the ban and keeps the mark, 0 removes the mark and leaves the ban as it is (see "Banning an author")
     }
   }
 }
@@ -113,6 +113,7 @@ CommentUpdate /* (IPFS file) */ {
   approved?: boolean // if comment was pending approval and it got approved or disapproved
   removed?: boolean // mod deleted a comment
   reason?: string // reason the mod took a mod action
+  authorBanExpiresAt?: number // present only on a comment a mod banned the author from. Rely on its presence only, the value can be a timestamp in the past; for whether the author is banned now read author.community.banExpiresAt (see "Banning an author")
   updatedAt: number // timestamp in seconds the CommentUpdate was updated
   protocolVersion: '1.0.0' // semantic version of the protocol https://semver.org/
   signature: Signature // signature of the CommentUpdate by the community owner to protect against malicious gateway
@@ -136,7 +137,7 @@ Author {
   community?: CommunityAuthor // (added by CommentUpdate) up to date author properties specific to the community it's in
 }
 CommunityAuthor {
-  banExpiresAt?: number // (added by moderator only) timestamp in second, if defined the author was banned for this comment
+  banExpiresAt?: number // (added by moderator only) timestamp in seconds of the author's latest ban in the community. It is an author aggregate that appears on the author's comments, not a mark of which comment the ban was for (that is commentUpdate.authorBanExpiresAt). The author is banned while it is in the future
   flairs?: Flair[] // (added by moderator only) for when a mod wants to edit an author's flairs
   postScore: number // total post karma in the community
   replyScore: number // total reply karma in the community
@@ -1164,7 +1165,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| banExpiresAt | `number` or `undefined` | Comment author was banned for this comment |
+| banExpiresAt | `number` or `undefined` | Bans the comment's author until this timestamp (seconds) and marks this comment as the one the ban was for. A timestamp in the past lifts the ban and keeps the mark, `0` removes the mark and leaves the ban as it is. See [Banning an author](#banning-an-author) |
 | flairs | `Flair[]` or `undefined` | Edited flairs of the comment author |
 
 #### Returns
@@ -1183,6 +1184,57 @@ commentModeration.on('challenge', async (challengeMessage) => {
 })
 commentModeration.on('challengeverification', console.log)
 await commentModeration.publish()
+```
+
+#### Banning an author
+
+A ban is published on one of the author's comments, through `commentModeration.author.banExpiresAt`. It has two effects, which are published as two separate fields of `CommentUpdate`:
+
+| Field | What it says | Where it appears |
+| ---- | ---- | ---- |
+| `author.community.banExpiresAt` | The author's latest ban in the community. The author cannot publish while it is in the future | On the author's comments (all of them unless the community uses a pseudonymity mode) |
+| `authorBanExpiresAt` | A mod banned the author from this comment | Only on the comment the ban was published on |
+
+`commentModeration.author.banExpiresAt` takes three kinds of value:
+
+| Value | The author's ban | `authorBanExpiresAt` on that comment |
+| ---- | ---- | ---- |
+| A timestamp in the future | Banned until then | Set to the timestamp |
+| A timestamp in the past | Lifted | Stays, and its value becomes the past timestamp |
+| `0` | Unchanged | Removed |
+
+The two fields are independent. `authorBanExpiresAt` follows the newest moderation on that one comment that carries a `banExpiresAt`, and a `0` there removes it. `author.community.banExpiresAt` follows the newest moderation across all of the author's comments that carries a timestamp, and skips every `0`. So `0` only ever removes a label, and only a timestamp changes the ban. `0` is an input only, neither published field is ever `0`.
+
+| To do this | Publish on | `author.banExpiresAt` |
+| ---- | ---- | ---- |
+| Ban the author and label the comment | The offending comment | A timestamp in the future |
+| Change the length of the ban | The labelled comment | The new timestamp |
+| Unban and keep the label | The labelled comment | A timestamp in the past |
+| Remove a label and keep the ban | The labelled comment | `0` |
+| Move the label to another comment | Both comments, in either order | A future timestamp on the right one, `0` on the wrong one |
+| Undo a mistaken ban | The labelled comment, twice | A timestamp in the past, then `0` |
+
+`author.community.banExpiresAt` is never removed. After an unban, or after a ban runs out, it keeps the past timestamp.
+
+What a client showing a "user was banned for this post" label should know:
+
+- Rely only on the presence of `authorBanExpiresAt`. It stays after the ban runs out, and an unban published on the same comment leaves a timestamp in the past in it.
+- For whether the author is banned right now, compare `author.community.banExpiresAt` with the current time. Its presence alone is not enough, because it keeps a past timestamp once the ban is over.
+- Send `author.banExpiresAt` only when the mod is banning from that comment. Every moderation that carries a timestamp marks its comment, so pre-filling the field from `author.community.banExpiresAt` when a mod removes or locks another comment of a banned author marks that comment too.
+- `0` removes the label only from the comment it is published on, and does nothing on a comment that has none. It is the way to clear a label that should not be there, with no effect on the ban.
+- An unban is a timestamp in the past, and it marks the comment it is published on like any other timestamp. Publish it on the comment that already carries the label. Published on another comment, it lifts the ban but gives that comment a label too, which a `0` on it then clears.
+- To undo a ban completely, publish the past timestamp first and the `0` second, on the same comment. In the other order the unban puts the label back, and one more `0` clears it. The author is unbanned either way.
+
+```js
+const banUntil = (days) => Math.round(Date.now() / 1000) + days * 24 * 60 * 60
+const moderateAuthor = async (commentCid, banExpiresAt) => {
+  const moderation = await pkc.createCommentModeration({ communityAddress, commentCid, signer, commentModeration: { author: { banExpiresAt } } })
+  await moderation.publish()
+}
+
+await moderateAuthor(offendingCommentCid, banUntil(7)) // ban for a week, the comment gets authorBanExpiresAt
+await moderateAuthor(offendingCommentCid, Math.round(Date.now() / 1000) - 1) // lift the ban, the comment keeps authorBanExpiresAt
+await moderateAuthor(offendingCommentCid, 0) // the comment loses authorBanExpiresAt, the ban is not touched
 ```
 
 ### `pkc.createVote(createVoteOptions)`

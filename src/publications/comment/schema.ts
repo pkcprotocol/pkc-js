@@ -185,6 +185,7 @@ export const CommentUpdateSchema = z
         archived: z.boolean().optional(), // mod archived a post
         removed: z.boolean().optional(), // mod deleted a comment
         reason: z.string().optional(), // reason the mod took a mood action,
+        authorBanExpiresAt: PKCTimestampSchema.optional(), // present only on a comment a mod banned the author from: the author.banExpiresAt of the newest commentModeration on this cid that carried one, verbatim. It stays after the ban runs out, and an unban published on this comment leaves it as a timestamp in the past, so only its presence is meaningful; read author.community.banExpiresAt for whether the author is banned now. A mod removes it by publishing author.banExpiresAt 0 on this comment (issue #363)
         approved: z.boolean().optional(), // if comment was pending approval and it got approved or disapproved. Does not apply to comments pending approvals, you need to use moderation.pageCids.pendingApproval to fetch pending comments
         updatedAt: PKCTimestampSchema, // timestamp in seconds the CommentUpdate was updated
         author: AuthorWithCommentUpdateSchema.pick({ community: true }).optional(), // add commentUpdate.author.community to comment.author.community, override comment.author.flairs with commentUpdate.author.community.flairs if any
@@ -227,6 +228,7 @@ export const CommentUpdateChallengeReservedFieldNames = [
     "updatedAt",
     "lastChildCid",
     "lastReplyTimestamp",
+    "authorBanExpiresAt",
     "replies",
     "edit",
     "protocolVersion"

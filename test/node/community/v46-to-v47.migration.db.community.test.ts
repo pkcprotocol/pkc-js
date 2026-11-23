@@ -124,7 +124,9 @@ describeSkipIfRpc("v46 → v47 DB migration (records with forbidden keys stored 
             w["constructor"] = "x";
         });
         await storeSignedPost("extras-with-forbidden", () => {}, {
-            challengeCommentUpdate: <Bag>JSON.parse('{"tip": 1, "_z": 2, "toString": "x", "author": {"community": {"postScore": 3}, "_w": 1}}')
+            challengeCommentUpdate: <Bag>(
+                JSON.parse('{"tip": 1, "_z": 2, "toString": "x", "author": {"community": {"postScore": 3}, "_w": 1}}')
+            )
         });
         await storeSignedPost("extras-only-forbidden", () => {}, { challengeCommentUpdate: { _only: 1 } });
         await storeSignedPost("extras-clean", () => {}, { challengeCommentUpdate: { tip: 5 } });
@@ -140,9 +142,9 @@ describeSkipIfRpc("v46 → v47 DB migration (records with forbidden keys stored 
         await pkc?.destroy();
     });
 
-    it("DB version was bumped to 47", () => {
+    it("DB version was bumped to the latest", () => {
         expect((<DbHandlerPrivate>(<unknown>dbHandler))._db.pragma("user_version", { simple: true })).toBe(env.DB_VERSION);
-        expect(env.DB_VERSION).toBe(47);
+        expect(env.DB_VERSION).toBeGreaterThanOrEqual(47);
     });
 
     it("keeps a comment with no forbidden key and one with a benign extra key", () => {
