@@ -165,7 +165,7 @@ describeSkipIfRpc("db-handler: commentUpdate.authorBanExpiresAt marks the commen
         expect(calculate(other).authorBanExpiresAt).to.equal(PAST);
     });
 
-    it("0 on the marked comment removes the mark and revokes the ban", () => {
+    it("0 on the marked comment removes the mark and leaves the ban running", () => {
         const banned = insertComment();
         const other = insertComment();
         moderate(banned, { author: { banExpiresAt: FUTURE } });
@@ -174,47 +174,98 @@ describeSkipIfRpc("db-handler: commentUpdate.authorBanExpiresAt marks the commen
         for (const comment of [banned, other]) {
             const update = calculate(comment);
             expect(update.authorBanExpiresAt).to.be.undefined;
-            expect(update.author.community.banExpiresAt, "no published field ever carries 0").to.be.undefined;
+            expect(update, "no published field ever carries 0").to.not.have.property("authorBanExpiresAt", 0);
+            expect(update.author.community.banExpiresAt, "0 never touches the ban").to.equal(FUTURE);
         }
         assert(dbHandler);
-        expect(dbHandler.queryAuthorModEdits({ authorSignerAddresses: [AUTHOR] }).banExpiresAt).to.be.undefined;
+        expect(dbHandler.queryAuthorModEdits({ authorSignerAddresses: [AUTHOR] }).banExpiresAt).to.equal(FUTURE);
+        const batched = dbHandler.queryCalculatedCommentUpdates({ comments: [banned, other] });
+        expect(batched.get(other.cid)!.author.community.banExpiresAt, "the batched calculation agrees").to.equal(FUTURE);
     });
 
-    it("0 on another comment revokes the ban and leaves the mark where it is", () => {
+    it("0 on a comment with no mark changes nothing", () => {
         const banned = insertComment();
         const other = insertComment();
         moderate(banned, { author: { banExpiresAt: FUTURE } });
         moderate(other, { author: { banExpiresAt: 0 } });
 
-        expect(calculate(banned).authorBanExpiresAt, "the newest row on the banned comment is still the ban").to.equal(FUTURE);
-        expect(calculate(banned).author.community.banExpiresAt).to.be.undefined;
+        expect(calculate(banned).authorBanExpiresAt).to.equal(FUTURE);
         expect(calculate(other).authorBanExpiresAt).to.be.undefined;
-        expect(calculate(other).author.community.banExpiresAt).to.be.undefined;
+        expect(calculate(banned).author.community.banExpiresAt).to.equal(FUTURE);
+        expect(calculate(other).author.community.banExpiresAt).to.equal(FUTURE);
     });
 
-    it("0 only revokes while it is the author's newest ban row: a ban published after it stands", () => {
-        const wrongPost = insertComment();
-        const rightPost = insertComment();
-        moderate(wrongPost, { author: { banExpiresAt: FUTURE } });
-        // Moving the ban: 0 on the wrong post first, then the ban on the right one
-        moderate(wrongPost, { author: { banExpiresAt: 0 } });
-        moderate(rightPost, { author: { banExpiresAt: FUTURE } });
+    it("0 with no ban ever published leaves the author without a ban", () => {
+        const comment = insertComment();
+        moderate(comment, { author: { banExpiresAt: 0 } });
 
-        expect(calculate(wrongPost).authorBanExpiresAt).to.be.undefined;
-        expect(calculate(rightPost).authorBanExpiresAt).to.equal(FUTURE);
-        expect(calculate(wrongPost).author.community.banExpiresAt).to.equal(FUTURE);
+        expect(calculate(comment).authorBanExpiresAt).to.be.undefined;
+        expect(calculate(comment).author.community.banExpiresAt).to.be.undefined;
     });
 
-    it("in the other order the 0 is the newest row and the author ends up unbanned", () => {
-        const wrongPost = insertComment();
-        const rightPost = insertComment();
-        moderate(wrongPost, { author: { banExpiresAt: FUTURE } });
-        moderate(rightPost, { author: { banExpiresAt: FUTURE } });
-        moderate(wrongPost, { author: { banExpiresAt: 0 } });
+    it("0 clears the mark a pre-filled ban left on another comment, and the ban stays", () => {
+        const banned = insertComment();
+        const removedLater = insertComment();
+        moderate(banned, { author: { banExpiresAt: FUTURE } });
+        // A client that sends the author's ban along with every moderation marks this comment too
+        moderate(removedLater, { removed: true, author: { banExpiresAt: FUTURE } });
+        expect(calculate(removedLater).authorBanExpiresAt).to.equal(FUTURE);
 
-        expect(calculate(wrongPost).authorBanExpiresAt).to.be.undefined;
-        expect(calculate(rightPost).authorBanExpiresAt, "the mark on the right post stays").to.equal(FUTURE);
-        expect(calculate(rightPost).author.community.banExpiresAt).to.be.undefined;
+        moderate(removedLater, { author: { banExpiresAt: 0 } });
+        expect(calculate(removedLater).authorBanExpiresAt).to.be.undefined;
+        expect(calculate(banned).authorBanExpiresAt).to.equal(FUTURE);
+        expect(calculate(banned).author.community.banExpiresAt).to.equal(FUTURE);
+    });
+
+    it("moving the mark to another comment keeps the author banned in either order", () => {
+        for (const zeroFirst of [true, false]) {
+            const wrongPost = insertComment();
+            const rightPost = insertComment();
+            moderate(wrongPost, { author: { banExpiresAt: FUTURE } });
+            if (zeroFirst) moderate(wrongPost, { author: { banExpiresAt: 0 } });
+            expect(calculate(rightPost).author.community.banExpiresAt, "banned before the move ends").to.equal(FUTURE);
+            moderate(rightPost, { author: { banExpiresAt: FUTURE + 500 } });
+            if (!zeroFirst) moderate(wrongPost, { author: { banExpiresAt: 0 } });
+
+            expect(calculate(wrongPost).authorBanExpiresAt, `0 first: ${zeroFirst}`).to.be.undefined;
+            expect(calculate(rightPost).authorBanExpiresAt, `0 first: ${zeroFirst}`).to.equal(FUTURE + 500);
+            expect(calculate(wrongPost).author.community.banExpiresAt, `0 first: ${zeroFirst}`).to.equal(FUTURE + 500);
+        }
+    });
+
+    it("an unban then 0 on the same comment undoes a ban: no mark, and the ban is lifted", () => {
+        const banned = insertComment();
+        moderate(banned, { author: { banExpiresAt: FUTURE } });
+        moderate(banned, { author: { banExpiresAt: PAST } });
+        moderate(banned, { author: { banExpiresAt: 0 } });
+
+        const update = calculate(banned);
+        expect(update.authorBanExpiresAt).to.be.undefined;
+        expect(update.author.community.banExpiresAt, "the lifted ban's past timestamp stays on the author").to.equal(PAST);
+    });
+
+    it("in the other order the unban marks the comment again, and another 0 clears it", () => {
+        const banned = insertComment();
+        moderate(banned, { author: { banExpiresAt: FUTURE } });
+        moderate(banned, { author: { banExpiresAt: 0 } });
+        moderate(banned, { author: { banExpiresAt: PAST } });
+
+        expect(calculate(banned).authorBanExpiresAt, "a leftover mark, not a running ban").to.equal(PAST);
+        expect(calculate(banned).author.community.banExpiresAt).to.equal(PAST);
+
+        moderate(banned, { author: { banExpiresAt: 0 } });
+        expect(calculate(banned).authorBanExpiresAt).to.be.undefined;
+        expect(calculate(banned).author.community.banExpiresAt).to.equal(PAST);
+    });
+
+    it("a ban published after a 0 on the same comment marks it again", () => {
+        const banned = insertComment();
+        moderate(banned, { author: { banExpiresAt: FUTURE } });
+        moderate(banned, { author: { banExpiresAt: 0 } });
+        moderate(banned, { author: { banExpiresAt: FUTURE + 500 } });
+
+        expect(calculate(banned).authorBanExpiresAt).to.equal(FUTURE + 500);
+        expect(calculate(banned).author.community.banExpiresAt).to.equal(FUTURE + 500);
     });
 
     it("a ban published on an alias comment marks that comment only, while the aggregate reaches the author's other alias comments", () => {

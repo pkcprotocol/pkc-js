@@ -125,10 +125,10 @@ reads `lastReplyTimestamp` (see [page-sorts.md](page-sorts.md)).
 
 ## Which Comment a Ban Marks
 
-A ban is a `commentModeration` row keyed by `commentCid` whose `author.banExpiresAt` is a number. Two fields are computed from those rows, both by "the newest row carrying a number wins" (issue #363):
+A ban is a `commentModeration` row keyed by `commentCid` whose `author.banExpiresAt` is a number. Two fields are computed from those rows, newest row first (issue #363):
 
-- `author.community.banExpiresAt` looks at every row that targets the author (`queryAuthorModEdits`, by `targetAuthorSignerAddress` or `targetAuthorDomain`, so it survives a purge of the comment). It drives `ERR_AUTHOR_IS_BANNED`.
-- `authorBanExpiresAt` looks only at the rows on the comment's own cid (`_queryModerationSummariesByCids`). It is the value verbatim, with no dedupe against other comments, so every moderation that carries a timestamp marks its comment.
+- `author.community.banExpiresAt` looks at every row that targets the author (`queryAuthorModEdits`, by `targetAuthorSignerAddress` or `targetAuthorDomain`, so it survives a purge of the comment) and takes the newest one carrying a positive timestamp. `0` rows are skipped (`isAuthorBanRow`). It drives `ERR_AUTHOR_IS_BANNED`.
+- `authorBanExpiresAt` looks only at the rows on the comment's own cid (`_queryModerationSummariesByCids`). It takes the newest one carrying a number, `0` included, and a `0` renders as absent. The value is verbatim, with no dedupe against other comments, so every moderation that carries a timestamp marks its comment.
 
 The input takes three kinds of value (`CommentModerationAuthorSchema`):
 
@@ -136,14 +136,16 @@ The input takes three kinds of value (`CommentModerationAuthorSchema`):
 |---|---|---|
 | future timestamp | banned until then | set |
 | past timestamp (an unban) | lifted, the past timestamp is published | stays, value becomes the past timestamp |
-| `0` (a revoke) | absent while the `0` is the author's newest row | absent |
+| `0` | unchanged, the row is skipped | absent |
 
 Rules that follow from it:
 
-- `0` exists only on the moderation input. It renders as "absent" in both published fields, which stay a positive timestamp (`PKCTimestampSchema`) or missing. `null` cannot play this role because signing strips null values.
+- `0` exists only on the moderation input. Both published fields stay a positive timestamp (`PKCTimestampSchema`) or missing. `null` cannot play this role because signing strips null values.
 - Expiry is not an event. Nothing in the update loop runs when a ban runs out, so a mark is never removed by time. Clients read presence from `authorBanExpiresAt` and current status from `author.community.banExpiresAt`.
-- `0` removes the mark only on the cid it is published on. A `0` published elsewhere revokes the ban and leaves the marks of the author's other comments.
-- Order matters when moving a ban: `0` on the wrong comment, then the ban on the right one. The other way round, the `0` is the author's newest row and the ban is gone.
+- `0` removes the mark only on the cid it is published on and never touches the ban. The ban row under a removed mark still counts for the author aggregate, so a ban can be running with no mark on any comment.
+- The mark and the ban are independent on purpose. An earlier design let a `0` that was the author's newest row revoke the ban too, but a moderation is always the newest row when it is published, so clearing a wrong mark always unbanned the author. Now a wrong order of moderations can leave a stray mark and can never unban.
+- Undoing a ban takes two moderations on the same cid: the past timestamp, then `0`. In the other order the unban marks the cid again.
+- Nothing removes the author aggregate. After an unban or an expiry it keeps the past timestamp, so "banned now" is the value compared with the clock (`publication-validation.ts` does the same).
 - A challenge cannot set `authorBanExpiresAt` (`CommentUpdateChallengeReservedFieldNames`).
 - `reason` is not part of this: it is still the newest reason on the cid from any moderation, so a ban's reason and a later removal's reason overwrite each other.
 

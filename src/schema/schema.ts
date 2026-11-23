@@ -197,8 +197,8 @@ export const CommentAuthorSchema = CommunityAuthorSchema.pick({ banExpiresAt: tr
 
 // What a mod can set on the author through commentModeration.author. `banExpiresAt` takes three kinds of value
 // (issue #363): a future timestamp bans the author and marks the comment (commentUpdate.authorBanExpiresAt), a past
-// timestamp lifts the ban and leaves the mark, and 0 revokes: it removes the mark from this comment and, while it is
-// the author's newest ban row, the ban itself. 0 is an input only, no published field ever carries it. null cannot
+// timestamp lifts the ban and leaves the mark, and 0 removes the mark from this comment without touching the ban
+// (author.community.banExpiresAt skips 0 rows). 0 is an input only, no published field ever carries it. null cannot
 // stand in for it because signing strips null values.
 export const CommentModerationAuthorSchema = CommentAuthorSchema.extend({
     banExpiresAt: z.number().nonnegative().int().optional()

@@ -27,11 +27,13 @@ describe("commentUpdate.authorBanExpiresAt marks the comment a ban was published
     let otherPost: Comment;
     let banExpiresAt: number;
 
-    const moderateAuthor = async (commentCid: string, authorBanExpiresAt: number) => {
+    // `reason` only tells two moderations with the same value apart: published within the same second, identical content
+    // signs into the same moderation, which the community answers as the duplicate it is without storing it again
+    const moderateAuthor = async (commentCid: string, authorBanExpiresAt: number, reason?: string) => {
         const moderation = await pkc.createCommentModeration({
             communityAddress: community.address,
             commentCid,
-            commentModeration: { author: { banExpiresAt: authorBanExpiresAt } },
+            commentModeration: { author: { banExpiresAt: authorBanExpiresAt }, ...(reason ? { reason } : {}) },
             signer: moderatorSigner
         });
         await publishWithExpectedResult({ publication: moderation, expectedChallengeSuccess: true });
@@ -103,9 +105,8 @@ describe("commentUpdate.authorBanExpiresAt marks the comment a ban was published
         await authorPublishes({ banned: false });
     });
 
-    it.sequential("0 on the marked comment removes the mark and revokes the ban", async () => {
-        // A different expiry than the first ban: published within the same second, the same value would sign into the
-        // same moderation, which the community answers as the duplicate it is without storing it again
+    it.sequential("0 on the marked comment removes the mark and leaves the author banned", async () => {
+        // A different expiry than the first ban, so it cannot sign into the same moderation
         const secondBanExpiresAt = banExpiresAt + 100;
         await moderateAuthor(bannedPost.cid!, secondBanExpiresAt);
         await resolveWhenConditionIsTrue({
@@ -116,13 +117,23 @@ describe("commentUpdate.authorBanExpiresAt marks the comment a ban was published
 
         await moderateAuthor(bannedPost.cid!, 0);
         await resolveWhenConditionIsTrue({ toUpdate: bannedPost, predicate: async () => bannedPost.authorBanExpiresAt === undefined });
-        await resolveWhenConditionIsTrue({
-            toUpdate: otherPost,
-            predicate: async () => otherPost.author.community?.banExpiresAt === undefined
-        });
         expect(bannedPost.raw.commentUpdate).to.not.have.property("authorBanExpiresAt");
-        expect(bannedPost.author.community?.banExpiresAt, "no published field carries 0").to.be.undefined;
+        expect(bannedPost.author.community?.banExpiresAt, "0 never touches the ban").to.equal(secondBanExpiresAt);
+        expect(otherPost.author.community?.banExpiresAt).to.equal(secondBanExpiresAt);
         expect(otherPost.authorBanExpiresAt).to.be.undefined;
+        await authorPublishes({ banned: true });
+    });
+
+    it.sequential("an unban then 0 on the same comment undoes the ban: the author can publish and no mark is left", async () => {
+        const unbanTimestamp = timestamp() - 20;
+        await moderateAuthor(bannedPost.cid!, unbanTimestamp);
+        await resolveWhenConditionIsTrue({ toUpdate: bannedPost, predicate: async () => bannedPost.authorBanExpiresAt === unbanTimestamp });
+        await authorPublishes({ banned: false });
+
+        await moderateAuthor(bannedPost.cid!, 0, "clearing the mark the unban left");
+        await resolveWhenConditionIsTrue({ toUpdate: bannedPost, predicate: async () => bannedPost.authorBanExpiresAt === undefined });
+        expect(bannedPost.raw.commentUpdate).to.not.have.property("authorBanExpiresAt");
+        expect(bannedPost.author.community?.banExpiresAt, "the lifted ban's past timestamp stays").to.equal(unbanTimestamp);
         await authorPublishes({ banned: false });
     });
 });

@@ -120,6 +120,13 @@ const TABLES = Object.freeze({
 });
 
 // The address an alias row's original public key derives to, or null when the key is malformed (kept, never looked up)
+// A moderation's `author` that sets the author's ban: a positive timestamp, future (a ban) or past (an unban).
+// A 0 only removes the mark from the comment it was published on (commentUpdate.authorBanExpiresAt), so the author
+// aggregate skips it and falls through to the newest row that does carry a timestamp (issue #363).
+function isAuthorBanRow(modEdit: { banExpiresAt?: number } | null | undefined): boolean {
+    return typeof modEdit?.banExpiresAt === "number" && modEdit.banExpiresAt > 0;
+}
+
 function deriveAliasOriginalAuthorSignerAddress(originalAuthorPublicKey: string): string | null {
     try {
         return getPKCAddressFromPublicKeySync(originalAuthorPublicKey);
@@ -2936,8 +2943,9 @@ export class DbHandler {
 
     // What the moderations of each comment say, newest first, one read for the batch: the latest non-null value per
     // field (reason, flairs, approved and the six flags), the same precedence as the per-field statements this replaces.
-    // authorBanExpiresAt is the newest author.banExpiresAt published on the comment itself, 0 (the revoke) included,
-    // unlike author.community.banExpiresAt which is the newest across all of the author's comments.
+    // authorBanExpiresAt is the newest author.banExpiresAt published on the comment itself, 0 included: a 0 removes the
+    // mark. author.community.banExpiresAt is the newest across all of the author's comments and skips 0 rows
+    // (isAuthorBanRow), so removing a mark never touches the ban.
     private _queryModerationSummariesByCids(cids: string[]): Map<
         string,
         {
@@ -3125,7 +3133,7 @@ export class DbHandler {
                             (need.domain !== undefined && row.targetAuthorDomain === need.domain)
                     )
                     .map((row) => row.author);
-                const banAuthor = modAuthorEdits.find((modEdit) => typeof modEdit?.banExpiresAt === "number");
+                const banAuthor = modAuthorEdits.find(isAuthorBanRow);
                 const authorFlairsByMod = modAuthorEdits.find((modEdit) => modEdit?.flairs);
                 const modEdits: Pick<CommunityAuthor, "banExpiresAt" | "flairs"> = {};
                 if (banAuthor?.banExpiresAt) modEdits.banExpiresAt = banAuthor.banExpiresAt;
@@ -3373,7 +3381,7 @@ export class DbHandler {
         const modAuthorEdits = modAuthorEditsRaw.map(
             (r) => JSON.parse(r.commentAuthorJson) as CommentModerationTableRow["commentModeration"]["author"]
         );
-        const banAuthor = modAuthorEdits.find((modEdit) => typeof modEdit?.banExpiresAt === "number");
+        const banAuthor = modAuthorEdits.find(isAuthorBanRow);
         const authorFlairsByMod = modAuthorEdits.find((modEdit) => modEdit?.flairs);
         const aggregateAuthor: Pick<CommunityAuthor, "banExpiresAt" | "flairs"> = {};
         if (banAuthor?.banExpiresAt) aggregateAuthor.banExpiresAt = banAuthor.banExpiresAt;
