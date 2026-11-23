@@ -312,12 +312,18 @@ export async function writePostUpdatesToBucket({
             throw new PKCError("ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST", { communityAddress: community.address, bucketPath, attempt: 0 });
     }
     const rememberedCid = community._postUpdatesBucketCids.get(bucket);
-    if (live && rememberedCid !== undefined && rememberedCid !== live.cid.toString()) {
+    const pendingCid = community._postUpdatesBucketPendingCids.get(bucket);
+    if (live && pendingCid !== undefined && live.cid.toString() === pendingCid) {
+        // A swap of this process that the daemon finished after its mv failed or timed out: it is this process's own
+        community._postUpdatesBucketCids.set(bucket, pendingCid);
+        community._postUpdatesBucketPendingCids.delete(bucket);
+    } else if (live && rememberedCid !== undefined && rememberedCid !== live.cid.toString()) {
         // Not the bucket this process left: it may have lost posts, and patching it would make the patched bucket
         // the one that is expected, hiding the loss from the record build's check. The cycle may also hold earlier
         // slices written into the old bucket that are not marked as published yet, so it fails and writes them again.
-        community._postUpdatesBucketCids.set(bucket, live.cid.toString());
+        // The audit comes first: when it cannot list the bucket the old cid stays, so the next write audits again.
         await markPostsMissingFromBucketForRewrite({ community, bucket, log });
+        community._postUpdatesBucketCids.set(bucket, live.cid.toString());
         throw new PKCError("ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST", {
             communityAddress: community.address,
             bucketPath,
@@ -374,6 +380,8 @@ export async function writePostUpdatesToBucket({
             log(
                 `Bucket ${bucketPath}: ${posts.length} posts written, ${newBlocks.length} of the bucket's nodes rebuilt (${car.length} bytes imported), root ${root.toString()}`
             );
+            // If a step below fails after the daemon did the swap, the next write finds this bucket: it is ours
+            community._postUpdatesBucketPendingCids.set(bucket, root.toString());
             // Every step flushes: the new bucket must be on disk under the MFS root before the live one goes
             await kubo.files.cp(`/ipfs/${root.toString()}`, nextPath, { parents: true, flush: true, timeout: MFS_OP_TIMEOUT_MS });
             if (live) await kubo.files.rm(bucketPath, { recursive: true, timeout: MFS_OP_TIMEOUT_MS });
@@ -392,6 +400,7 @@ export async function writePostUpdatesToBucket({
         const swapped = await statMfsPathOrUndefined(kuboRpcClient, bucketPath, log);
         if (swapped?.cid.equals(root)) {
             community._postUpdatesBucketCids.set(bucket, root.toString());
+            community._postUpdatesBucketPendingCids.delete(bucket);
             return;
         }
         log.error(

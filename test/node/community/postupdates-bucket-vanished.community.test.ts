@@ -246,6 +246,57 @@ describeSkipIfRpc("postUpdates bucket that vanishes from MFS after a swap that K
             );
     }, 120_000);
 
+    it("still audits a bucket that lost a post when the first audit could not list it", async () => {
+        await waitForBothPostsInTheBucket();
+        await new Promise((resolve) => setTimeout(resolve, 1100)); // updatedAt is in seconds
+        const rowB = await rowOf(postB);
+
+        await kubo().files.rm(`${bucketPath}/${postA.cid}`, { recursive: true });
+        vi.spyOn(kubo().files, "ls").mockImplementationOnce(() => {
+            throw Error("the listing timed out");
+        });
+        await expect(writePostUpdatesToMfs(community, [rowB])).rejects.toThrow("the listing timed out");
+        vi.restoreAllMocks();
+
+        // The loss was not forgotten: the next write does not patch the bucket as if it were whole
+        const error = await writePostUpdatesToMfs(community, [rowB]).then(
+            (): undefined => undefined,
+            (e: PKCError) => e
+        );
+        expect(error?.code, "the bucket that had lost post A was patched after its audit failed").to.equal(
+            "ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST"
+        );
+        await community.edit({ description: `a record after a failed audit ${Date.now()}` });
+        await vi.waitFor(
+            async () => expect(await existsInMfs(updateFileOf(postA)), "post A's CommentUpdate was not written again").to.be.true,
+            {
+                timeout: 30_000,
+                interval: 250
+            }
+        );
+    }, 120_000);
+
+    it("does not take a swap of its own that finished in the next cycle for a lost bucket", async () => {
+        await waitForBothPostsInTheBucket();
+        await new Promise((resolve) => setTimeout(resolve, 1100)); // updatedAt is in seconds
+        const rowB = await rowOf(postB);
+
+        // The mv fails after the cp and the rm: the daemon holds the rebuilt bucket in `.next` only
+        const originalMv = kubo().files.mv.bind(kubo().files);
+        vi.spyOn(kubo().files, "mv").mockImplementationOnce(async (...args: Parameters<typeof originalMv>) => {
+            if (args[1] !== bucketPath) return originalMv(...args);
+            throw Error("the mv timed out");
+        });
+        await expect(writePostUpdatesToMfs(community, [rowB])).rejects.toThrow("the mv timed out");
+        vi.restoreAllMocks();
+
+        // The next cycle finishes that swap, and the bucket it finds is the one this process built
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        await writePostUpdatesToMfs(community, [await rowOf(postB)]);
+        expect(await existsInMfs(updateFileOf(postB))).to.be.true;
+        expect(await existsInMfs(updateFileOf(postA))).to.be.true;
+    }, 120_000);
+
     it("notices a bucket that is still there and has lost the entries of some posts", async () => {
         await vi.waitFor(
             async () => {

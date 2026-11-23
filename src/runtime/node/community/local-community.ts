@@ -141,6 +141,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // by bucket. The record build stats every bucket anyway, and a different cid means somebody else changed it.
     // Empty after a restart: the first stat of a bucket is taken as what it should be.
     _postUpdatesBucketCids: Map<number, string> = new Map();
+    // The cid of a bucket this process started to swap in, until the swap is confirmed: a swap that fails after the
+    // daemon did it leaves this bucket in MFS, and it is this process's own
+    _postUpdatesBucketPendingCids: Map<number, string> = new Map();
     // Each set here is handed every MFS path whose removal starts while it is registered: a postUpdates bucket
     // swap in progress repeats those removals on the bucket it swaps in (see writePostUpdatesToMfs)
     _mfsPathRemovalWatchers: Set<Set<string>> = new Set();
