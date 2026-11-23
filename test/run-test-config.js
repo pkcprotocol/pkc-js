@@ -622,6 +622,9 @@ const runBrowserTests = () => {
     process.on("exit", terminateBrowserRunner);
 
     vitestProcess.on("exit", (code, signal) => {
+        // The runner itself is gone, but a browser or worker in its process group can outlive it. This probes
+        // the group, so it returns at once when nothing is left
+        terminateBrowserRunner();
         process.off("exit", terminateBrowserRunner);
         printLogCaptureSummary();
         // A runner killed by a signal has a null code, and process.exit(null) would report a passing run
