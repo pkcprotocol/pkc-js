@@ -335,6 +335,49 @@ describeSkipIfRpc("postUpdates bucket that vanishes from MFS after a swap that K
         expect(await existsInMfs(updateFileOf(postB))).to.be.true;
     }, 120_000);
 
+    it("does not keep explaining a changed bucket by a removal that was confirmed since", async () => {
+        await waitForBothPostsInTheBucket();
+        const bucket = Number(bucketPath.split("/").pop());
+        community._postUpdatesBucketsWithUnconfirmedRemovals.add(bucket);
+
+        // A retry of the removal succeeds against the bucket this process left
+        community._mfsPathsToRemove.add(`${bucketPath}/${"Qm" + "b".repeat(44)}`);
+        await rmUnneededMfsPaths(community);
+
+        expect(community._postUpdatesBucketsWithUnconfirmedRemovals.has(bucket), "a confirmed removal still explains the bucket").to.be
+            .false;
+    }, 120_000);
+
+    it("audits a bucket that MFS holds instead of the one swapped in, before patching it again", async () => {
+        await waitForBothPostsInTheBucket();
+        await new Promise((resolve) => setTimeout(resolve, 1100)); // updatedAt is in seconds
+        const rowB = await rowOf(postB);
+
+        // The swap is reported as done and MFS holds a third bucket, one without post A
+        const originalMv = kubo().files.mv.bind(kubo().files);
+        vi.spyOn(kubo().files, "mv").mockImplementationOnce(async (...args: Parameters<typeof originalMv>) => {
+            await originalMv(...args);
+            if (args[1] === bucketPath) await kubo().files.rm(`${bucketPath}/${postA.cid}`, { recursive: true });
+        });
+        const error = await writePostUpdatesToMfs(community, [rowB]).then(
+            (): undefined => undefined,
+            (e: PKCError) => e
+        );
+        vi.restoreAllMocks();
+        expect(error?.code, "the bucket without post A was patched and taken for the bucket to expect").to.equal(
+            "ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST"
+        );
+
+        await community.edit({ description: `a record after a third bucket ${Date.now()}` });
+        await vi.waitFor(
+            async () => expect(await existsInMfs(updateFileOf(postA)), "post A's CommentUpdate was not written again").to.be.true,
+            {
+                timeout: 30_000,
+                interval: 250
+            }
+        );
+    }, 120_000);
+
     it("notices a bucket that is still there and has lost the entries of some posts", async () => {
         await vi.waitFor(
             async () => {
