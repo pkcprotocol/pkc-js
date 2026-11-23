@@ -71,6 +71,7 @@ export async function calculateNewPostUpdates(community: LocalCommunity): Promis
                 continue;
             }
         }
+        if (lost || changed) community._postUpdatesBucketsWithUnconfirmedRemovals.delete(timeBucket);
         if (cidInMfs !== undefined) community._postUpdatesBucketCids.set(timeBucket, cidInMfs);
         else community._postUpdatesBucketCids.delete(timeBucket);
     }

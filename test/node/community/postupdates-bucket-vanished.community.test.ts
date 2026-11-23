@@ -297,6 +297,44 @@ describeSkipIfRpc("postUpdates bucket that vanishes from MFS after a swap that K
         expect(await existsInMfs(updateFileOf(postA))).to.be.true;
     }, 120_000);
 
+    it("does not fail the next write when a purge's rm timed out after the daemon applied it", async () => {
+        await waitForBothPostsInTheBucket();
+        const purged = await publishRandomPost({ communityAddress: community.address, pkc });
+        await vi.waitFor(async () => expect(await existsInMfs(updateFileOf(purged))).to.be.true, { timeout: 30_000, interval: 250 });
+        await new Promise((resolve) => setTimeout(resolve, 3_000)); // the cycle that wrote it is done
+        await waitForBothPostsInTheBucket();
+
+        // storeCommentModeration's purge: the DB row first, then the MFS path. The daemon applies the rm and the
+        // client reports a timeout, so nothing is remembered and the path stays queued
+        const originalRm = kubo().files.rm.bind(kubo().files);
+        vi.spyOn(kubo().files, "rm").mockImplementationOnce(async (...args: Parameters<typeof originalRm>) => {
+            await originalRm(...args);
+            throw Error("the rm timed out");
+        });
+        for (const purgedRow of community._dbHandler.purgeComment(purged.cid!))
+            await addAllCidsUnderPurgedCommentToBeRemoved(community, purgedRow);
+        await expect(rmUnneededMfsPaths(community, { numOfRetries: 0 })).rejects.toThrow("the rm timed out");
+        vi.restoreAllMocks();
+        expect(await existsInMfs(updateFileOf(purged)), "the daemon applied the rm").to.be.false;
+
+        // The next cycle writes post B again: nothing was lost, the bucket only holds what this process removed from it
+        const errors: PKCError[] = [];
+        const onError = (error: Error) => errors.push(error as PKCError);
+        community.on("error", onError);
+        try {
+            community._dbHandler.forceUpdateOnAllCommentsWithCid([postB.cid!]);
+            await new Promise((resolve) => setTimeout(resolve, 5_000));
+        } finally {
+            community.off("error", onError);
+        }
+        expect(
+            errors.map((error) => error.code ?? error.message),
+            "a cycle failed over a bucket that only lost what a purge removed"
+        ).to.deep.equal([]);
+        expect(await existsInMfs(updateFileOf(postA))).to.be.true;
+        expect(await existsInMfs(updateFileOf(postB))).to.be.true;
+    }, 120_000);
+
     it("notices a bucket that is still there and has lost the entries of some posts", async () => {
         await vi.waitFor(
             async () => {
