@@ -458,7 +458,8 @@ export class DbHandler {
                 author TEXT NULLABLE, -- JSON
                 replies TEXT NULLABLE, -- JSON: CID refs per sort (DbRepliesSchema)
                 lastChildCid TEXT NULLABLE,
-                lastReplyTimestamp INTEGER NULLABLE, 
+                lastReplyTimestamp INTEGER NULLABLE,
+                pseudonymityAuthorTag TEXT NULLABLE, -- own-post recognition tag on aliased comments (issue #381); a signed CommentUpdate field
                 postUpdatesBucket INTEGER NULLABLE,
                 publishedToPostUpdatesMFS INTEGER NOT NULL, -- BOOLEAN (0/1)
                 insertedAt INTEGER NOT NULL,
@@ -1288,8 +1289,8 @@ export class DbHandler {
 
         const stmt = this._prepareCached(`
             INSERT INTO ${TABLES.COMMENT_UPDATES} 
-            (cid, edit, upvoteCount, downvoteCount, replyCount, childCount, number, postNumber, flairs, spoiler, nsfw, pinned, locked, archived, removed, approved, reason, updatedAt, protocolVersion, signature, author, replies, lastChildCid, lastReplyTimestamp, postUpdatesBucket, publishedToPostUpdatesMFS, insertedAt, extraProps)
-            VALUES (@cid, @edit, @upvoteCount, @downvoteCount, @replyCount, @childCount, @number, @postNumber, @flairs, @spoiler, @nsfw, @pinned, @locked, @archived, @removed, @approved, @reason, @updatedAt, @protocolVersion, @signature, @author, @replies, @lastChildCid, @lastReplyTimestamp, @postUpdatesBucket, @publishedToPostUpdatesMFS, @insertedAt, @extraProps)
+            (cid, edit, upvoteCount, downvoteCount, replyCount, childCount, number, postNumber, flairs, spoiler, nsfw, pinned, locked, archived, removed, approved, reason, updatedAt, protocolVersion, signature, author, replies, lastChildCid, lastReplyTimestamp, pseudonymityAuthorTag, postUpdatesBucket, publishedToPostUpdatesMFS, insertedAt, extraProps)
+            VALUES (@cid, @edit, @upvoteCount, @downvoteCount, @replyCount, @childCount, @number, @postNumber, @flairs, @spoiler, @nsfw, @pinned, @locked, @archived, @removed, @approved, @reason, @updatedAt, @protocolVersion, @signature, @author, @replies, @lastChildCid, @lastReplyTimestamp, @pseudonymityAuthorTag, @postUpdatesBucket, @publishedToPostUpdatesMFS, @insertedAt, @extraProps)
             ON CONFLICT(cid) DO UPDATE SET
                 edit = excluded.edit, upvoteCount = excluded.upvoteCount, downvoteCount = excluded.downvoteCount, replyCount = excluded.replyCount, childCount = excluded.childCount,
                 number = COALESCE(excluded.number, ${TABLES.COMMENT_UPDATES}.number),
@@ -1297,7 +1298,7 @@ export class DbHandler {
                 flairs = excluded.flairs, spoiler = excluded.spoiler, nsfw = excluded.nsfw, pinned = excluded.pinned, locked = excluded.locked, archived = excluded.archived,
                 removed = excluded.removed, approved = excluded.approved, reason = excluded.reason, updatedAt = excluded.updatedAt, protocolVersion = excluded.protocolVersion,
                 signature = excluded.signature, author = excluded.author, replies = excluded.replies, lastChildCid = excluded.lastChildCid,
-                lastReplyTimestamp = excluded.lastReplyTimestamp, postUpdatesBucket = excluded.postUpdatesBucket,
+                lastReplyTimestamp = excluded.lastReplyTimestamp, pseudonymityAuthorTag = excluded.pseudonymityAuthorTag, postUpdatesBucket = excluded.postUpdatesBucket,
                 publishedToPostUpdatesMFS = excluded.publishedToPostUpdatesMFS,
                 insertedAt = excluded.insertedAt,
                 extraProps = excluded.extraProps

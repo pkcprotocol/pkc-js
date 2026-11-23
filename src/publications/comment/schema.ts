@@ -190,6 +190,14 @@ export const CommentUpdateSchema = z
         author: AuthorWithCommentUpdateSchema.pick({ community: true }).optional(), // add commentUpdate.author.community to comment.author.community, override comment.author.flairs with commentUpdate.author.community.flairs if any
         lastChildCid: CidStringSchema.optional(), // The cid of the most recent direct reply that childCount counts
         lastReplyTimestamp: PKCTimestampSchema.optional(), // The timestamp of the most recent reply that replyCount counts
+        // Opaque own-post recognition tag on comments the community aliased on a pseudonymityMode board (issue #381).
+        // base64 of the first 16 bytes of HMAC-SHA256(K, cid); 16 bytes is 22 unpadded base64 chars. Community-generated
+        // and reserved: a challenge may not set it (CommentUpdateChallengeReservedFieldNames). Derivation is documented in
+        // docs/protocol/pseudonymity-author-tag.md; pkc-js exports no helper. A future derivation changes it under a new label.
+        pseudonymityAuthorTag: z
+            .string()
+            .regex(/^[A-Za-z0-9+/]{22}$/, "pseudonymityAuthorTag must be 22 base64 characters (16 bytes)")
+            .optional(),
         signature: JsonSignatureSchema, // signature of the CommentUpdate by the community owner to protect against malicious gateway
         protocolVersion: ProtocolVersionSchema,
         // The getter defers TypeScript inference of the comment-schema <-> pages-schema cycle; the
@@ -229,7 +237,9 @@ export const CommentUpdateChallengeReservedFieldNames = [
     "lastReplyTimestamp",
     "replies",
     "edit",
-    "protocolVersion"
+    "protocolVersion",
+    // Community-generated from the alias table; a challenge must never supply its own (issue #381).
+    "pseudonymityAuthorTag"
 ] as const satisfies readonly (keyof z.infer<typeof CommentUpdateSchema>)[];
 
 export const CommentUpdateForDisapprovedPendingComment = CommentUpdateSchema.pick({

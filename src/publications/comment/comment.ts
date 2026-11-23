@@ -120,6 +120,9 @@ export class Comment
     reason?: CommentUpdateType["reason"];
     lastChildCid?: CommentUpdateType["lastChildCid"];
     lastReplyTimestamp?: CommentUpdateType["lastReplyTimestamp"];
+    // Own-post recognition tag on comments the community aliased on a pseudonymityMode board (issue #381).
+    // Present only on aliased comments; clients that hold the account key reproduce it to mark "(You)".
+    pseudonymityAuthorTag?: CommentUpdateType["pseudonymityAuthorTag"];
     pendingApproval?: CommentUpdateForChallengeVerification["pendingApproval"];
     approved?: CommentUpdateType["approved"];
     number?: CommentUpdateType["number"];
@@ -431,6 +434,7 @@ export class Comment
         this.author.flairs = props.author?.community?.flairs || props.edit?.author?.flairs || this.author?.flairs;
         this.lastChildCid = props.lastChildCid;
         this.lastReplyTimestamp = props.lastReplyTimestamp;
+        this.pseudonymityAuthorTag = "pseudonymityAuthorTag" in props ? props.pseudonymityAuthorTag : undefined;
 
         this._updateRepliesPostsInstance(props.replies, community);
         if (typeof this.pendingApproval === "boolean" || "pendingApproval" in props)
