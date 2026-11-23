@@ -137,6 +137,17 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     _cidsToUnPin: Set<string> = new Set<string>();
     _mfsPathsToRemove: Set<string> = new Set<string>();
+    // The cid MFS held for each postUpdates bucket the last time this process wrote to it or removed from it,
+    // by bucket. The record build stats every bucket anyway, and a different cid means somebody else changed it.
+    // Empty after a restart: the first stat of a bucket is taken as what it should be.
+    _postUpdatesBucketCids: Map<number, string> = new Map();
+    // The cid of a bucket this process started to swap in, until the swap is confirmed: a swap that fails after the
+    // daemon did it leaves this bucket in MFS, and it is this process's own
+    _postUpdatesBucketPendingCids: Map<number, string> = new Map();
+    // Buckets this process removed paths from without being able to say what MFS holds as a result: the rm failed
+    // (the daemon may still have applied it) or another removal changed the bucket meanwhile. A bucket whose cid
+    // is not the remembered one is expected for these, so a write audits it and goes on when nothing is missing.
+    _postUpdatesBucketsWithUnconfirmedRemovals: Set<number> = new Set();
     // Each set here is handed every MFS path whose removal starts while it is registered: a postUpdates bucket
     // swap in progress repeats those removals on the bucket it swaps in (see writePostUpdatesToMfs)
     _mfsPathRemovalWatchers: Set<Set<string>> = new Set();

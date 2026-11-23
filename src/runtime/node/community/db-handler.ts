@@ -3782,6 +3782,15 @@ export class DbHandler {
         );
     }
 
+    // The posts whose CommentUpdate file was written to this postUpdates bucket and acknowledged. No index backs it:
+    // it is for the rare audit of a bucket MFS may have lost entries of, never for a hot path.
+    queryPublishedPostCidsOfBucket(bucket: number): string[] {
+        return this._db
+            .prepare(`SELECT cid FROM ${TABLES.COMMENT_UPDATES} WHERE postUpdatesBucket = ? AND publishedToPostUpdatesMFS = 1`)
+            .pluck()
+            .all(bucket) as string[];
+    }
+
     forceUpdateOnAllComments(): void {
         this._db.prepare(`UPDATE ${TABLES.COMMENT_UPDATES} SET publishedToPostUpdatesMFS = 0`).run();
     }

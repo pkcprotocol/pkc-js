@@ -14,6 +14,7 @@ import env from "../../../../version.js";
 import { PKCError } from "../../../../pkc-error.js";
 import { STORAGE_KEYS } from "../../../../constants.js";
 import { calculateExpectedSignatureSize } from "../../util.js";
+import { isAbsentPathError, markPostsMissingFromBucketForRewrite } from "./post-updates-bucket.js";
 import { iterateOverPageCidsToFindAllCids } from "../../../../pages/util.js";
 import { cleanUpBeforePublishing, signCommunity } from "../../../../signer/signatures.js";
 import { CommunityIpfsSchema } from "../../../../community/schema.js";
@@ -39,12 +40,40 @@ import { syncWithRegistries } from "./registry-sync.js";
 export async function calculateNewPostUpdates(community: LocalCommunity): Promise<CommunityIpfsType["postUpdates"]> {
     const postUpdates: CommunityIpfsType["postUpdates"] = {};
     const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
+    const log = Logger("pkc-js:local-community:sync:calculateNewPostUpdates");
     for (const timeBucket of community._postUpdatesBuckets) {
+        const rememberedCid = community._postUpdatesBucketCids.get(timeBucket);
+        let cidInMfs: string | undefined;
+        let absent = false;
         try {
             // Retries on transient Kubo connection errors so a daemon blip doesn't silently drop a bucket.
             const statRes = await statMfsPathSafely({ kuboRpcClient, path: `/${community.address}/postUpdates/${timeBucket}` });
-            if (statRes.blocks !== 0) postUpdates[String(timeBucket)] = String(statRes.cid);
-        } catch {}
+            cidInMfs = String(statRes.cid);
+            if (statRes.blocks !== 0) postUpdates[String(timeBucket)] = cidInMfs;
+        } catch (error) {
+            // A bucket that was never there is normal (a young community has no week bucket), and any other error is a
+            // Kubo hiccup that is retried above
+            if (!isAbsentPathError(error)) continue;
+            absent = true;
+        }
+        // What this process left in the bucket is what it holds, unless somebody else changed it. A bucket that is
+        // absent is lost when this process wrote it or the previous record listed it. A bucket that is there with
+        // another cid than the one this process left may have lost posts, which the stat cannot tell: the bucket's
+        // listing is compared against the posts that were published into it. That is for the rare change, not each build.
+        const lost = absent && (rememberedCid !== undefined || community.postUpdates?.[String(timeBucket)] !== undefined);
+        const changed = !absent && rememberedCid !== undefined && rememberedCid !== cidInMfs;
+        if (lost || changed) {
+            try {
+                await markPostsMissingFromBucketForRewrite({ community, bucket: timeBucket, log });
+            } catch (error) {
+                // Not remembered as audited: the next record build looks again
+                log.error(`Failed to check the postUpdates bucket ${timeBucket} of community ${community.address}`, error);
+                continue;
+            }
+        }
+        if (lost || changed) community._postUpdatesBucketsWithUnconfirmedRemovals.delete(timeBucket);
+        if (cidInMfs !== undefined) community._postUpdatesBucketCids.set(timeBucket, cidInMfs);
+        else community._postUpdatesBucketCids.delete(timeBucket);
     }
     if (isEmpty(postUpdates)) return undefined;
     return postUpdates;
