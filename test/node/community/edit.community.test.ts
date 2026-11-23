@@ -20,7 +20,7 @@ import { timestamp } from "../../../dist/node/util.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import fs from "fs";
 import path from "path";
-import { getStartLockPath, isCommunityStartLockedSync } from "../../../dist/node/runtime/node/community/start-lock.js";
+import { isCommunityStartLockedSync } from "../../../dist/node/runtime/node/community/communities-registry.js";
 import { isDeepEqual, pick } from "remeda";
 
 import { v4 as uuidV4 } from "uuid";
@@ -169,7 +169,7 @@ for (const editKey of ["address", "name"] as const) {
         it(`Start locks are moved to the new address`, async () => {
             // Check for locks
             const dataPath = community._pkc.dataPath!;
-            expect(fs.existsSync(getStartLockPath({ dataPath, communityAddress: community.signer.address }))).to.be.false;
+            expect(isCommunityStartLockedSync({ dataPath, communityAddress: community.signer.address })).to.be.false;
             expect(isCommunityStartLockedSync({ dataPath, communityAddress: bsoNameAddress })).to.be.true;
         });
 
@@ -332,8 +332,8 @@ for (const editKey of ["address", "name"] as const) {
 
         it(`start locks are moved from signer/.eth to .bso`, async () => {
             const dataPath = community._pkc.dataPath!;
-            expect(fs.existsSync(getStartLockPath({ dataPath, communityAddress: community.signer.address }))).to.be.false;
-            expect(fs.existsSync(getStartLockPath({ dataPath, communityAddress: ethAddress }))).to.be.false;
+            expect(isCommunityStartLockedSync({ dataPath, communityAddress: community.signer.address })).to.be.false;
+            expect(isCommunityStartLockedSync({ dataPath, communityAddress: ethAddress })).to.be.false;
             expect(isCommunityStartLockedSync({ dataPath, communityAddress: bsoAddress })).to.be.true;
         });
 
@@ -660,6 +660,38 @@ describeSkipIfRpc(`Concurrency with community.edit`, async () => {
 
         // Restore original and cleanup
         kuboClient._client.name.publish = originalPublish;
+        await community.delete();
+    });
+
+    // The publish loop sleeps between cycles and stop() wakes it. An edit that is pending when the loop looks is
+    // published before the community goes down, and an edit whose DB write is still running is not pending yet
+    // (issue #576): the loop must not be let go before that write is done.
+    it(`community.stop() publishes an edit whose DB write was still running when stop() was called`, async () => {
+        const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        // the loop is asleep between two cycles
+        while (!community._wakePublishLoop) await new Promise((resolve) => setTimeout(resolve, 10));
+
+        // stop() is called in the same synchronous run in which the edit's write starts
+        const editStores = community._editStoresInFlight;
+        const addEditStore = editStores.add.bind(editStores);
+        let stopped: Promise<void> | undefined;
+        editStores.add = (store) => {
+            addEditStore(store);
+            stopped = community.stop();
+            return editStores;
+        };
+
+        const title = `edited as stop() was called ${Date.now()}`;
+        await community.edit({ title });
+        expect(stopped).to.not.be.undefined;
+        await stopped;
+
+        // a pending edit is dropped from the list only by the publish of a record that carries it
+        expect(community._pendingEditProps).to.have.length(0);
+        expect(community.raw.communityIpfs?.title).to.equal(title);
+
         await community.delete();
     });
 });

@@ -324,6 +324,6 @@ describeSkipIfRpc("v45 → v46 DB migration (commentUpdates.extraProps column)",
     it("DB version was bumped to the latest", () => {
         const userVersion = getPrivate(dbHandler!)._db.pragma("user_version", { simple: true }) as number;
         expect(userVersion).to.equal(env.DB_VERSION);
-        expect(env.DB_VERSION).to.equal(46);
+        expect(env.DB_VERSION).to.be.greaterThanOrEqual(46);
     });
 });

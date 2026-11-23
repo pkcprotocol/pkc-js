@@ -1,25 +1,35 @@
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { v4 as uuidV4 } from "uuid";
 import Database from "better-sqlite3";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
-import { isCommunityStartLocked, isCommunityStartLockedSync } from "../../../dist/node/runtime/node/community/start-lock.js";
-import { listCommunitiesSync, moveCommunityDbToDeletedDirectory } from "../../../dist/node/runtime/node/util.js";
+import {
+    closeCommunitiesRegistry,
+    getCommunitiesRegistry,
+    isCommunityStartLocked,
+    isCommunityStartLockedSync
+} from "../../../dist/node/runtime/node/community/communities-registry.js";
+import { moveCommunityDbToDeletedDirectory } from "../../../dist/node/runtime/node/util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { holdStartLockInAnotherProcess } from "../../helpers/start-lock-holder.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 
-// The start lock is a file lock on the community's sidecar that lives on the holder's connection to the community DB
-// (issue #561, see start-lock.ts). The kernel releases it when the holder dies, which is the point, but it also goes
-// when that connection is closed, when the connection object is garbage collected (better-sqlite3 closes it), and, on
-// POSIX, when the holder's process opens and closes the sidecar outside SQLite. Each of those would let another process
-// start the community next to a live one, silently. These cases pin what keeps the lock held for as long as its holder
-// wants it. Whether it is held is always asked of a second OS process, the only view that counts.
+// A community is started while the communities registry names the PKC instance that started it and that instance's
+// lock is held (issue #585, see communities-registry.ts and pkc-instance-lock.ts). The instance's lock is a file lock
+// that lives on the registry's connection. The kernel releases it when the holder dies, which is the point, but it would
+// also go if that connection were closed or garbage collected (better-sqlite3 closes it), and, on POSIX, if the
+// holder's process opened and closed the lock file outside SQLite. Each of those would let another process start the
+// community next to a live one, silently. These cases pin what keeps a community claimed for as long as its holder
+// wants it. Whether it is claimed is always asked of a second OS process, the only view that counts.
+
+// What stands in for the PKC instance of each handler, to close its communities registry with
+const instances: { dataPath: string }[] = [];
 
 function createDbHandler({ dataPath, address }: { dataPath: string; address: string }): DbHandler {
     const fakeCommunity = { address, _pkc: { dataPath } };
+    instances.push(fakeCommunity._pkc);
     return new DbHandler(fakeCommunity as unknown as LocalCommunity);
 }
 
@@ -56,6 +66,8 @@ describeSkipIfRpc("how long a start lock stays held", () => {
         holder = undefined;
         await dbHandler.unlockCommunityStart().catch(() => {});
         dbHandler.destoryConnection();
+        // its connection to storage.db would keep the dataPath from being removed on Windows
+        for (const instance of instances.splice(0)) closeCommunitiesRegistry(instance);
         await fs.promises.rm(dataPath, { recursive: true, force: true });
     });
 
@@ -63,7 +75,7 @@ describeSkipIfRpc("how long a start lock stays held", () => {
         await dbHandler.lockCommunityStart();
 
         // under vitest it throws, so a test that reaches a path closing the connection of a started community fails
-        expect(() => dbHandler.destoryConnection()).to.throw(/while it holds the community's start lock/);
+        expect(() => dbHandler.destoryConnection()).to.throw(/while it has the community started/);
         expect(dbHandler._db.open, "the connection was closed all the same").to.be.true;
         expect(await anotherProcessIsRefused()).to.be.true;
 
@@ -84,32 +96,9 @@ describeSkipIfRpc("how long a start lock stays held", () => {
         expect(() => dbHandler.destoryConnection()).to.not.throw();
     });
 
-    // Taking the lock also removes the lock directory of the lock this one replaced. A failure there used to come after
-    // the lock was taken: the failed start had no started state to tear down, so nothing released the lock and the
-    // community could not be started again by any process until this one exited.
-    it("is not left held when the old lock directory can't be removed", async () => {
-        const oldLockDirectory = path.join(dataPath, "communities", `${address}.start.lock`);
-        const realRm = fs.promises.rm.bind(fs.promises);
-        vi.spyOn(fs.promises, "rm").mockImplementation(async (target, options) => {
-            if (target === oldLockDirectory) throw Object.assign(new Error("EPERM: operation not permitted"), { code: "EPERM" });
-            return realRm(target, options);
-        });
-        try {
-            await expect(dbHandler.lockCommunityStart()).rejects.toThrow("EPERM");
-        } finally {
-            vi.restoreAllMocks();
-        }
-
-        expect(dbHandler.holdsStartLock()).to.be.false;
-        expect(await isCommunityStartLocked({ dataPath, communityAddress: address })).to.be.false;
-        // taken directly: a process that failed for any other reason would not have been refused either
-        holder = await holdStartLockInAnotherProcess({ dataPath, communityAddress: address });
-        expect(isCommunityStartLockedSync({ dataPath, communityAddress: address })).to.be.true;
-    });
-
-    // start() opens the community's DB some awaits before it takes the lock. Another process that deletes the community
-    // in between moves the DB away and removes the sidecar; the lock was then taken on a new sidecar, for a community
-    // whose DB is no longer at its path: started, publishing, and writing to a file nothing will read again.
+    // start() opens the community's DB some awaits before it claims the community. Another process that deletes the
+    // community in between moves the DB away; the claim was then made for a community whose DB is no longer at its
+    // path: started, publishing, and writing to a file nothing will read again.
     // Not on Windows: a DB that a process has open cannot be removed there, so the other process's delete leaves it
     // at its path (to be removed later, see tryToDeleteCommunitiesThatFailedToBeDeletedBefore) and this state is not reached.
     it.skipIf(process.platform === "win32")(
@@ -130,7 +119,7 @@ describeSkipIfRpc("how long a start lock stays held", () => {
             expect((error as { code?: string }).code).to.equal("CAN_NOT_LOAD_LOCAL_COMMUNITY_IF_DB_DOES_NOT_EXIST");
             expect(fs.existsSync(dbPath), "a DB file was created at the deleted community's path").to.be.false;
 
-            expect(fs.existsSync(`${dbPath}.start.lock.db`), "a sidecar was left for a community that is gone").to.be.false;
+            expect(isCommunityStartLockedSync({ dataPath, communityAddress: address }), "a community that is gone is started").to.be.false;
 
             // and a community created at the address afterwards can be started
             new Database(dbPath).close();
@@ -149,25 +138,30 @@ describeSkipIfRpc("how long a start lock stays held", () => {
         expect(error?.code).to.equal("ERR_COMMUNITY_ALREADY_STARTED");
     });
 
-    it("survives the holder's own checks of it and its listing of the communities directory", async () => {
+    it("survives the holder's own checks of it, and another PKC instance of its process listing the directory", async () => {
         await dbHandler.lockCommunityStart();
-        // A file the listing does not know, so it reads its header with plain fs calls, as it does for every DB it has
-        // not listed yet. The sidecar must not get that treatment.
+        // A DB the registry has no row for, so it reads its header with plain fs calls. The lock file of an instance
+        // must never get that treatment in the instance's own process: on POSIX it would drop the lock
         new Database(path.join(dataPath, "communities", "not-listed-yet")).close();
-        const fakePkc = { dataPath } as unknown as PKC;
 
-        for (let i = 0; i < 50; i++) {
-            expect(isCommunityStartLockedSync({ dataPath, communityAddress: address })).to.be.true;
-            expect(listCommunitiesSync(fakePkc)).to.include(address);
+        for (let i = 0; i < 50; i++) expect(isCommunityStartLockedSync({ dataPath, communityAddress: address })).to.be.true;
+        // a second instance in this process: it sweeps the lock files of dead instances and lists the directory
+        const otherInstance = { dataPath };
+        instances.push(otherInstance);
+        const otherRegistry = getCommunitiesRegistry(otherInstance);
+        try {
+            otherRegistry.startMonitoring({ onChange: () => {} });
+            for (let i = 0; i < 50; i++) otherRegistry.readChangesOfOtherInstances();
+            expect(otherRegistry.isStarted(address)).to.be.true;
+        } finally {
+            otherRegistry.close();
         }
-        expect(listCommunitiesSync(fakePkc).filter((file) => file.includes(".lock"))).to.deep.equal([]);
 
         expect(await anotherProcessIsRefused()).to.be.true;
     });
 
-    // pkc.communities checks every community on each refresh, in the event loop. Through SQLite a held lock took 31ms to
-    // check on Windows, which stalled a process with a few dozen started communities for seconds (the first Windows CI
-    // run of issue #561). 40 checks take about 2ms on every platform.
+    // Through SQLite a held lock took 31ms to check on Windows (the first Windows CI run of issue #561), so the check
+    // reads the lock byte there. 40 checks, each of which also opens the registry, take a few ms on every platform.
     it("is cheap to check while held, from its holder's process and from another", async () => {
         const timeChecks = () => {
             const startedAt = performance.now();

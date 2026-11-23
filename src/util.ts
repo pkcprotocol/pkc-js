@@ -582,6 +582,11 @@ export function deepMergeRuntimeFields(target: any, source: any): void {
     if (!source || typeof source !== "object") return;
     if (!target || typeof target !== "object") return;
     for (const key of Object.keys(source)) {
+        // runtimeFields come from the RPC server: a key that reaches the prototype machinery (an own "__proto__" from
+        // JSON.parse) would recurse into Object.prototype or a class prototype and overwrite members of every instance
+        if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+        // a runtime field is data: it never names an underscore member, and never replaces a method (own or inherited)
+        if (key.startsWith("_") || typeof target[key] === "function") continue;
         if (Array.isArray(source[key]) && Array.isArray(target?.[key])) {
             for (let i = 0; i < source[key].length; i++) {
                 if (i < target[key].length) deepMergeRuntimeFields(target[key][i], source[key][i]);

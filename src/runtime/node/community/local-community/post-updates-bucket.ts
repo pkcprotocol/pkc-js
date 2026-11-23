@@ -48,7 +48,7 @@ const MAX_ATTEMPTS_TO_SWAP_POST_UPDATES_BUCKET = 4;
 
 type KuboRpcClient = ReturnType<LocalCommunity["_clientsManager"]["getDefaultKuboRpcClient"]>;
 
-const isAbsentPathError = (error: unknown) => error instanceof Error && error.message.includes("file does not exist");
+export const isAbsentPathError = (error: unknown) => error instanceof Error && error.message.includes("file does not exist");
 
 async function statMfsPathOrUndefined(kuboRpcClient: KuboRpcClient, path: string, log: Logger) {
     try {
@@ -56,6 +56,109 @@ async function statMfsPathOrUndefined(kuboRpcClient: KuboRpcClient, path: string
     } catch (error) {
         if (isAbsentPathError(error)) return undefined;
         throw error;
+    }
+}
+
+export const bucketOfPath = (bucketPath: string) => Number(bucketPath.split("/").pop());
+
+// A bucket that MFS lost entries of, or all of: the files of the posts already marked as published are gone and no
+// cycle writes them again (#590). Lists what the bucket holds and marks every published post that has no entry in
+// it, so the next cycle writes them again. Posts of a bucket that was emptied on purpose (a purge, or the post
+// moved to a wider bucket) are not marked as published in it any more, so they are not marked. Returns how many
+// posts were marked. The cost is the bucket's listing plus a scan of the posts table, so it runs only when a bucket
+// is absent or is not the one this process left behind, never on every cycle.
+export async function markPostsMissingFromBucketForRewrite({
+    community,
+    bucket,
+    log
+}: {
+    community: LocalCommunity;
+    bucket: number;
+    log: Logger;
+}): Promise<number> {
+    const published = community._dbHandler.queryPublishedPostCidsOfBucket(bucket);
+    if (published.length === 0) return 0;
+    const kubo = community._clientsManager.getDefaultKuboRpcClient()._client;
+    const listed = new Set<string>();
+    try {
+        for await (const entry of kubo.files.ls(`/${community.address}/postUpdates/${bucket}`, { timeout: MFS_OP_TIMEOUT_MS }))
+            listed.add(entry.name);
+    } catch (error) {
+        if (!isAbsentPathError(error)) throw error;
+    }
+    const missing = published.filter((cid) => !listed.has(cid));
+    if (missing.length > 0) {
+        community._dbHandler.forceUpdateOnAllCommentsWithCid(missing);
+        log.error(
+            `The postUpdates bucket ${bucket} of community ${community.address} holds ${listed.size} entries in MFS and ${missing.length} of its ${published.length} published posts are not in it. They will be written again by the next cycle`
+        );
+    }
+    return missing.length;
+}
+
+const bucketsOfPaths = (community: LocalCommunity, mfsPaths: string[]): number[] => {
+    const prefix = `/${community.address}/postUpdates/`;
+    const buckets = new Set<number>();
+    for (const path of mfsPaths)
+        if (path.startsWith(prefix)) {
+            const bucket = Number(path.slice(prefix.length).split("/")[0]);
+            if (Number.isFinite(bucket)) buckets.add(bucket);
+        }
+    return [...buckets];
+};
+
+// What MFS holds at the buckets that paths are about to be removed from: the cid, undefined for an absent bucket, and
+// null when it could not be read
+export async function statBucketsOfPaths({
+    community,
+    mfsPaths
+}: {
+    community: LocalCommunity;
+    mfsPaths: string[];
+}): Promise<Map<number, string | undefined | null>> {
+    const log = Logger("pkc-js:local-community:sync:statBucketsOfPaths");
+    const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
+    const stats = new Map<number, string | undefined | null>();
+    for (const bucket of bucketsOfPaths(community, mfsPaths))
+        stats.set(
+            bucket,
+            await statMfsPathOrUndefined(kuboRpcClient, `/${community.address}/postUpdates/${bucket}`, log).then(
+                (stat) => stat?.cid.toString(),
+                () => null
+            )
+        );
+    return stats;
+}
+
+// After this process removed paths from buckets: what MFS holds there now is what they should hold, but only for a
+// bucket that held what this process left before the removal. One that differed already is not made the baseline by
+// a removal, or the loss would be forgotten and a later write would build on it.
+export function noteUnconfirmedRemovalsFromBuckets({ community, mfsPaths }: { community: LocalCommunity; mfsPaths: string[] }) {
+    for (const bucket of bucketsOfPaths(community, mfsPaths)) community._postUpdatesBucketsWithUnconfirmedRemovals.add(bucket);
+}
+
+export async function rememberPostUpdatesBucketsOfPaths({
+    community,
+    mfsPaths,
+    before
+}: {
+    community: LocalCommunity;
+    mfsPaths: string[];
+    before: Map<number, string | undefined | null>;
+}) {
+    const log = Logger("pkc-js:local-community:sync:rememberPostUpdatesBuckets");
+    const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
+    for (const bucket of bucketsOfPaths(community, mfsPaths)) {
+        const remembered = community._postUpdatesBucketCids.get(bucket);
+        if (remembered !== undefined && before.get(bucket) !== remembered) {
+            community._postUpdatesBucketsWithUnconfirmedRemovals.add(bucket);
+            continue;
+        }
+        // The bucket held what this process left before the removal, so the removal is confirmed
+        community._postUpdatesBucketsWithUnconfirmedRemovals.delete(bucket);
+        const stat = await statMfsPathOrUndefined(kuboRpcClient, `/${community.address}/postUpdates/${bucket}`, log).catch(() => undefined);
+        if (stat) community._postUpdatesBucketCids.set(bucket, stat.cid.toString());
+        else community._postUpdatesBucketCids.delete(bucket);
     }
 }
 
@@ -205,13 +308,52 @@ export async function writePostUpdatesToBucket({
         return bytes;
     };
 
+    const bucket = bucketOfPath(bucketPath);
     let live = await recoverInterruptedBucketSwap(kuboRpcClient, bucketPath, log);
+    if (!live) {
+        // No bucket to patch: the one this builds holds these posts only. Posts published in it before are not in it.
+        const bucketWasHere = community._postUpdatesBucketCids.delete(bucket);
+        await markPostsMissingFromBucketForRewrite({ community, bucket, log });
+        // This process wrote the bucket and it is gone. The cycle may have written other slices into it, which
+        // are not marked as published yet and which a bucket built from this slice alone would not hold
+        // either: fail the cycle so that none of it is acknowledged
+        if (bucketWasHere)
+            throw new PKCError("ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST", { communityAddress: community.address, bucketPath, attempt: 0 });
+    }
+    const rememberedCid = community._postUpdatesBucketCids.get(bucket);
+    const pendingCid = community._postUpdatesBucketPendingCids.get(bucket);
+    if (live && pendingCid !== undefined && live.cid.toString() === pendingCid) {
+        // A swap of this process that the daemon finished after its mv failed or timed out: it is this process's own
+        community._postUpdatesBucketCids.set(bucket, pendingCid);
+        community._postUpdatesBucketPendingCids.delete(bucket);
+    } else if (live && rememberedCid !== undefined && rememberedCid !== live.cid.toString()) {
+        // Not the bucket this process left: it may have lost posts, and patching it would make the patched bucket
+        // the one that is expected, hiding the loss from the record build's check. The cycle may also hold earlier
+        // slices written into the old bucket that are not marked as published yet, so it fails and writes them again.
+        // The audit comes first: when it cannot list the bucket the old cid stays, so the next write audits again.
+        const missing = await markPostsMissingFromBucketForRewrite({ community, bucket, log });
+        const removalsExplainIt = community._postUpdatesBucketsWithUnconfirmedRemovals.delete(bucket);
+        community._postUpdatesBucketCids.set(bucket, live.cid.toString());
+        // What this process removed from the bucket (a purge whose rm timed out after the daemon applied it, or two
+        // purges that overlapped) changed its cid, and nothing published is missing from it: it is the bucket to patch
+        if (!(removalsExplainIt && missing === 0))
+            throw new PKCError("ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST", {
+                communityAddress: community.address,
+                bucketPath,
+                attempt: 0,
+                bucketCidInMfs: live.cid.toString(),
+                bucketCidRemembered: rememberedCid
+            });
+    }
     let bucketExisted = false;
     for (let attempt = 1; ; attempt++) {
         if (live) bucketExisted = true;
         // A bucket that existed and is gone must not be answered by building one that holds these posts only
-        else if (bucketExisted)
+        else if (bucketExisted) {
+            community._postUpdatesBucketCids.delete(bucket);
+            await markPostsMissingFromBucketForRewrite({ community, bucket, log });
             throw new PKCError("ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST", { communityAddress: community.address, bucketPath, attempt });
+        }
 
         const { cid: root, newBlocks } = await patchUnixFsDirectory({
             directoryCid: live?.cid,
@@ -221,7 +363,10 @@ export async function writePostUpdatesToBucket({
         });
         // The bucket in MFS links every post's new file already: nothing to write, or a swap whose result
         // differs from what was swapped in only by what somebody else changed since (a purge removing its post)
-        if (live && root.equals(live.cid)) return;
+        if (live && root.equals(live.cid)) {
+            community._postUpdatesBucketCids.set(bucket, live.cid.toString());
+            return;
+        }
         if (attempt > MAX_ATTEMPTS_TO_SWAP_POST_UPDATES_BUCKET)
             throw new PKCError("ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST", {
                 communityAddress: community.address,
@@ -248,6 +393,8 @@ export async function writePostUpdatesToBucket({
             log(
                 `Bucket ${bucketPath}: ${posts.length} posts written, ${newBlocks.length} of the bucket's nodes rebuilt (${car.length} bytes imported), root ${root.toString()}`
             );
+            // If a step below fails after the daemon did the swap, the next write finds this bucket: it is ours
+            community._postUpdatesBucketPendingCids.set(bucket, root.toString());
             // Every step flushes: the new bucket must be on disk under the MFS root before the live one goes
             await kubo.files.cp(`/ipfs/${root.toString()}`, nextPath, { parents: true, flush: true, timeout: MFS_OP_TIMEOUT_MS });
             if (live) await kubo.files.rm(bucketPath, { recursive: true, timeout: MFS_OP_TIMEOUT_MS });
@@ -264,10 +411,30 @@ export async function writePostUpdatesToBucket({
         // The daemon reported every step as done. Kubo has reported MFS changes as done that MFS then did
         // not hold (ipfs/kubo#11494), so the bucket is read back by its cid, which is known exactly.
         const swapped = await statMfsPathOrUndefined(kuboRpcClient, bucketPath, log);
-        if (swapped?.cid.equals(root)) return;
+        if (swapped?.cid.equals(root)) {
+            community._postUpdatesBucketCids.set(bucket, root.toString());
+            community._postUpdatesBucketPendingCids.delete(bucket);
+            return;
+        }
         log.error(
             `Bucket ${bucketPath} is ${swapped?.cid.toString()} in MFS after ${root.toString()} was swapped in (attempt ${attempt}), checking it for the posts' files`
         );
         live = await recoverInterruptedBucketSwap(kuboRpcClient, bucketPath, log);
+        // MFS holds a bucket this process did not build: it may have lost posts that were published before, and
+        // patching it would make it the bucket to expect. A bucket that holds them all is patched again.
+        if (live) {
+            const missing = await markPostsMissingFromBucketForRewrite({ community, bucket, log });
+            if (missing > 0) {
+                community._postUpdatesBucketCids.set(bucket, live.cid.toString());
+                community._postUpdatesBucketPendingCids.delete(bucket);
+                throw new PKCError("ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST", {
+                    communityAddress: community.address,
+                    bucketPath,
+                    attempt,
+                    bucketCidInMfs: live.cid.toString(),
+                    bucketCidWithThePosts: root.toString()
+                });
+            }
+        }
     }
 }

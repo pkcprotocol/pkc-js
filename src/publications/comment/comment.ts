@@ -45,6 +45,7 @@ import { RepliesPages } from "../../pages/pages.js";
 import { findCommentInPageInstanceRecursively, parseRawPages } from "../../pages/util.js";
 import { CommentIpfsSchema, CommentUpdateForChallengeVerificationSchema, CommentUpdateSchema } from "./schema.js";
 import { parseRpcCommentEventWithPKCErrorIfItFails, parseRpcCommentUpdateEventWithPKCErrorIfItFails } from "../../schema/schema-util.js";
+import { assignUnknownProps, mergeAuthorProps } from "../../unknown-props.js";
 import type { SignerType } from "../../signer/types.js";
 import type { CreatePublicationOptions } from "../../types.js";
 import { CommentClientsManager } from "./comment-client-manager.js";
@@ -118,6 +119,7 @@ export class Comment
     archived?: CommentUpdateType["archived"];
     removed?: CommentUpdateType["removed"];
     reason?: CommentUpdateType["reason"];
+    authorBanExpiresAt?: CommentUpdateType["authorBanExpiresAt"];
     lastChildCid?: CommentUpdateType["lastChildCid"];
     lastReplyTimestamp?: CommentUpdateType["lastReplyTimestamp"];
     pendingApproval?: CommentUpdateForChallengeVerification["pendingApproval"];
@@ -257,15 +259,9 @@ export class Comment
 
         const unknownProps = difference(keys(props), keys(CommentIpfsSchema.shape));
         if (unknownProps.length > 0) {
-            const unknownPropsWithValues = pick(props, unknownProps);
-            log(
-                `Found unknown props on loaded CommentIpfs (cid: ${this.cid})`,
-                unknownPropsWithValues,
-                "Full props:",
-                props,
-                "Will set them on the Comment instance"
-            );
-            Object.assign(this, unknownPropsWithValues);
+            log(`Found unknown props on loaded CommentIpfs (cid: ${this.cid})`, pick(props, unknownProps), "Will set them on the Comment instance");
+            const { skipped } = assignUnknownProps({ target: this, record: props, knownKeys: keys(CommentIpfsSchema.shape) });
+            if (skipped.length > 0) log.error(`Refused unknown props of CommentIpfs (cid: ${this.cid}) that collide with the instance`, skipped);
         }
         this._setAuthorNameResolvedFromCache();
     }
@@ -397,7 +393,8 @@ export class Comment
             const unknownProps = difference(keys(props), keys(CommentUpdateSchema.shape));
             if (unknownProps.length > 0) {
                 log("Found unknown props on CommentUpdate record", unknownProps, "Will set them on Comment instance");
-                Object.assign(this, pick(props, unknownProps));
+                const { skipped } = assignUnknownProps({ target: this, record: props, knownKeys: keys(CommentUpdateSchema.shape) });
+                if (skipped.length > 0) log.error("Refused unknown props of CommentUpdate that collide with the instance", skipped);
             }
         }
 
@@ -412,6 +409,7 @@ export class Comment
         this.archived = props.archived;
         this.removed = props.removed;
         this.reason = props.reason;
+        this.authorBanExpiresAt = props.authorBanExpiresAt;
         this.edit = props.edit;
         this.protocolVersion = props.protocolVersion;
 
@@ -424,7 +422,11 @@ export class Comment
                   : this.spoiler;
 
         this.nsfw = typeof props.nsfw === "boolean" ? props.nsfw : typeof props.edit?.nsfw === "boolean" ? props.edit?.nsfw : this.nsfw;
-        if (props.author) Object.assign(this.author, props.author);
+        if (props.author) {
+            const { skipped } = mergeAuthorProps({ target: this.author, props: props.author });
+            if (skipped.length > 0)
+                Logger("pkc-js:comment:_initCommentUpdate").error("Refused author props of CommentUpdate that collide with an object", skipped);
+        }
         if (props.edit?.content) this.content = props.edit.content;
         // TODO flairs merging strategy will likely change — currently first-defined wins (mod > author edit > existing)
         this.flairs = props.flairs || props.edit?.flairs || this.flairs;
@@ -603,7 +605,14 @@ export class Comment
 
     _initCommentUpdateFromChallengeVerificationProps(commentUpdate: CommentUpdateForChallengeVerification) {
         this.raw.commentUpdateFromChallengeVerification = commentUpdate;
-        if (commentUpdate.author) Object.assign(this.author, commentUpdate.author);
+        if (commentUpdate.author) {
+            const { skipped } = mergeAuthorProps({ target: this.author, props: commentUpdate.author });
+            if (skipped.length > 0)
+                Logger("pkc-js:comment:_initCommentUpdateFromChallengeVerificationProps").error(
+                    "Refused author props of the challenge verification that collide with an object",
+                    skipped
+                );
+        }
         this.protocolVersion = commentUpdate.protocolVersion;
         if ("pendingApproval" in commentUpdate) this.pendingApproval = commentUpdate.pendingApproval;
         else this.pendingApproval = false;
@@ -622,7 +631,12 @@ export class Comment
         const unknownProps = difference(keys(decryptedVerification.commentUpdate), keys(CommentUpdateForChallengeVerificationSchema.shape));
         if (unknownProps.length > 0) {
             log("Found unknown props on decryptedVerification.commentUpdate record", unknownProps, "Will set them on Comment instance");
-            Object.assign(this, pick(decryptedVerification.commentUpdate, unknownProps));
+            const { skipped } = assignUnknownProps({
+                target: this,
+                record: decryptedVerification.commentUpdate,
+                knownKeys: keys(CommentUpdateForChallengeVerificationSchema.shape)
+            });
+            if (skipped.length > 0) log.error("Refused unknown props of the challenge verification that collide with the instance", skipped);
         }
         this.emit("update", this);
         // RPC clients rely on the server for name resolution (sent via runtimeFields)
