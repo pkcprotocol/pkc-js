@@ -161,7 +161,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     set _communityUpdateTrigger(value: boolean) {
         if (value) this._updateTriggerGeneration++;
         this._communityUpdateTriggerValue = value;
+        if (value) this._wakePublishLoop?.();
     }
+    // Set by the publish loop while it sleeps between cycles: ends the sleep. Called on every request for a new
+    // record (the setter above) and by stop(), which is what lets the loop sleep without polling (issue #576)
+    _wakePublishLoop?: () => void = undefined;
     _combinedHashOfPendingCommentsCids: string = sha256("");
 
     _pageGenerator!: PageGenerator;

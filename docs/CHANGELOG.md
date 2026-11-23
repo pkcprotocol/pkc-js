@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.156](https://github.com/pkcprotocol/pkc-js/compare/v0.0.155...v0.0.156) (2026-11-23)
+
+## [0.0.155](https://github.com/pkcprotocol/pkc-js/compare/v0.0.154...v0.0.155) (2026-11-23)
+
+### Features
+
+* **wallets:** verify and enforce author.wallets proofs per BSIP-22 ([#577](https://github.com/pkcprotocol/pkc-js/issues/577)) ([087b854](https://github.com/pkcprotocol/pkc-js/commit/087b8540e49f383af6fd126485a60a469ed559b0)), closes [#566](https://github.com/pkcprotocol/pkc-js/issues/566)
+
+### Performance
+
+* **pkc:** keep local communities in a registry, with one start lock per PKC instance ([#586](https://github.com/pkcprotocol/pkc-js/issues/586)) ([d32fd05](https://github.com/pkcprotocol/pkc-js/commit/d32fd0569ca7e2289102a7375f392cbad2585d44)), closes [#576](https://github.com/pkcprotocol/pkc-js/issues/576) [#585](https://github.com/pkcprotocol/pkc-js/issues/585)
+
 ## [0.0.154](https://github.com/pkcprotocol/pkc-js/compare/v0.0.153...v0.0.154) (2026-11-21)
 
 ### Bug Fixes
