@@ -287,13 +287,16 @@ export async function createLibp2pJsClientOrUseExistingOne(
         // (e.g. `ipfs add --hash sha2-512`) and helia looks the hasher up before the first block
         // fetch, so keep sha2-512 to match what fetched under helia 6.
         const { libp2p: mergedLibp2pInit, bitswap: bitswapInit, blockBrokers: callerBlockBrokers, ...heliaLightInit } = mergedHeliaInit;
-        // Without a privateKey, @helia/libp2p's start() calls loadOrCreateSelfKey(), which generates the node's key and
-        // stores it in the libp2p keychain. The keychain encrypts it with PBKDF2 + AES-GCM, which exists only in
-        // WebCrypto, so the node cannot start where crypto.subtle is missing (an insecure browser origin, React
-        // Native's Hermes; see runtime/browser/polyfill.ts). The helia datastore is in-memory, so that stored key is
-        // never read back: generating the key here gives the same new peer id per instance and skips the keychain.
-        // A caller's libp2pOptions.privateKey is kept as is.
-        const libp2pInit = { ...mergedLibp2pInit, privateKey: mergedLibp2pInit?.privateKey ?? (await generateKeyPair("Ed25519")) };
+        // Without a privateKey, @helia/libp2p's start() calls loadOrCreateSelfKey(), which reads the node's key from the
+        // libp2p keychain in helia's datastore, or generates one and stores it there. The keychain encrypts it with
+        // PBKDF2 + AES-GCM, which exists only in WebCrypto, so the node cannot start where crypto.subtle is missing (an
+        // insecure browser origin, React Native's Hermes; see runtime/browser/polyfill.ts). The default helia datastore
+        // is in-memory, so that stored key is never read back: generating the key here gives the same new peer id per
+        // instance and skips the keychain. A caller's libp2pOptions.privateKey is kept as is, and so is helia's own key
+        // handling when the caller supplies heliaOptions.datastore: it may persist, and the key stored in it keeps the
+        // peer id across restarts (reading it still needs WebCrypto).
+        const generateKeyHere = !mergedLibp2pInit?.privateKey && !heliaLightInit.datastore;
+        const libp2pInit = generateKeyHere ? { ...mergedLibp2pInit, privateKey: await generateKeyPair("Ed25519") } : mergedLibp2pInit ?? {};
         const heliaWithLibp2p = withLibp2p(
             createHeliaLight({
                 ...heliaLightInit,
