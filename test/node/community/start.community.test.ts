@@ -15,6 +15,7 @@ import {
 import { itSkipIfRpc, itIfRpc } from "../../helpers/conditional-tests.js";
 import path from "path";
 import fs from "fs";
+import { isCommunityStartLockedSync } from "../../../dist/node/runtime/node/community/communities-registry.js";
 import signers from "../../fixtures/signers.js";
 import { v4 as uuidV4 } from "uuid";
 
@@ -67,8 +68,9 @@ describe(`community.start`, async () => {
         const listedTopics = async () => await localCommunity._pkc._clientsManager.getDefaultKuboPubsubClient()!._client.pubsub.ls();
         expect(await listedTopics()).to.not.include(community.address);
 
-        await new Promise((resolve) => setTimeout(resolve, localCommunity._pkc.publishInterval * 2));
-        expect(await listedTopics()).to.include(community.address);
+        // The community resubscribes at the start of its next sync cycle, so the wait is bounded by whatever cycle is in
+        // flight plus the idle interval, not by a fixed multiple of publishInterval. Poll instead of sleeping (#481).
+        await vi.waitFor(async () => expect(await listedTopics()).to.include(community.address), { timeout: 30_000, interval: 250 });
 
         await publishRandomPost({ communityAddress: community.address, pkc: pkc }); // Should receive publication since subscription to pubsub topic has been restored
     });
@@ -92,7 +94,7 @@ describe(`community.start`, async () => {
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         const originalFunc = community._getDbInternalState.bind(community);
-        community._getDbInternalState = async () => {
+        community._getDbInternalState = () => {
             throw Error("Mocking a failure in getting db internal state in tests");
         };
         publishRandomPost({ communityAddress: community.address, pkc: pkc });
@@ -121,8 +123,8 @@ describe(`community.start`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         const ipfsClient = community._clientsManager.getDefaultKuboRpcClient()!._client;
 
-        const originalFunc = ipfsClient.files.write;
-        ipfsClient.files.write = () => {
+        const originalFunc = ipfsClient.files.cp;
+        ipfsClient.files.cp = () => {
             throw Error("Mocking a failure in copying MFS file in tests");
         };
         publishRandomPost({ communityAddress: community.address, pkc: pkc });
@@ -134,7 +136,7 @@ describe(`community.start`, async () => {
         });
         expect(community.startedState).to.equal("failed");
 
-        ipfsClient.files.write = originalFunc;
+        ipfsClient.files.cp = originalFunc;
 
         await resolveWhenConditionIsTrue({
             toUpdate: community,
@@ -237,11 +239,13 @@ describe(`Start lock`, async () => {
 
     itSkipIfRpc(`Fail to start community if start lock is present`, async () => {
         const communitySigner = await pkc.createSigner();
-        const lockPath = path.join(dataPath, "communities", `${communitySigner.address}.start.lock`);
         const community = await pkc.createCommunity({ signer: communitySigner });
         const sameCommunity = await pkc.createCommunity({ address: community.address });
         community.start();
-        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => fs.existsSync(lockPath) });
+        await resolveWhenConditionIsTrue({
+            toUpdate: community,
+            predicate: async () => isCommunityStartLockedSync({ dataPath, communityAddress: community.address })
+        });
 
         try {
             await sameCommunity.start();
@@ -254,18 +258,13 @@ describe(`Start lock`, async () => {
 
     it(`Can start community as soon as start lock is unlocked`, async () => {
         const communitySigner = await pkc.createSigner();
-        const lockPath = path.join(dataPath, "communities", `${communitySigner.address}.start.lock`);
-        expect(fs.existsSync(lockPath)).to.be.false;
+        const isLocked = () => isCommunityStartLockedSync({ dataPath, communityAddress: communitySigner.address });
+        expect(isLocked()).to.be.false;
         const community = await pkc.createCommunity({ signer: communitySigner });
         await community.start();
-        expect(fs.existsSync(lockPath)).to.be.true;
-        const lockFileRemovedPromise = new Promise<void>((resolve) =>
-            fs.watchFile(lockPath, () => {
-                if (!fs.existsSync(lockPath)) resolve();
-            })
-        );
-        await Promise.all([community.stop(), lockFileRemovedPromise]);
-        expect(fs.existsSync(lockPath)).to.be.false;
+        expect(isLocked()).to.be.true;
+        await community.stop();
+        expect(isLocked()).to.be.false;
 
         await community.start();
         await community.delete();
@@ -288,23 +287,24 @@ describe(`Start lock`, async () => {
         }
     );
 
-    it(`Can start community if start lock is stale (10s)`, async () => {
-        // Lock is considered stale if lock has not been updated in 10000 ms (10s)
+    // Skipped under RPC: the leftovers are removed when a PKC is created on the dataPath, and under RPC that PKC is the
+    // server's, which exists long before this test
+    itSkipIfRpc(`Can start community next to the start locks left by older versions, which the next PKC removes`, async () => {
+        // The start lock used to be a directory whose mtime its holder refreshed (held for 10s after the last refresh),
+        // then a lock file beside each community's DB (issue #561). Which instance has a community started is in the
+        // communities registry now (issue #585), and neither leftover decides anything.
         const community = await createSubWithNoChallenge({}, pkc);
 
         const lockPath = path.join(dataPath, "communities", `${community.address}.start.lock`);
-        await fs.promises.mkdir(lockPath); // Artifically create a start lock
+        const sidecarPath = path.join(dataPath, "communities", `${community.address}.start.lock.db`);
+        await fs.promises.mkdir(lockPath); // Artifically create a start lock of the oldest kind
+        await fs.promises.writeFile(sidecarPath, ""); // and of the kind after it
 
-        try {
-            await community.start();
-            expect.fail("Should have thrown");
-        } catch (e) {
-            expect((e as PKCError).code).to.be.oneOf([
-                "ERR_COMMUNITY_ALREADY_STARTED",
-                "ERR_CAN_NOT_LOAD_DB_IF_LOCAL_COMMUNITY_ALREADY_STARTED_IN_ANOTHER_PROCESS"
-            ]);
-        }
-        await new Promise((resolve) => setTimeout(resolve, 11000)); // Wait for 11s for lock to be considered stale
+        const nextPkc = await mockPKC({ dataPath });
+        await nextPkc.destroy();
+        expect(fs.existsSync(lockPath)).to.be.false;
+        expect(fs.existsSync(sidecarPath)).to.be.false;
+
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         const post = await publishRandomPost({ communityAddress: community.address, pkc: pkc });

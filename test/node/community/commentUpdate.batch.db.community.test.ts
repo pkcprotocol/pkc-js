@@ -344,4 +344,39 @@ describeSkipIfRpc("db-handler.queryCalculatedCommentUpdates (batched) matches qu
         expect(calculated.downvoteCount).to.equal(1);
         expect(calculated.author.community.postScore, "the aggregate must be as fresh as the vote counts of the same slice").to.equal(-1);
     });
+
+    it("expands an author's alias addresses once per cycle and again once an alias is stored", () => {
+        // The expansion walks every comment of the address. Run per slice, a board whose comments are mostly one
+        // author's walked that author's whole board once per slice of the cycle (issue #471); the memo holds it
+        // for the cycle, and a publication write (an alias row among them) starts the memo over.
+        assert(dbHandler);
+        const author = "12D3KooMemoExpansionAuthor";
+        const otherAuthor = "12D3KooMemoExpansionOther";
+        const post = insertComment({ authorSignerAddress: author });
+        const laterPost = insertComment({ authorSignerAddress: author });
+        const otherPost = insertComment({ authorSignerAddress: otherAuthor });
+        vote(otherPost, 1, 3);
+        const authorMemo = createCommunityAuthorMemo();
+        const firstSlice = dbHandler.queryCalculatedCommentUpdates({ comments: rowsOf([post]), authorMemo }).get(post.cid)!;
+        expect(firstSlice.author.community.postScore).to.equal(0);
+        expect([...authorMemo.expandedAddresses.get(author)!]).to.deep.equal([author]);
+        // Poison the expansion: a second slice of the same cycle must sum the memoised set, not expand again
+        authorMemo.expandedAddresses.set(author, new Set([author, otherAuthor]));
+        const secondSlice = dbHandler.queryCalculatedCommentUpdates({ comments: rowsOf([laterPost]), authorMemo }).get(laterPost.cid)!;
+        expect(secondSlice.author.community.postScore, "the poisoned set brought the other author's karma in").to.equal(3);
+        // An alias stored between two slices is a publication write: the next slice expands afresh
+        dbHandler.insertPseudonymityAliases([
+            {
+                commentCid: otherPost.cid,
+                aliasPrivateKey: "alias-private-key",
+                originalAuthorPublicKey: originalAuthor.publicKey,
+                originalAuthorName: null,
+                mode: "per-post",
+                insertedAt: tick()
+            }
+        ]);
+        const thirdSlice = dbHandler.queryCalculatedCommentUpdates({ comments: rowsOf([post]), authorMemo }).get(post.cid)!;
+        expect([...authorMemo.expandedAddresses.get(author)!]).to.deep.equal([author]);
+        expect(thirdSlice.author.community.postScore).to.equal(0);
+    });
 });

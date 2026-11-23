@@ -1,13 +1,15 @@
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import pLimit from "p-limit";
 import Logger from "../../../../logger.js";
-import { timestamp, writeKuboFilesWithTimeout } from "../../../../util.js";
+import { timestamp } from "../../../../util.js";
 import env from "../../../../version.js";
 import { calculateInlineRepliesBudget } from "../../util.js";
 import { cleanUpBeforePublishing, signCommentUpdate, verifyCommentUpdate } from "../../../../signer/signatures.js";
+import { computePseudonymityAuthorTag, derivePseudonymityTagSharedKey } from "../../../../signer/pseudonymity-author-tag.js";
 import { PKCError } from "../../../../pkc-error.js";
 import { getAuthorNameFromWire } from "../../../../publications/publication-author.js";
 import { deriveDbReplies } from "../../util.js";
+import { commentUpdateToDbRow } from "../comment-update-row.js";
 import type {
     CommentsTableRow,
     CommentUpdatesRow,
@@ -19,8 +21,11 @@ import type { LocalCommunity } from "../local-community.js";
 import { createCommunityAuthorMemo, type CalculatedCommentUpdate, type CommunityAuthorMemo } from "../db-handler.js";
 import type { CommentUpdateToWriteToDbAndPublishToIpfs } from "./defaults.js";
 import { rmUnneededMfsPaths } from "./cleanup.js";
+import { writePostUpdatesToBucket } from "./post-updates-bucket.js";
 import { wirePagesFromGeneration } from "../page-generator.js";
 import { generatePagesReportingFailedSorts } from "../page-sorts/index.js";
+
+const textEncoder = new TextEncoder();
 
 // A cycle that recalculated any comment must have recalculated at least one post: a reply's update
 // dirties its whole ancestry, and only a post has a postUpdates file. A cycle that ends with no post
@@ -43,13 +48,53 @@ export function challengeExchangePubsubTopic(community: LocalCommunity): string 
     return communityChallengePubsubTopic(community);
 }
 
+// The MFS directory holding the postUpdates files of one time bucket
+export function calculateLocalMfsPathForPostUpdatesBucket(community: LocalCommunity, timestampRange: number) {
+    return ["/" + community.address, "postUpdates", timestampRange].join("/");
+}
+
 export function calculateLocalMfsPathForCommentUpdate(
     community: LocalCommunity,
     postDbComment: Pick<CommentsTableRow, "cid">,
     timestampRange: number
 ) {
-    // TODO Can optimize the call below by only asking for timestamp field
-    return ["/" + community.address, "postUpdates", timestampRange, postDbComment.cid, "update"].join("/");
+    return [calculateLocalMfsPathForPostUpdatesBucket(community, timestampRange), postDbComment.cid, "update"].join("/");
+}
+
+// The pseudonymity author tag for one aliased comment, or undefined when the comment has no alias row
+// (mods, non-pseudonymous comments). Fail-soft: a stored author key the key exchange cannot handle (a
+// small-order point, say — kept as defence in depth even though verifyBufferEd25519 now rejects those)
+// yields no tag and an error log rather than throwing, so one unrecognizable author never wedges the
+// whole update cycle. K is cached per author on the community (recomputed if the signer rotated); the
+// per-comment HMAC over the cid is always recomputed.
+function computePseudonymityAuthorTagForComment(
+    community: LocalCommunity,
+    commentCid: string,
+    log: ReturnType<typeof Logger>
+): string | undefined {
+    const aliasRow = community._dbHandler.queryPseudonymityAliasByCommentCid(commentCid);
+    if (!aliasRow) return undefined;
+
+    const authorPublicKeyBase64 = aliasRow.originalAuthorPublicKey;
+    const signerPublicKey = community.signer.publicKey;
+    try {
+        let cached = community._pseudonymityTagKeyCache.get(authorPublicKeyBase64);
+        if (!cached || cached.signerPublicKey !== signerPublicKey) {
+            const sharedKey = derivePseudonymityTagSharedKey({
+                communityPrivateKeyBase64: community.signer.privateKey,
+                authorPublicKeyBase64
+            });
+            cached = { signerPublicKey, sharedKey };
+            community._pseudonymityTagKeyCache.set(authorPublicKeyBase64, cached);
+        }
+        return computePseudonymityAuthorTag({ sharedKey: cached.sharedKey, commentCid });
+    } catch (e) {
+        log.error(
+            `Failed to derive pseudonymityAuthorTag for comment (${commentCid}) with author public key (${authorPublicKeyBase64}); publishing the CommentUpdate without a tag`,
+            e
+        );
+        return undefined;
+    }
 }
 
 export async function calculateNewCommentUpdate(opts: {
@@ -114,6 +159,12 @@ export async function calculateNewCommentUpdate(opts: {
         })
     };
 
+    // Own-post recognition tag on comments this community aliased (issue #381). Follows the existence
+    // of an alias row, so it covers every mode and stays on comments aliased while pseudonymityMode was
+    // on even after it is turned off. Mods are never aliased, so their comments get no tag.
+    const pseudonymityAuthorTag = computePseudonymityAuthorTagForComment(community, comment.cid, log);
+    if (pseudonymityAuthorTag) commentUpdatePriorToSigning.pseudonymityAuthorTag = pseudonymityAuthorTag;
+
     const inlineRepliesBudget = calculateInlineRepliesBudget({
         comment,
         commentUpdateWithoutReplies: commentUpdatePriorToSigning
@@ -173,15 +224,22 @@ export async function calculateNewCommentUpdate(opts: {
         );
         community._mfsPathsToRemove.add(oldPostUpdates);
     }
-    const newCommentUpdateDbRecord = <CommentUpdatesTableRowInsert>{
-        ...newCommentUpdate,
-        // Store CID refs instead of full inline page data — see deriveDbReplies()
-        replies: deriveDbReplies({ replies: newCommentUpdate.replies, allPageCids, flatSortNames: generatedRepliesPages?.flatSortNames }),
-        postUpdatesBucket: newPostUpdateBucket,
-        publishedToPostUpdatesMFS: false,
-
-        insertedAt: batchStartTimestamp
-    };
+    // commentUpdateToDbRow moves the keys CommentUpdateSchema does not know (a challenge's commentUpdate extras) into extraProps,
+    // so the page entry rebuilt from this row is the record signed above (issue #572)
+    const newCommentUpdateDbRecord = commentUpdateToDbRow({
+        update: newCommentUpdate,
+        dbOnlyFields: {
+            // Store CID refs instead of full inline page data — see deriveDbReplies()
+            replies: deriveDbReplies({
+                replies: newCommentUpdate.replies,
+                allPageCids,
+                flatSortNames: generatedRepliesPages?.flatSortNames
+            }),
+            postUpdatesBucket: newPostUpdateBucket,
+            publishedToPostUpdatesMFS: false,
+            insertedAt: batchStartTimestamp
+        }
+    });
     return {
         newCommentUpdate,
         newCommentUpdateToWriteToDb: newCommentUpdateDbRecord,
@@ -315,44 +373,35 @@ export async function writePostUpdatesToMfs(
         log(`Skipping ${purgedMidSyncCount} post CommentUpdate(s) for community ${community.address} whose comment was purged mid-sync`);
 
     const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
-    const removedMfsPaths: string[] = await rmUnneededMfsPaths(community);
-    let postUpdatesDirectoryCid: Awaited<ReturnType<typeof kuboRpc._client.files.flush>> | undefined;
+    await rmUnneededMfsPaths(community);
 
-    // 50 is measured, not arbitrary. Benchmarked against kubo 0.43.0 (6 communities syncing
-    // concurrently, 600 writes each, flush:true, warm repo): 50 and 100 are within noise of each
-    // other (~3650 vs ~3710 writes/s) and 200/400 are 9-12% SLOWER. Above ~200, concurrent
-    // files.write with parents:true also starts failing outright with "file already exists" as the
-    // implicit parent mkdir races itself. Raising this buys nothing.
-    const BATCH_SIZE = 50;
-    for (let index = 0; index < liveCommentUpdates.length; index += BATCH_SIZE) {
-        const batch = liveCommentUpdates.slice(index, index + BATCH_SIZE);
+    const rowsByBucketPath = new Map<string, typeof liveCommentUpdates>();
+    for (const row of liveCommentUpdates) {
+        const bucket = row.newCommentUpdateToWriteToDb.postUpdatesBucket;
+        if (typeof bucket !== "number") throw Error(`Post ${row.newCommentUpdate.cid} has a postUpdates MFS path but no bucket`); // the path is derived from the bucket
+        const bucketPath = calculateLocalMfsPathForPostUpdatesBucket(community, bucket);
+        const bucketRows = rowsByBucketPath.get(bucketPath);
+        if (bucketRows) bucketRows.push(row);
+        else rowsByBucketPath.set(bucketPath, [row]);
+    }
 
-        await Promise.all(
-            batch.map(async (row) => {
-                const { localMfsPath, newCommentUpdate } = row;
-                const content = deterministicStringify(newCommentUpdate);
-
-                await writeKuboFilesWithTimeout({
-                    ipfsClient: kuboRpc._client,
-                    log,
-                    path: localMfsPath,
-                    content,
-                    options: {
-                        create: true,
-                        truncate: true,
-                        parents: true,
-                        // flush: true to avoid Kubo's global Internal.MFSNoFlushLimit (default 256).
-                        // Costs some throughput (each write self-flushes instead of batching) but
-                        // is safe under multi-community concurrency, which the global counter is not.
-                        flush: true
-                    }
-                });
-
-                removedMfsPaths.push(localMfsPath);
-            })
-        );
-
-        postUpdatesDirectoryCid = await kuboRpc._client.files.flush(postUpdatesDirectory);
+    // Each bucket is swapped whole, and a swap carries over the entries the bucket had when it was read.
+    // An entry removed from the live bucket between that read and the swap is back afterwards, so every
+    // removal that was queued or started while the buckets were being swapped is noted, and repeated below.
+    const mfsPathsRemovedDuringWrites = new Set(community._mfsPathsToRemove);
+    community._mfsPathRemovalWatchers.add(mfsPathsRemovedDuringWrites);
+    try {
+        for (const [bucketPath, rows] of rowsByBucketPath)
+            await writePostUpdatesToBucket({
+                community,
+                bucketPath,
+                posts: rows.map((row) => ({
+                    postCid: row.newCommentUpdate.cid,
+                    updateFileBytes: textEncoder.encode(deterministicStringify(row.newCommentUpdate))
+                }))
+            });
+    } finally {
+        community._mfsPathRemovalWatchers.delete(mfsPathsRemovedDuringWrites);
     }
 
     // The filter above still leaves a window: a purge landing between it and the writes has already
@@ -361,15 +410,34 @@ export async function writePostUpdatesToMfs(
     // always deletes from the DB before removing MFS paths, so any purge whose rm preceded one of
     // the writes is visible to this re-check. If the rm here fails the paths stay queued in
     // _mfsPathsToRemove and the rmUnneededMfsPaths call above retries them next sync. See issue #304.
-    const rowsPurgedDuringWrites = liveCommentUpdates.filter((row) => !community._dbHandler.commentExistsInDb(row.newCommentUpdate.cid));
-    if (rowsPurgedDuringWrites.length > 0) {
+    const writtenMfsPaths = new Set(
+        liveCommentUpdates.filter((row) => community._dbHandler.commentExistsInDb(row.newCommentUpdate.cid)).map((row) => row.localMfsPath)
+    );
+    const swappedBucketPaths = [...rowsByBucketPath.keys()];
+    const mfsPathsPurgedDuringWrites = [
+        ...liveCommentUpdates
+            .filter((row) => !community._dbHandler.commentExistsInDb(row.newCommentUpdate.cid))
+            .map((row) => row.localMfsPath),
+        // Removals from a bucket that was swapped meanwhile, other than a path this slice has just written
+        // for a post that is still there. The post's whole entry goes, as the swap brought all of it back.
+        ...[...mfsPathsRemovedDuringWrites]
+            .filter(
+                (mfsPath) =>
+                    swappedBucketPaths.some((bucketPath) => mfsPath.startsWith(`${bucketPath}/`)) &&
+                    !writtenMfsPaths.has(mfsPath) &&
+                    !writtenMfsPaths.has(`${mfsPath}/update`)
+            )
+            .map((mfsPath) => mfsPath.replace(/\/update$/, ""))
+    ];
+    if (mfsPathsPurgedDuringWrites.length > 0) {
         log(
-            `${rowsPurgedDuringWrites.length} post CommentUpdate(s) of community ${community.address} were purged during the MFS writes. Removing their MFS entries`
+            `${mfsPathsPurgedDuringWrites.length} post CommentUpdate(s) of community ${community.address} were purged during the MFS writes. Removing their MFS entries`
         );
-        for (const row of rowsPurgedDuringWrites) community._mfsPathsToRemove.add(row.localMfsPath);
+        for (const mfsPath of mfsPathsPurgedDuringWrites) community._mfsPathsToRemove.add(mfsPath);
         await rmUnneededMfsPaths(community);
-        postUpdatesDirectoryCid = await kuboRpc._client.files.flush(postUpdatesDirectory);
     }
+    // Every swap has flushed already: this is for the folder's cid in the log line below
+    const postUpdatesDirectoryCid = liveCommentUpdates.length > 0 ? await kuboRpc._client.files.flush(postUpdatesDirectory) : undefined;
 
     log(
         "Community",

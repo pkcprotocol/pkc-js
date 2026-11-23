@@ -57,7 +57,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`(edit: CommentEdit) === await pkc.createCommentEdit(edit)`, async () => {
             const props = {
-                challengeRequest: { challengeCommentCids: ["QmVZR5Ts9MhRc66hr6TsYnX1A2oPhJ2H1fRJknxgjLLwrh"], challengeAnswers: ["1234"] },
+                challengeRequest: {
+                    challengeCommentCids: ["QmVZR5Ts9MhRc66hr6TsYnX1A2oPhJ2H1fRJknxgjLLwrh"],
+                    challengeAnswers: { "0": "1234" }
+                },
                 communityAddress: communityAddress,
                 commentCid: commentToEdit.cid,
                 reason: "editReason" + Date.now(),

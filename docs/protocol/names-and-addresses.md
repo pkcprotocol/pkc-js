@@ -184,7 +184,7 @@ What happens to comments published before an address change:
 
 A local community's address is its name when it has one, else its identity key (the anchor's key on a delegated
 community), so changing the name and changing the address are one operation. `edit({ name })` and `edit({ address })`
-both move the community's DB file, its start lock and its MFS `postUpdates` folder to the new address, and from the next
+both move the community's DB file, its row in the communities registry and its MFS `postUpdates` folder to the new address, and from the next
 page build the identity rule above filters by the new name:
 
 | Edit                                                               | Result                                                |
@@ -200,6 +200,15 @@ the owner meant is not pkc-js's guess. Before issue [#430](https://github.com/pk
 `edit({ name })` changed only `community.name` and left the address, DB and lock on the old name. The pages then kept
 the comments signed with the old name, the community's own pre-publish check rejected every new record
 (`ERR_LOCAL_COMMUNITY_PRODUCED_INVALID_SIGNATURE`), and the renamed record was never published.
+
+A rename moves the postUpdates folder and then the DB file. When the DB file can't be renamed, the move is undone,
+whether the community was started or not: the partial DB file at the new address is removed, the postUpdates folder is
+moved back, and a started community is restarted under its old address. `edit()` rejects with
+`ERR_FAILED_TO_RENAME_COMMUNITY_DB`, whose `details` carry the rename's own error (`error`, `errorMessage`,
+`errorCode`), both DB paths, and what could not be undone: `partialDbCopyRemoved` (with `partialDbCopyPath` when the
+file is left, which on Windows happens if it stays busy for 10s) and `postUpdatesFolderMovedBack`. A partial file that
+is left behind is not deleted later on its own, because a later attempt that succeeds puts the community's real DB at
+that path; that attempt overwrites the leftover.
 
 Readers that loaded the community by its old name do not follow a rename. They keep fetching the same IPNS key, but
 the next record claims a different name than the one they asked for, so they refuse it (see "A remote community's

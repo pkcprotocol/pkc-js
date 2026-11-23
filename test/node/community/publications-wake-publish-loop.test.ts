@@ -195,7 +195,7 @@ describeSkipIfRpc("A comment sent to the mod queue wakes the community publish l
         const { challengeVerification } = await publishCommentToModQueue({
             community,
             pkc,
-            commentProps: { challengeRequest: { challengeAnswers: ["pending"] } }
+            commentProps: { challengeRequest: { challengeAnswers: { "0": "pending" } } }
         });
         expect(challengeVerification.commentUpdate?.pendingApproval).to.be.true;
 

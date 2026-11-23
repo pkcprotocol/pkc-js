@@ -146,7 +146,7 @@ describeSkipIfRpc("PKC RPC server stress publish", function () {
                     content: `stress comment ${i}`,
                     title: `stress ${i}`,
                     signer: authorSigner,
-                    challengeRequest: { challengeAnswers: ["pending"] }
+                    challengeRequest: { challengeAnswers: { "0": "pending" } }
                 });
                 await publishWithExpectedResult({ publication: pendingComment, expectedChallengeSuccess: true });
 
@@ -194,7 +194,7 @@ describeSkipIfRpc("PKC RPC server stress publish", function () {
                     content: `drop stress comment ${i}`,
                     title: `drop stress ${i}`,
                     signer: authorSigner,
-                    challengeRequest: { challengeAnswers: ["pending"] }
+                    challengeRequest: { challengeAnswers: { "0": "pending" } }
                 });
                 await publishWithExpectedResult({ publication: pendingComment, expectedChallengeSuccess: true });
 
@@ -243,7 +243,7 @@ describeSkipIfRpc("PKC RPC server stress publish", function () {
                     content: `toggle stress comment ${index}`,
                     title: `toggle stress ${index}`,
                     signer: authorSigner,
-                    challengeRequest: { challengeAnswers: ["pending"] } // when we provide the correct answer we go to pending approval
+                    challengeRequest: { challengeAnswers: { "0": "pending" } } // when we provide the correct answer we go to pending approval
                 }
             });
 

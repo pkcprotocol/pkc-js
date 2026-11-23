@@ -153,7 +153,7 @@ describeSkipIfRpc("a CHALLENGE delivered twice to the publisher", () => {
             expect(challenges.length, "one CHALLENGE message must produce one challenge event").to.equal(1);
             expect(post.publishingState).to.equal("waiting-challenge-answers");
 
-            await post.publishChallengeAnswers({ challengeAnswers: ["anything"] });
+            await post.publishChallengeAnswers({ challengeAnswers: { "0": "anything" } });
             await waitFor(() => post.publishingState === "waiting-challenge-verification");
             await settle();
             expect(

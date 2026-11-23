@@ -8,7 +8,7 @@ import {
     listUpdatingComments,
     listUpdatingCommunities
 } from "../../../dist/node/pkc/tracked-instance-registry-util.js";
-import { describe, beforeAll, afterAll, it } from "vitest";
+import { describe, beforeAll, afterAll, it, vi } from "vitest";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { RpcLocalCommunity } from "../../../dist/node/community/rpc-local-community.js";
@@ -109,10 +109,16 @@ describe.concurrent(`pkc._startedCommunities`, () => {
         // updatingCommunity is using startedCommunity
         // stop startedCommunity
         await startedCommunity.stop();
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        expect(anotherPKCInstance._startedCommunities[startedCommunity.address]).to.not.exist;
-        expect((updatingCommunity as LocalCommunity)["_mirroredStartedOrUpdatingCommunity"]?.community.address).to.not.exist; // should start using DB
-        expect(anotherPKCInstance._updatingCommunities[startedCommunity.address]).to.exist; // should use the db now
+        // The switch to the DB happens on the updating instance's own schedule after the stop, not within a fixed
+        // time: a 1s sleep was not enough on a slow runner
+        await vi.waitFor(
+            () => {
+                expect(anotherPKCInstance._startedCommunities[startedCommunity.address]).to.not.exist;
+                expect((updatingCommunity as LocalCommunity)["_mirroredStartedOrUpdatingCommunity"]?.community.address).to.not.exist; // should start using DB
+                expect(anotherPKCInstance._updatingCommunities[startedCommunity.address]).to.exist; // should use the db now
+            },
+            { timeout: 30_000, interval: 100 }
+        );
 
         const subToEdit = (await anotherPKCInstance.createCommunity({ address: startedCommunity.address })) as LocalCommunity;
         await subToEdit.edit({ title: "new title" }); // will edit the db

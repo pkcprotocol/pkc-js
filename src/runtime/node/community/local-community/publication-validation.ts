@@ -28,6 +28,8 @@ import {
     verifyVote
 } from "../../../../signer/signatures.js";
 import { getPKCAddressFromPublicKey } from "../../../../signer/util.js";
+import { verifyAuthorWalletEntry } from "../../../../signer/author-wallet-proof.js";
+import { timestamp as pkcTimestamp } from "../../../../util.js";
 import { getAuthorNameFromWire } from "../../../../publications/publication-author.js";
 import { authorIdentityMatcherForRequest, authorNameResolveFailureReason } from "./author-identity.js";
 import type { AuthorIdentityMatcher, IdentityMatchOutcome } from "./author-identity.js";
@@ -167,6 +169,24 @@ async function checkWireFormatAndCommunityAuthor(
     if (typeof authorCommunity?.banExpiresAt === "number" && authorCommunity.banExpiresAt > timestamp())
         return messages.ERR_AUTHOR_IS_BANNED;
 
+    return undefined;
+}
+
+// Rejects a publication of any type whose author.wallets holds an invalid entry. An unknown entry (a signature
+// type BSIP-22 does not define) is accepted and stays unproven. The community cannot strip a failing entry,
+// because the author signed over `author`. Runs after the publication's own signature was verified: a proof
+// counts only when the record that carries it is validly signed.
+async function checkAuthorWalletProofs(publication: PublicationFromDecryptedChallengeRequest, log: Logger): Promise<string | undefined> {
+    const wallets = publication.author?.wallets;
+    if (!wallets) return undefined;
+    const authorPublicKey = await getPKCAddressFromPublicKey(publication.signature.publicKey);
+    for (const [chainTicker, entry] of Object.entries(wallets)) {
+        const result = verifyAuthorWalletEntry({ entry, authorPublicKey, nowSeconds: pkcTimestamp() });
+        if (result.outcome === "invalid") {
+            log("Rejecting publication: invalid author.wallets proof", chainTicker, result.reason);
+            return `${messages.ERR_AUTHOR_WALLET_PROOF_IS_INVALID}. Chain ticker: ${chainTicker}. ${result.reason}`;
+        }
+    }
     return undefined;
 }
 
@@ -719,7 +739,7 @@ export async function checkPublicationValidity({
     // stale here; only the name-to-key binding is memoised. Optional so a caller that has no request scope
     // still works; omitting it only costs a second resolve. See issues #353 and #354.
     authorIdentityMatcher?: AuthorIdentityMatcher;
-}): Promise<messages | undefined> {
+}): Promise<string | undefined> {
     const authorIdentityMatcher = sharedAuthorIdentityMatcher ?? authorIdentityMatcherForRequest({ community, request });
     const log = Logger("pkc-js:local-community:handleChallengeRequest:checkPublicationValidity");
 
@@ -728,6 +748,9 @@ export async function checkPublicationValidity({
 
     const authorResult = await checkAuthorIdentity(community, publication, log);
     if (authorResult) return authorResult;
+
+    const walletProofResult = await checkAuthorWalletProofs(publication, log);
+    if (walletProofResult) return walletProofResult;
 
     const parentResult = await checkParentAndPostState(community, request, publication, authorIdentityMatcher);
     if (parentResult) return parentResult;

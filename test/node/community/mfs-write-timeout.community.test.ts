@@ -10,7 +10,9 @@
 // timeout, look like it timed out and then succeed on retry". Nuking the tree over a few seconds of
 // contention turns a recoverable blip into a full republish.
 //
-// This test drives the exact error the old branch keyed on and asserts nothing nukes.
+// This test drives the exact error the old branch keyed on and asserts nothing nukes. The post updates
+// no longer go through files.write (a bucket is built in node and swapped in with cp and mv), so the
+// error is raised from the swap's cp: what must hold is that no MFS failure of the sync nukes the tree.
 
 import { beforeAll, afterAll, expect, it, vi } from "vitest";
 import { mockPKC, createSubWithNoChallenge, resolveWhenConditionIsTrue, publishRandomPost } from "../../../dist/node/test/test-util.js";
@@ -44,11 +46,11 @@ describeSkipIfRpc(`An MFS write timeout does not nuke the community's postUpdate
         const forceUpdateSpy = vi.spyOn(community._dbHandler, "forceUpdateOnAllComments");
 
         // Reject with the exact message the deleted branch matched on. Rejecting rather than actually
-        // hanging keeps the test fast: writeKuboFilesWithTimeout's own retries still run, and the
-        // error that reaches calculateNextCommunityRecord is byte-for-byte the one it used to key on.
-        const originalWrite = ipfsClient.files.write.bind(ipfsClient.files);
-        ipfsClient.files.write = async (path: Parameters<typeof originalWrite>[0]) => {
-            throw Error(`Timed out writing to MFS path ${String(path)} after 65000ms`);
+        // hanging keeps the test fast, and the error that reaches calculateNextCommunityRecord is
+        // byte-for-byte the one it used to key on.
+        const originalCp = ipfsClient.files.cp.bind(ipfsClient.files);
+        ipfsClient.files.cp = async (...args: Parameters<typeof originalCp>) => {
+            throw Error(`Timed out writing to MFS path ${String(args[1])} after 65000ms`);
         };
 
         try {
@@ -66,7 +68,7 @@ describeSkipIfRpc(`An MFS write timeout does not nuke the community's postUpdate
             expect(nukeCalls.length).to.equal(0);
             expect(forceUpdateSpy).not.toHaveBeenCalled();
         } finally {
-            ipfsClient.files.write = originalWrite;
+            ipfsClient.files.cp = originalCp;
             rmSpy.mockRestore();
             forceUpdateSpy.mockRestore();
             await community.delete();

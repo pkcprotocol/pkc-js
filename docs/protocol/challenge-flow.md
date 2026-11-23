@@ -13,15 +13,36 @@ Author                              Community
   │    (contains the publication)       │  Contains: comment/vote/edit + challengeRequest options
   │                                     │
   │<── ChallengeMessage ───────────────│  Encrypted reply
-  │    (contains challenges to solve)   │  Contains: challenges[] (text, type, caseInsensitive)
+  │    (contains challenges to solve)   │  Contains: challenges {index: challenge} (text, type, caseInsensitive)
   │                                     │
   │─── ChallengeAnswerMessage ────────>│  Author's answers
-  │    (contains answers)               │  Contains: challengeAnswers[]
+  │    (contains answers)               │  Contains: challengeAnswers {index: answer}
   │                                     │
   │<── ChallengeVerificationMessage ───│  Success or failure
   │    (result + optional comment data) │  Contains: challengeSuccess, comment, commentUpdate
   │                                     │
 ```
+
+## One Exchange Per Publication Instance
+
+A publication instance runs this exchange once. It is spent once `publish()` gets past pre-flight (the community fetch, signing, the signature hook), which is the point from which a request can leave the instance, or once `stop()` ends a `publish()` that was called. From then on a second `publish()` rejects with `ERR_PUBLICATION_PUBLISH_ALREADY_CALLED` (its `details` carry `state`, `publishingState`, `receivedChallenge` and `receivedChallengeVerification`), whatever came of the exchange. A `publish()` call made while another one is still running on the same instance rejects too.
+
+A `publish()` that rejected during pre-flight does not spend the instance: no exchange exists, so there is nothing for a second one to cross with, and the same instance can call `publish()` again.
+
+To publish again once it is spent, create a new instance, and `stop()` the old one if it is still publishing:
+
+-   A new publication (new timestamp, new signature): call `createComment` / `createVote` / ... with the options again. This is what a client does after a wrong challenge answer.
+-   The same signed publication: pass the signed message of the first instance, `pkc.createComment(comment.raw.pubsubMessageToPublish)`. A community that already stored it answers idempotently, see "Duplicate and Overlapping Requests" below.
+
+A second exchange on the same instance used to cross with the first one's requests, no-response watchdog, verdict and teardown, which is why the rule is one exchange per instance rather than one exchange at a time.
+
+The publish ends once, by whichever of these is recorded first: the community's verification, a failure (no response, every pubsub provider threw, a verification that cannot be decrypted, a request a local community or the RPC server rejected) or `stop()`. Anything that arrives after that changes nothing. For example a verification that lands while a no-response failure is being torn down is dropped, and `stop()` after a verification leaves `publishingState` at `succeeded` or `failed`.
+
+A `CHALLENGE` or `CHALLENGEVERIFICATION` whose signature is not the community's is logged and dropped: no `error` event and no state change. Anyone on the topic can read a `challengeRequestId` and send a message for it, so such a message says nothing about the publication.
+
+`publishChallengeAnswers` after the exchange ended rejects with `ERR_PUBLICATION_CHALLENGE_EXCHANGE_ENDED`. Over RPC the exchange runs on the server, and the client rejects with `ERR_RPC_CLIENT_NO_ACTIVE_PUBLISH_SUBSCRIPTION` once its publish subscription is gone.
+
+A success verification the client cannot use ends the publication as `failed` with the error emitted: an encrypted part that cannot be decrypted or parsed, or a returned comment that differs from the one published or does not verify.
 
 ## Message Schemas
 
@@ -30,8 +51,8 @@ All in `src/pubsub-messages/schema.ts`:
 | Message                        | Schema                               | Encrypted Payload                                                                       |
 | ------------------------------ | ------------------------------------ | --------------------------------------------------------------------------------------- |
 | `ChallengeRequestMessage`      | `ChallengeRequestMessageSchema`      | `DecryptedChallengeRequestSchema`: contains the publication + challenge options         |
-| `ChallengeMessage`             | `ChallengeMessageSchema`             | `DecryptedChallengeSchema`: contains `challenges[]` to solve                            |
-| `ChallengeAnswerMessage`       | `ChallengeAnswerMessageSchema`       | `DecryptedChallengeAnswerSchema`: contains `challengeAnswers[]`                         |
+| `ChallengeMessage`             | `ChallengeMessageSchema`             | `DecryptedChallengeSchema`: contains `challenges`, a record keyed by challenge index, to solve |
+| `ChallengeAnswerMessage`       | `ChallengeAnswerMessageSchema`       | `DecryptedChallengeAnswerSchema`: contains `challengeAnswers`, a record keyed by challenge index |
 | `ChallengeVerificationMessage` | `ChallengeVerificationMessageSchema` | `DecryptedChallengeVerificationSchema`: contains `comment` + `commentUpdate` on success |
 
 ## Encryption
@@ -99,6 +120,24 @@ The `blacklist` challenge is the deliberate exception: an unverifiable blacklist
 
 There is no `exclude.address`, and `exclude.role` is now `exclude.roles`. The private settings schema (`CommunityChallengeSettingSchema`) rejects both old fields, so a stale owner config fails loudly instead of silently becoming an exclude that matches nobody. The public record schema (`CommunityChallengeSchema`) stays loose: a client on this version still loads records published by communities that have not upgraded, where the old fields pass through unused. Private settings written before DB version 42 are migrated by `DbHandler._migrateOldSettings`, which splits the old `address` array by kind into `publicKeys` and `names` and renames `role` to `roles`. See issue #267.
 
+## Challenge Indexes
+
+Every per-challenge payload is a record keyed by the **challenge index**: the position of the challenge in `community.challenges` (`settings.challenges` on the owner side), as a decimal string. `challengeErrors` in `CHALLENGEVERIFICATION` already worked this way, and these now match it (issue #567):
+
+| Message | Field | Holds |
+| ------- | ----- | ----- |
+| `CHALLENGEREQUEST` | `challengeAnswers` (optional) | Pre-answers. A challenge with no key has no pre-answer and behaves as if none were sent. Never empty when present. |
+| `CHALLENGE` | `challenges` | Only the challenges that still need an answer, so the keys are a sparse subset. Never empty: a community with nothing to ask sends no `CHALLENGE`. |
+| `CHALLENGEANSWER` | `challengeAnswers` | One answer per key of the `CHALLENGE` it answers. Never empty. |
+| `CHALLENGEVERIFICATION` | `challengeErrors` | The error of each failed challenge. |
+
+Why not arrays: a positional array cannot say "no answer for this one". A client that pre-answered only challenge 2 had to put filler in slots 0 and 1, and a `question` challenge at index 0 then read the filler as a wrong answer. A key per challenge removes that, and the answer no longer depends on which challenges happened to be excluded or pre-answered.
+
+-   The community hands each challenge its own pre-answer as `challengeAnswer` in `getChallenge`, so a challenge does not index `challengeAnswers` itself.
+-   Keys the community does not recognise are ignored. A pending challenge with no key in the `CHALLENGEANSWER` fails with `"No answer."`.
+-   The array form is rejected at the schema, with no compatibility path.
+-   The index is only as stable as the array order: reordering `settings.challenges` re-targets `exclude.challenges` and any pre-answer already in flight, so owners should not reorder challenges of a community that publishers are actively answering.
+
 ## ChallengeVerification Result
 
 On **success**:
@@ -114,6 +153,15 @@ On **failure**:
 -   `reason`: human-readable failure reason
 
 Three reasons exist so that a publication the community could not republish byte-for-byte is refused instead of stored (issue #387): `ERR_PUBLICATION_AUTHOR_IS_AN_EMPTY_OBJECT` and `ERR_PUBLICATION_HAS_MALFORMED_UNICODE_STRING` from validation (`checkPublicationValidity`), and `ERR_COMMUNITY_CANNOT_STORE_PUBLICATION_VERBATIM` from the store-time gate, which rebuilds the comment or author edit from a read-back of its row (inserted in a savepoint that is rolled back, issue #417) and refuses to store it if the rebuilt record no longer hashes to its cid or verifies. See `docs/protocol/signing.md`.
+
+## A Throwing Handler Ends One Publication, Not The Process
+
+A publication is driven by entry points nothing awaits: the pubsub handler (`_handleChallengeExchange`), the RPC subscription handlers (`_handleIncoming*FromRpc`), the listeners put on a local community, and the no-response watchdog. A throw in one is an unhandled rejection, which ends a Node process. `Publication._guardDetachedHandler` wraps each of them. When one throws it logs, runs the teardown (itself guarded) and reports `ERR_PUBLICATION_INTERNAL_ERROR` with the entry point and the original as `cause`:
+
+- before the verdict: the publication ends in `publishingState: "failed"` and `error` is emitted through the usual state-change path;
+- after the verdict: the outcome stands, `error` is emitted and nothing else changes.
+
+The reporting never throws, even when nothing listens to `error`. A new async listener, timer or fire-and-forget call in `publication.ts` must go through the wrapper: `test/node/publications/publication-detached-handler-guard.test.ts` reads the source and fails when one does not.
 
 ## Duplicate and Overlapping Requests
 

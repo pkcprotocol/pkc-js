@@ -89,8 +89,8 @@ describe.sequential("Validate props of community Pubsub messages", async () => {
         expect(challenge.challengeRequestId.constructor.name).to.equal("Uint8Array");
         expect(challenge.challengeRequestId.length).to.equal(38);
         expect(challenge.type).to.equal("CHALLENGE");
-        expect(challenge.challenges).to.be.a("array");
-        expect(challenge.challenges[0].challenge).to.be.a("string");
+        expect(challenge.challenges).to.be.a("object");
+        expect(challenge.challenges["0"].challenge).to.be.a("string");
         expect(challenge.challenges[0].type).to.equal("text/plain");
 
         expect(challenge.encrypted).to.be.a("object");
@@ -128,7 +128,7 @@ describe.sequential("Validate props of community Pubsub messages", async () => {
         expect(challengeAnswer.challengeRequestId.constructor.name).to.equal("Uint8Array");
         expect(challengeAnswer.challengeRequestId.length).to.equal(38);
         expect(challengeAnswer.type).to.equal("CHALLENGEANSWER");
-        expect(challengeAnswer.challengeAnswers).to.deep.equal(["2"]);
+        expect(challengeAnswer.challengeAnswers).to.deep.equal({ "0": "2" });
         expect(challengeAnswer.encrypted).to.be.a("object");
         expect(challengeAnswer.encrypted.ciphertext.constructor.name).to.equal("Uint8Array");
         expect(challengeAnswer.encrypted.iv.constructor.name).to.equal("Uint8Array");
@@ -158,7 +158,7 @@ describe.sequential("Validate props of community Pubsub messages", async () => {
 
         // Set up to answer with a wrong answer
         comment.once("challenge", async () => {
-            await comment.publishChallengeAnswers({ challengeAnswers: ["12345"] }); // wrong answer here
+            await comment.publishChallengeAnswers({ challengeAnswers: { "0": "12345" } }); // wrong answer here
         });
 
         const challengeVerificationPromise = new Promise<DecryptedChallengeVerificationMessageType>((resolve) =>

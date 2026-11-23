@@ -15,7 +15,9 @@ export const PageIpfsSchema = z.object({
 export const SortNameStringSchema = z
     .string()
     .min(1)
-    .refine((name) => !isReservedObjectKey(name), { message: "A sort name cannot be __proto__, constructor or prototype" });
+    .refine((name) => !isReservedObjectKey(name), {
+        message: "A sort name cannot be __proto__, constructor or prototype, nor any other key an object inherits (toString, valueOf, ...)"
+    });
 
 export const PostSortNameSchema = z
     .enum(["hot", "new", "topHour", "topDay", "topWeek", "topMonth", "topYear", "topAll", "active"])

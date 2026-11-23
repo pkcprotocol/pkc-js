@@ -437,7 +437,7 @@ describeSkipIfRpc("challenge exchange ttl bounds an overlapping request's wait (
             // of the wait. Answer half a ttl in, well past what the leftover would allow; without the
             // refresh the community rejects this answer as having no prior challenge request.
             await new Promise((resolve) => setTimeout(resolve, TTL_MS / 2));
-            await retry.publishChallengeAnswers({ challengeAnswers: ["anything"] });
+            await retry.publishChallengeAnswers({ challengeAnswers: { "0": "anything" } });
             await waitFor(() => retryVerifications.length >= 1, {
                 timeoutMs: TTL_MS * 4,
                 message: "the retry's own exchange got no verification"

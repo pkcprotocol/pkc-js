@@ -87,3 +87,28 @@ export function encodeChallengeVerificationMessage(
         signature: _encodeSignature(msg.signature)
     };
 }
+
+// Browsers let any web page open a WebSocket to localhost, and a page's connection reaches the server
+// from the loopback address like a local process. So a connection from this machine skips the auth
+// key only when it is not from a remote web page: a non-browser client sends no Origin header, a
+// desktop app's file:// page sends "file://", and a page on a loopback host (a local dev server or the
+// WebUI this server serves) is local software too. "null" is rejected: any site can send it from a
+// sandboxed iframe.
+export const isOriginTrustedWithoutAuthKey = (origin: string | undefined): boolean => {
+    if (origin === undefined) return true;
+    if (origin === "file://") return true;
+    let url: URL;
+    try {
+        url = new URL(origin);
+    } catch {
+        return false;
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    const hostname = url.hostname.toLowerCase();
+    return (
+        hostname === "localhost" ||
+        hostname.endsWith(".localhost") ||
+        hostname === "[::1]" ||
+        /^127(\.\d{1,3}){3}$/.test(hostname)
+    );
+};
