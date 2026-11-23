@@ -122,6 +122,7 @@ CommentUpdate /* (IPFS file) */ {
   }
   lastReplyTimestamp?: number // the timestamp of the most recent reply that replyCount counts, so removing a reply un-bumps its thread
   lastChildCid?: string // the CID of the most recent direct reply that childCount counts
+  pseudonymityAuthorTag?: string // base64, 16 bytes, only on comments the community aliased on a pseudonymityMode board; lets the author's own devices recognize the post, see docs/protocol/pseudonymity-author-tag.md
 }
 Author {
   address: string // not part of IPFS files, added to `Author` instance as convenience: author.name if there is one, else author.publicKey

@@ -128,6 +128,14 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // same key has inserted its alias row, so the author's concurrent first publications resolve to
     // one alias instead of each generating their own (issue #399).
     _pseudonymityAliasLocks: Map<string, Promise<void>> = new Map();
+
+    // Per-author shared key K for the pseudonymity author tag (issue #381), keyed by the author's
+    // public key. The X25519 + HKDF is the expensive part and depends only on (community key, author
+    // key), so it is cached for the instance; the per-comment HMAC over the cid is recomputed every
+    // time. signerPublicKey is stored so a signer/minter rotation (which re-signs every CommentUpdate
+    // anyway) recomputes K instead of reusing a key derived from the old community key. Bounded by the
+    // alias table's distinct authors; in memory only.
+    _pseudonymityTagKeyCache: Map<string, { signerPublicKey: string; sharedKey: Uint8Array }> = new Map();
     // Lifetime of one challenge exchange (see CHALLENGE_EXCHANGE_TTL_MS). Read when the caches
     // above are created at start; an instance field so a test can lower it.
     _challengeExchangeTtlMs: number = CHALLENGE_EXCHANGE_TTL_MS;

@@ -193,6 +193,20 @@ export const verifyBufferEd25519 = async (bufferToSign: Uint8Array, bufferSignat
         throw Error(
             `verifyBufferEd25519 publicKeyBase64 '${publicKeyBase64}' ed25519 public key length not 32 bytes (${publicKeyBuffer.length} bytes)`
         );
+    // Reject small-order public keys (the identity point 01 00..00 and the seven other low-order
+    // points) — issue #596. Under ZIP-215, which noble applies by default, the forged signature
+    // R=identity, S=0 verifies for ANY message when the public key is small-order, so a record
+    // "signed" by one is accepted though no one holds its private key — a shared key-less identity
+    // anyone can post, vote and edit as. This guard sits before the WebCrypto fast-accept path because WebCrypto may
+    // accept such keys too. A key that does not decode to a curve point is left to the verifiers
+    // below, which reject it, keeping prior reject-on-invalid behavior unchanged.
+    // fromBytes(_, true) decodes with ZIP-215 rules, matching ed25519.verify below. Without it the
+    // strict (canonical) decoder throws on a non-canonical encoding of a small-order point (e.g. the
+    // identity point re-encoded as y = 1 + p), the catch would swallow that, and verify would then
+    // accept the forgery under ZIP-215 — so the guard must decode exactly as verify does.
+    try {
+        if (ed25519.Point.fromBytes(publicKeyBuffer, true).isSmallOrder()) return false;
+    } catch {}
     // WebCrypto (native, off-main-thread, ~13x faster than noble) is a fast-accept path only.
     // Noble's ZIP215 acceptance is a superset of WebCrypto's, so a WebCrypto reject (or any
     // WebCrypto error) must be re-checked by noble to keep verification behavior identical
