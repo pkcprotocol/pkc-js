@@ -21,7 +21,9 @@ export function findUnguardedDetachedEntryPoints(repoRoot: string): DetachedSite
     const program = ts.createProgram(config.fileNames, config.options);
     const checker = program.getTypeChecker();
     const sites: DetachedSite[] = [];
-    const srcRoot = path.join(repoRoot, "src") + path.sep;
+    // TypeScript reports file names with forward slashes on every platform, and node's path uses backslashes on Windows
+    const toPosix = (value: string) => value.replace(/\\/g, "/");
+    const srcRoot = toPosix(path.join(repoRoot, "src")) + "/";
 
     const isPromiseLike = (type: ts.Type): boolean => {
         const awaited = checker.getAwaitedType(type);
@@ -55,7 +57,7 @@ export function findUnguardedDetachedEntryPoints(repoRoot: string): DetachedSite
     };
     const counters = new Map<string, number>();
     const record = (sourceFile: ts.SourceFile, node: ts.Node, kind: string, text: string) => {
-        const file = path.relative(repoRoot, sourceFile.fileName);
+        const file = toPosix(path.relative(repoRoot, sourceFile.fileName));
         const base = `${file}::${enclosingName(node)}::${kind}`;
         const ordinal = (counters.get(base) ?? 0) + 1;
         counters.set(base, ordinal);
@@ -64,9 +66,10 @@ export function findUnguardedDetachedEntryPoints(repoRoot: string): DetachedSite
     };
 
     for (const sourceFile of program.getSourceFiles()) {
-        if (!sourceFile.fileName.startsWith(srcRoot) || sourceFile.isDeclarationFile) continue;
-        const relative = path.relative(srcRoot, sourceFile.fileName);
-        if (relative.startsWith("test" + path.sep) || relative.startsWith(path.join("rpc", "test"))) continue;
+        const fileName = toPosix(sourceFile.fileName);
+        if (!fileName.startsWith(srcRoot) || sourceFile.isDeclarationFile) continue;
+        const relative = fileName.slice(srcRoot.length);
+        if (relative.startsWith("test/") || relative.startsWith("rpc/test")) continue;
         const visit = (node: ts.Node) => {
             if (ts.isCallExpression(node)) {
                 const callee = node.expression;
@@ -92,8 +95,11 @@ export function findUnguardedDetachedEntryPoints(repoRoot: string): DetachedSite
             if (ts.isVoidExpression(node)) {
                 const operand = node.expression;
                 const settledByCatch =
-                    ts.isCallExpression(operand) && ts.isPropertyAccessExpression(operand.expression) && operand.expression.name.text === "catch";
-                if (!settledByCatch && isPromiseLike(checker.getTypeAtLocation(operand))) record(sourceFile, node, "void promise", operand.getText());
+                    ts.isCallExpression(operand) &&
+                    ts.isPropertyAccessExpression(operand.expression) &&
+                    operand.expression.name.text === "catch";
+                if (!settledByCatch && isPromiseLike(checker.getTypeAtLocation(operand)))
+                    record(sourceFile, node, "void promise", operand.getText());
             }
             ts.forEachChild(node, visit);
         };
