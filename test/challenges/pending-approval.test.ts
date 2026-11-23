@@ -61,7 +61,8 @@ describe("pending approval", () => {
         pkc = await PKC();
     });
 
-    const wrongAnswers = async (challenges: unknown[]): Promise<string[]> => challenges.map(() => "wrong");
+    const wrongAnswers: GetChallengeAnswers = async (challenges) =>
+        Object.fromEntries(Object.keys(challenges).map((index) => [index, "wrong"]));
 
     it("fails comments when pending-approval challenges are answered incorrectly", async () => {
         const challengeSettings = [
@@ -103,7 +104,7 @@ describe("pending approval", () => {
         const community = await createCommunityWithChallenges(pkc, challengeSettings);
         const challengeRequestMessage = { comment: { author: { address: "author-comment" } } };
 
-        const answers = async () => ["password-1", "password-2"];
+        const answers = async () => ({ "0": "password-1", "1": "password-2" });
         const verification = await testGetChallengeVerification(challengeRequestMessage, community, answers);
 
         expect(verification.pendingApproval).to.equal(true);
@@ -122,7 +123,7 @@ describe("pending approval", () => {
         const community = await createCommunityWithChallenges(pkc, challengeSettings);
         const challengeRequestMessage = { vote: { author: { address: "author-vote" } } };
 
-        const correctAnswers = async () => ["password"];
+        const correctAnswers = async () => ({ "0": "password" });
         const verification = await testGetChallengeVerification(challengeRequestMessage, community, correctAnswers);
 
         expect(verification.pendingApproval).to.equal(undefined);
@@ -174,7 +175,7 @@ describe("pending approval", () => {
         const community = await createCommunityWithChallenges(pkc, challengeSettings);
         const challengeRequestMessage = { comment: { author: { address: "author-comment" } } };
 
-        const answers = async () => ["first", "wrong", "wrong"];
+        const answers = async () => ({ "0": "first", "1": "wrong", "2": "wrong" });
         const verification = await testGetChallengeVerification(challengeRequestMessage, community, answers);
 
         expect(verification.pendingApproval).to.equal(undefined);
@@ -199,7 +200,7 @@ describe("pending approval", () => {
         const community = await createCommunityWithChallenges(pkc, challengeSettings);
         const challengeRequestMessage = { comment: { author: { address: "author-comment" } } };
 
-        const answers = async () => ["first", "wrong"];
+        const answers = async () => ({ "0": "first", "1": "wrong" });
         const verification = await testGetChallengeVerification(challengeRequestMessage, community, answers);
 
         expect(verification.pendingApproval).to.equal(undefined);
@@ -240,7 +241,7 @@ describe("pending approval", () => {
         const community = await createCommunityWithChallenges(pkc, challengeSettings);
         const challengeRequestMessage = { comment: { author: { address: "rate-limited-author" } } };
 
-        const wrongAnswer = async () => ["wrong"];
+        const wrongAnswer = async () => ({ "0": "wrong" });
         const first = await testGetChallengeVerification(challengeRequestMessage, community, wrongAnswer);
         const second = await testGetChallengeVerification(challengeRequestMessage, community, wrongAnswer);
 
@@ -263,18 +264,18 @@ describe("pending approval", () => {
 
         const wrongRequest = {
             comment: { author: { address: "author-comment" } },
-            challengeAnswers: ["wrong"]
+            challengeAnswers: { "0": "wrong" }
         };
-        const wrongVerification = await testGetChallengeVerification(wrongRequest, community, async () => ["wrong"]);
+        const wrongVerification = await testGetChallengeVerification(wrongRequest, community, async () => ({ "0": "wrong" }));
         expect(wrongVerification.pendingApproval).to.equal(undefined);
         expect(wrongVerification.challengeSuccess).to.equal(false);
         expect(wrongVerification.challengeErrors[0]).to.equal("Wrong answer.");
 
         const correctRequest = {
             comment: { author: { address: "author-comment" } },
-            challengeAnswers: ["secret"]
+            challengeAnswers: { "0": "secret" }
         };
-        const correctVerification = await testGetChallengeVerification(correctRequest, community, async () => ["secret"]);
+        const correctVerification = await testGetChallengeVerification(correctRequest, community, async () => ({ "0": "secret" }));
         expect(correctVerification.pendingApproval).to.equal(true);
         expect(correctVerification.challengeSuccess).to.equal(true);
         expect(correctVerification.challengeErrors).to.equal(undefined);

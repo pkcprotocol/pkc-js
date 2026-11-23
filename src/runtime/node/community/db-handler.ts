@@ -1,3 +1,4 @@
+import { forbiddenKeysOf } from "../../../unknown-props.js";
 import {
     getEquivalentCommunityAddresses,
     hideClassPrivateProps,
@@ -12,13 +13,18 @@ import path from "path";
 import assert from "assert";
 import fs from "fs";
 import os from "os";
-import { deleteOldCommunityInWindows, deriveCommentIpfsFromCommentTableRow, getDefaultCommunityDbConfig } from "../util.js";
+import {
+    deleteOldCommunityInWindows,
+    deriveCommentIpfsFromCommentTableRow,
+    forgetCommunityThatFailedToBeDeleted,
+    getDefaultCommunityDbConfig,
+    removeFileRetryingWhileBusy
+} from "../util.js";
 import env from "../../../version.js";
 import Database, { type Database as BetterSqlite3Database, type Statement } from "better-sqlite3";
 import { sha256 } from "js-sha256";
 
-import lockfile from "@pkcprotocol/proper-lock-file";
-import { isCommunityStartLocked } from "./start-lock.js";
+import { getCommunitiesRegistry, markCommunityDbAsBeingWritten, type StartOwnership } from "./communities-registry.js";
 import type { PageOptions } from "./page-generator.js";
 import type {
     InternalCommunityRecordAfterFirstUpdateType,
@@ -87,8 +93,19 @@ export type CommentUpdateCalculationInput = Pick<CommentsTableRow, "cid" | "auth
 // publication write generation they were read at (DbHandler._publicationWriteGeneration). A vote, comment, edit or
 // moderation stored between two slices of the cycle advances the generation and the next slice starts the memo over,
 // so a comment's author.community is never older than the vote counts read in the same slice.
-export type CommunityAuthorMemo = { writeGeneration: number; authors: Map<string, CommunityAuthor | undefined> };
-export const createCommunityAuthorMemo = (): CommunityAuthorMemo => ({ writeGeneration: -1, authors: new Map() });
+// expandedAddresses: the alias-expanded address set of each plain author address, computed once per generation.
+// The expansion walks every comment of the address (idx_comments_authorSignerAddress); run per slice, as it was,
+// a board whose posts are mostly one author's walked that author's whole board for each of its slices (issue #471).
+export type CommunityAuthorMemo = {
+    writeGeneration: number;
+    authors: Map<string, CommunityAuthor | undefined>;
+    expandedAddresses: Map<string, Set<string>>;
+};
+export const createCommunityAuthorMemo = (): CommunityAuthorMemo => ({
+    writeGeneration: -1,
+    authors: new Map(),
+    expandedAddresses: new Map()
+});
 
 // Per-connection temp table holding the rowids of the comments the update cycle has to recalculate (issue #355)
 const COMMENTS_TO_UPDATE_TEMP_TABLE = "temp.commentsToUpdate";
@@ -103,6 +120,13 @@ const TABLES = Object.freeze({
 });
 
 // The address an alias row's original public key derives to, or null when the key is malformed (kept, never looked up)
+// A moderation's `author` that sets the author's ban: a positive timestamp, future (a ban) or past (an unban).
+// A 0 only removes the mark from the comment it was published on (commentUpdate.authorBanExpiresAt), so the author
+// aggregate skips it and falls through to the newest row that does carry a timestamp (issue #363).
+function isAuthorBanRow(modEdit: { banExpiresAt?: number } | null | undefined): boolean {
+    return typeof modEdit?.banExpiresAt === "number" && modEdit.banExpiresAt > 0;
+}
+
 function deriveAliasOriginalAuthorSignerAddress(originalAuthorPublicKey: string): string | null {
     try {
         return getPKCAddressFromPublicKeySync(originalAuthorPublicKey);
@@ -124,8 +148,20 @@ export class DbHandler {
     // Advanced by every write to the publication tables (comments, votes, edits, moderations, aliases, purges). The
     // update cycle's author memo (CommunityAuthorMemo) is only reused while it stays the same.
     private _publicationWriteGeneration = 0;
+
+    // Every method that writes a publication (a vote, comment, edit, moderation, an approval, a purge) calls this.
+    // Besides dropping what was memoized from the old rows, it asks the community for a new record, which wakes its
+    // publish loop: the loop does not poll the DB for changes (issue #576). A write inside readBackWithoutStoring is
+    // rolled back, so it still drops the memo (the rows did change for the read that follows) but asks for no record.
+    private _notePublicationWrite(): void {
+        this._publicationWriteGeneration++;
+        if (this._community && this._readBackWithoutStoringDepth === 0) this._community._communityUpdateTrigger = true;
+    }
+    private _readBackWithoutStoringDepth = 0;
     private _preparedStatements: Map<string, Statement>;
     private _log: Logger;
+    // The address this handler has claimed the start of, from lockCommunityStart until unlockCommunityStart
+    private _startLockAddress: string | undefined = undefined;
 
     constructor(community: DbHandler["_community"]) {
         this._community = community;
@@ -236,7 +272,9 @@ export class DbHandler {
                 `createOrMigrateTablesIfNeeded: Community (${this._community.address}) failed to create/migrate tables. Current db version (${this.getDbVersion()}), latest db version (${env.DB_VERSION}). Error`,
                 e
             );
-            await this.destoryConnection();
+            // A start() that fails here has claimed the community, and its stop() gives the claim back and closes the
+            // connection
+            if (this._startLockAddress === undefined) this.destoryConnection();
             throw e;
         }
         hideClassPrivateProps(this);
@@ -270,12 +308,30 @@ export class DbHandler {
 
     destoryConnection() {
         const log = this._log;
+        // A handler that has claimed the community's start is running it, and a running community needs its connection.
+        // stop() gives the claim back before it gets here, so anything else that does is a caller that took a starting
+        // or started community for a stopped one. The connection stays open. Under vitest it throws, so a test that
+        // reaches such a path fails.
+        if (this.holdsStartLock() && this._db?.open) {
+            const error = new Error(
+                `Refused to close the DB connection of community (${this._startLockAddress}) while it has the community started (issue #561)`
+            );
+            log.error(error);
+            if (process.env["VITEST"]) throw error;
+            return;
+        }
+        this._startLockAddress = undefined;
         this._preparedStatements.clear(); // statements belong to the connection
         if (this._db && this._db.open) {
-            if (!this._db.readonly) {
-                this._db.exec("PRAGMA wal_checkpoint"); // write all wal to disk
+            try {
+                if (!this._db.readonly) this._db.exec("PRAGMA wal_checkpoint"); // write all wal to disk
+            } catch (e) {
+                // The checkpoint throws on a file that is not a database. The connection is closed all the same:
+                // an open handle keeps the file locked on Windows (issue #540)
+                log.error("Failed to checkpoint the WAL of community", this._community.address, "before closing its DB", e);
+            } finally {
+                this._db.close();
             }
-            this._db.close();
         }
         if (this._keyv) this._keyv.disconnect();
 
@@ -316,10 +372,14 @@ export class DbHandler {
     // no transaction open (issue #417).
     readBackWithoutStoring<T>(opts: { write: () => void; read: () => T }): T {
         this._db.exec("SAVEPOINT read_back_without_storing");
+        this._readBackWithoutStoringDepth++;
         try {
             opts.write();
             return opts.read();
         } finally {
+            this._readBackWithoutStoringDepth--;
+            // what was memoized inside the savepoint was read from rows that are about to be gone
+            this._publicationWriteGeneration++;
             this._db.exec("ROLLBACK TO read_back_without_storing");
             this._db.exec("RELEASE read_back_without_storing");
         }
@@ -432,16 +492,19 @@ export class DbHandler {
                 removed INTEGER NULLABLE, -- BOOLEAN (0/1)
                 approved INTEGER NULLABLE, -- BOOLEAN (0/1)
                 reason TEXT NULLABLE,
+                authorBanExpiresAt INTEGER NULLABLE, -- the ban a mod published on this comment (issue #363)
                 updatedAt INTEGER NOT NULL CHECK(updatedAt > 0), 
                 protocolVersion TEXT NOT NULL,
                 signature TEXT NOT NULL, -- JSON
                 author TEXT NULLABLE, -- JSON
                 replies TEXT NULLABLE, -- JSON: CID refs per sort (DbRepliesSchema)
                 lastChildCid TEXT NULLABLE,
-                lastReplyTimestamp INTEGER NULLABLE, 
+                lastReplyTimestamp INTEGER NULLABLE,
+                pseudonymityAuthorTag TEXT NULLABLE, -- own-post recognition tag on aliased comments (issue #381); a signed CommentUpdate field
                 postUpdatesBucket INTEGER NULLABLE,
                 publishedToPostUpdatesMFS INTEGER NOT NULL, -- BOOLEAN (0/1)
-                insertedAt INTEGER NOT NULL 
+                insertedAt INTEGER NOT NULL,
+                extraProps TEXT NULLABLE -- JSON: unknown keys of the signed record (issue #572); a snapshot, this table is rebuilt on every DB_VERSION bump
             )
         `);
     }
@@ -594,7 +657,6 @@ export class DbHandler {
 
         if (needToMigrate) {
             if (dbExistsAlready && currentDbVersion > 0) {
-                this.destoryConnection();
                 backupDbPath = path.join(
                     path.dirname(dbPath),
                     ".backup_before_migration",
@@ -602,11 +664,8 @@ export class DbHandler {
                 );
                 log(`createOrMigrateTablesIfNeeded: Copying db ${path.basename(dbPath)} to ${backupDbPath} before migration`);
                 if (!fs.existsSync(path.dirname(backupDbPath))) await fs.promises.mkdir(path.dirname(backupDbPath), { recursive: true });
-                const sourceDb = new Database(dbPath, { fileMustExist: true });
-                await sourceDb.backup(backupDbPath); // Use better-sqlite3's native backup method
-                sourceDb.close();
-                this._db = new Database(dbPath);
-                this._db.pragma("journal_mode = WAL");
+                // Through the open connection, which is not closed: start() migrates on the connection it runs on
+                await this._db.backup(backupDbPath);
             }
             this._db.exec("PRAGMA foreign_keys = OFF");
             const tablesToDrop = ["challengeRequests", "challenges", "challengeAnswers", "challengeVerifications", "signers"];
@@ -629,17 +688,27 @@ export class DbHandler {
         for (let i = 0; i < tables.length; i++) {
             const tableName = tables[i];
             const tableExists = this._tableExists(tableName);
-            if (!tableExists) {
+            const tempTableName = `${tableName}_${env.DB_VERSION}_new`;
+            if (!tableExists && needToMigrate && this._tableExists(tempTableName)) {
+                // An earlier run of this migration was killed between dropping the table and renaming its migrated copy,
+                // when the two were separate commits. The copy is complete (the drop only ran after it), so it becomes the
+                // table; creating an empty one here would lose every row
+                log(`Table ${tableName} is missing but its migrated copy ${tempTableName} exists. Will restore the table from it`);
+                this._db.exec(`ALTER TABLE ${tempTableName} RENAME TO ${tableName}`);
+            } else if (!tableExists) {
                 log(`createOrMigrateTablesIfNeeded: Table ${tableName} does not exist. Will create schema`);
                 createTableFunctions[i](tableName);
             } else if (tableExists && needToMigrate) {
                 log(`createOrMigrateTablesIfNeeded: Migrating table ${tableName} to new schema`);
-                const tempTableName = `${tableName}_${env.DB_VERSION}_new`;
                 this._db.exec(`DROP TABLE IF EXISTS ${tempTableName}`);
                 createTableFunctions[i](tempTableName);
                 await this._copyTable(tableName, tempTableName, currentDbVersion);
-                this._db.exec(`DROP TABLE ${tableName}`);
-                this._db.exec(`ALTER TABLE ${tempTableName} RENAME TO ${tableName}`);
+                // One commit, so a crash leaves either the old table or its migrated copy under the table's name, never
+                // neither (user_version is only bumped after every table, so the next start migrates again)
+                this._db.transaction(() => {
+                    this._db.exec(`DROP TABLE ${tableName}`);
+                    this._db.exec(`ALTER TABLE ${tempTableName} RENAME TO ${tableName}`);
+                })();
             }
         }
 
@@ -653,6 +722,10 @@ export class DbHandler {
             if (currentDbVersion < 29) this._backfillApprovedCommentNumbers();
             if (currentDbVersion < 31) this._backfillTargetAuthorSignerAddress();
             if (currentDbVersion < 32) this._backfillTargetAuthorDomain();
+            // v47: records are refused when a key is named like an object member or starts with `_` (the purges above
+            // apply that rule to the comments and edits stored by an older version). The challenge extras a row holds are
+            // community-chosen, not author-signed, so the offending keys are dropped from them instead of the row
+            if (currentDbVersion < 47) this._stripForbiddenKeysFromChallengeCommentUpdates();
 
             this._db.exec("PRAGMA foreign_keys = ON");
             this._db.pragma(`user_version = ${env.DB_VERSION}`);
@@ -710,7 +783,21 @@ export class DbHandler {
                 `createOrMigrateTablesIfNeeded: Created/migrated the tables to the latest (${newDbVersion}) version and saved to path`,
                 this._dbConfig.filename
             );
-        if (backupDbPath) await fs.promises.rm(backupDbPath);
+        if (backupDbPath) {
+            // The migration is done, so a backup that can't be removed must not fail it: on Windows the file can be
+            // busy for a moment, and a leftover backup is harmless while a community that won't start is not
+            try {
+                await removeFileRetryingWhileBusy(backupDbPath, { log });
+            } catch (e) {
+                log.error(`Failed to remove the pre-migration backup ${backupDbPath}. It is no longer needed and can be deleted`, e);
+            }
+        }
+    }
+
+    // False for a DB a migration was killed in: it drops commentUpdates first and rebuilds every table after that, so until
+    // the next start() finishes the migration either table can be missing
+    hasCommentsAndCommentUpdatesTables(): boolean {
+        return this._tableExists(TABLES.COMMENTS) && this._tableExists(TABLES.COMMENT_UPDATES);
     }
 
     private _tableExists(tableName: string): boolean {
@@ -792,6 +879,42 @@ export class DbHandler {
         log(
             `_backfillTargetAuthorSignerAddress: Backfilled targetAuthorSignerAddress for ${moderationsToUpdate.length} comment moderations`
         );
+    }
+
+    // comments.challengeCommentUpdate is spread into every CommentUpdate the community signs, and a CommentUpdate with a
+    // forbidden key (see isForbiddenRecordKey) no longer verifies, so a stored extra with such a key would stall the
+    // update cycle. The comment stays, only the key goes
+    private _stripForbiddenKeysFromChallengeCommentUpdates() {
+        const log = this._log;
+        const rows = this._db
+            .prepare(`SELECT cid, challengeCommentUpdate FROM ${TABLES.COMMENTS} WHERE challengeCommentUpdate IS NOT NULL`)
+            .all() as { cid: string; challengeCommentUpdate: string }[];
+        const update = this._db.prepare(`UPDATE ${TABLES.COMMENTS} SET challengeCommentUpdate = ? WHERE cid = ?`);
+        for (const row of rows) {
+            let extras: Record<string, unknown>;
+            try {
+                extras = JSON.parse(row.challengeCommentUpdate);
+            } catch {
+                continue; // not valid JSON: the query path reports it, this sweep only strips keys
+            }
+            if (typeof extras !== "object" || extras === null) continue;
+            const topLevel = forbiddenKeysOf(extras);
+            const author = extras.author as Record<string, unknown> | undefined;
+            const authorKeys = forbiddenKeysOf(author);
+            if (topLevel.length === 0 && authorKeys.length === 0) continue;
+            log(
+                `_stripForbiddenKeysFromChallengeCommentUpdates: Comment ${row.cid} has challenge commentUpdate keys that are no longer allowed, dropping`,
+                [...topLevel, ...authorKeys]
+            );
+            const cleaned: Record<string, unknown> = {};
+            for (const [key, value] of Object.entries(extras)) if (!topLevel.includes(key)) cleaned[key] = value;
+            if (author && authorKeys.length > 0) {
+                const cleanedAuthor: Record<string, unknown> = {};
+                for (const [key, value] of Object.entries(author)) if (!authorKeys.includes(key)) cleanedAuthor[key] = value;
+                cleaned.author = cleanedAuthor;
+            }
+            update.run(Object.keys(cleaned).length > 0 ? JSON.stringify(cleaned) : null, row.cid);
+        }
     }
 
     private _backfillTargetAuthorDomain() {
@@ -1156,20 +1279,20 @@ export class DbHandler {
     }
 
     deleteVote(authorSignerAddress: VotesTableRow["authorSignerAddress"], commentCid: VotesTableRow["commentCid"]): void {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         this._db
             .prepare(`DELETE FROM ${TABLES.VOTES} WHERE commentCid = ? AND authorSignerAddress = ?`)
             .run(commentCid, authorSignerAddress);
     }
 
     private _deleteCommentEditRow(rowid: number): boolean {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         const deleteResult = this._db.prepare(`DELETE FROM ${TABLES.COMMENT_EDITS} WHERE rowid = ?`).run(rowid);
         return deleteResult.changes > 0;
     }
 
     insertVotes(votes: VotesTableRowInsert[]): void {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         if (votes.length === 0) return;
         const processedVotes = this._processRecordsForDbBeforeInsert(votes);
 
@@ -1202,7 +1325,7 @@ export class DbHandler {
     }
 
     insertComments(comments: CommentsTableRowInsert[]): void {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         if (comments.length === 0) return;
         const processedComments = this._processRecordsForDbBeforeInsert(comments);
 
@@ -1232,7 +1355,7 @@ export class DbHandler {
     }
 
     insertPseudonymityAliases(aliases: PseudonymityAliasRow[]): void {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         if (aliases.length === 0) return;
         const processedAliases = this._processRecordsForDbBeforeInsert(aliases).map((alias) => ({
             ...alias,
@@ -1259,18 +1382,19 @@ export class DbHandler {
 
         const stmt = this._prepareCached(`
             INSERT INTO ${TABLES.COMMENT_UPDATES} 
-            (cid, edit, upvoteCount, downvoteCount, replyCount, childCount, number, postNumber, flairs, spoiler, nsfw, pinned, locked, archived, removed, approved, reason, updatedAt, protocolVersion, signature, author, replies, lastChildCid, lastReplyTimestamp, postUpdatesBucket, publishedToPostUpdatesMFS, insertedAt)
-            VALUES (@cid, @edit, @upvoteCount, @downvoteCount, @replyCount, @childCount, @number, @postNumber, @flairs, @spoiler, @nsfw, @pinned, @locked, @archived, @removed, @approved, @reason, @updatedAt, @protocolVersion, @signature, @author, @replies, @lastChildCid, @lastReplyTimestamp, @postUpdatesBucket, @publishedToPostUpdatesMFS, @insertedAt)
+            (cid, edit, upvoteCount, downvoteCount, replyCount, childCount, number, postNumber, flairs, spoiler, nsfw, pinned, locked, archived, removed, approved, reason, authorBanExpiresAt, updatedAt, protocolVersion, signature, author, replies, lastChildCid, lastReplyTimestamp, pseudonymityAuthorTag, postUpdatesBucket, publishedToPostUpdatesMFS, insertedAt, extraProps)
+            VALUES (@cid, @edit, @upvoteCount, @downvoteCount, @replyCount, @childCount, @number, @postNumber, @flairs, @spoiler, @nsfw, @pinned, @locked, @archived, @removed, @approved, @reason, @authorBanExpiresAt, @updatedAt, @protocolVersion, @signature, @author, @replies, @lastChildCid, @lastReplyTimestamp, @pseudonymityAuthorTag, @postUpdatesBucket, @publishedToPostUpdatesMFS, @insertedAt, @extraProps)
             ON CONFLICT(cid) DO UPDATE SET
                 edit = excluded.edit, upvoteCount = excluded.upvoteCount, downvoteCount = excluded.downvoteCount, replyCount = excluded.replyCount, childCount = excluded.childCount,
                 number = COALESCE(excluded.number, ${TABLES.COMMENT_UPDATES}.number),
                 postNumber = COALESCE(excluded.postNumber, ${TABLES.COMMENT_UPDATES}.postNumber),
                 flairs = excluded.flairs, spoiler = excluded.spoiler, nsfw = excluded.nsfw, pinned = excluded.pinned, locked = excluded.locked, archived = excluded.archived,
-                removed = excluded.removed, approved = excluded.approved, reason = excluded.reason, updatedAt = excluded.updatedAt, protocolVersion = excluded.protocolVersion,
+                removed = excluded.removed, approved = excluded.approved, reason = excluded.reason, authorBanExpiresAt = excluded.authorBanExpiresAt, updatedAt = excluded.updatedAt, protocolVersion = excluded.protocolVersion,
                 signature = excluded.signature, author = excluded.author, replies = excluded.replies, lastChildCid = excluded.lastChildCid,
-                lastReplyTimestamp = excluded.lastReplyTimestamp, postUpdatesBucket = excluded.postUpdatesBucket,
+                lastReplyTimestamp = excluded.lastReplyTimestamp, pseudonymityAuthorTag = excluded.pseudonymityAuthorTag, postUpdatesBucket = excluded.postUpdatesBucket,
                 publishedToPostUpdatesMFS = excluded.publishedToPostUpdatesMFS,
-                insertedAt = excluded.insertedAt
+                insertedAt = excluded.insertedAt,
+                extraProps = excluded.extraProps
         `);
 
         const defaults = mapToObj(columnNames, (column) => [column, null]);
@@ -1289,7 +1413,7 @@ export class DbHandler {
     }
 
     insertCommentModerations(moderations: CommentModerationsTableRowInsert[]): void {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         if (moderations.length === 0) return;
         const processedModerations = this._processRecordsForDbBeforeInsert(moderations);
 
@@ -1317,7 +1441,7 @@ export class DbHandler {
     }
 
     insertCommentEdits(edits: CommentEditsTableRowInsert[]): void {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         if (edits.length === 0) return;
         const processedEdits = this._processRecordsForDbBeforeInsert(edits);
 
@@ -1431,9 +1555,12 @@ export class DbHandler {
     // The column set of a page entry: every CommentIpfs column plus extraProps, and every CommentUpdate column
     // unless the caller excludes some (a flat page drops `replies`). Compiled mappers are cached per column set.
     private _pageEntryMapper(commentUpdateFieldsToExclude?: (keyof CommentUpdateType)[], existingOnly = false): PositionalCommentRowMapper {
-        const commentUpdateCols = keys(
-            commentUpdateFieldsToExclude ? omit(CommentUpdateSchema.shape, commentUpdateFieldsToExclude) : CommentUpdateSchema.shape
-        );
+        const commentUpdateCols = [
+            ...keys(
+                commentUpdateFieldsToExclude ? omit(CommentUpdateSchema.shape, commentUpdateFieldsToExclude) : CommentUpdateSchema.shape
+            ),
+            "extraProps" // the signed record's unknown keys, spread back by the mapper (comment-update-row.ts)
+        ];
         const commentIpfsCols = [...keys(CommentIpfsSchema.shape), "extraProps"];
         return this._positionalMapperFor({
             commentIpfsCols: existingOnly ? this._existingColumns(TABLES.COMMENTS, commentIpfsCols) : commentIpfsCols,
@@ -2370,9 +2497,11 @@ export class DbHandler {
     queryPostsWithOutdatedBuckets(buckets: number[]): { cid: string; timestamp: number; currentBucket: number; newBucket: number }[] {
         const currentTimestampSeconds = timestamp(); // timestamp is in seconds
         const maxBucket = Math.max(...buckets);
+        // The time is bound, not written into the SQL: _prepareCached keys statements by SQL text, so a
+        // timestamp in the text compiled and kept a new statement on every sync cycle (#488)
         const caseClauses = buckets
             .sort((a, b) => a - b)
-            .map((bucket) => `WHEN (${currentTimestampSeconds} - c.timestamp) <= ${bucket} THEN ${bucket}`)
+            .map((bucket) => `WHEN (? - c.timestamp) <= ${bucket} THEN ${bucket}`)
             .join(" ");
         const { clause: addrClause, params: addrParams } = this._communityIdentityClause("c");
         const query = `
@@ -2386,7 +2515,8 @@ export class DbHandler {
             ) SELECT cid, timestamp, current_bucket AS currentBucket, new_bucket AS newBucket
             FROM post_data WHERE current_bucket != new_bucket
         `;
-        return this._prepareCached(query).all(...addrParams, maxBucket) as {
+        // CASE comes before WHERE in the SQL, so its parameters bind first
+        return this._prepareCached(query).all(...buckets.map(() => currentTimestampSeconds), ...addrParams, maxBucket) as {
             cid: string;
             timestamp: number;
             currentBucket: number;
@@ -2416,7 +2546,7 @@ export class DbHandler {
     }
 
     removeCommentFromPendingApproval(comment: Pick<CommentsTableRow, "cid">): void {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         const log = this._log;
         const stmt = this._db.prepare(`UPDATE ${TABLES.COMMENTS} SET pendingApproval = 0 WHERE cid = ?`);
         const res = stmt.run(comment.cid);
@@ -2716,6 +2846,8 @@ export class DbHandler {
                 ...moderation?.flags,
                 // moderatorReason wins when present, else fall back to the challenge-supplied reason (if any).
                 reason: moderation?.reason ?? (comment.challengeCommentUpdate?.reason as string | undefined),
+                // 0 is the mod's revoke: it is the newest ban value on this comment, and it means no mark
+                authorBanExpiresAt: moderation?.authorBanExpiresAt || undefined,
                 author: { community: { ...(challengeAuthorCommunity ?? {}), ...authorCommunity } },
                 lastChildCid: lastChildCids.get(comment.cid),
                 lastReplyTimestamp: lastReplyTimestamps.get(comment.cid),
@@ -2853,10 +2985,14 @@ export class DbHandler {
 
     // What the moderations of each comment say, newest first, one read for the batch: the latest non-null value per
     // field (reason, flairs, approved and the six flags), the same precedence as the per-field statements this replaces.
+    // authorBanExpiresAt is the newest author.banExpiresAt published on the comment itself, 0 included: a 0 removes the
+    // mark. author.community.banExpiresAt is the newest across all of the author's comments and skips 0 rows
+    // (isAuthorBanRow), so removing a mark never touches the ban.
     private _queryModerationSummariesByCids(cids: string[]): Map<
         string,
         {
             reason?: string;
+            authorBanExpiresAt?: number;
             flairs?: CommentModerationTableRow["commentModeration"]["flairs"];
             approved?: boolean;
             flags: Partial<Pick<CommentUpdateType, "spoiler" | "pinned" | "locked" | "archived" | "removed" | "nsfw">>;
@@ -2864,6 +3000,7 @@ export class DbHandler {
     > {
         type Summary = {
             reason?: string;
+            authorBanExpiresAt?: number;
             flairs?: CommentModerationTableRow["commentModeration"]["flairs"];
             approved?: boolean;
             flags: Partial<Pick<CommentUpdateType, "spoiler" | "pinned" | "locked" | "archived" | "removed" | "nsfw">>;
@@ -2882,6 +3019,8 @@ export class DbHandler {
                     result.set(row.commentCid, summary);
                 }
                 if (summary.reason === undefined && typeof moderation.reason === "string") summary.reason = moderation.reason;
+                const banExpiresAt = (moderation.author as { banExpiresAt?: unknown } | null | undefined)?.banExpiresAt;
+                if (summary.authorBanExpiresAt === undefined && typeof banExpiresAt === "number") summary.authorBanExpiresAt = banExpiresAt;
                 if (summary.flairs === undefined && moderation.flairs !== null && moderation.flairs !== undefined)
                     summary.flairs = moderation.flairs as Summary["flairs"];
                 if (summary.approved === undefined && moderation.approved !== null && moderation.approved !== undefined)
@@ -2972,13 +3111,23 @@ export class DbHandler {
         type Need = { karma: string[]; modEdit: string[]; domain?: string; key: string };
         if (memo.writeGeneration !== this._publicationWriteGeneration) {
             memo.authors.clear();
+            memo.expandedAddresses.clear();
             memo.writeGeneration = this._publicationWriteGeneration;
         }
         const aliasByCid = this._queryPseudonymityAliasesByCommentCids(entries.map((entry) => entry.comment.cid));
         const plainAddresses = [
             ...new Set(entries.filter((entry) => !aliasByCid.has(entry.comment.cid)).map((entry) => entry.comment.authorSignerAddress))
         ];
-        const expanded = this._queryAliasExpandedAddressSets(plainAddresses);
+        const addressesToExpand = plainAddresses.filter((address) => !memo.expandedAddresses.has(address));
+        if (addressesToExpand.length > 0)
+            for (const [address, addressSet] of this._queryAliasExpandedAddressSets(addressesToExpand))
+                memo.expandedAddresses.set(address, addressSet);
+        const expanded = new Map<string, Set<string>>();
+        for (const address of plainAddresses) {
+            const addressSet = memo.expandedAddresses.get(address);
+            if (!addressSet) throw Error(`Alias expansion of author ${address} missing from the cycle's memo`);
+            expanded.set(address, addressSet);
+        }
         const keyOf = (karma: string[], modEdit: string[], domain?: string) =>
             `${[...karma].sort().join(",")}|${[...modEdit].sort().join(",")}|${domain ?? ""}`;
         const needByCid = new Map<string, Need>();
@@ -3026,7 +3175,7 @@ export class DbHandler {
                             (need.domain !== undefined && row.targetAuthorDomain === need.domain)
                     )
                     .map((row) => row.author);
-                const banAuthor = modAuthorEdits.find((modEdit) => typeof modEdit?.banExpiresAt === "number");
+                const banAuthor = modAuthorEdits.find(isAuthorBanRow);
                 const authorFlairsByMod = modAuthorEdits.find((modEdit) => modEdit?.flairs);
                 const modEdits: Pick<CommunityAuthor, "banExpiresAt" | "flairs"> = {};
                 if (banAuthor?.banExpiresAt) modEdits.banExpiresAt = banAuthor.banExpiresAt;
@@ -3274,7 +3423,7 @@ export class DbHandler {
         const modAuthorEdits = modAuthorEditsRaw.map(
             (r) => JSON.parse(r.commentAuthorJson) as CommentModerationTableRow["commentModeration"]["author"]
         );
-        const banAuthor = modAuthorEdits.find((modEdit) => typeof modEdit?.banExpiresAt === "number");
+        const banAuthor = modAuthorEdits.find(isAuthorBanRow);
         const authorFlairsByMod = modAuthorEdits.find((modEdit) => modEdit?.flairs);
         const aggregateAuthor: Pick<CommunityAuthor, "banExpiresAt" | "flairs"> = {};
         if (banAuthor?.banExpiresAt) aggregateAuthor.banExpiresAt = banAuthor.banExpiresAt;
@@ -3426,7 +3575,7 @@ export class DbHandler {
     }
 
     purgeComment(cid: string, isNestedCall: boolean = false): PurgedCommentTableRows[] {
-        this._publicationWriteGeneration++;
+        this._notePublicationWrite();
         const log = this._log;
         const purgedRecords: PurgedCommentTableRows[] = [];
         const detachedPageCids: string[] = [];
@@ -3548,6 +3697,8 @@ export class DbHandler {
         await fs.promises.mkdir(path.dirname(oldPathString), { recursive: true });
         await fs.promises.mkdir(path.dirname(newPathString), { recursive: true });
 
+        // The copy at the new path is not a community until it is complete: the caller lists it then
+        const doneWritingNewDbFile = markCommunityDbAsBeingWritten({ dataPath, communityAddress: newDbName });
         try {
             // Check if oldDb exists before attempting to open for backup
             if (!fs.existsSync(oldPathString)) {
@@ -3558,91 +3709,89 @@ export class DbHandler {
                 const sourceDb = new Database(oldPathString, { fileMustExist: true });
                 await sourceDb.backup(newPathString); // backup is synchronous in better-sqlite3 v8+
                 sourceDb.close();
+                // The live DB is at the new path now. Before the old file is removed, so a failure here leaves it intact
+                await forgetCommunityThatFailedToBeDeleted({ communityAddress: newDbName, pkc: this._community._pkc, log: this._log });
                 if (os.type() === "Windows_NT") await deleteOldCommunityInWindows(oldPathString, this._community._pkc);
                 else await fs.promises.rm(oldPathString, { force: true });
             }
         } catch (error) {
             log.error(`changeDbFilename: Failed to backup/rename database from ${oldPathString} to ${newPathString}: `, error);
             throw error;
+        } finally {
+            doneWritingNewDbFile();
         }
         this._dbConfig = { ...this._dbConfig, filename: newPathString };
         log(`changeDbFilename: Changed db path from (${oldPathString}) to (${newPathString})`);
     }
 
-    async lockCommunityStart(communityAddress = this._community.address) {
+    // Claims the community for this PKC instance in the communities registry (see communities-registry.ts), which holds
+    // it until unlockCommunityStart(). An instance that dies holds nothing: its lock is the kernel's, and a claim whose
+    // instance is gone is taken over. Throws if a live instance has the community started.
+    async lockCommunityStart() {
         const log = this._log;
-
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${communityAddress}.start.lock`);
-        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", communityAddress);
-
-        try {
-            await lockfile.lock(communityDbPath, {
-                lockfilePath,
-                onCompromised: () => {} // Temporary bandaid for the moment. Should be deleted later
-            });
-            log(`start: Locked the start of community (${communityAddress}) successfully`);
-        } catch (e: unknown) {
-            if (e instanceof Error && e.message === "Lock file is already being held")
-                throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { communityAddress: communityAddress, error: e });
-            else {
-                log(`start: Error while trying to lock start of community (${communityAddress}): ${e}`);
-                throw e;
-            }
+        const communityAddress = this._community.address;
+        const dataPath = this._community._pkc.dataPath!;
+        await this.initDbIfNeeded();
+        // a community is started on the connection it writes with
+        if (this._db.readonly) throw Error("The start of a community can't be claimed on a read-only connection to its DB");
+        const registry = getCommunitiesRegistry(this._community._pkc);
+        if (!registry.claimStart(communityAddress)) throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { communityAddress });
+        // The connection was opened some awaits ago. Another process that deleted or renamed the community since has
+        // moved its DB away, and the claim just made is for a community with no DB at its path: it would run, publish
+        // and write to a file nothing reads again. Given back at once (no await since the claim was made).
+        if (!fs.existsSync(path.join(dataPath, "communities", communityAddress))) {
+            registry.unregisterCommunity(communityAddress);
+            throw new PKCError("CAN_NOT_LOAD_LOCAL_COMMUNITY_IF_DB_DOES_NOT_EXIST", { communityAddress, dataPath });
         }
+        this._startLockAddress = communityAddress;
+        log(`start: Locked the start of community (${communityAddress}) successfully`);
     }
 
-    async unlockCommunityStart(communityAddress = this._community.address) {
+    // Whether this handler has claimed the community's start, i.e. this instance is starting or started
+    holdsStartLock(): boolean {
+        return this._startLockAddress !== undefined;
+    }
+
+    async unlockCommunityStart() {
         const log = this._log;
-        log.trace(`start: Attempting to unlock the start of community (${communityAddress})`);
-
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${communityAddress}.start.lock`);
-        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", communityAddress);
-        if (!fs.existsSync(lockfilePath) || !fs.existsSync(communityDbPath)) return;
-
-        try {
-            await lockfile.unlock(communityDbPath, { lockfilePath });
-            log(`start: Unlocked start of community (${communityAddress})`);
-        } catch (e: unknown) {
-            log(`start: Error while trying to unlock start of community (${communityAddress}): ${e}`);
-            throw e;
-        }
+        const communityAddress = this._startLockAddress;
+        if (communityAddress === undefined) return;
+        this._startLockAddress = undefined;
+        getCommunitiesRegistry(this._community._pkc).releaseStart(communityAddress);
+        log(`start: Unlocked start of community (${communityAddress})`);
     }
 
     async isCommunityStartLocked(communityAddress = this._community.address): Promise<boolean> {
-        return isCommunityStartLocked({ dataPath: this._community._pkc.dataPath!, communityAddress });
+        return getCommunitiesRegistry(this._community._pkc).isStarted(communityAddress);
     }
 
-    // Community state lock
+    // For the community this handler has started: whether it is still this PKC instance's (see confirmStart)
+    confirmCommunityStartIsStillOurs(): StartOwnership {
+        if (this._startLockAddress === undefined) return "owned";
+        return getCommunitiesRegistry(this._community._pkc).confirmStart(this._startLockAddress);
+    }
 
-    async lockCommunityState() {
-        const log = this._log;
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${this._community.address}.state.lock`);
-        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
+    // Runs `write` as one write transaction on the community DB: SQLite lets one connection write at a time, across
+    // processes too, and the lock is the kernel's, so a killed writer leaves nothing behind. `write` must be synchronous
+    // (issue #417). A transaction that is already open on this connection is joined. Used for a read-modify-write of
+    // the community's internal state, which a lock file guarded before (issue #561).
+    runInWriteTransaction<T>(write: () => T): T {
+        if (this._db.inTransaction) return write();
         try {
-            await lockfile.lock(communityDbPath, {
-                lockfilePath,
-                retries: 5,
-                onCompromised: () => {}
-            });
-        } catch (e: unknown) {
-            log.error(`lockCommunityState: Error when attempting to lock community state`, this._community.address, e);
-            if (e instanceof Error && e.message === "Lock file is already being held")
+            this._db.exec("BEGIN IMMEDIATE");
+        } catch (e) {
+            // another connection kept writing for longer than this connection's busy timeout
+            if (typeof (e as { code?: unknown }).code === "string" && (e as { code: string }).code.startsWith("SQLITE_BUSY"))
                 throw new PKCError("ERR_COMMUNITY_STATE_LOCKED", { communityAddress: this._community.address, error: e });
-            // Not sure, do we need to throw error here
+            throw e;
         }
-    }
-
-    async unlockCommunityState() {
-        const log = this._log;
-
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${this._community.address}.state.lock`);
-        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
-        if (!fs.existsSync(lockfilePath)) return;
         try {
-            await lockfile.unlock(communityDbPath, { lockfilePath });
-        } catch (e: unknown) {
-            log.error(`unlockCommunityState: Error when attempting to unlock community state`, this._community.address, e);
-            if (e instanceof Error && "code" in e && e.code !== "ENOTACQUIRED") throw e;
+            const result = write();
+            this._db.exec("COMMIT");
+            return result;
+        } catch (e) {
+            if (this._db.inTransaction) this._db.exec("ROLLBACK");
+            throw e;
         }
     }
 
@@ -3659,6 +3808,15 @@ export class DbHandler {
             commentCids,
             (placeholders) => `UPDATE ${TABLES.COMMENT_UPDATES} SET publishedToPostUpdatesMFS = 1 WHERE cid IN (${placeholders})`
         );
+    }
+
+    // The posts whose CommentUpdate file was written to this postUpdates bucket and acknowledged. No index backs it:
+    // it is for the rare audit of a bucket MFS may have lost entries of, never for a hot path.
+    queryPublishedPostCidsOfBucket(bucket: number): string[] {
+        return this._db
+            .prepare(`SELECT cid FROM ${TABLES.COMMENT_UPDATES} WHERE postUpdatesBucket = ? AND publishedToPostUpdatesMFS = 1`)
+            .pluck()
+            .all(bucket) as string[];
     }
 
     forceUpdateOnAllComments(): void {

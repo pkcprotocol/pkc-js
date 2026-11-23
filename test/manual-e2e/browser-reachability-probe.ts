@@ -6,7 +6,7 @@
 // with a certificate Node trusts the same way a browser does (`/dns4/<name>/tcp/443/tls/ws` behind AutoTLS or an
 // operator domain, `/ip4/<ip>/tcp/443/tls/ws` behind a Let's Encrypt IP certificate).
 //
-// WebTransport cannot be dialed from Node (no WebTransport API, and pkc-js ships no `@libp2p/webtransport`), so
+// WebTransport cannot be dialed from Node (no WebTransport API; `@libp2p/webtransport` is in the browser build only), so
 // for `/webtransport` addresses the probe checks the two things a browser needs before the handshake: the address
 // carries certhashes, and the UDP path answers. The UDP check is a QUIC version-negotiation probe: a 1200-byte
 // long-header packet with an unsupported version, to which every QUIC server must answer with a Version
@@ -74,7 +74,7 @@ export interface UdpProbeResult {
 }
 
 export interface ProviderVerdict {
-    /** at least one `/tls/ws` or `/wss` address dialed with full certificate verification: what a pkc-js browser can use today */
+    /** at least one `/tls/ws` or `/wss` address dialed with full certificate verification, the handshake a pkc-js browser tries first */
     wssDialable: boolean;
     /** at least one webtransport address with certhashes; a certhash-less one is announced but no browser can dial it */
     webtransportAnnounced: boolean;
@@ -85,9 +85,9 @@ export interface ProviderVerdict {
     webtransportOnUdp443: boolean;
     hasIpv6: boolean;
     relayOnly: boolean;
-    /** wssDialable; pkc-js denies webtransport dials by default (src/helia/dial-transport-filter.ts) */
-    browserDialableToday: boolean;
-    /** wssDialable or webtransportUdpAnswers: what a browser can use once pkc-js allows webtransport. The UDP probe shows a
+    /** wssDialable: the only verdict backed by a completed handshake */
+    browserDialableOverWss: boolean;
+    /** wssDialable or webtransportUdpAnswers: pkc-js browsers dial both transports (WSS first, #475). The UDP probe shows a
      * QUIC listener at the address; it does not run the WebTransport handshake or check the certhashes */
     browserDialableWithWebTransport: boolean;
 }
@@ -110,7 +110,7 @@ export interface TargetReport {
     providerCid?: string;
     providers: ProviderReport[];
     routerErrors: Record<string, string>;
-    providersDialableToday: number;
+    providersDialableOverWss: number;
     providersDialableWithWebTransport: number;
 }
 
@@ -468,10 +468,10 @@ function judge(
         webtransportOnUdp443: wtWithCerthash.some((a) => a.port === 443),
         hasIpv6: publicAddrs.some((a) => isBrowserDialableKind(a.kind) && (a.hostFamily === "ip6" || a.hostFamily === "dns6")),
         relayOnly: publicAddrs.length > 0 && publicAddrs.every((a) => a.kind === "relay"),
-        browserDialableToday: false,
+        browserDialableOverWss: false,
         browserDialableWithWebTransport: false
     };
-    verdict.browserDialableToday = verdict.wssDialable;
+    verdict.browserDialableOverWss = verdict.wssDialable;
     verdict.browserDialableWithWebTransport = verdict.wssDialable || verdict.webtransportUdpAnswers;
 
     if (publicAddrs.length === 0) problems.push(addrs.length === 0 ? "announces no addresses" : "announces no public addresses");
@@ -483,7 +483,7 @@ function judge(
             "announces only /p2p-circuit relay addresses: the node is behind NAT and no browser or libp2p-js client can reach it"
         );
     const wssAddrs = publicAddrs.filter((a) => a.kind === "wss");
-    if (wssAddrs.length === 0) problems.push("announces no WebSocket Secure (/tls/ws) address: pkc-js browsers cannot dial it today");
+    if (wssAddrs.length === 0) problems.push("announces no WebSocket Secure (/tls/ws) address, the transport pkc-js browsers try first");
     else if (!verdict.wssDialable) for (const r of wss) problems.push(`WSS dial failed ${r.multiaddr}: ${r.error}`);
     if (wssAddrs.length > 0 && !wssAddrs.some((a) => a.port === 443))
         problems.push("WSS is announced only on a non-443 port; networks that allow outbound 443 only cannot reach it");
@@ -617,7 +617,7 @@ function summarizeTarget(
         providerCid,
         providers,
         routerErrors,
-        providersDialableToday: providers.filter((p) => p.verdict.browserDialableToday).length,
+        providersDialableOverWss: providers.filter((p) => p.verdict.browserDialableOverWss).length,
         providersDialableWithWebTransport: providers.filter((p) => p.verdict.browserDialableWithWebTransport).length
     };
 }
@@ -632,7 +632,7 @@ export function formatProviderReport(provider: ProviderReport): string {
             : `listed by ${provider.listedBy.length} router(s)`;
     lines.push(`${provider.peerId}  ${source}`);
     lines.push(
-        `  browser today (WSS): ${flag(v.browserDialableToday)}   with WebTransport: ${flag(v.browserDialableWithWebTransport)}   IPv6: ${flag(v.hasIpv6)}   UDP 443: ${flag(v.webtransportOnUdp443)}`
+        `  browser over WSS: ${flag(v.browserDialableOverWss)}   WSS or WebTransport: ${flag(v.browserDialableWithWebTransport)}   IPv6: ${flag(v.hasIpv6)}   UDP 443: ${flag(v.webtransportOnUdp443)}`
     );
     for (const r of provider.wss) {
         lines.push(
@@ -665,7 +665,7 @@ export function formatProbeReport(report: ProbeReport): string {
         out.push("");
         out.push(
             `== ${target.target}${target.providerCid ? ` (provider cid ${target.providerCid})` : ""}: ${target.providers.length} provider(s), ` +
-                `${target.providersDialableToday} dialable from pkc-js browsers today, ${target.providersDialableWithWebTransport} with WebTransport`
+                `${target.providersDialableOverWss} dialable from pkc-js browsers over WSS, ${target.providersDialableWithWebTransport} over WSS or WebTransport`
         );
         for (const [router, error] of Object.entries(target.routerErrors)) out.push(`  router error ${router}: ${error}`);
         for (const provider of target.providers) out.push(formatProviderReport(provider));

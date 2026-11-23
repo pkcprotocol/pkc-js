@@ -25,8 +25,8 @@ import {
 //   E2E_PEERS           comma-separated provider multiaddrs with /p2p/<peer id>, probed directly with no router lookup
 //                       (one of E2E_TARGETS / E2E_PEERS is required)
 //   E2E_ROUTERS         comma-separated HTTP routers (default: the six pkc-js defaults from src/schema.ts)
-//   E2E_REQUIRE         wss (default) | webtransport | any: what counts as reachable. `wss` is what a pkc-js browser can
-//                       dial today; `webtransport` is a certhash address whose UDP endpoint answers; `any` is either
+//   E2E_REQUIRE         wss (default) | webtransport | any: what counts as reachable. `wss` is a completed WSS dial, the
+//                       only full handshake the probe runs; `webtransport` is a certhash address whose UDP endpoint answers; `any` is either
 //   E2E_MIN_PROVIDERS   providers per target that must pass (default 1); the explicit E2E_PEERS list is one target
 //   The default passes as soon as E2E_MIN_PROVIDERS providers have a working WSS address: WebTransport, UDP 443 and IPv6
 //   are reported per provider and listed under problems, not asserted, unless E2E_REQUIRE says so

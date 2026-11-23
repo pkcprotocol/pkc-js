@@ -19,6 +19,11 @@ import {
     rmUnneededMfsPaths,
     unpinStaleCids
 } from "../../../../dist/node/runtime/node/community/local-community/cleanup.js";
+import Storage from "../../../../dist/node/runtime/node/storage.js";
+import fs from "node:fs";
+import path from "node:path";
+import type { PKC } from "../../../../dist/node/pkc/pkc.js";
+import type { StorageInterface } from "../../../../dist/node/types.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type { PurgedCommentTableRows } from "../../../../dist/node/runtime/node/community/db-handler-types.js";
 
@@ -48,7 +53,8 @@ describe("cleanup: addAllCidsUnderPurgedCommentToBeRemoved", () => {
             address: "community.bso",
             _cidsToUnPin: cidsToUnPin,
             _blocksToRm: blocksToRm,
-            _mfsPathsToRemove: mfsPathsToRemove
+            _mfsPathsToRemove: mfsPathsToRemove,
+            _mfsPathRemovalWatchers: new Set<Set<string>>()
         } as unknown as LocalCommunity;
 
         const purged = {
@@ -71,7 +77,8 @@ describe("cleanup: addAllCidsUnderPurgedCommentToBeRemoved", () => {
             address: "community.bso",
             _cidsToUnPin: cidsToUnPin,
             _blocksToRm: blocksToRm,
-            _mfsPathsToRemove: mfsPathsToRemove
+            _mfsPathsToRemove: mfsPathsToRemove,
+            _mfsPathRemovalWatchers: new Set<Set<string>>()
         } as unknown as LocalCommunity;
 
         const purged = {
@@ -94,7 +101,8 @@ describe("cleanup: addAllCidsUnderPurgedCommentToBeRemoved", () => {
             address: "community.bso",
             _cidsToUnPin: cidsToUnPin,
             _blocksToRm: blocksToRm,
-            _mfsPathsToRemove: new Set<string>()
+            _mfsPathsToRemove: new Set<string>(),
+            _mfsPathRemovalWatchers: new Set<Set<string>>()
         } as unknown as LocalCommunity;
 
         const purged = {
@@ -142,6 +150,7 @@ describe("cleanup: purgeDisapprovedCommentsOlderThan", () => {
             address: "community.bso",
             settings: { purgeDisapprovedCommentsOlderThan: 60 },
             _mfsPathsToRemove: new Set<string>(),
+            _mfsPathRemovalWatchers: new Set<Set<string>>(),
             _blocksToRm: [] as string[],
             _cidsToUnPin: new Set<string>(),
             updateCid: undefined,
@@ -365,16 +374,30 @@ describe("cleanup: repinCommentUpdateIfNeeded", () => {
 });
 
 describe("cleanup: cleanUpIpfsRepoIfDue", () => {
+    const HOUR_MS = 60 * 60 * 1000;
+    const gcIntervalStorageKey = (url: string) => `repoGcIntervalStartedAt:${url}`;
+    type GcScheduleStorage = Pick<StorageInterface, "getItem" | "setItem">;
+
+    // What a PKC's storage is to the schedule: a key-value store that outlives the process
+    const makeStorage = (): GcScheduleStorage & { items: Map<string, unknown> } => {
+        const items = new Map<string, unknown>();
+        return { items, getItem: async (key) => items.get(key), setItem: async (key, value) => void items.set(key, value) };
+    };
+
     // Builds a fake community wired to one kubo URL. repoSize only feeds the before/after log line —
     // nothing branches on it — while repo.gc records its calls so a test can assert whether it ran.
+    // The storage holds an interval that ended a minute ago unless the test passes its own, so a sweep
+    // is due.
     const makeCommunity = ({
         url = "http://localhost:15001/api/v0",
         repoSize = 1n,
-        gcImpl
+        gcImpl,
+        storage
     }: {
         url?: string;
         repoSize?: bigint;
         gcImpl?: () => AsyncGenerator<{ cid: string }>;
+        storage?: GcScheduleStorage;
     } = {}) => {
         const stat = vi.fn(async (_options?: { searchParams?: URLSearchParams }) => ({
             numObjects: 0n,
@@ -392,8 +415,15 @@ describe("cleanup: cleanUpIpfsRepoIfDue", () => {
         );
         // One stable client object: tests below re-stub methods on it after construction.
         const kuboRpcClient = { url, _client: { repo: { stat, gc } } };
+        let _storage = storage;
+        if (!_storage) {
+            const dueStorage = makeStorage();
+            dueStorage.items.set(gcIntervalStorageKey(url), Date.now() - HOUR_MS - 60_000);
+            _storage = dueStorage;
+        }
         const community = {
             _log: testLog,
+            _pkc: { _storage },
             _clientsManager: { getDefaultKuboRpcClient: () => kuboRpcClient }
         } as unknown as LocalCommunity;
         return { community, kuboRpcClient, stat, gc };
@@ -412,6 +442,119 @@ describe("cleanup: cleanUpIpfsRepoIfDue", () => {
         expect(gc).toHaveBeenCalledTimes(1);
     });
 
+    // A new process used to sweep in its first sync, whatever any process before it had done: every
+    // restart swept, and so did every test file two seconds in (about 180 sweeps of the shared test
+    // daemon per suite run). The first meeting of a data path and a daemon starts the hour instead.
+    it("does not GC the first time a data path meets a kubo node, it starts the interval", async () => {
+        const storage = makeStorage();
+        const { community, gc } = makeCommunity({ storage });
+        const before = Date.now();
+
+        await cleanUpIpfsRepoIfDue(community);
+        await cleanUpIpfsRepoIfDue(community);
+
+        expect(gc).toHaveBeenCalledTimes(0);
+        expect(storage.items.get(gcIntervalStorageKey("http://localhost:15001/api/v0"))).to.be.within(before, Date.now());
+    });
+
+    it("GCs once the interval that the first meeting started is over", async () => {
+        const storage = makeStorage();
+        const { community, gc } = makeCommunity({ storage });
+        vi.useFakeTimers({ toFake: ["Date"] });
+        try {
+            await cleanUpIpfsRepoIfDue(community);
+            vi.setSystemTime(Date.now() + HOUR_MS - 1000);
+            await cleanUpIpfsRepoIfDue(community);
+            expect(gc).toHaveBeenCalledTimes(0);
+
+            vi.setSystemTime(Date.now() + 2000);
+            await cleanUpIpfsRepoIfDue(community);
+            expect(gc).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    // The schedule belongs to the data path: a process that starts within the hour of another one's
+    // sweep (a restart, or a second process on the same data path) does not sweep again. Two Storage
+    // instances on one data path, and the module state cleared in between, are those two processes.
+    it("does not GC again from another process on the same data path within the interval", async () => {
+        const dataPath = path.join(process.cwd(), ".tmp", "repo-gc-schedule", String(Date.now()) + Math.random());
+        const openStorage = () => new Storage({ dataPath, noData: false } as unknown as PKC);
+        const url = "http://localhost:15001/api/v0";
+
+        const firstStorage = openStorage();
+        try {
+            await firstStorage.setItem(gcIntervalStorageKey(url), Date.now() - HOUR_MS - 60_000);
+            const first = makeCommunity({ storage: firstStorage });
+            await cleanUpIpfsRepoIfDue(first.community);
+            expect(first.gc).toHaveBeenCalledTimes(1);
+        } finally {
+            await firstStorage.destroy();
+        }
+
+        _resetRepoGcSchedulingState();
+        const secondStorage = openStorage();
+        try {
+            const second = makeCommunity({ storage: secondStorage });
+            await cleanUpIpfsRepoIfDue(second.community);
+            expect(second.gc).toHaveBeenCalledTimes(0);
+        } finally {
+            await secondStorage.destroy();
+            await fs.promises.rm(dataPath, { recursive: true, force: true });
+        }
+    });
+
+    it("does not read the storage while its own copy of the interval is fresh", async () => {
+        const storage = makeStorage();
+        const { community, gc } = makeCommunity({ storage });
+        await cleanUpIpfsRepoIfDue(community); // starts this process's interval, no sweep
+
+        // an older stamp in the storage would make a sweep due, if it were read
+        storage.items.set(gcIntervalStorageKey("http://localhost:15001/api/v0"), Date.now() - HOUR_MS - 60_000);
+        await cleanUpIpfsRepoIfDue(community);
+        expect(gc).toHaveBeenCalledTimes(0);
+    });
+
+    // The schedule must not take the publish loop down: without the storage this process keeps its
+    // own hour, which starts at its first sync.
+    it("keeps a schedule in memory when the storage fails", async () => {
+        const storage: GcScheduleStorage = {
+            getItem: async () => {
+                throw new Error("SQLITE_IOERR");
+            },
+            setItem: async () => {
+                throw new Error("SQLITE_IOERR");
+            }
+        };
+        const { community, gc } = makeCommunity({ storage });
+        vi.useFakeTimers({ toFake: ["Date"] });
+        try {
+            await cleanUpIpfsRepoIfDue(community);
+            expect(gc).toHaveBeenCalledTimes(0);
+
+            vi.setSystemTime(Date.now() + HOUR_MS + 1000);
+            await cleanUpIpfsRepoIfDue(community);
+            await cleanUpIpfsRepoIfDue(community);
+            expect(gc).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    // A clock that was set back must not leave a stamp from the future holding the sweep off for good
+    it("starts a new interval when the stored one starts in the future", async () => {
+        const storage = makeStorage();
+        const key = gcIntervalStorageKey("http://localhost:15001/api/v0");
+        storage.items.set(key, Date.now() + 10 * HOUR_MS);
+        const { community, gc } = makeCommunity({ storage });
+
+        await cleanUpIpfsRepoIfDue(community);
+
+        expect(gc).toHaveBeenCalledTimes(0);
+        expect(storage.items.get(key)).to.be.at.most(Date.now());
+    });
+
     it("asks the daemon for size-only stats, not a full object count", async () => {
         // A default repo/stat counts every object, which walks the whole flatfs blockstore — millions
         // of files on exactly the repos this feature exists for.
@@ -419,6 +562,7 @@ describe("cleanup: cleanUpIpfsRepoIfDue", () => {
 
         await cleanUpIpfsRepoIfDue(community);
 
+        expect(stat).toHaveBeenCalled();
         for (const call of stat.mock.calls) {
             const passedSearchParams = call?.[0]?.searchParams as URLSearchParams | undefined;
             expect(passedSearchParams?.get("size-only")).to.equal("true");
@@ -467,7 +611,7 @@ describe("cleanup: cleanUpIpfsRepoIfDue", () => {
     });
 
     it("force bypasses the interval floor", async () => {
-        const { community, gc } = makeCommunity();
+        const { community, gc } = makeCommunity({ storage: makeStorage() });
 
         await cleanUpIpfsRepoIfDue(community, true);
         await cleanUpIpfsRepoIfDue(community, true);
@@ -545,6 +689,7 @@ describe("cleanup: rmUnneededMfsPaths", () => {
             _log: testLog,
             address: "community.bso",
             _mfsPathsToRemove: new Set<string>(),
+            _mfsPathRemovalWatchers: new Set<Set<string>>(),
             _clientsManager: { getDefaultKuboRpcClient: vi.fn() }
         } as unknown as LocalCommunity;
 

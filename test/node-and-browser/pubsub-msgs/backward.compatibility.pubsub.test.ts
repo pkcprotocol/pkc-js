@@ -107,7 +107,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         describe.sequential(`ChallengeMessage with extra props`, async () => {
-            it(`A challenge message with an extra prop not included in signature.signedPropertyNames will get emit cause the Publication class to emit an error`, async () => {
+            // A message whose signature does not hold is not from the community, so it is logged and dropped: no "error"
+            // event and no state change. Anyone on the topic can send one for a challengeRequestId they saw (#530)
+            it(`A challenge message with an extra prop not included in signature.signedPropertyNames is dropped without an error`, async () => {
                 const pubsubSigner = await pkc.createSigner();
                 const post = await generateMockPost({ communityAddress: signers[0].address, pkc: pkc });
 
@@ -124,9 +126,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
                 await post.publish();
 
-                let emittedChallenge;
-
-                post.once("challenge", (_challenge) => (emittedChallenge = _challenge));
+                const errors: (PKCError | Error)[] = [];
+                post.on("error", (error) => errors.push(error));
+                const publishingStates: string[] = [];
+                post.on("publishingstatechange", (state) => publishingStates.push(state));
 
                 await publishChallengeMessageWithExtraProps({
                     publication: post,
@@ -134,12 +137,20 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     extraProps,
                     includeExtraPropsInChallengeSignedPropertyNames: false
                 });
+                // The valid challenge that follows shows the invalid one was handled and dropped
+                const emittedChallenge = new Promise<ChallengeMessage>((resolve) =>
+                    post.once("challenge", resolve as (msg: unknown) => void)
+                );
+                await publishChallengeMessageWithExtraProps({
+                    publication: post,
+                    pubsubSigner,
+                    extraProps: {},
+                    includeExtraPropsInChallengeSignedPropertyNames: false
+                });
 
-                const error = await new Promise<PKCError>((resolve) => post.once("error", resolve as (err: unknown) => void));
-                expect(error.code).to.equal("ERR_CHALLENGE_SIGNATURE_IS_INVALID");
-                expect(error.details.reason).to.equal(messages.ERR_CHALLENGE_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES);
-
-                expect(emittedChallenge).to.be.undefined;
+                expect((await emittedChallenge).extraProp).to.be.undefined;
+                expect(errors).to.deep.equal([]);
+                expect(publishingStates).to.not.include("failed");
                 await post.stop();
             });
 
@@ -187,7 +198,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 const extraProps = { extraProp: "1234" };
                 await publishChallengeAnswerMessageWithExtraProps({
                     publication: post,
-                    challengeAnswers: ["2"],
+                    challengeAnswers: { "0": "2" },
                     extraProps,
                     includeExtraPropsInChallengeSignedPropertyNames: false
                 });
@@ -210,7 +221,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 const extraProps = { extraProp: "1234" };
                 await publishChallengeAnswerMessageWithExtraProps({
                     publication: post,
-                    challengeAnswers: ["2"],
+                    challengeAnswers: { "0": "2" },
                     extraProps,
                     includeExtraPropsInChallengeSignedPropertyNames: true
                 });
@@ -229,7 +240,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
         });
 
         describe.sequential(`ChallengeVerification with extra props`, async () => {
-            it(`A challenge verification message with an extra prop not included in signature.signedPropertyNames will get emit cause the Publication class to emit an error`, async () => {
+            it(`A challenge verification message with an extra prop not included in signature.signedPropertyNames is dropped without an error`, async () => {
                 const pubsubSigner = await pkc.createSigner();
                 const post = await generateMockPost({ communityAddress: signers[0].address, pkc: pkc });
 
@@ -246,9 +257,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
 
                 await post.publish();
 
-                let emittedChallengeVerification;
-
-                post.once("challengeverification", (_challenge) => (emittedChallengeVerification = _challenge));
+                const errors: (PKCError | Error)[] = [];
+                post.on("error", (error) => errors.push(error));
 
                 await publishChallengeVerificationMessageWithExtraProps({
                     publication: post,
@@ -256,12 +266,21 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                     extraProps,
                     includeExtraPropsInChallengeSignedPropertyNames: false
                 });
+                // The valid verification that follows shows the invalid one was handled and dropped
+                const emittedChallengeVerification = new Promise<ChallengeVerification>((resolve) =>
+                    post.once("challengeverification", resolve as (msg: unknown) => void)
+                );
+                await publishChallengeVerificationMessageWithExtraProps({
+                    publication: post,
+                    pubsubSigner,
+                    extraProps: {},
+                    includeExtraPropsInChallengeSignedPropertyNames: false
+                });
 
-                const error = await new Promise<PKCError>((resolve) => post.once("error", resolve as (err: unknown) => void));
-                expect(error.code).to.equal("ERR_CHALLENGE_VERIFICATION_SIGNATURE_IS_INVALID");
-                expect(error.details.reason).to.equal(messages.ERR_CHALLENGE_VERIFICATION_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES);
-
-                expect(emittedChallengeVerification).to.be.undefined;
+                expect((await emittedChallengeVerification).extraProp).to.be.undefined;
+                // No assertion on publishingState here: the valid verification this helper sends is itself a failed
+                // verdict. publication-state-machine.test.ts pins that the dropped message leaves the state alone
+                expect(errors).to.deep.equal([]);
                 await post.stop();
             });
 

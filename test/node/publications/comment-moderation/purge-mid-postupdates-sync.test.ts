@@ -17,10 +17,11 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // Deterministic repro of issue #304: a purge that lands between syncPostUpdatesWithIpfs's
 // commentExistsInDb filter and its MFS writes gets resurrected. The purge's own MFS cleanup has
 // already run by the time the held write goes through, and the comment is gone from the DB, so on
-// buggy code nothing ever removes the resurrected postUpdates entry again.
+// buggy code nothing ever removes the resurrected postUpdates entry again. The write is the swap of
+// the post's bucket, built with the post's new file in it: the test holds the cp that stages it.
 //
 // Skipped under RPC: the test instruments LocalCommunity internals (wraps the community's kubo
-// files.write and reads _dbHandler/_mfsPathsToRemove), which is impossible when the community
+// files.cp and reads _dbHandler/_mfsPathsToRemove), which is impossible when the community
 // lives in a separate RPC server process.
 describeSkipIfRpc("Purge landing during postUpdates MFS writes (issue #304)", () => {
     let pkc: PKC;
@@ -81,9 +82,9 @@ describeSkipIfRpc("Purge landing during postUpdates MFS writes (issue #304)", ()
     it(`Purged post's postUpdates MFS entry is removed even when the purge lands mid-write`, async () => {
         const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient()._client;
         const kuboFilesApi = kuboRpcClient.files;
-        const originalWrite = kuboFilesApi.write.bind(kuboFilesApi);
+        const originalWrite = kuboFilesApi.cp.bind(kuboFilesApi);
         restoreWrite = () => {
-            kuboFilesApi.write = originalWrite;
+            kuboFilesApi.cp = originalWrite;
         };
 
         const purgeWhileWriteIsHeld = async () => {
@@ -117,15 +118,16 @@ describeSkipIfRpc("Purge landing during postUpdates MFS writes (issue #304)", ()
         let raceExercised = false;
         let purgeDuringHeldWrite: Promise<void> | undefined;
         const interceptedWrite = async (...args: Parameters<typeof originalWrite>): Promise<void> => {
-            const path = args[0];
-            if (!raceExercised && typeof path === "string" && path === postMfsPath) {
+            const destination = args[1];
+            const stagedBucketPath = `${postMfsPath.split("/").slice(0, -2).join("/")}.next`;
+            if (!raceExercised && typeof destination === "string" && destination === stagedBucketPath) {
                 raceExercised = true;
                 purgeDuringHeldWrite = purgeWhileWriteIsHeld();
                 await purgeDuringHeldWrite;
             }
             return originalWrite(...args);
         };
-        kuboFilesApi.write = interceptedWrite as typeof kuboFilesApi.write;
+        kuboFilesApi.cp = interceptedWrite as typeof kuboFilesApi.cp;
 
         // Make the next sync cycle rewrite the post's CommentUpdate so the interceptor gets to hold
         // that exact write while the purge runs to completion

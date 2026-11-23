@@ -7,7 +7,8 @@
 //   - cleanUpMirroredStartedOrUpdatingCommunity early-return when nothing is mirrored
 //   - export shape for the orchestrators
 
-import { describe, it, expect } from "vitest";
+import { EventEmitter } from "node:events";
+import { describe, it, expect, vi } from "vitest";
 import Logger from "@pkcprotocol/pkc-logger";
 import {
     cleanUpMirroredStartedOrUpdatingCommunity,
@@ -21,6 +22,7 @@ import {
     updateLoop,
     updateOnce
 } from "../../../../dist/node/runtime/node/community/local-community/lifecycle.js";
+import { PKCError } from "../../../../dist/node/pkc-error.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 
 // Local-community helpers log through community._log (issue #493); fakes get the process-default root

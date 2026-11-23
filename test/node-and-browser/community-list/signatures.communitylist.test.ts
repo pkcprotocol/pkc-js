@@ -112,6 +112,33 @@ describeSkipIfRpc("verifyCommunityList", () => {
         });
     });
 
+    // A name like a member of an object (or starting with _) would become an own member of list.author and of the entries,
+    // the same class the comment gates close. __proto__ comes from JSON.parse as an own key
+    for (const key of ["toString", "constructor", "_x", "__proto__"]) {
+        it(`rejects a record, its author and an entry that carry the key ${key}`, async () => {
+            const topLevel = <CommunityListIpfsType>JSON.parse(JSON.stringify(validRecord));
+            Object.defineProperty(topLevel, key, { value: "x", enumerable: true, configurable: true, writable: true });
+            expect(await verifyCommunityList({ communityList: topLevel })).to.deep.equal({
+                valid: false,
+                reason: messages.ERR_COMMUNITY_LIST_INCLUDES_FORBIDDEN_KEY
+            });
+
+            const inAuthor = <CommunityListIpfsType>JSON.parse(JSON.stringify(validRecord));
+            Object.defineProperty(inAuthor.author, key, { value: "x", enumerable: true, configurable: true, writable: true });
+            expect(await verifyCommunityList({ communityList: inAuthor })).to.deep.equal({
+                valid: false,
+                reason: messages.ERR_COMMUNITY_LIST_AUTHOR_INCLUDES_FORBIDDEN_KEY
+            });
+
+            const inEntry = <CommunityListIpfsType>JSON.parse(JSON.stringify(validRecord));
+            Object.defineProperty(inEntry.communities[0], key, { value: "x", enumerable: true, configurable: true, writable: true });
+            expect(await verifyCommunityList({ communityList: inEntry })).to.deep.equal({
+                valid: false,
+                reason: messages.ERR_COMMUNITY_LIST_ENTRY_INCLUDES_FORBIDDEN_KEY
+            });
+        });
+    }
+
     it("rejects a record whose entry carries a reserved runtime field (e.g. address)", async () => {
         const withReservedEntry = clone(validRecord);
         (<Record<string, unknown>>withReservedEntry.communities[0]).address = mockCommunityListEntries[0].publicKey;

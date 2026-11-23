@@ -35,6 +35,7 @@ import type {
 } from "./types.js";
 import type { CommentModerationTableRow } from "../publications/comment-moderation/types.js";
 import { difference, keys, omit, pick } from "remeda";
+import { assignUnknownProps } from "../unknown-props.js";
 import { ModQueuePages, PostsPages } from "../pages/pages.js";
 import type { PostsPagesTypeIpfs } from "../pages/types.js";
 import { parseRawPages } from "../pages/util.js";
@@ -327,7 +328,10 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     initCommunityIpfsPropsNoMerge(newProps: CommunityIpfsType) {
         const log = this._log;
         this.raw.communityIpfs = newProps;
-        this.initRemoteCommunityPropsNoMerge(newProps);
+        // ipnsName is derived state of this client (_updateIpnsPubsubPropsIfNeeded reads it out of whatever it is
+        // handed, a runtime Json or clone options included). The wire record has no such field, so one a
+        // community signed into its record must not decide where this reader resolves and subscribes.
+        this.initRemoteCommunityPropsNoMerge(omit(newProps, ["ipnsName" as keyof CommunityIpfsType]));
         // pubsubTopicRoutingCid is derived state of the PUBLISHED topic, so a full record is the
         // authority for it and it is recomputed on every one. Absence of pubsubTopic means the
         // challenge exchange is disabled (issue #229), so no routing CID may survive the record that
@@ -338,7 +342,16 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         const unknownProps = difference(keys(this.raw.communityIpfs), keys(CommunityIpfsSchema.shape));
         if (unknownProps.length > 0) {
             log(`initCommunityIpfsPropsNoMerge: Found unknown props on community (${this.address}) ipfs record`, unknownProps);
-            Object.assign(this, pick(this.raw.communityIpfs, unknownProps));
+            const { skipped } = assignUnknownProps({
+                target: this,
+                record: this.raw.communityIpfs,
+                knownKeys: keys(CommunityIpfsSchema.shape)
+            });
+            if (skipped.length > 0)
+                log.error(
+                    `initCommunityIpfsPropsNoMerge: Refused unknown props of community (${this.address}) record that collide with the instance`,
+                    skipped
+                );
         }
     }
 

@@ -1,3 +1,7 @@
+import { secp256k1 } from "@noble/curves/secp256k1.js";
+import { keccak_256 } from "@noble/hashes/sha3.js";
+import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
+import { getAuthorWalletProofMessage, verifyAuthorWalletEntry } from "../signer/author-wallet-proof.js";
 import PKCIndex from "../index.js";
 import type { PKCCommunitiesEntry } from "../clients/rpc-client/types.js";
 import {
@@ -215,6 +219,29 @@ function generateRandomTimestamp(parentTimestamp?: number): number {
     }
 
     return randomTimestamp;
+}
+
+// An author.wallets entry signed the way a wallet signs a BSIP-22 proof (EIP-191 personal_sign, low s, v of 27 or 28),
+// for the key address of the publication that will carry it. The default wallet key is a test key: never use it elsewhere.
+export function createAuthorWalletEntry({
+    authorPublicKey,
+    entryTimestamp = timestamp(),
+    walletPrivateKeyHex = "02".repeat(32)
+}: {
+    authorPublicKey: string;
+    entryTimestamp?: number;
+    walletPrivateKeyHex?: string;
+}) {
+    const walletPrivateKey = hexToBytes(walletPrivateKeyHex);
+    const address = `0x${bytesToHex(keccak_256(secp256k1.getPublicKey(walletPrivateKey, false).slice(1)).slice(12))}`;
+    const messageBytes = utf8ToBytes(getAuthorWalletProofMessage({ authorPublicKey, walletAddress: address, timestamp: entryTimestamp }));
+    const digest = keccak_256(new Uint8Array([...utf8ToBytes(`\x19Ethereum Signed Message:\n${messageBytes.length}`), ...messageBytes]));
+    const compact = bytesToHex(secp256k1.sign(digest, walletPrivateKey, { prehash: false }));
+    for (const v of [27, 28]) {
+        const entry = { address, timestamp: entryTimestamp, signature: { signature: `0x${compact}${v.toString(16)}`, type: "eip191" } };
+        if (verifyAuthorWalletEntry({ entry, authorPublicKey, nowSeconds: entryTimestamp }).outcome === "valid") return entry;
+    }
+    throw Error("createAuthorWalletEntry: failed to produce a valid wallet entry");
 }
 
 export async function generateMockPost({
@@ -1157,7 +1184,7 @@ export async function generatePostToAnswerMathQuestion(props: Partial<CreateComm
     const mockPost = await generateMockPost({ communityAddress: props.communityAddress, pkc, postProps: props });
     mockPost.removeAllListeners("challenge");
     mockPost.once("challenge", (challengeMessage) => {
-        mockPost.publishChallengeAnswers({ challengeAnswers: ["2"] });
+        mockPost.publishChallengeAnswers({ challengeAnswers: { "0": "2" } });
     });
 
     return mockPost;
@@ -1222,6 +1249,10 @@ export async function resolveWhenConditionIsTrue(options: ResolveWhenConditionIs
 export async function disableValidationOfSignatureBeforePublishing(publication: Publication) {
     //@ts-expect-error
     publication._validateSignatureHook = async () => {};
+    // The local wallet-proof check is client-side validation too: a test that crafts a wire payload a client would
+    // never send needs it off to reach the community's own check (issue #566)
+    //@ts-expect-error
+    publication._validateAuthorWalletProofs = () => {};
 }
 
 export async function overrideCommentInstancePropsAndSign(comment: Comment, props: CreateCommentOptions) {
@@ -1454,7 +1485,7 @@ export async function publishChallengeAnswerMessageWithExtraProps({
     includeExtraPropsInChallengeSignedPropertyNames
 }: {
     publication: Publication;
-    challengeAnswers: string[];
+    challengeAnswers: Record<string, string>;
     extraProps: Object;
     includeExtraPropsInChallengeSignedPropertyNames: boolean;
 }) {
@@ -1501,7 +1532,7 @@ export async function publishChallengeMessageWithExtraProps({
     const log = Logger({ namespace: "pkc-js:test-util:publishChallengeMessageWithExtraProps" });
 
     const encryptedChallenges = await encryptEd25519AesGcmPublicKeyBuffer(
-        deterministicStringify({ challenges: [] })!,
+        deterministicStringify({ challenges: { "0": { challenge: "1+1=?", type: "text/plain", caseInsensitive: true } } })!, // a CHALLENGE is a non-empty record keyed by challenge index
         pubsubSigner.privateKey,
         Object.values(publication._challengeExchanges)[0].challengeRequest.signature.publicKey
     );
@@ -2111,9 +2142,16 @@ export async function publishStaticCommunityWithPostInPages(opts?: {
     // The embedded comments are signed with communityName too, as a client that loaded the community by its name
     // signs them. Requires withSelfResolvingName.
     withCommentsClaimingName?: boolean;
+    // The post's replies are reachable only through replies.pageCids: the first page holds another reply and links to a
+    // second page that holds the returned replyCid. Nothing is preloaded, so a client has to walk both pages (#515)
+    withReplyOnSecondPageOfPostPageCids?: boolean;
+    // The record carries no posts pages, so the post's CommentUpdate can only come from postUpdates
+    withPostOnlyInPostUpdates?: boolean;
 }) {
     if (opts?.withCommentsClaimingName && !opts.withSelfResolvingName)
         throw Error("withCommentsClaimingName requires withSelfResolvingName");
+    if (opts?.withReplyInPostPages && opts.withReplyOnSecondPageOfPostPageCids)
+        throw Error("withReplyInPostPages and withReplyOnSecondPageOfPostPageCids are mutually exclusive");
     const ipnsObj = await createNewIpns();
     const communityAddress = ipnsObj.signer.address;
     const communityName = opts?.withSelfResolvingName ? selfResolvingMockNameForAddress(communityAddress) : undefined;
@@ -2195,6 +2233,41 @@ export async function publishStaticCommunityWithPostInPages(opts?: {
                 }
             };
         }
+        let replyPageCids: { first: string; second: string } | undefined;
+        if (opts?.withReplyOnSecondPageOfPostPageCids) {
+            // Both replies share one timestamp, so neither the "new" nor the "old" walk meets a comment on the first
+            // page that tells it to stop before the second page
+            const repliesTimestamp = post.commentIpfs.timestamp;
+            const createPageEntry = async (content: string) => {
+                const reply = await createStaticPageComment(
+                    { parentCid: commentCid, postCid: commentCid, content, timestamp: repliesTimestamp },
+                    1
+                );
+                const replyCommentUpdate = {
+                    ...reply.commentUpdateWithoutSignature,
+                    signature: await signCommentUpdate({
+                        update: reply.commentUpdateWithoutSignature,
+                        signer: ipnsObj.signer,
+                        log: testLog
+                    })
+                };
+                return { cid: reply.commentCid, entry: { comment: JSON.parse(reply.commentIpfsJson), commentUpdate: replyCommentUpdate } };
+            };
+            const replyOnFirstPage = await createPageEntry(`Static reply on the first page - ${Date.now()}`);
+            const replyOnSecondPage = await createPageEntry(`Static reply on the second page - ${Date.now()}`);
+            replyCid = replyOnSecondPage.cid;
+            const secondPageCid = await addStringToIpfs(JSON.stringify({ comments: [replyOnSecondPage.entry] }));
+            const firstPageCid = await addStringToIpfs(JSON.stringify({ comments: [replyOnFirstPage.entry], nextCid: secondPageCid }));
+            replyPageCids = { first: firstPageCid, second: secondPageCid };
+            postCommentUpdateWithoutSignature = {
+                ...post.commentUpdateWithoutSignature,
+                replyCount: 2,
+                childCount: 2,
+                lastChildCid: replyCid,
+                lastReplyTimestamp: repliesTimestamp,
+                replies: { pages: {}, pageCids: { new: firstPageCid, old: firstPageCid } }
+            };
+        }
         const commentUpdate = {
             ...postCommentUpdateWithoutSignature,
             signature: await signCommentUpdate({ update: postCommentUpdateWithoutSignature, signer: ipnsObj.signer, log: testLog })
@@ -2211,7 +2284,9 @@ export async function publishStaticCommunityWithPostInPages(opts?: {
 
         const communityRecord = <CommunityIpfsType>{
             ...(await getTemplateCommunityRecord(ipnsObj.pkc)),
-            posts: { pages: { hot: { comments: [{ comment: JSON.parse(post.commentIpfsJson), commentUpdate }] } } },
+            ...(opts?.withPostOnlyInPostUpdates
+                ? {}
+                : { posts: { pages: { hot: { comments: [{ comment: JSON.parse(post.commentIpfsJson), commentUpdate }] } } } }),
             postUpdates: { "86400": folderCid },
             pubsubTopic: communityAddress,
             encryption: encryptionForSigner(ipnsObj.signer),
@@ -2219,10 +2294,20 @@ export async function publishStaticCommunityWithPostInPages(opts?: {
         };
         if (communityName) communityRecord.name = communityName;
         else delete communityRecord.name;
+        if (opts?.withPostOnlyInPostUpdates) delete communityRecord.posts;
         communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer, log: testLog });
         await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
 
-        return { communityAddress, communityName, commentCid, replyCid, communityRecord, ipnsObj };
+        return {
+            communityAddress,
+            communityName,
+            commentCid,
+            replyCid,
+            replyPageCids,
+            postUpdatesFolderCid: folderCid,
+            communityRecord,
+            ipnsObj
+        };
     } catch (e) {
         return destroyIpnsPkcAndRethrow(e);
     } finally {
@@ -2401,22 +2486,6 @@ export function mockPostToFailToLoadFromPostUpdates(postToBeMocked: Comment) {
         updatingPostComment._clientsManager._fetchPostCommentUpdateFromGateways = async () => {
             throw new PKCError("ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_ALL_POST_UPDATES_RANGES");
         };
-}
-
-export function mockPostToHaveCommunityWithNoPostUpdates(postToBeMocked: Comment) {
-    const updatingPostComment = findUpdatingComment(postToBeMocked._pkc, { cid: postToBeMocked.cid! });
-    if (!updatingPostComment) throw Error("Post should be updating before starting to mock");
-    if (postToBeMocked._pkc._pkcRpcClient) throw Error("Can't mock Post to to fail loading post from postUpdates when pkc is using RPC");
-
-    mockCommentToNotUsePagesForUpdates(postToBeMocked);
-    const originalCommunityUpdateHandle = updatingPostComment._clientsManager.handleUpdateEventFromCommunity.bind(
-        updatingPostComment._clientsManager
-    );
-    updatingPostComment._clientsManager.handleUpdateEventFromCommunity = (community: RemoteCommunity) => {
-        delete community.postUpdates;
-        delete community.raw.communityIpfs!.postUpdates;
-        return originalCommunityUpdateHandle(community);
-    };
 }
 
 export async function createCommentUpdateWithInvalidSignature(commentCid: string) {

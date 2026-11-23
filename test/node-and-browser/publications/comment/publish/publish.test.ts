@@ -2,6 +2,7 @@ import signers from "../../../../fixtures/signers.js";
 import Logger from "@pkcprotocol/pkc-logger";
 import { it, describe, expect, beforeAll, afterAll } from "vitest";
 import {
+    createAuthorWalletEntry,
     generateMockPost,
     publishRandomReply,
     publishWithExpectedResult,
@@ -209,17 +210,13 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Can publish a post with author.wallets`, async () => {
-            const wallets = {
-                eth: {
-                    address: "rinse12.eth",
-                    timestamp: Math.round(Date.now() / 1000),
-                    signature: { type: "eip191", signature: "0xnotactualsignaturejusttosatisfyschema" }
-                }
-            };
+            const signer = await pkc.createSigner();
+            // community acceptance verifies every wallet proof (BSIP-22), so the entry has to be a real one
+            const wallets = { eth: createAuthorWalletEntry({ authorPublicKey: signer.address }) };
             const post = await generateMockPost({
                 communityAddress: communityAddress,
                 pkc: pkc,
-                postProps: { author: { wallets } }
+                postProps: { author: { wallets }, signer }
             });
             expect(post.author.wallets).to.deep.equal(wallets);
             await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });

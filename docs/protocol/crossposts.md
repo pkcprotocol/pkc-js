@@ -48,7 +48,10 @@ Implemented in `_verifyCrosspost` in `src/signer/signatures.ts`, called from
 every client fetch path, since `verifyCommentIpfs` delegates to it.
 
 1. `CID(deterministicStringify(crosspost.comment)) === crosspost.cid`
-2. the embedded record contains no reserved/runtime fields
+2. the embedded record contains no reserved/runtime fields, and neither it nor its `author` carries a key named
+   like an object member (`toString`, `constructor`, `__proto__`, ...) or starting with `_`
+   (`ERR_CROSSPOST_COMMENT_INCLUDES_FORBIDDEN_KEY`, `ERR_CROSSPOST_COMMENT_AUTHOR_INCLUDES_FORBIDDEN_KEY`). Every chain level descends through here, and
+   `parseCommentIpfsSchemaWithPKCErrorIfItFails` walks the chain for the same keys
 3. every signable field the embedded record carries is in its `signature.signedPropertyNames`, so a
    chain cannot opt out of its own checks. See below.
 4. the embedded record's author signature verifies, recursing into a nested crosspost
@@ -194,7 +197,7 @@ is still tier 2.
 **`comment.crosspost` is a copy, `comment.raw.comment.crosspost` is the wire record.** `crosspost.cid`
 hashes the embedded record whole, so writing a runtime field into the wire object would stop it
 reproducing its own cid, break page generation and get the comment purged by the signature sweep.
-The copy is one shallow copy per chain level plus a copy of each level's author; everything below an
+The copy is one shallow copy per chain level plus a copy of each level's author (built with `mergeAuthorProps`, so a key such as `toString` can never become a member of it even for a record that skipped verification); everything below an
 author is shared by reference. `nameResolved` is the only field written into it.
 
 Passing the copy back to `createComment` is the normal way to re-crosspost something you just read,

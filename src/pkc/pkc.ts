@@ -1,7 +1,9 @@
 import {
     getDefaultDataPath,
-    listCommunitiesSync as nodeListCommunities,
+    isLocalCommunityAddress,
     findLocalCommunityAddress,
+    registerLocalCommunity,
+    markLocalCommunityDbAsBeingWritten,
     createKuboRpcClient,
     monitorCommunitiesDirectory,
     tryToDeleteCommunitiesThatFailedToBeDeletedBefore
@@ -34,7 +36,8 @@ import {
     removeUndefinedValuesRecursively,
     timestamp,
     resolveWhenPredicateIsTrue,
-    throwIfAbortSignalAborted
+    throwIfAbortSignalAborted,
+    linkAbortSignals
 } from "../util.js";
 import Vote from "../publications/vote/vote.js";
 import { createSigner, verifyCommentPubsubMessage } from "../signer/index.js";
@@ -142,6 +145,7 @@ import type { PageTypeJson } from "../pages/types.js";
 // so it stays a type-only import (erased at build time, no runtime cost).
 import type { Libp2pJsClient } from "../helia/libp2pjsClient.js";
 import type { AuthorNameRpcParam, CidRpcParam, GetLogsQuery, PKCCommunitiesEntry, RpcFetchCidResult } from "../clients/rpc-client/types.js";
+import type { AuthorNameResolveInFlight } from "../clients/base-client-manager.js";
 import { parseLogQueryWithPKCErrorIfItFails, parseRpcAuthorNameParam, parseRpcCidParam } from "../clients/rpc-client/rpc-schema-util.js";
 import { cleanWireAuthor, getAuthorNameFromWire, normalizeCreatePublicationAuthor } from "../publications/publication-author.js";
 import { CommunityList } from "../community-list/community-list.js";
@@ -252,7 +256,9 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     // name resolve is outstanding right now. On the PKC rather than on a clients manager because the callers
     // that overlap do not share one: a community's page sweep and an updating Comment both resolve the same
     // author on the same community update. Entries are removed when the attempt settles. Issue #353.
-    _authorNameResolvesInFlight = new Set<string>();
+    // Each maps to the callers waiting for that resolve, so a caller that finds one in flight can wait for
+    // its outcome instead of never hearing about the verdict.
+    _authorNameResolvesInFlight = new Map<string, AuthorNameResolveInFlight>();
 
     _timeouts = {
         "community-ipns": 5 * 60 * 1000, // 5min, for resolving community IPNS, or fetching community from gateways
@@ -353,7 +359,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         this._initRpcClientsIfNeeded();
         this._initIpfsGatewaysIfNeeded();
         this._initMemCaches();
-        this._inflightFetchManager = new InflightFetchManager();
+        this._inflightFetchManager = new InflightFetchManager({ isDestroyed: () => this.destroyed });
 
         if (!this.noData) {
             if (!this.pkcRpcClientsOptions)
@@ -588,6 +594,19 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         // abort fires, which leaks one listener per call (issues #145, #146).
         abortSignal?.addEventListener("abort", abortListener);
 
+        // The load runs under the comment's stop signal, which the comment.stop() below aborts. So when this call
+        // ends without the comment (abort, timeout, failure), its own fetch is cancelled, and a fetch it joined
+        // is not fetched again on its behalf once that fetch's owner is stopped.
+        comment._createStopAbortController();
+        // Look for the community's peers at the same moment as the comment CID (issue #562). The
+        // community load is only a way to reach those peers, so it is cancelled on every outcome, and
+        // its failure never decides this call's result: it is only reported next to the real error.
+        const communityConnectAbortController = new AbortController();
+        let communityLoadError: Error | undefined;
+        void comment
+            ._startParallelCommunityConnect({ abortSignal: communityConnectAbortController.signal })
+            .then((error) => (communityLoadError = error));
+
         const commentTimeout = this._timeouts["comment-ipfs"];
         try {
             await pTimeout(Promise.race([comment._attemptInfintelyToLoadCommentIpfs(), abortPromise]), {
@@ -597,14 +616,24 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
                     new TimeoutError(`pkc.getComment({cid: ${parsedGetCommentArgs}}) timed out after ${commentTimeout}ms`)
             });
             if (!comment.signature) throw Error("Failed to load CommentIpfs");
+            // The loaded comment started resolving its author's name under that signal. That resolve outlives this
+            // call: its verdict lands on the comment and in the pkc-wide cache. Detach the signal so the
+            // comment.stop() below does not cancel it.
+            comment._clearStopAbortController();
             return comment;
         } catch (e) {
             // Abort wins over whatever else the comment happened to emit: the caller cancelled on
             // purpose, so reporting a stale retriable error instead would be misleading.
-            if (abortError) throw abortError;
-            if (lastUpdateError) throw lastUpdateError;
-            throw e;
+            const errorToThrow = abortError ?? lastUpdateError ?? e;
+            if (communityLoadError) {
+                // A PKCError already has details; the plain TimeoutError gets the same shape, so a
+                // caller reads error.details.communityLoadError either way.
+                if (errorToThrow instanceof PKCError) errorToThrow.details = { ...errorToThrow.details, communityLoadError };
+                else if (errorToThrow instanceof Error) Object.assign(errorToThrow, { details: { communityLoadError } });
+            }
+            throw errorToThrow;
         } finally {
+            communityConnectAbortController.abort();
             abortSignal?.removeEventListener("abort", abortListener);
             comment.removeListener("error", errorListener);
             await comment.stop();
@@ -978,8 +1007,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             "../runtime/node/community/local-community.js"
         );
 
-        const localCommunities = await nodeListCommunities(this);
-        const isLocalCommunity = localCommunities.includes(options.address); // Community exists already, only pass address so we don't override other props
+        const isLocalCommunity = isLocalCommunityAddress(this, options.address); // Community exists already, only pass address so we don't override other props
         const community = new LocalCommunity(this);
         if (isLocalCommunity) {
             // If the community is already created before, then load it with address only. We don't care about other props
@@ -992,7 +1020,16 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             // This is a new community
             const parsedOptions = <CreateNewLocalCommunityParsedOptions>options;
             await community.initNewLocalCommunityPropsNoMerge(parsedOptions); // We're initializing a new local community props here
-            await createNewLocalCommunityDb(community);
+            // The DB file is the community and its row in the communities registry is written from it, so the file
+            // comes first. Its creator lists it, as soon as it is complete: the filesystem events of its writes are
+            // not acted on meanwhile (issue #585)
+            const doneWritingDbFile = markLocalCommunityDbAsBeingWritten(this, community.address);
+            try {
+                await createNewLocalCommunityDb(community);
+            } finally {
+                doneWritingDbFile();
+            }
+            registerLocalCommunity(this, community.address);
             log.trace(`createLocalCommunity: Created a new local community (${community.address}) with props:`);
             community.emit("update", community);
             await this._awaitCommunitiesToIncludeCommunity(community.address);
@@ -1423,11 +1460,12 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
     }
 
     // Folds teardown into a caller's signal, so work nobody explicitly cancelled still stops when the
-    // pkc is destroyed. Returns the destroy signal untouched when there is nothing to combine, which
-    // keeps AbortSignal.any() (and the listener it registers on both sources) off the common path.
-    _combineWithDestroyAbortSignal(abortSignal?: AbortSignal): AbortSignal {
-        const destroySignal = this._getDestroyAbortSignal();
-        return abortSignal ? AbortSignal.any([abortSignal, destroySignal]) : destroySignal;
+    // pkc is destroyed. Returns the destroy signal untouched when there is nothing to combine. Linked with
+    // listeners rather than AbortSignal.any(), which on Node 20/22 retains memory per call for as long as
+    // the destroy signal lives (#502), so the caller must dispose() once its operation settles.
+    _combineWithDestroyAbortSignal(abortSignal?: AbortSignal): { signal: AbortSignal; dispose: () => void } {
+        const linked = linkAbortSignals([abortSignal, this._getDestroyAbortSignal()]);
+        return { signal: linked.signal!, dispose: linked.dispose };
     }
 
     async destroy() {

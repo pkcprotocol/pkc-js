@@ -1,6 +1,11 @@
 import { retryKuboBlockPutPinAndProvidePubsubTopic } from "../../../../util.js";
 import type { LocalCommunity } from "../local-community.js";
 import { challengeExchangePubsubTopic, communityChallengePubsubTopic } from "./comment-updates.js";
+import { listSubscribedPubsubTopicsShared } from "../../../../clients/shared-pubsub-topic-list.js";
+
+// Communities on one node spread their cycles over the publishInterval, so a list reused for a quarter of it
+// costs the node about four pubsub.ls() calls per interval however many communities it hosts (issue #576).
+const SHARED_TOPIC_LIST_MAX_AGE_AS_FRACTION_OF_PUBLISH_INTERVAL = 1 / 4;
 
 export async function listenToIncomingRequests(community: LocalCommunity) {
     const log = community._log;
@@ -14,13 +19,16 @@ export async function listenToIncomingRequests(community: LocalCommunity) {
         ? community._clientsManager.getDefaultKuboPubsubClient()
         : community._clientsManager.getDefaultKuboPubsubClientIfAny();
     if (!pubsubClient) return;
-    const subscribedTopics = await pubsubClient._client.pubsub.ls();
+    const subscribedTopics = await listSubscribedPubsubTopicsShared({
+        client: pubsubClient._client,
+        maxAgeMs: community._pkc.publishInterval * SHARED_TOPIC_LIST_MAX_AGE_AS_FRACTION_OF_PUBLISH_INTERVAL
+    });
     // Whatever we joined last, which is the only way to know a topic is ours: the kubo node is shared
     // with every other community on it, so kubo's subscription list cannot be diffed safely.
     const staleTopic = community._subscribedChallengePubsubTopic;
     const unsubscribeStaleTopicIfNeeded = async (currentTopic: string | undefined) => {
         if (!staleTopic || staleTopic === currentTopic) return;
-        if (subscribedTopics.includes(staleTopic))
+        if (subscribedTopics.has(staleTopic))
             await community._clientsManager.pubsubUnsubscribe(staleTopic, community.handleChallengeExchange);
         community._subscribedChallengePubsubTopic = undefined;
         log(`_listenToIncomingRequests: Stopped listening on the previous challenge exchange pubsub topic (${staleTopic})`);
@@ -30,7 +38,7 @@ export async function listenToIncomingRequests(community: LocalCommunity) {
         // settings.disablePubsubChallengeExchange is on (issue #229). This runs on every sync-loop
         // iteration, so toggling the setting on while started drops the subscription without a restart.
         const disabledTopic = communityChallengePubsubTopic(community);
-        if (disabledTopic && subscribedTopics.includes(disabledTopic)) {
+        if (disabledTopic && subscribedTopics.has(disabledTopic)) {
             await community._clientsManager.pubsubUnsubscribe(disabledTopic, community.handleChallengeExchange);
             if (community._subscribedChallengePubsubTopic === disabledTopic) community._subscribedChallengePubsubTopic = undefined;
             log(`_listenToIncomingRequests: Challenge exchange is disabled, unsubscribed from pubsub topic (${disabledTopic})`);
@@ -42,7 +50,7 @@ export async function listenToIncomingRequests(community: LocalCommunity) {
     // one, otherwise kubo keeps delivering requests to a handler on a topic we no longer advertise and
     // the subscription leaks for the lifetime of the node.
     await unsubscribeStaleTopicIfNeeded(topic);
-    if (!subscribedTopics.includes(topic)) {
+    if (!subscribedTopics.has(topic)) {
         await community._clientsManager.pubsubUnsubscribe(topic, community.handleChallengeExchange); // Make sure it's not hanging
         await community._clientsManager.pubsubSubscribe(topic, community.handleChallengeExchange);
         community._clientsManager.updateKuboRpcPubsubState("waiting-challenge-requests", pubsubClient.url);

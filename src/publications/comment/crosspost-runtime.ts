@@ -17,6 +17,8 @@
 import { getAuthorNameFromWire } from "../publication-author.js";
 import { MAX_CROSSPOST_DEPTH } from "./crosspost-depth.js";
 import { sha256 } from "js-sha256";
+import { mergeAuthorProps } from "../../unknown-props.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import type { LRUCache } from "lru-cache";
 import type { Crosspost } from "./schema.js";
 import type { CrosspostRuntime } from "./types.js";
@@ -30,14 +32,23 @@ function _chainOf<T extends { comment: { crosspost?: T } }>(crosspost: T): T[] {
     return chain;
 }
 
-export function cloneCrosspostForRuntime(crosspost: Crosspost): CrosspostRuntime {
+// `log` is optional: the page mappers (pages/util.ts) are pure and have no logger to hand in, so only a Comment reports
+// the author props it refused.
+export function cloneCrosspostForRuntime(crosspost: Crosspost, log?: Logger): CrosspostRuntime {
     const chain = _chainOf(crosspost);
     let child: CrosspostRuntime | undefined;
     // Innermost first, so each level can point at the copy of the one below it.
     for (let i = chain.length - 1; i >= 0; i--) {
         const level = chain[i];
         const comment = { ...level.comment } as CrosspostRuntime["comment"];
-        if (level.comment.author) comment.author = { ...level.comment.author };
+        if (level.comment.author) {
+            // not a plain spread: a key such as toString or __proto__ in a signed author must not become a member
+            const author: Record<string, unknown> = {};
+            const { skipped } = mergeAuthorProps({ target: author, props: level.comment.author });
+            if (skipped.length > 0)
+                log?.error(`cloneCrosspostForRuntime: Refused author props of crosspost level ${i} that collide with an object`, skipped);
+            comment.author = <CrosspostRuntime["comment"]["author"]>author;
+        }
         // `child` is defined exactly when this level had a nested crosspost, so this preserves
         // absence rather than writing an explicit undefined.
         if (child) comment.crosspost = child;

@@ -178,7 +178,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc"]
 
                 mockPost.on("challenge", async (challenge) => {
                     challengesReceived.push(challenge);
-                    await mockPost.publishChallengeAnswers({ challengeAnswers: ["2"] });
+                    await mockPost.publishChallengeAnswers({ challengeAnswers: { "0": "2" } });
                 });
 
                 await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });

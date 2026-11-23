@@ -416,12 +416,18 @@ export class PublicationClientsManager extends PKCClientsManager {
             communityPublicKey: updatingCommunityInstance.community.publicKey
         });
         if (nameMismatch) throw nameMismatch;
-        return {
+        const communityForPublishing = {
             address: updatingCommunityInstance.community.address,
             publicKey: updatingCommunityInstance.community.publicKey!,
             name: updatingCommunityInstance.community.name,
             encryption: communityIpfs.encryption,
             pubsubTopic: communityIpfs.pubsubTopic
         };
+        // Cached under the address this publication looks it up by, so the next publish reuses it. The
+        // community client manager only writes this cache when its own non-RPC fetch finds a new record,
+        // so a record served over RPC, or one an instance already held, was never cached and every
+        // publish created, updated and stopped a community instance again (#490)
+        this._pkc._memCaches.communityForPublishing.set(this._publication.communityAddress, communityForPublishing);
+        return communityForPublishing;
     }
 }

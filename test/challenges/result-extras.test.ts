@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import Logger from "@pkcprotocol/pkc-logger";
 import { getChallengeVerification, pkcJsChallenges } from "../../dist/node/runtime/node/community/challenges/index.js";
+import { validateChallengeResultExtras } from "../../dist/node/runtime/node/community/challenges/validate-challenge-result.js";
 import type { GetChallengeAnswers } from "../../dist/node/runtime/node/community/challenges/index.js";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
@@ -20,8 +21,7 @@ const makeExtrasChallenge = (resultLiteral: Record<string, unknown>) => () => ({
 describe("ChallengeResult extras: aggregation across successful challenges", () => {
     const author = { address: "QmTestAddr" };
     const challengeRequestMessage = {
-        comment: { author },
-        challengeAnswers: []
+        comment: { author }
     } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
     let mockPkc: ReturnType<typeof PKC>;
@@ -43,7 +43,7 @@ describe("ChallengeResult extras: aggregation across successful challenges", () 
         const verification = (await getChallengeVerification({
             challengeRequestMessage,
             community,
-            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
         })) as { challengeSuccess: boolean; aggregatedComment?: Record<string, unknown> };
 
         expect(verification.challengeSuccess).to.equal(true);
@@ -64,7 +64,7 @@ describe("ChallengeResult extras: aggregation across successful challenges", () 
         const verification = (await getChallengeVerification({
             challengeRequestMessage,
             community,
-            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
         })) as { challengeSuccess: boolean; aggregatedCommentUpdate?: Record<string, unknown> };
 
         expect(verification.challengeSuccess).to.equal(true);
@@ -84,7 +84,7 @@ describe("ChallengeResult extras: aggregation across successful challenges", () 
         const verification = (await getChallengeVerification({
             challengeRequestMessage,
             community,
-            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
         })) as { challengeSuccess: boolean; aggregatedReason?: string; challengeErrors?: Record<string, string> };
 
         expect(verification.challengeSuccess).to.equal(false);
@@ -111,7 +111,7 @@ describe("ChallengeResult extras: aggregation across successful challenges", () 
         const verification = (await getChallengeVerification({
             challengeRequestMessage,
             community,
-            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
         })) as {
             challengeSuccess: boolean;
             pendingApproval?: boolean;
@@ -129,8 +129,7 @@ describe("ChallengeResult extras: aggregation across successful challenges", () 
 describe("ChallengeResult extras: override-guard", () => {
     const author = { address: "QmTestAddr2" };
     const challengeRequestMessage = {
-        comment: { author },
-        challengeAnswers: []
+        comment: { author }
     } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
     let mockPkc: ReturnType<typeof PKC>;
@@ -156,7 +155,7 @@ describe("ChallengeResult extras: override-guard", () => {
             await getChallengeVerification({
                 challengeRequestMessage,
                 community,
-                getChallengeAnswers: (async () => []) as GetChallengeAnswers
+                getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
             });
         } catch (e) {
             caught = e as Error;
@@ -183,13 +182,56 @@ describe("ChallengeResult extras: override-guard", () => {
             await getChallengeVerification({
                 challengeRequestMessage,
                 community,
-                getChallengeAnswers: (async () => []) as GetChallengeAnswers
+                getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
             });
         } catch (e) {
             caught = e as Error;
         }
         expect(caught).to.not.equal(undefined);
         expect((caught as { code?: string })?.code).to.equal("ERR_CHALLENGE_RESULT_OVERRIDES_RESERVED_COMMENT_UPDATE_FIELD");
+    });
+
+    // runtime/DB-only names CommentUpdateReservedFields rejects at verification, and a prototype key that cannot be
+    // carried as an own property (issue #572)
+    for (const reservedKey of ["raw", "state", "extraProps"]) {
+        it(`surfaces failure when a challenge sets the runtime-only commentUpdate key ${reservedKey}`, async () => {
+            const commentUpdate = JSON.parse(`{"${reservedKey}": "x"}`) as Record<string, unknown>;
+            (mockPkc.settings ??= {}).challenges = {
+                "bad-runtime": makeExtrasChallenge({ success: true, commentUpdate })
+            };
+            const community = {
+                _log: testLog,
+                settings: { challenges: [{ name: "bad-runtime" }] },
+                _pkc: mockPkc
+            } as unknown as LocalCommunity;
+
+            let caught: Error | undefined;
+            try {
+                await getChallengeVerification({
+                    challengeRequestMessage,
+                    community,
+                    getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
+                });
+            } catch (e) {
+                caught = e as Error;
+            }
+            expect((caught as { code?: string } | undefined)?.code).to.equal(
+                "ERR_CHALLENGE_RESULT_OVERRIDES_RESERVED_COMMENT_UPDATE_FIELD"
+            );
+        });
+    }
+
+    // The pipeline's zod parse already drops an own __proto__ key, so the guard is exercised directly: it must not
+    // depend on that parse, because a carrier built with `{}` cannot hold the key as an own property
+    it("the validator rejects an own __proto__ key on commentUpdate", () => {
+        const commentUpdate = JSON.parse('{"__proto__": "x"}') as Record<string, unknown>;
+        let caught: Error | undefined;
+        try {
+            validateChallengeResultExtras({ challengeResult: { success: true, commentUpdate }, challengeIndex: 0 });
+        } catch (e) {
+            caught = e as Error;
+        }
+        expect((caught as { code?: string } | undefined)?.code).to.equal("ERR_CHALLENGE_RESULT_OVERRIDES_RESERVED_COMMENT_UPDATE_FIELD");
     });
 
     it("allows an arbitrary new key on `comment` (e.g. countryCode)", async () => {
@@ -205,7 +247,7 @@ describe("ChallengeResult extras: override-guard", () => {
         const verification = (await getChallengeVerification({
             challengeRequestMessage,
             community,
-            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
         })) as { challengeSuccess: boolean; aggregatedComment?: Record<string, unknown> };
 
         expect(verification.challengeSuccess).to.equal(true);
@@ -228,7 +270,7 @@ describe("ChallengeResult extras: override-guard", () => {
         const verification = (await getChallengeVerification({
             challengeRequestMessage,
             community,
-            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
         })) as { challengeSuccess: boolean; aggregatedCommentUpdate?: Record<string, unknown> };
 
         expect(verification.challengeSuccess).to.equal(true);
@@ -253,7 +295,7 @@ describe("ChallengeResult extras: override-guard", () => {
             await getChallengeVerification({
                 challengeRequestMessage,
                 community,
-                getChallengeAnswers: (async () => []) as GetChallengeAnswers
+                getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
             });
         } catch (e) {
             caught = e as Error;
@@ -281,7 +323,7 @@ describe("ChallengeResult extras: override-guard", () => {
         const verification = (await getChallengeVerification({
             challengeRequestMessage,
             community,
-            getChallengeAnswers: (async () => []) as GetChallengeAnswers
+            getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
         })) as { challengeSuccess: boolean; aggregatedCommentUpdate?: Record<string, unknown> };
 
         expect(verification.challengeSuccess).to.equal(true);
@@ -311,7 +353,7 @@ describe("ChallengeResult extras: override-guard", () => {
             await getChallengeVerification({
                 challengeRequestMessage,
                 community,
-                getChallengeAnswers: (async () => []) as GetChallengeAnswers
+                getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
             });
         } catch (e) {
             caught = e as Error;
@@ -338,7 +380,7 @@ describe("ChallengeResult extras: override-guard", () => {
             await getChallengeVerification({
                 challengeRequestMessage,
                 community,
-                getChallengeAnswers: (async () => []) as GetChallengeAnswers
+                getChallengeAnswers: (async () => ({})) as GetChallengeAnswers
             });
         } catch (e) {
             caught = e as Error;

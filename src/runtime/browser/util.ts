@@ -16,12 +16,20 @@ export const listCommunities = () => {
     throw Error("listCommunities should not be called in browser");
 };
 
-export const listCommunitiesSync = () => {
-    throw Error("listCommunitiesSync should not be called in browser");
+export const isLocalCommunityAddress = (): boolean => {
+    throw Error("isLocalCommunityAddress should not be called in browser");
 };
 
 export const findLocalCommunityAddress = (): string | undefined => {
     throw Error("findLocalCommunityAddress should not be called in browser");
+};
+
+export const registerLocalCommunity = () => {
+    throw Error("registerLocalCommunity should not be called in browser");
+};
+
+export const markLocalCommunityDbAsBeingWritten = (): (() => void) => {
+    throw Error("markLocalCommunityDbAsBeingWritten should not be called in browser");
 };
 
 export const monitorCommunitiesDirectory = () => {

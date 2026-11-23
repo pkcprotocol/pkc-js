@@ -6,6 +6,7 @@ import type { DbRepliesSortEntry } from "../../../../publications/comment/types.
 import type { PurgedCommentTableRows } from "../db-handler-types.js";
 import type { LocalCommunity } from "../local-community.js";
 import { calculateLocalMfsPathForCommentUpdate } from "./comment-updates.js";
+import { noteUnconfirmedRemovalsFromBuckets, rememberPostUpdatesBucketsOfPaths, statBucketsOfPaths } from "./post-updates-bucket.js";
 
 // pin.ls probe with the same retry policy as statMfsPathSafely (3 retries, 1s/2s/4s backoff). It
 // does not distinguish transient errors (`fetch failed`, ECONNRESET, ETIMEDOUT...) from deterministic
@@ -212,6 +213,8 @@ export async function rmUnneededMfsPaths(community: LocalCommunity, opts?: { num
     if (community._mfsPathsToRemove.size > 0) {
         const toDeleteMfsPaths = Array.from(community._mfsPathsToRemove.values());
         const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
+        for (const watcher of community._mfsPathRemovalWatchers) for (const path of toDeleteMfsPaths) watcher.add(path);
+        const bucketsBefore = await statBucketsOfPaths({ community, mfsPaths: toDeleteMfsPaths });
         try {
             await removeMfsFilesSafely({
                 kuboRpcClient: kuboRpc,
@@ -220,6 +223,7 @@ export async function rmUnneededMfsPaths(community: LocalCommunity, opts?: { num
                 inputNumOfRetries: opts?.numOfRetries
             });
             toDeleteMfsPaths.forEach((path) => community._mfsPathsToRemove.delete(path));
+            await rememberPostUpdatesBucketsOfPaths({ community, mfsPaths: toDeleteMfsPaths, before: bucketsBefore });
             return toDeleteMfsPaths;
         } catch (e) {
             const error = <Error>e;
@@ -227,9 +231,12 @@ export async function rmUnneededMfsPaths(community: LocalCommunity, opts?: { num
                 // An absent path is already removed, so dequeue it like a successful rm. Left queued, the
                 // publish cycle's per-pass drain would retry it forever (issue #420)
                 toDeleteMfsPaths.forEach((path) => community._mfsPathsToRemove.delete(path));
+                await rememberPostUpdatesBucketsOfPaths({ community, mfsPaths: toDeleteMfsPaths, before: bucketsBefore });
                 return toDeleteMfsPaths;
             } else {
                 log.error("_rmUnneededMfsPaths: Failed to remove paths from MFS", toDeleteMfsPaths, e);
+                // The daemon may have applied what the client reports as failed
+                noteUnconfirmedRemovalsFromBuckets({ community, mfsPaths: toDeleteMfsPaths });
                 throw error;
             }
         }
@@ -275,17 +282,82 @@ const MIN_MS_BETWEEN_GC = 60 * 60 * 1000;
 
 // repo.gc and repo.stat are whole-daemon operations, but cleanUpIpfsRepoIfDue runs once per community
 // sync — a node hosting dozens of communities calls it dozens of times per interval against a single
-// shared daemon. Both pieces of state are therefore keyed by Kubo RPC URL, not by community: the
-// timestamp so the interval floor is per-daemon, and the in-flight promise so concurrent callers join
-// one GC run instead of each starting their own.
-const lastGcFinishedAtByKuboUrl = new Map<string, number>();
+// shared daemon. The state is therefore keyed by Kubo RPC URL, not by community: the timestamp so the
+// interval floor is per-daemon, and the in-flight promise so concurrent callers join one GC run
+// instead of each starting their own.
+//
+// The timestamp is when the current interval started: the last sweep, or the first time this data
+// path met the daemon. It lives in the PKC's storage (<dataPath>/storage.db), so the schedule belongs
+// to the data path and not to the process. Kept in memory only, every new process swept in its first
+// sync: a daemon restarted more often than hourly swept on every start, and each test file (its own
+// process) swept the shared test daemon two seconds in, about 180 sweeps per suite run, one of which
+// deleted another test's block every time the two files happened to start together. The first meeting
+// starts an interval instead of sweeping, which also keeps a PKC without a data path (storage in
+// memory) from sweeping on every start. The in-memory copy only saves the storage read while it is
+// fresh.
+const intervalStartedAtByKuboUrl = new Map<string, number>();
 const inFlightGcByKuboUrl = new Map<string, Promise<void>>();
 
+const gcIntervalStorageKey = (kuboUrl: string) => `repoGcIntervalStartedAt:${kuboUrl}`;
+
 // Exported for tests: module state outlives a single community, so a suite that asserts on the
-// interval floor has to be able to clear it between cases.
+// interval floor has to be able to clear it between cases. Clears what a new process would start
+// without, not what is stored.
 export function _resetRepoGcSchedulingState() {
-    lastGcFinishedAtByKuboUrl.clear();
+    intervalStartedAtByKuboUrl.clear();
     inFlightGcByKuboUrl.clear();
+}
+
+// The schedule must not take the publish loop down with it: a storage failure costs the sharing
+// between processes, and this process goes on with what it has in memory.
+async function _readStoredGcIntervalStart({
+    community,
+    kuboUrl,
+    log
+}: {
+    community: LocalCommunity;
+    kuboUrl: string;
+    log: Logger;
+}): Promise<number | undefined> {
+    try {
+        const stored: unknown = await community._pkc._storage.getItem(gcIntervalStorageKey(kuboUrl));
+        return typeof stored === "number" ? stored : undefined;
+    } catch (e) {
+        log.error("Failed to read when the GC interval of the kubo node", kuboUrl, "started", e);
+        return undefined;
+    }
+}
+
+async function _startGcInterval({ community, kuboUrl, log }: { community: LocalCommunity; kuboUrl: string; log: Logger }): Promise<void> {
+    const now = Date.now();
+    intervalStartedAtByKuboUrl.set(kuboUrl, now);
+    try {
+        await community._pkc._storage.setItem(gcIntervalStorageKey(kuboUrl), now);
+    } catch (e) {
+        log.error("Failed to store when the GC interval of the kubo node", kuboUrl, "started", e);
+    }
+}
+
+// Whether a sweep is due. Starts the interval when there is none (or when it starts in the future, a
+// clock that was set back), which is not due.
+async function _isRepoGcDue({ community, kuboUrl, log }: { community: LocalCommunity; kuboUrl: string; log: Logger }): Promise<boolean> {
+    const isRunning = (startedAt: number | undefined): startedAt is number =>
+        typeof startedAt === "number" && startedAt <= Date.now() && Date.now() - startedAt < MIN_MS_BETWEEN_GC;
+
+    const inMemory = intervalStartedAtByKuboUrl.get(kuboUrl);
+    if (isRunning(inMemory)) return false;
+
+    // another process on this data path may have swept since
+    const stored = await _readStoredGcIntervalStart({ community, kuboUrl, log });
+    const startedAt = typeof stored === "number" && typeof inMemory === "number" ? Math.max(stored, inMemory) : stored ?? inMemory;
+    if (isRunning(startedAt)) {
+        intervalStartedAtByKuboUrl.set(kuboUrl, startedAt);
+        return false;
+    }
+    if (typeof startedAt === "number" && startedAt <= Date.now()) return true;
+
+    await _startGcInterval({ community, kuboUrl, log });
+    return false;
 }
 
 export async function cleanUpIpfsRepoIfDue(community: LocalCommunity, force = false): Promise<void> {
@@ -359,10 +431,7 @@ async function _runRepoGcIfDue({
 }): Promise<void> {
     const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
 
-    if (!force) {
-        const lastGcFinishedAt = lastGcFinishedAtByKuboUrl.get(kuboUrl);
-        if (typeof lastGcFinishedAt === "number" && Date.now() - lastGcFinishedAt < MIN_MS_BETWEEN_GC) return;
-    }
+    if (!force && !(await _isRepoGcDue({ community, kuboUrl, log }))) return;
 
     // Read purely for the before/after line at the end, so a failure here must not skip the sweep.
     const repoSizeBefore = await _readRepoSizeSafely({ kuboRpc, kuboUrl, log });
@@ -379,7 +448,7 @@ async function _runRepoGcIfDue({
     } finally {
         // Stamped on failure too: a daemon that can't GC is a daemon we should back off from, not
         // one to retry against every 20s sync for the rest of its life.
-        lastGcFinishedAtByKuboUrl.set(kuboUrl, Date.now());
+        await _startGcInterval({ community, kuboUrl, log });
     }
 
     // How much a GC actually reclaims is the open question on pkc-js#225: the affected node had

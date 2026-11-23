@@ -423,7 +423,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             comment.removeAllListeners();
             await comment.publish();
 
-            comment.once("challenge", () => comment.publishChallengeAnswers({ challengeAnswers: ["2"] }));
+            comment.once("challenge", () => comment.publishChallengeAnswers({ challengeAnswers: { "0": "2" } }));
 
             const challengeAnswerPubsubMsg = await new Promise<DecryptedChallengeAnswerMessageType>((resolve) =>
                 comment.once("challengeanswer", resolve)
@@ -507,7 +507,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 comment._clientsManager.pubsubPublishOnProvider =
                     (async () => {}) as typeof comment._clientsManager.pubsubPublishOnProvider; // Disable publishing
 
-                await comment.publishChallengeAnswers({ challengeAnswers: ["test hello"] });
+                await comment.publishChallengeAnswers({ challengeAnswers: { "0": "test hello" } });
                 // comment._challengeAnswer should be defined now
 
                 const challengeAnswersPubsubMessage = Object.values(comment._challengeExchanges).find(
@@ -559,7 +559,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             const pubsubSigner = await pkc.createSigner();
             const differentChallengeRequestId = await getBufferedPKCAddressFromPublicKey(pubsubSigner.publicKey);
             const encrypted = await encryptEd25519AesGcm(
-                JSON.stringify({ challengeAnswers: ["2"] }),
+                JSON.stringify({ challengeAnswers: { "0": "2" } }),
                 pubsubSigner.privateKey,
                 comment._community!.encryption!.publicKey
             );

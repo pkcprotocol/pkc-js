@@ -42,7 +42,7 @@ import type {
 import { storePublication } from "./local-community/publication-store.js";
 import type { IpfsHttpClientPubsubMessage } from "../../../types.js";
 import { verifyCommunity } from "../../../signer/signatures.js";
-import { deriveCommentIpfsFromCommentTableRow, refreshCommunitiesList } from "../util.js";
+import { deriveCommentIpfsFromCommentTableRow } from "../util.js";
 import { SignerWithPublicKeyAddress } from "../../../signer/index.js";
 import { RpcLocalCommunity } from "../../../community/rpc-local-community.js";
 import { omit, pick } from "remeda";
@@ -51,7 +51,7 @@ import { CommunityIpfsSchema } from "../../../community/schema.js";
 import { MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS } from "../../../community/community-client-manager.js";
 import { sha256 } from "js-sha256";
 import { AllPageCids } from "../../../pages/types.js";
-import { CHALLENGE_EXCHANGE_TTL_MS, generateDefaultChallenges } from "./local-community/defaults.js";
+import { CHALLENGE_EXCHANGE_TTL_MS, SLOW_GET_CHALLENGE_WARNING_MS, generateDefaultChallenges } from "./local-community/defaults.js";
 import {
     createNewLocalCommunityDb,
     getDbInternalState,
@@ -81,7 +81,6 @@ import {
     addOldPageCidsToCidsToUnpin,
     calculateLatestUpdateTrigger,
     calculateNewPostUpdates,
-    resolveIpnsAndLogIfPotentialProblematicSequence,
     shouldResolveDomainForVerification,
     updateCommunityIpnsIfNeeded
 } from "./local-community/ipns-publishing.js";
@@ -108,7 +107,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     override signer!: SignerWithPublicKeyAddress;
     override raw: RpcLocalCommunity["raw"] = {};
     _postUpdatesBuckets = [86400, 604800, 2592000, 3153600000]; // 1 day, 1 week, 1 month, 100 years. Expecting to be sorted from smallest to largest
-
     _defaultCommunityChallenges: CommunityChallengeSetting[] = generateDefaultChallenges();
 
     // These caches below will be used to facilitate challenges exchange with authors, they will expire after 10 minutes
@@ -131,12 +129,37 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // same key has inserted its alias row, so the author's concurrent first publications resolve to
     // one alias instead of each generating their own (issue #399).
     _pseudonymityAliasLocks: Map<string, Promise<void>> = new Map();
+
+    // Per-author shared key K for the pseudonymity author tag (issue #381), keyed by the author's
+    // public key. The X25519 + HKDF is the expensive part and depends only on (community key, author
+    // key), so it is cached for the instance; the per-comment HMAC over the cid is recomputed every
+    // time. signerPublicKey is stored so a signer/minter rotation (which re-signs every CommentUpdate
+    // anyway) recomputes K instead of reusing a key derived from the old community key. Bounded by the
+    // alias table's distinct authors; in memory only.
+    _pseudonymityTagKeyCache: Map<string, { signerPublicKey: string; sharedKey: Uint8Array }> = new Map();
     // Lifetime of one challenge exchange (see CHALLENGE_EXCHANGE_TTL_MS). Read when the caches
     // above are created at start; an instance field so a test can lower it.
     _challengeExchangeTtlMs: number = CHALLENGE_EXCHANGE_TTL_MS;
+    // How long a getChallenge() call may run before the community logs it as slow (issue #362).
+    // A field rather than the bare constant so tests can shorten it.
+    _slowGetChallengeWarningMs: number = SLOW_GET_CHALLENGE_WARNING_MS;
 
     _cidsToUnPin: Set<string> = new Set<string>();
     _mfsPathsToRemove: Set<string> = new Set<string>();
+    // The cid MFS held for each postUpdates bucket the last time this process wrote to it or removed from it,
+    // by bucket. The record build stats every bucket anyway, and a different cid means somebody else changed it.
+    // Empty after a restart: the first stat of a bucket is taken as what it should be.
+    _postUpdatesBucketCids: Map<number, string> = new Map();
+    // The cid of a bucket this process started to swap in, until the swap is confirmed: a swap that fails after the
+    // daemon did it leaves this bucket in MFS, and it is this process's own
+    _postUpdatesBucketPendingCids: Map<number, string> = new Map();
+    // Buckets this process removed paths from without being able to say what MFS holds as a result: the rm failed
+    // (the daemon may still have applied it) or another removal changed the bucket meanwhile. A bucket whose cid
+    // is not the remembered one is expected for these, so a write audits it and goes on when nothing is missing.
+    _postUpdatesBucketsWithUnconfirmedRemovals: Set<number> = new Set();
+    // Each set here is handed every MFS path whose removal starts while it is registered: a postUpdates bucket
+    // swap in progress repeats those removals on the bucket it swaps in (see writePostUpdatesToMfs)
+    _mfsPathRemovalWatchers: Set<Set<string>> = new Set();
     _communityUpdateTriggerValue: boolean = false;
     // Counts every request for a new record (each time the trigger is set to true), so the publish loop can tell a new
     // request from the trigger a failed cycle left set (issue #430)
@@ -147,7 +170,11 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     set _communityUpdateTrigger(value: boolean) {
         if (value) this._updateTriggerGeneration++;
         this._communityUpdateTriggerValue = value;
+        if (value) this._wakePublishLoop?.();
     }
+    // Set by the publish loop while it sleeps between cycles: ends the sleep. Called on every request for a new
+    // record (the setter above) and by stop(), which is what lets the loop sleep without polling (issue #576)
+    _wakePublishLoop?: () => void = undefined;
     _combinedHashOfPendingCommentsCids: string = sha256("");
 
     _pageGenerator!: PageGenerator;
@@ -161,11 +188,19 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // uninstalled is reported once instead of on every cycle (issue #428).
     _reportedChallengeLoadFailures: string | undefined = undefined;
     _dbHandler!: DbHandler;
+    _startTakenByAnotherInstance = false; // set by the publish loop when another PKC instance has claimed this started community, read by the teardown of stop()
     _stopHasBeenCalled: boolean; // we use this to track if community.stop() has been called after community.start() or community.update()
     _publishLoopPromise?: Promise<void> = undefined;
     _updateLoopPromise?: Promise<void> = undefined;
+    _startOrUpdateInFlight?: Promise<void> = undefined; // settles once start() or update() is done setting up, stop() waits for it
+    _stopInFlight?: Promise<void> = undefined; // settles once stop() is done tearing down, a stop() or edit() called meanwhile waits for it
+    _deleteInFlight?: Promise<void> = undefined; // settles once delete() is done, a start() called meanwhile is refused
+    _stoppedEditsInFlight = new Set<Promise<void>>(); // edits of this instance as a stopped community, a start() called meanwhile waits for them
+    _editStoresInFlight = new Set<Promise<unknown>>(); // the DB writes of edit() calls on this started community, stop() waits for them
+    // The props of edit() calls on this started community that are in the DB and not on this instance yet. A writer of the
+    // whole record builds it from the instance, and adds these so it does not write the record over such an edit.
+    _editsStoredNotApplied = new Set<Partial<InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType>>();
     _updateLoopAbortController?: AbortController;
-    _firstUpdateAfterStart: boolean = true;
     _internalStateUpdateId: InternalCommunityRecordBeforeFirstUpdateType["_internalStateUpdateId"] = "";
     _lastPubsubTopicRoutingProvideAt?: number = undefined;
     // The challenge exchange topic we last subscribed to. pubsubTopic can change while the community is
@@ -309,14 +344,10 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     }
 
     async _updateStartedValue() {
+        // Read from the communities registry, which is also where `started` in pkc.communities comes from (issues #455
+        // and #585). A start or a stop by this PKC instance changes the registry, and with it the list, itself. One by
+        // another instance is read here at once and reaches the list on its timer, so this can be ahead of the list
         this.started = await this._dbHandler.isCommunityStartLocked(this.address);
-        // `started` in pkc.communities is the same start-lock check, so refresh it now rather than when the filesystem
-        // watcher fires (issue #455). Only a list refresh: a failure here must not fail the start or stop around it
-        try {
-            refreshCommunitiesList(this._pkc);
-        } catch (e) {
-            this._log.error("_updateStartedValue: Failed to refresh pkc.communities", e);
-        }
     }
 
     async initNewLocalCommunityPropsNoMerge(newProps: CreateNewLocalCommunityParsedOptions) {
@@ -537,8 +568,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         try {
             return { moderations: this._dbHandler.queryAllCommentModerations(opts) };
         } finally {
-            // Don't leave a DB connection open on a community that isn't running.
-            if (this.state === "stopped") this._dbHandler.destoryConnection();
+            // Don't leave a DB connection open on a community that isn't running. A start() in flight is still "stopped"
+            // and owns the connection, on which it holds the start lock once it has taken it
+            if (this.state === "stopped" && !this._startOrUpdateInFlight) this._dbHandler.destoryConnection();
         }
     }
 
@@ -559,8 +591,9 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
     // community._xxx = async () => { throw ... } to inject failures into the start/publish
     // loops. Production callers in lifecycle.ts/db-state.ts/etc. go through these methods
     // (not the bare imports) so the patches still take effect.
-    async _getDbInternalState(includeMutable: boolean = false) {
-        return getDbInternalState(this, includeMutable);
+    // Synchronous: updateDbInternalState() reads through it inside its write transaction
+    _getDbInternalState() {
+        return getDbInternalState(this);
     }
 
     async _listenToIncomingRequests() {
@@ -611,10 +644,6 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
 
     _calculateLatestUpdateTrigger() {
         return calculateLatestUpdateTrigger(this);
-    }
-
-    async _resolveIpnsAndLogIfPotentialProblematicSequence() {
-        return resolveIpnsAndLogIfPotentialProblematicSequence(this);
     }
 
     async _updateDbInternalState(props: Parameters<typeof updateDbInternalState>[1]) {

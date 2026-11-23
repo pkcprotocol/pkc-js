@@ -40,7 +40,10 @@ type PendingChallenge = Challenge & { index: number };
 
 type DeferredChallenge = { index: number; communityChallenge: CommunityChallenge };
 
-export type GetChallengeAnswers = (challenges: Omit<Challenge, "verify">[]) => Promise<DecryptedChallengeAnswer["challengeAnswers"]>;
+// challenge index (as a decimal string) => the challenge that still needs an answer. The answers come back keyed the same way.
+export type GetChallengeAnswers = (
+    challenges: Record<string, Omit<Challenge, "verify">>
+) => Promise<DecryptedChallengeAnswer["challengeAnswers"]>;
 
 export type ChallengeResultAggregate = {
     aggregatedComment?: Record<string, unknown>;
@@ -276,11 +279,24 @@ const callGetChallenge = async ({
     authorIdentityMatcher: AuthorIdentityMatcher;
 }): Promise<{ challengeOrChallengeResult: Challenge | ChallengeResult }> => {
     let challengeOrChallengeResult: Challenge | ChallengeResult;
+    const challengeName = communityChallengeSettings.name || communityChallengeSettings.path;
+    const startedAtMs = Date.now();
+    // Warn while the call is still running, so a challenge that never returns is reported too.
+    const slowWarningTimer = setTimeout(() => {
+        community._log.error(
+            `callGetChallenge: getChallenge() of challenge ${challengeIndex + 1} (${challengeName}) in community ${community.address} is still running after ${community._slowGetChallengeWarningMs / 1000}s.`,
+            "A publisher that receives no challenge or verification gives up after about two minutes and the publication looks failed to its author.",
+            "Slow work belongs behind pendingApproval. challengeRequestId:",
+            challengeRequestMessage.challengeRequestId.toString()
+        );
+    }, community._slowGetChallengeWarningMs);
+    slowWarningTimer.unref?.();
     try {
         challengeOrChallengeResult = await challengeFile.getChallenge({
             challengeSettings: communityChallengeSettings,
             challengeRequestMessage,
             challengeIndex,
+            challengeAnswer: challengeRequestMessage.challengeAnswers?.[String(challengeIndex)],
             community,
             authorIdentityMatcher,
             // the exchange's child (publicKey + signature tags) under the challenge's own namespace (issue #493)
@@ -288,6 +304,11 @@ const callGetChallenge = async ({
                 namespace: communityChallengeSettings.name ?? "path"
             })
         });
+        const elapsedMs = Date.now() - startedAtMs;
+        if (elapsedMs >= community._slowGetChallengeWarningMs)
+            community._log.error(
+                `callGetChallenge: getChallenge() of challenge ${challengeIndex + 1} (${challengeName}) in community ${community.address} took ${Math.round(elapsedMs / 1000)}s`
+            );
         validateChallengeOrChallengeResult({ challengeOrChallengeResult, challengeIndex, community });
     } catch (e) {
         throw new PKCError("ERR_INVALID_RESULT_FROM_GET_CHALLENGE_FUNCTION", {
@@ -297,6 +318,8 @@ const callGetChallenge = async ({
             challengeIndex: challengeIndex + 1,
             error: e
         });
+    } finally {
+        clearTimeout(slowWarningTimer);
     }
     return { challengeOrChallengeResult };
 };
@@ -669,8 +692,15 @@ const getChallengeVerificationFromChallengeAnswers = async ({
 
     // Run verify() for every pending challenge in parallel.
     const verifyChallengePromises: Promise<ChallengeResult>[] = [];
-    for (const i in pendingChallenges) {
-        verifyChallengePromises.push(Promise.resolve(pendingChallenges[i].verify(challengeAnswers[i])));
+    for (const pendingChallenge of pendingChallenges) {
+        const challengeAnswer: string | undefined = challengeAnswers[String(pendingChallenge.index)];
+        // The author left this challenge out of the answer. verify() takes a string, so an unanswered challenge fails here
+        // rather than reaching the challenge with undefined. Issue #567.
+        verifyChallengePromises.push(
+            challengeAnswer === undefined
+                ? Promise.resolve({ success: false, error: "No answer." })
+                : Promise.resolve(pendingChallenge.verify(challengeAnswer))
+        );
     }
     const challengeResultsWithPendingIndexes = await Promise.all(verifyChallengePromises);
     for (const i in challengeResultsWithPendingIndexes) {
@@ -890,7 +920,9 @@ const getChallengeVerification = async ({
     // was able to verify without asking author for challenges
     let postAnswerAuthorIdentityMatcher: AuthorIdentityMatcher | undefined;
     if ("pendingChallenges" in res) {
-        const challengeAnswers = await getChallengeAnswers(res.pendingChallenges.map((challenge) => omit(challenge, ["index", "verify"])));
+        const challengeAnswers = await getChallengeAnswers(
+            Object.fromEntries(res.pendingChallenges.map((challenge) => [String(challenge.index), omit(challenge, ["index", "verify"])]))
+        );
         // The round-trip is what makes the identity verdict stale, so the round-trip is what invalidates it.
         // `identityMatcher` memoised its maxAge-0 resolve before the challenge went out, and the author had
         // until the exchange ttl to answer: a TXT record repointed in that window must not still read as
@@ -940,7 +972,7 @@ const getChallengeVerification = async ({
         challengeVerification.aggregatedReason = decisiveNameFailure.reason;
 
     // store the publication result and author address in mem cache for rateLimit exclude challenge settings
-    addToRateLimiter(community.settings?.challenges, challengeRequestMessage, challengeVerification.challengeSuccess);
+    addToRateLimiter(community.settings?.challenges, challengeRequestMessage, challengeVerification.challengeSuccess, community.address);
 
     // scenarios:
     // - all required challenges pass without pendingApproval flag -> publish normally

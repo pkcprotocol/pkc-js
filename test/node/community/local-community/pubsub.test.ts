@@ -4,7 +4,7 @@
 // Real pubsub end-to-end behaviour is covered by the integration suite under
 // test/node/community/.
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import Logger from "@pkcprotocol/pkc-logger";
 
 // Stub out the block-put/pin/provide stack so the tests below can assert WHICH topics get provided
@@ -22,6 +22,8 @@ import {
     listenToIncomingRequests,
     providePubsubTopicRoutingCidsIfNeeded
 } from "../../../../dist/node/runtime/node/community/local-community/pubsub.js";
+import { SHARED_KUBO_READ_TIMEOUT_MS } from "../../../../dist/node/clients/shared-pubsub-topic-list.js";
+import { invalidateSharedPubsubTopicList } from "../../../../dist/node/clients/shared-pubsub-topic-list.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 
 // Local-community helpers log through community._log (issue #493); fakes get the process-default root
@@ -40,6 +42,7 @@ describe("pubsub: listenToIncomingRequests", () => {
             address: "community.bso",
             pubsubTopic: "pubsub-topic",
             handleChallengeExchange,
+            _pkc: { publishInterval: 20_000 },
             _clientsManager: {
                 getDefaultKuboPubsubClient: () => ({ _client: { pubsub: { ls } }, url: "http://localhost:5001" }),
                 pubsubUnsubscribe,
@@ -63,6 +66,7 @@ describe("pubsub: listenToIncomingRequests", () => {
             address: "community.bso",
             pubsubTopic: "pubsub-topic",
             handleChallengeExchange: (): undefined => undefined,
+            _pkc: { publishInterval: 20_000 },
             _clientsManager: {
                 getDefaultKuboPubsubClient: () => ({
                     _client: { pubsub: { ls: vi.fn().mockResolvedValue(["pubsub-topic"]) } },
@@ -90,6 +94,7 @@ describe("pubsub: listenToIncomingRequests", () => {
             pubsubTopic: undefined,
             signer: { address: "signer-address" },
             handleChallengeExchange: (): undefined => undefined,
+            _pkc: { publishInterval: 20_000 },
             _clientsManager: {
                 getDefaultKuboPubsubClient: () => ({
                     _client: { pubsub: { ls: vi.fn().mockResolvedValue([]) } },
@@ -116,6 +121,7 @@ describe("pubsub: listenToIncomingRequests", () => {
             signer: { address: "signer-address" },
             settings: { disablePubsubChallengeExchange: true },
             handleChallengeExchange: (): undefined => undefined,
+            _pkc: { publishInterval: 20_000 },
             _clientsManager: {
                 // the disabled path takes the tolerant getter, since a node hosting only read-only
                 // communities may have no pubsub provider configured at all
@@ -145,6 +151,7 @@ describe("pubsub: listenToIncomingRequests", () => {
             signer: { address: "signer-address" },
             settings: { disablePubsubChallengeExchange: true },
             handleChallengeExchange: (): undefined => undefined,
+            _pkc: { publishInterval: 20_000 },
             _clientsManager: {
                 getDefaultKuboPubsubClientIfAny: (): undefined => undefined,
                 getDefaultKuboPubsubClient: (): never => {
@@ -176,6 +183,7 @@ describe("pubsub: listenToIncomingRequests", () => {
             settings: {},
             _subscribedChallengePubsubTopic: "old-topic",
             handleChallengeExchange,
+            _pkc: { publishInterval: 20_000 },
             _clientsManager: {
                 getDefaultKuboPubsubClient: () => ({
                     _client: { pubsub: { ls: vi.fn().mockResolvedValue(["old-topic"]) } },
@@ -205,6 +213,7 @@ describe("pubsub: listenToIncomingRequests", () => {
             signer: { address: "signer-address" },
             settings: { disablePubsubChallengeExchange: true },
             handleChallengeExchange,
+            _pkc: { publishInterval: 20_000 },
             _clientsManager: {
                 getDefaultKuboPubsubClientIfAny: () => ({
                     _client: { pubsub: { ls: vi.fn().mockResolvedValue(["pubsub-topic"]) } },
@@ -220,6 +229,119 @@ describe("pubsub: listenToIncomingRequests", () => {
 
         expect(pubsubUnsubscribe).toHaveBeenCalledWith("pubsub-topic", handleChallengeExchange);
         expect(pubsubSubscribe).not.toHaveBeenCalled();
+    });
+});
+
+// Issue #576: every started community asked kubo for its whole subscription list at the start of every cycle, so a
+// node with N communities made N calls per publishInterval, each decoding a list of N topics.
+describe("pubsub: listenToIncomingRequests shares the node's subscription list", () => {
+    const communityOnSharedNode = ({
+        topic,
+        pubsubClient,
+        publishInterval
+    }: {
+        topic: string;
+        pubsubClient: { _client: { pubsub: { ls: () => Promise<string[]> } }; url: string };
+        publishInterval: number;
+    }) =>
+        ({
+            address: topic,
+            pubsubTopic: topic,
+            _subscribedChallengePubsubTopic: topic,
+            handleChallengeExchange: (): undefined => undefined,
+            _pkc: { publishInterval },
+            _clientsManager: {
+                getDefaultKuboPubsubClient: () => pubsubClient,
+                pubsubUnsubscribe: vi.fn(),
+                pubsubSubscribe: vi.fn(),
+                updateKuboRpcPubsubState: vi.fn()
+            }
+        }) as unknown as LocalCommunity;
+
+    it("calls pubsub.ls() once for all the communities of a node within one cycle", async () => {
+        const topics = Array.from({ length: 50 }, (_, i) => `topic-${i}`);
+        const ls = vi.fn(async () => topics);
+        const pubsubClient = { _client: { pubsub: { ls } }, url: "http://localhost:5001" };
+        const communities = topics.map((topic) => communityOnSharedNode({ topic, pubsubClient, publishInterval: 20_000 }));
+
+        // half of them overlap, the other half run one after the other, as staggered cycles do
+        await Promise.all(communities.slice(0, 25).map((community) => listenToIncomingRequests(community)));
+        for (const community of communities.slice(25)) await listenToIncomingRequests(community);
+
+        expect(ls).toHaveBeenCalledTimes(1);
+        for (const community of communities) {
+            expect(community._clientsManager.pubsubSubscribe).not.toHaveBeenCalled();
+            expect(community._clientsManager.pubsubUnsubscribe).not.toHaveBeenCalled();
+        }
+    });
+
+    // Every community of the node waits on the one request, so a request that never answers would hold them all
+    it("gives the shared pubsub.ls() a timeout, and a read that failed is not kept for the next cycle", async () => {
+        const ls = vi.fn<(options?: { timeout?: number }) => Promise<string[]>>();
+        ls.mockRejectedValueOnce(new Error("the request timed out")).mockResolvedValue(["topic-a"]);
+        const pubsubClient = { _client: { pubsub: { ls } }, url: "http://localhost:5001" };
+        const community = communityOnSharedNode({ topic: "topic-a", pubsubClient, publishInterval: 20_000 });
+
+        await expect(listenToIncomingRequests(community)).rejects.toThrow("the request timed out");
+        await listenToIncomingRequests(community);
+
+        expect(ls).toHaveBeenCalledTimes(2);
+        for (const [options] of ls.mock.calls) expect(options?.timeout).to.equal(SHARED_KUBO_READ_TIMEOUT_MS);
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it("reads the list again once it is older than a quarter of the publishInterval", async () => {
+        vi.useFakeTimers();
+        const ls = vi.fn(async () => ["topic-a"]);
+        const pubsubClient = { _client: { pubsub: { ls } }, url: "http://localhost:5001" };
+        const community = communityOnSharedNode({ topic: "topic-a", pubsubClient, publishInterval: 20_000 });
+
+        await listenToIncomingRequests(community);
+        vi.advanceTimersByTime(4_999);
+        await listenToIncomingRequests(community);
+        expect(ls).toHaveBeenCalledTimes(1);
+
+        vi.advanceTimersByTime(1);
+        await listenToIncomingRequests(community);
+        expect(ls).toHaveBeenCalledTimes(2);
+    });
+
+    // A list read before a subscribe does not have the new topic: acting on it would tear the fresh
+    // subscription down and join again.
+    it("does not reuse a list read before a subscribe or unsubscribe on the node", async () => {
+        const ls = vi.fn(async () => ["topic-a"]);
+        const pubsubClient = { _client: { pubsub: { ls } }, url: "http://localhost:5001" };
+        const community = communityOnSharedNode({ topic: "topic-a", pubsubClient, publishInterval: 20_000 });
+
+        await listenToIncomingRequests(community);
+        invalidateSharedPubsubTopicList(pubsubClient._client);
+        await listenToIncomingRequests(community);
+
+        expect(ls).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not join a request that was already out when the node's subscriptions changed", async () => {
+        let resolveFirst!: (topics: string[]) => void;
+        const ls = vi
+            .fn<() => Promise<string[]>>()
+            .mockImplementationOnce(() => new Promise<string[]>((resolve) => (resolveFirst = resolve)))
+            .mockResolvedValue(["topic-a"]);
+        const pubsubClient = { _client: { pubsub: { ls } }, url: "http://localhost:5001" };
+        const community = communityOnSharedNode({ topic: "topic-a", pubsubClient, publishInterval: 20_000 });
+
+        const before = listenToIncomingRequests(community);
+        invalidateSharedPubsubTopicList(pubsubClient._client);
+        await listenToIncomingRequests(community); // asked after the change: served by its own request
+        expect(ls).toHaveBeenCalledTimes(2);
+
+        resolveFirst(["topic-a"]);
+        await before;
+        // the answer of the older request is not kept either
+        await listenToIncomingRequests(community);
+        expect(ls).toHaveBeenCalledTimes(2);
     });
 });
 

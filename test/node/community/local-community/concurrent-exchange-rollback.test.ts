@@ -339,7 +339,7 @@ describeSkipIfRpc("Issue #417: a failing challenge exchange during another excha
                 });
                 return {
                     publication: communityEdit,
-                    isStored: async () => (await community._getDbInternalState(false)).description === description
+                    isStored: async () => (await community._getDbInternalState()).description === description
                 };
             }
         }

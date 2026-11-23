@@ -11,7 +11,7 @@ import {
     parseCommentUpdateSchemaWithPKCErrorIfItFails,
     parseJsonWithPKCErrorIfFails
 } from "../../schema/schema-util.js";
-import { FailedToFetchCommentUpdateFromGatewaysError, PKCError } from "../../pkc-error.js";
+import { FailedToFetchCommentUpdateFromGatewaysError, FailedToFetchPageIpfsFromGatewaysError, PKCError } from "../../pkc-error.js";
 import { verifyCommentIpfs, verifyCommentUpdate } from "../../signer/signatures.js";
 import { getPKCAddressFromPublicKeySync } from "../../signer/util.js";
 import {
@@ -20,6 +20,7 @@ import {
     ipnsNameToIpnsOverPubsubTopic,
     isAbortError,
     isIpns,
+    linkAbortSignals,
     resolveWhenPredicateIsTrue,
     throwIfAbortSignalAborted
 } from "../../util.js";
@@ -47,9 +48,49 @@ import {
     untrackUpdatingComment
 } from "../../pkc/tracked-instance-registry-util.js";
 
+// Backoff of the retry that follows a CommentUpdate lookup failing while fetching (issue #515): the delay doubles from
+// the minimum with each failed attempt in a row, up to the maximum
+const TRANSIENT_FETCH_RETRY_MIN_DELAY_MS = 1000;
+const TRANSIENT_FETCH_RETRY_MAX_DELAY_MS = 30_000;
+
+// A parent page that was fetched and is wrong in itself. The same page cid always holds the same bytes, so fetching it
+// again cannot help; every other page fetch failure is a loading problem and is retried.
+const PARENT_PAGE_ERROR_CODES_NOT_WORTH_A_RETRY: ReadonlySet<string> = new Set([
+    "ERR_REPLIES_PAGE_IS_INVALID",
+    "ERR_POSTS_PAGE_IS_INVALID",
+    "ERR_PAGE_SIGNATURE_IS_INVALID",
+    "ERR_PAGE_COMMENT_IS_INVALID",
+    "ERR_INVALID_PAGE_IPFS_SCHEMA",
+    "ERR_CALCULATED_CID_DOES_NOT_MATCH",
+    "ERR_OVER_DOWNLOAD_LIMIT",
+    "ERR_INVALID_JSON"
+]);
+
+// Why a reply's search through its parent's pages ended without its CommentUpdate. Carried as `details.reason` of
+// ERR_FAILED_TO_FIND_REPLY_COMMENT_UPDATE_WITHIN_PARENT_COMMENT_PAGE_CIDS
+export type ReplyPageSearchFailureReason = "page-fetch-failed" | "page-invalid" | "reply-not-in-pages" | "sort-not-in-page-cids";
+
+export function isParentPageFetchErrorWorthARetry(err: PKCError | Error): boolean {
+    if (!(err instanceof PKCError)) return false; // not an error we recognize as a loading problem
+    if (PARENT_PAGE_ERROR_CODES_NOT_WORTH_A_RETRY.has(err.code)) return false;
+    if (err instanceof FailedToFetchPageIpfsFromGatewaysError) {
+        // Worth a retry as long as one gateway failed for a reason other than the page itself
+        for (const gatewayError of Object.values(err.details.gatewayToError))
+            if (isParentPageFetchErrorWorthARetry(gatewayError as PKCError | Error)) return true;
+        return false;
+    }
+    return true;
+}
+
 type NewCommentUpdate =
     | { commentUpdate: CommentUpdateType; commentUpdateIpfsPath: NonNullable<Comment["_commentUpdateIpfsPath"]> }
     | undefined;
+
+// What a postUpdates lookup resolves to when every folder the post could be in was read and none has an entry for it.
+// The folders are named by their cids, so that holds for as long as the community record does: nothing failed to load,
+// and there is nothing to retry against the same record.
+const POST_NOT_IN_POST_UPDATES = "post-not-in-post-updates";
+type PostUpdatesLookupResult = NewCommentUpdate | typeof POST_NOT_IN_POST_UPDATES;
 
 // Re-exported so every caller that has always imported the cap from here keeps working
 export { MAX_FILE_SIZE_BYTES_FOR_COMMENT_UPDATE };
@@ -80,6 +121,13 @@ export class CommentClientsManager extends PublicationClientsManager {
     // honours this signal and bails early, so we don't keep retrying a stale postUpdate path or page CID
     // when the parent has already moved on.
     private _freshHandlerAbortController?: AbortController;
+    // The pending retry of a CommentUpdate lookup that failed while fetching (issue #515). Such a failure is not followed
+    // by an update event of the community or the post unless one of them changes, so without a retry of its own the
+    // comment would wait for that change, on a quiet community for good.
+    private _transientFetchRetry: { attempts: number; timer?: ReturnType<typeof setTimeout> } = { attempts: 0 };
+    // Counts the CommentUpdate lookups started by the update handlers. A lookup that finds a newer one started while it
+    // was running was replaced by it, and leaves the retry and its backoff to that one
+    private _commentUpdateLookupsStarted = 0;
 
     // One child per parent (issue #493): a reply line that also concerns its parent (the parent's page cids, the
     // post's update event) adds { parentCid } on top of the comment's { signature, cid }. Created lazily, re-created
@@ -102,15 +150,51 @@ export class CommentClientsManager extends PublicationClientsManager {
         this._freshHandlerAbortController = new AbortController();
     }
 
+    // Called when the comment stops and when a lookup settles without a fetch failure. Also forgets how many attempts
+    // failed in a row, so the next failure starts the backoff over.
+    _cancelTransientFetchRetry() {
+        clearTimeout(this._transientFetchRetry.timer);
+        this._transientFetchRetry = { attempts: 0 };
+    }
+
+    // Drops the pending retry and keeps the count of failed attempts: the lookup that replaces it resets the count if it
+    // settles without a fetch failure, and carries the backoff on if it fails too. The timer is forgotten as well as
+    // cleared, since "no retry pending" is what lets that lookup reset the count.
+    private _dropPendingTransientFetchRetry() {
+        clearTimeout(this._transientFetchRetry.timer);
+        this._transientFetchRetry.timer = undefined;
+    }
+
+    // Runs `lookup` again after a backoff that doubles from TRANSIENT_FETCH_RETRY_MIN_DELAY_MS up to
+    // TRANSIENT_FETCH_RETRY_MAX_DELAY_MS, for as long as the comment keeps updating. `lookup` is the update handler
+    // itself, the same entry a new community record or post update takes, and that entry drops the pending timer: a
+    // lookup against newer state replaces the retry of the older one.
+    private _scheduleTransientFetchRetry(lookup: () => Promise<void>, log: Logger) {
+        clearTimeout(this._transientFetchRetry.timer);
+        const delayMs = Math.min(
+            TRANSIENT_FETCH_RETRY_MIN_DELAY_MS * 2 ** this._transientFetchRetry.attempts,
+            TRANSIENT_FETCH_RETRY_MAX_DELAY_MS
+        );
+        this._transientFetchRetry.attempts++;
+        log.trace("Comment", this._comment.cid, "will retry its CommentUpdate lookup in", delayMs, "ms");
+        const timer = setTimeout(() => {
+            if (this._transientFetchRetry.timer !== timer) return;
+            this._transientFetchRetry.timer = undefined;
+            if (this._comment.state !== "updating") return;
+            lookup().catch((error) => log.error("Comment", this._comment.cid, "failed to retry its CommentUpdate lookup", error));
+        }, delayMs);
+        // A pending retry must not keep a process alive that is otherwise done (Node only; a browser timer has no unref)
+        if (typeof timer === "object" && "unref" in timer) timer.unref();
+        this._transientFetchRetry.timer = timer;
+    }
+
     // Combines the comment's stop signal with the fresh-handler signal, so retries bail on either
-    // user-initiated stop or a newer handler invocation superseding this one.
-    private _combinedAbortSignalForRetry(): AbortSignal | undefined {
-        const stopSignal = this._comment._getStopAbortSignal();
-        const freshSignal = this._freshHandlerAbortController?.signal;
-        const signals = [stopSignal, freshSignal].filter((s): s is AbortSignal => Boolean(s));
-        if (signals.length === 0) return undefined;
-        if (signals.length === 1) return signals[0];
-        return AbortSignal.any(signals);
+    // user-initiated stop or a newer handler invocation superseding this one. Linked with listeners, not
+    // AbortSignal.any(): the stop signal lives as long as the comment updates, and on Node 20/22 every
+    // AbortSignal.any() over it retained memory until then, once per CommentUpdate fetch (#502). The
+    // caller disposes the link when its lookup settles.
+    private _combinedAbortSignalForRetry(): { signal: AbortSignal | undefined; dispose: () => void } {
+        return linkAbortSignals([this._comment._getStopAbortSignal(), this._freshHandlerAbortController?.signal]);
     }
 
     protected override _initKuboRpcClients(): void {
@@ -252,10 +336,11 @@ export class CommentClientsManager extends PublicationClientsManager {
         timestampRanges: string[],
         log: Logger,
         abortSignal: AbortSignal | undefined
-    ): Promise<NewCommentUpdate> {
+    ): Promise<PostUpdatesLookupResult> {
         // only get new CommentUpdates
         // not interested in CommentUpdate we already fetched before
         const attemptedPathsToLoadErrors: Record<string, Error> = {};
+        const pathsNotInTheirFolder: string[] = [];
         const kuboRpcOrHelia = this.getDefaultKuboRpcClientOrHelia();
 
         for (const timestampRange of timestampRanges) {
@@ -267,6 +352,13 @@ export class CommentClientsManager extends PublicationClientsManager {
                 judgedLookup = await this._isPostUpdateFileAlreadyJudged(folderCid, path, log, abortSignal);
             } catch (e) {
                 throwIfAbortSignalAborted(abortSignal);
+                if (e instanceof PKCError && e.code === "ERR_IPFS_PATH_NOT_IN_FOLDER") {
+                    // The folder was read and has no entry for the post: not a failure to load, and a fetch would
+                    // only be told the same
+                    log.trace("Post", this._comment.cid, "has no CommentUpdate at", path, "trying the next timestamp range");
+                    pathsNotInTheirFolder.push(path);
+                    continue;
+                }
                 // The resolve timed out walking this folder; a fetch would wait out the same timeout on the same blocks
                 log.trace(`Timed out resolving CommentUpdate path (${path}) with IPFS P2P. Trying the next timestamp range`);
                 attemptedPathsToLoadErrors[path] = <Error>e;
@@ -295,6 +387,13 @@ export class CommentClientsManager extends PublicationClientsManager {
                 );
             } catch (e) {
                 throwIfAbortSignalAborted(abortSignal); // superseded or stopped: not a failure to try the next range for
+                if (e instanceof PKCError && !this._shouldWeFetchCommentUpdateFromNextTimestamp(e)) {
+                    // Not a failure to load: the file was fetched and is wrong in itself (over the download limit). The
+                    // same path holds the same bytes, so it ends the lookup, as it does when a gateway reports it
+                    this._comment._invalidCommentUpdateMfsPaths.add(path);
+                    e.details = { ...e.details, commentUpdatePath: path, postCid: this._comment.cid };
+                    throw e;
+                }
                 // failed to load the record, maybe our node is offline or the content is unreachable
                 log.trace(`Failed to fetch CommentUpdate from path (${path}) with IPFS P2P. Trying the next timestamp range`);
                 attemptedPathsToLoadErrors[path] = <Error>e;
@@ -319,12 +418,30 @@ export class CommentClientsManager extends PublicationClientsManager {
                 throw e;
             }
         }
+        // Only when every folder was read: one that failed to load may be the one that has the post
+        if (pathsNotInTheirFolder.length === timestampRanges.length) return POST_NOT_IN_POST_UPDATES;
         throw new PKCError("ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_ALL_POST_UPDATES_RANGES", {
             timestampRanges,
             attemptedPathsToLoadErrors,
+            pathsNotInTheirFolder,
             postCid: this._comment.cid,
             commentDepth: this._comment.depth
         });
+    }
+
+    // A gateway does not hand over the folder's blocks, so "the folder was read and lacks the post" is taken from the
+    // gateways' word: every configured gateway answered HTTP 404 for the path. One that timed out, failed to connect
+    // or answered anything else has not answered about the folder, and the lookup is then a loading failure
+    private _didEveryGatewayAnswerNotFound(err: unknown): boolean {
+        if (!(err instanceof FailedToFetchCommentUpdateFromGatewaysError)) return false;
+        const gatewayUrls = Object.keys(this._pkc.clients.ipfsGateways);
+        return (
+            gatewayUrls.length > 0 &&
+            gatewayUrls.every((gatewayUrl) => {
+                const gatewayError = err.details.gatewayToError[gatewayUrl];
+                return gatewayError?.code === "ERR_FAILED_TO_FETCH_IPFS_VIA_GATEWAY" && gatewayError.details?.status === 404;
+            })
+        );
     }
 
     _shouldWeFetchCommentUpdateFromNextTimestamp(err: PKCError | Error): boolean {
@@ -381,8 +498,9 @@ export class CommentClientsManager extends PublicationClientsManager {
         timestampRanges: string[],
         log: Logger,
         abortSignal: AbortSignal | undefined
-    ): Promise<NewCommentUpdate> {
+    ): Promise<PostUpdatesLookupResult> {
         const attemptedPathsToLoadErrors: Record<string, Error> = {};
+        const pathsNotInTheirFolder: string[] = [];
 
         let commentUpdate: CommentUpdateType | undefined;
 
@@ -430,6 +548,11 @@ export class CommentClientsManager extends PublicationClientsManager {
                 return undefined;
             } catch (e) {
                 throwIfAbortSignalAborted(abortSignal); // superseded or stopped: not a failure to try the next range for
+                if (this._didEveryGatewayAnswerNotFound(e)) {
+                    log.trace("Post", this._comment.cid, "has no CommentUpdate at", path, "trying the next timestamp range");
+                    pathsNotInTheirFolder.push(path);
+                    continue;
+                }
                 // We need to find out if it's loading error, and if it is we just move on to the next timestamp range
                 // If it's a schema or signature error we should stop and throw
                 if (this._shouldWeFetchCommentUpdateFromNextTimestamp(<PKCError>e)) {
@@ -444,9 +567,12 @@ export class CommentClientsManager extends PublicationClientsManager {
                 }
             }
         }
+        // Only when every folder was read: one that failed to load may be the one that has the post
+        if (pathsNotInTheirFolder.length === timestampRanges.length) return POST_NOT_IN_POST_UPDATES;
         throw new PKCError("ERR_FAILED_TO_FETCH_COMMENT_UPDATE_FROM_ALL_POST_UPDATES_RANGES", {
             timestampRanges,
             attemptedPathsToLoadErrors,
+            pathsNotInTheirFolder,
             commentCid: this._comment.cid,
             commentDepth: this._comment.depth
         });
@@ -470,7 +596,8 @@ export class CommentClientsManager extends PublicationClientsManager {
         } else return false;
     }
 
-    async useCommunityPostUpdatesToFetchCommentUpdateForPost(subIpfs: CommunityIpfsType) {
+    // Returns "fetch-failed" when the lookup failed while fetching and is worth another attempt against the same record
+    async useCommunityPostUpdatesToFetchCommentUpdateForPost(subIpfs: CommunityIpfsType): Promise<"fetch-failed" | undefined> {
         const log = this._log;
         if (!subIpfs.postUpdates) {
             throw new PKCError("ERR_COMMUNITY_HAS_NO_POST_UPDATES", { subIpfs, postCid: this._comment.cid });
@@ -484,8 +611,9 @@ export class CommentClientsManager extends PublicationClientsManager {
         if (timestampRanges.length === 0) throw Error("Post has no timestamp range bucket");
 
         // Taken once for the whole lookup: read again later it would be a newer invocation's signal (issue #312)
-        const abortSignal = this._combinedAbortSignalForRetry();
-        let newCommentUpdate: NewCommentUpdate;
+        const linkedAbortSignal = this._combinedAbortSignalForRetry();
+        const abortSignal = linkedAbortSignal.signal;
+        let newCommentUpdate: PostUpdatesLookupResult;
         try {
             if (Object.keys(this._pkc.clients.kuboRpcClients).length > 0 || Object.keys(this._pkc.clients.libp2pJsClients).length > 0) {
                 newCommentUpdate = await this._fetchPostCommentUpdateIpfsP2P(subIpfs, timestampRanges, log, abortSignal);
@@ -508,6 +636,7 @@ export class CommentClientsManager extends PublicationClientsManager {
                         newUpdatingState: "waiting-retry",
                         event: { name: "error", args: [e] }
                     });
+                    return "fetch-failed";
                 } else {
                     // non retriable error, problem with schema/signature
                     log.error(
@@ -522,8 +651,14 @@ export class CommentClientsManager extends PublicationClientsManager {
                 }
             }
             return;
+        } finally {
+            linkedAbortSignal.dispose();
         }
-        if (newCommentUpdate) {
+        if (newCommentUpdate === POST_NOT_IN_POST_UPDATES) {
+            // Nothing failed to load: the record's postUpdates don't hold the post (yet). The next record is checked again
+            log("Post", this._comment.cid, "is not under the postUpdates of this community record");
+            this._comment._setUpdatingStateWithEmissionIfNewState("waiting-retry");
+        } else if (newCommentUpdate) {
             this._useLoadedCommentUpdateIfNewInfo(newCommentUpdate, subIpfs, log);
         } else if (newCommentUpdate === undefined) {
             log.trace(
@@ -533,6 +668,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             );
             this._comment._setUpdatingStateWithEmissionIfNewState("waiting-retry");
         }
+        return undefined;
     }
 
     private async _fetchRawCommentCidIpfsP2P(cid: string): Promise<string> {
@@ -690,7 +826,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             return clone(cachedComment);
         }
 
-        const verifiedComment = await this._pkc._inflightFetchManager.withResource(InflightResourceTypes.COMMENT_IPFS, cid, async () => {
+        const fetchAndVerify = async () => {
             this._log.trace("fetchAndVerifyCommentCid: Fetching comment CID", cid);
             let commentRawString: string;
             if (Object.keys(this._pkc.clients.kuboRpcClients).length > 0 || Object.keys(this._pkc.clients.libp2pJsClients).length > 0) {
@@ -700,7 +836,15 @@ export class CommentClientsManager extends PublicationClientsManager {
             const commentIpfs = parseCommentIpfsSchemaWithPKCErrorIfItFails(parseJsonWithPKCErrorIfFails(commentRawString)); // could throw if schema is invalid
             await this._throwIfCommentIpfsIsInvalid(commentIpfs, cid);
             return commentIpfs;
-        });
+        };
+        // The stop signal is this comment's own cancellation: when the fetch we joined belongs to another comment
+        // that gets stopped, we fetch on our own instead, unless this comment was stopped too
+        const verifiedComment = await this._pkc._inflightFetchManager.withResource(
+            InflightResourceTypes.COMMENT_IPFS,
+            cid,
+            fetchAndVerify,
+            this._comment._getStopAbortSignal()
+        );
 
         this._pkc._memCaches.commentIpfs.set(cid, verifiedComment);
         return verifiedComment;
@@ -758,6 +902,19 @@ export class CommentClientsManager extends PublicationClientsManager {
     // will handling community states down here
     // this is for posts with depth === 0
     override async handleUpdateEventFromCommunity(community: RemoteCommunity) {
+        this._dropPendingTransientFetchRetry(); // this lookup replaces the pending retry of an older one
+        const lookup = ++this._commentUpdateLookupsStarted;
+        const fetchFailed = await this._fetchPostCommentUpdateOnCommunityRecord(community);
+        // Replaced by a newer lookup while it ran (which aborted it): it has no result of its own. Counting it as a
+        // success would start the backoff over although nothing was loaded
+        if (lookup !== this._commentUpdateLookupsStarted) return;
+        // The record stays the same until the community publishes again, so a failed fetch is retried here (issue #515)
+        if (fetchFailed) this._scheduleTransientFetchRetry(() => this.handleUpdateEventFromCommunity(community), this._log);
+        else if (this._transientFetchRetry.timer === undefined) this._transientFetchRetry.attempts = 0;
+    }
+
+    // Resolves to true when the lookup failed while fetching and is worth another attempt against the same record
+    private async _fetchPostCommentUpdateOnCommunityRecord(community: RemoteCommunity): Promise<boolean | void> {
         const log = this._log;
         if (!this._comment.cid) {
             log("update: comment.cid is not defined because comment is publishing, waiting until cid is defined");
@@ -809,9 +966,15 @@ export class CommentClientsManager extends PublicationClientsManager {
         } else
             try {
                 // this is only for posts with depth === 0
-                await this.useCommunityPostUpdatesToFetchCommentUpdateForPost(community.raw.communityIpfs);
+                return (await this.useCommunityPostUpdatesToFetchCommentUpdateForPost(community.raw.communityIpfs)) === "fetch-failed";
             } catch (e) {
                 if (isAbortError(e)) return;
+                if (e instanceof PKCError && e.code === "ERR_COMMUNITY_HAS_NO_POST_UPDATES") {
+                    // Nothing failed to load: the record has no postUpdates to look in yet. The next record is checked again
+                    log("update: Post", this._comment.cid, "can't fetch its CommentUpdate, the community record has no postUpdates yet");
+                    this._comment._setUpdatingStateWithEmissionIfNewState("waiting-retry");
+                    return;
+                }
                 log.error("update: Failed to use community update to fetch new CommentUpdate", e);
                 this._comment._changeCommentStateEmitEventEmitStateChangeEvent({
                     newUpdatingState: "failed",
@@ -917,8 +1080,27 @@ export class CommentClientsManager extends PublicationClientsManager {
         }
         const pageSortName = this._chooseWhichPagesBasedOnParentAndReplyTimestamp(parentCommentInstance.timestamp);
 
-        let curPageCid: string | undefined = parentCommentInstance.replies.pageCids[pageSortName];
-        if (!curPageCid) throw Error("Parent comment does not have any new or old pages");
+        const firstPageCid: string | undefined = parentCommentInstance.replies.pageCids[pageSortName];
+        if (!firstPageCid) {
+            // The parent lists pageCids, but none for the sort this search walks. A later update of the parent may list it
+            this._comment._changeCommentStateEmitEventEmitStateChangeEvent({
+                newUpdatingState: "waiting-retry",
+                event: {
+                    name: "error",
+                    args: [
+                        new PKCError("ERR_FAILED_TO_FIND_REPLY_COMMENT_UPDATE_WITHIN_PARENT_COMMENT_PAGE_CIDS", {
+                            replyCid: this._comment.cid,
+                            parentCommentCid: parentCommentInstance.cid,
+                            pageSortName,
+                            reason: <ReplyPageSearchFailureReason>"sort-not-in-page-cids",
+                            parentPageCids: parentCommentInstance.replies.pageCids
+                        })
+                    ]
+                }
+            });
+            return;
+        }
+        let curPageCid: string | undefined = firstPageCid;
 
         if (this._parentFirstPageCidsAlreadyLoaded.has(curPageCid)) {
             log(
@@ -947,9 +1129,6 @@ export class CommentClientsManager extends PublicationClientsManager {
                 if (isAbortError(e)) throw e;
                 pageCidsSearchedForNewUpdate.push({ pageCid: curPageCid, error: e as Error });
                 break;
-            }
-            if (pageCidsSearchedForNewUpdate.length === 0) {
-                this._parentFirstPageCidsAlreadyLoaded.add(curPageCid);
             }
             const replyWithinParentPage = findCommentInParsedPages(pageLoaded, this._comment.cid)?.raw;
             const replyWithinUpdatingPages = this._findCommentInPagesOfUpdatingCommentsOrCommunity({ parent: parentCommentInstance });
@@ -1002,15 +1181,30 @@ export class CommentClientsManager extends PublicationClientsManager {
             "and found",
             newCommentUpdate ? "a new comment update" : "no new comment update"
         );
+        // The pages behind a first page cid never change, so a walk that read them is not repeated until the parent lists
+        // another first page. A walk that a loading failure cut short read only part of them and has to run again (#515).
+        const pageFetchError = pageCidsSearchedForNewUpdate.find((searched) => searched.error)?.error;
+        const pageFetchFailed = pageFetchError !== undefined && isParentPageFetchErrorWorthARetry(pageFetchError);
+        if (!pageFetchFailed) this._parentFirstPageCidsAlreadyLoaded.add(firstPageCid);
+
         if (newCommentUpdate)
             this._useLoadedCommentUpdateIfNewInfo({ commentUpdate: newCommentUpdate.commentUpdate }, communityWithSignature, log);
-        else if (!replyFoundWithoutNewerUpdate)
+        else if (!replyFoundWithoutNewerUpdate || pageFetchError) {
+            // Finding the reply with the update it already holds in pages that were in memory says nothing about a
+            // page that failed to load or is invalid: the walk is incomplete, and is retried or reported like any other
+            const reason: ReplyPageSearchFailureReason = pageFetchFailed
+                ? "page-fetch-failed"
+                : pageFetchError
+                  ? "page-invalid"
+                  : "reply-not-in-pages";
             throw new PKCError("ERR_FAILED_TO_FIND_REPLY_COMMENT_UPDATE_WITHIN_PARENT_COMMENT_PAGE_CIDS", {
                 replyCid: this._comment.cid,
                 parentCommentCid: parentCommentInstance.cid,
                 pageSortName,
+                reason,
                 pageCidsSearchedForNewUpdate
             });
+        }
     }
 
     override async handleErrorEventFromCommunity(error: PKCError | Error) {
@@ -1113,6 +1307,19 @@ export class CommentClientsManager extends PublicationClientsManager {
     }
 
     async handleUpdateEventFromPostToFetchReplyCommentUpdate(postInstance: Comment) {
+        this._dropPendingTransientFetchRetry(); // this search replaces the pending retry of an older one
+        const lookup = ++this._commentUpdateLookupsStarted;
+        const fetchFailed = await this._fetchReplyCommentUpdateOnPostUpdate(postInstance);
+        // Replaced by a newer search while it ran (which aborted it): see handleUpdateEventFromCommunity
+        if (lookup !== this._commentUpdateLookupsStarted) return;
+        // The post emits no update until its own CommentUpdate changes, so a failed page fetch is retried here (issue #515)
+        if (fetchFailed)
+            this._scheduleTransientFetchRetry(() => this.handleUpdateEventFromPostToFetchReplyCommentUpdate(postInstance), this._log);
+        else if (this._transientFetchRetry.timer === undefined) this._transientFetchRetry.attempts = 0;
+    }
+
+    // Resolves to true when the search failed while fetching a parent page and is worth another attempt
+    private async _fetchReplyCommentUpdateOnPostUpdate(postInstance: Comment): Promise<boolean | void> {
         if (!this._comment.cid) throw Error("comment.cid should be defined");
         const log = this._logForParent();
         log(
@@ -1166,13 +1373,33 @@ export class CommentClientsManager extends PublicationClientsManager {
 
         if (this._fetchingUpdateForReplyUsingPageCidsPromise) await this._fetchingUpdateForReplyUsingPageCidsPromise;
 
+        let fetchFailed = false;
         this._fetchingUpdateForReplyUsingPageCidsPromise = this.usePageCidsOfParentToFetchCommentUpdateForReply(
             postInstance,
             repliesCommunity
         )
             .catch((error) => {
                 if (isAbortError(error)) return;
+                const reason: ReplyPageSearchFailureReason | undefined =
+                    error instanceof PKCError && error.code === "ERR_FAILED_TO_FIND_REPLY_COMMENT_UPDATE_WITHIN_PARENT_COMMENT_PAGE_CIDS"
+                        ? error.details.reason
+                        : undefined;
+                if (reason === "reply-not-in-pages") {
+                    // Nothing failed to load: the parent's pages don't hold the reply yet. They are walked again once
+                    // the parent lists another first page
+                    log("handleUpdateEventFromPost: Reply", this._comment.cid, "is not in its parent's pages yet", error.details);
+                    this._comment._setUpdatingStateWithEmissionIfNewState("waiting-retry");
+                    return;
+                }
                 log.error("handleUpdateEventFromPost: Failed to fetch reply commentUpdate update from parent pages", error);
+                if (reason === "page-fetch-failed") {
+                    this._comment._changeCommentStateEmitEventEmitStateChangeEvent({
+                        newUpdatingState: "waiting-retry",
+                        event: { name: "error", args: [error as PKCError] }
+                    });
+                    fetchFailed = true;
+                    return;
+                }
                 this._comment._changeCommentStateEmitEventEmitStateChangeEvent({
                     newUpdatingState: "failed",
                     event: { name: "error", args: [error as PKCError | Error] }
@@ -1183,6 +1410,7 @@ export class CommentClientsManager extends PublicationClientsManager {
             });
         await this._fetchingUpdateForReplyUsingPageCidsPromise;
         this._fetchingUpdateForReplyUsingPageCidsPromise = undefined;
+        return fetchFailed;
     }
 
     async _createPostInstanceWithStateTranslation(): Promise<CommentClientsManager["_postForUpdating"]> {

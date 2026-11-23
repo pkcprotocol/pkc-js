@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { MAX_QUERY_LIMIT } from "@pkcprotocol/pkc-logger";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comment/schema.js";
-import { AuthorAddressSchema, ChallengeAnswersSchema, CidStringSchema } from "../../schema/schema.js";
+import { AuthorAddressSchema, ChallengeAnswersByIndexSchema, CidStringSchema } from "../../schema/schema.js";
 import { CommunityEditOptionsSchema, CommunityExportRecordsSchema, ExportCommunityModLogsOptionsSchema } from "../../community/schema.js";
 import { CommentModerationsTableRowSchema } from "../../publications/comment-moderation/schema.js";
 import { NameResolveCacheOptionsSchema } from "../../schema.js";
@@ -13,7 +13,7 @@ export const RpcCommentEventResultSchema = z.object({
     runtimeFields: z.object({}).loose().optional()
 });
 export const RpcCommentUpdateResultSchema = z.object({
-    commentUpdate: CommentUpdateSchema,
+    commentUpdate: CommentUpdateSchema.loose(), // a challenge's commentUpdate extras are signed keys the schema does not know (issue #572)
     runtimeFields: z.object({}).loose().optional()
 });
 export const RpcChallengeVerificationEventResultSchema = z.object({
@@ -55,14 +55,14 @@ export const RpcEditCommunityParamSchema = z
     .refine((args) => args.name || args.publicKey, "At least one of name or publicKey must be provided");
 export const RpcPublishChallengeAnswersParamSchema = z.object({
     subscriptionId: SubscriptionIdSchema,
-    challengeAnswers: ChallengeAnswersSchema
+    challengeAnswers: ChallengeAnswersByIndexSchema
 });
 export const RpcUnsubscribeParamSchema = z.object({ subscriptionId: SubscriptionIdSchema });
 
 // Result schemas for events that were previously bare values
 export const RpcStateChangeEventResultSchema = z.object({ state: z.string() });
-// One entry of pkc.communities as it crosses the RPC wire (issue #455). `started` is whether the community's start lock
-// is held, the same check as community.started. The runtime-only `address` is not sent: each side computes it
+// One entry of pkc.communities as it crosses the RPC wire (issue #455). `started` is whether a live PKC instance
+// has the community started, the same check as community.started. The runtime-only `address` is not sent: each side computes it
 export const PKCCommunitiesWireEntrySchema = z.object({
     name: z.string().min(1).optional(),
     publicKey: z.string().min(1),

@@ -85,11 +85,22 @@ gallery?: {
 - `flairs`, `spoiler`, `nsfw`: mod-set overrides
 - `pinned`, `locked`, `archived`, `removed`, `approved`: mod actions
 - `reason`: reason for mod action
-- `author.community`: per-community author stats (postScore, replyScore, banExpiresAt)
+- `authorBanExpiresAt`: present only on the comment a mod banned the author from (see [Which comment a ban marks](#which-comment-a-ban-marks))
+- `author.community`: per-community author stats (postScore, replyScore, banExpiresAt). `banExpiresAt` here is an author aggregate, the same value on the author's comments, and says nothing about which comment the ban was published on
 - `lastChildCid`, `lastReplyTimestamp`: for efficient update checking (see [Which replies count](#which-replies-count))
 - `replies`: pre-loaded first page of replies
 - `signature`: community owner's signature
 - `updatedAt`, `protocolVersion`
+- Challenge extras: a challenge's `commentUpdate` may set keys `CommentUpdateSchema` does not know (anything outside `CommentUpdateReservedFields`). They are listed in `signature.signedPropertyNames`, ride in the CommentUpdate, and readers parse the record loosely (unknown keys land on the `Comment` instance through `assignUnknownProps`, which skips any name that is already a member of the instance or starts with `_`, and the community refuses a challenge extra with such a name; see [wire-vs-runtime.md](./wire-vs-runtime.md#unknown-props-and-author-keys-from-a-record))
+
+## One Signed Record, Two Deliveries
+
+The community signs a CommentUpdate once and ships that record two ways: as the file in the post-updates MFS folder, and as an entry of a page (rebuilt from the `commentUpdates` row). They must be the same record: a page embeds what its comment signed, and a difference invalidates the signature.
+
+- `commentUpdateToDbRow` and the page row mapper (`src/runtime/node/community/comment-update-row.ts`, `createPositionalCommentRowMapper`) are the one definition of the record <-> row mapping. Keys `CommentUpdateSchema` does not know go in the `commentUpdates.extraProps` JSON column and are spread back on read.
+- `commentUpdates.extraProps` is a snapshot of the signed record, never a source of truth. The table is dropped and rebuilt on every `DB_VERSION` bump; the durable source of a challenge's extras is `comments.challengeCommentUpdate`.
+- `signCommentUpdate` and `signCommentUpdateForChallengeVerification` build `signedPropertyNames` from the same helper (the fixed base names plus every other key on the record), so a key can never be in the record and out of the signature (issue #572).
+- Adding a `CommentUpdateSchema` key means adding its column to the `commentUpdates` table and to `upsertCommentUpdates`; `test/node/community/commentUpdate.extraProps.roundtrip.db.community.test.ts` fails if a key does not survive the round trip.
 
 ## Which Replies Count
 
@@ -112,11 +123,70 @@ comment is rejected, which is why they never have replies under them.
 Removing a reply un-bumps its thread: `lastReplyTimestamp` is recalculated without it, and the built-in `active` sort
 reads `lastReplyTimestamp` (see [page-sorts.md](page-sorts.md)).
 
+## Which Comment a Ban Marks
+
+A ban is a `commentModeration` row keyed by `commentCid` whose `author.banExpiresAt` is a number. Two fields are computed from those rows, newest row first (issue #363):
+
+- `author.community.banExpiresAt` looks at every row that targets the author (`queryAuthorModEdits`, by `targetAuthorSignerAddress` or `targetAuthorDomain`, so it survives a purge of the comment) and takes the newest one carrying a positive timestamp. `0` rows are skipped (`isAuthorBanRow`). It drives `ERR_AUTHOR_IS_BANNED`.
+- `authorBanExpiresAt` looks only at the rows on the comment's own cid (`_queryModerationSummariesByCids`). It takes the newest one carrying a number, `0` included, and a `0` renders as absent. The value is verbatim, with no dedupe against other comments, so every moderation that carries a timestamp marks its comment.
+
+The input takes three kinds of value (`CommentModerationAuthorSchema`):
+
+| `commentModeration.author.banExpiresAt` | Author aggregate | Mark on that cid |
+|---|---|---|
+| future timestamp | banned until then | set |
+| past timestamp (an unban) | lifted, the past timestamp is published | stays, value becomes the past timestamp |
+| `0` | unchanged, the row is skipped | absent |
+
+Rules that follow from it:
+
+- `0` exists only on the moderation input. Both published fields stay a positive timestamp (`PKCTimestampSchema`) or missing. `null` cannot play this role because signing strips null values.
+- Expiry is not an event. Nothing in the update loop runs when a ban runs out, so a mark is never removed by time. Clients read presence from `authorBanExpiresAt` and current status from `author.community.banExpiresAt`.
+- `0` removes the mark only on the cid it is published on and never touches the ban. The ban row under a removed mark still counts for the author aggregate, so a ban can be running with no mark on any comment.
+- The mark and the ban are independent on purpose. An earlier design let a `0` that was the author's newest row revoke the ban too, but a moderation is always the newest row when it is published, so clearing a wrong mark always unbanned the author. Now a wrong order of moderations can leave a stray mark and can never unban.
+- Undoing a ban takes two moderations on the same cid: the past timestamp, then `0`. In the other order the unban marks the cid again.
+- Nothing removes the author aggregate. After an unban or an expiry it keeps the past timestamp, so "banned now" is the value compared with the clock (`publication-validation.ts` does the same).
+- A challenge cannot set `authorBanExpiresAt` (`CommentUpdateChallengeReservedFieldNames`).
+- `reason` is not part of this: it is still the newest reason on the cid from any moderation, so a ban's reason and a later removal's reason overwrite each other.
+
 ## Comment States
 
 - `CommentState`: `"stopped"` | `"publishing"` | `"updating"`
 - `PublicationPublishingState`: `"stopped"` → `"publishing-challenge-request"` → `"waiting-challenge"` → `"publishing-challenge-answer"` → `"waiting-challenge-verification"` → `"succeeded"` / `"failed"`
 - `CommentUpdatingState`: `"stopped"` | `"resolving-author-name"` | `"fetching-ipfs"` | `"fetching-update-ipfs"` | `"resolving-community-name"` | `"fetching-community-ipns"` | `"fetching-community-ipfs"` | `"succeeded"` | `"failed"` | `"waiting-retry"`
+
+### `failed` and `waiting-retry` while updating
+
+`failed` means what was received is wrong in itself (an invalid signature or schema, content that does not match its
+CID), or the subscription could not be made. Fetching the same thing again cannot help. `waiting-retry` means a fetch
+failed for a reason that may pass, or there is nothing new to fetch yet.
+
+| Situation | State | `error` event | What happens next |
+|---|---|---|---|
+| CommentIpfs fetch failed while loading | `waiting-retry` | yes, per attempt | retried with a backoff until `stop()` |
+| CommentIpfs is invalid | `failed` | yes | the comment stops |
+| Post: fetch of its CommentUpdate from `postUpdates` failed while loading | `waiting-retry` | yes, per attempt | retried with a backoff (1s doubling to 30s) until `stop()` or a newer community record |
+| Post: its CommentUpdate is invalid | `failed` | yes | tried again on the next community record |
+| Post: the community record has no `postUpdates` | `waiting-retry` | no | checked again on the next community record |
+| Post: every `postUpdates` folder it could be in was read and none has it | `waiting-retry` | no | checked again on the next community record |
+| Reply: fetch of a parent page failed while loading | `waiting-retry` | yes, per attempt | the search is retried with the same backoff until `stop()` or a newer post update |
+| Reply: a parent page is invalid | `failed` | yes | searched again once the parent lists another first page |
+| Reply: every parent page loaded and none holds the reply | `waiting-retry` | no | searched again once the parent lists another first page |
+| Reply: the parent lists `pageCids` but none for the sort the search walks | `waiting-retry` | yes | searched again on the next post update |
+
+The reply cases that emit an error use `ERR_FAILED_TO_FIND_REPLY_COMMENT_UPDATE_WITHIN_PARENT_COMMENT_PAGE_CIDS`, whose
+`details.reason` is `"page-fetch-failed"`, `"page-invalid"`, `"reply-not-in-pages"` or `"sort-not-in-page-cids"`. A reply mirrors the community
+states of its post, so its `updatingState` moves on with the post's next poll of the community: read the state inside
+the `error` or `updatingstatechange` listener, not afterwards.
+
+"Read" means the folder itself answered. With a kubo or libp2p-js client that is the directory block, fetched by its
+cid, having no entry for the post. With gateways only it is every configured gateway answering HTTP 404 for the path.
+A folder that could not be loaded (a timeout, a failed connection, any other status) has not answered, so a lookup
+with even one such folder or gateway is a loading failure and is retried. The folders are named by their cids, which
+is why an answer holds for as long as the community record does.
+
+A parent's pages are immutable behind their first page CID, so a reply walks them once per first page CID. A walk that a
+loading failure cut short is not counted and runs again (issue #515).
 
 ## Key Functions
 

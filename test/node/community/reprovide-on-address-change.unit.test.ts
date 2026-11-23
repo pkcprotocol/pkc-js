@@ -1,10 +1,13 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Logger from "@pkcprotocol/pkc-logger";
 import {
     isBrowserDialableAddr,
     normalizeSelfAddrsForProvider,
-    reprovideConnectionCidsIfBrowserAddrsChanged
+    reprovideConnectionCidsIfBrowserAddrsChanged,
+    reprovideOnAddressChangeIfDue,
+    ADDRESS_REPROVIDE_POLL_INTERVAL_MS
 } from "../../../dist/node/runtime/node/community/local-community/reprovide-on-address-change.js";
+import { SHARED_KUBO_READ_TIMEOUT_MS } from "../../../dist/node/clients/shared-pubsub-topic-list.js";
 import type {
     AddressChangeReprovidable,
     ReprovideKuboRpcClient
@@ -14,7 +17,7 @@ import type {
 const testLog = Logger({ namespace: "pkc-js:test:reprovide-on-address-change" });
 
 // Pure unit test (no kubo / no PKC). Pins down the publisher-side behaviour that keeps browsers able to
-// connect: when the node's browser-dialable (WSS/WebRTC) self-addresses rotate, the connection-critical
+// connect: when the node's browser-dialable (WSS/WebRTC/WebTransport) self-addresses rotate, the connection-critical
 // CIDs must be re-provided so the HTTP routers carry the fresh addresses. A pure-TCP/quic address change
 // must NOT trigger a re-provide (browsers can't dial those).
 //
@@ -31,6 +34,10 @@ const TCP_ADDR = `/ip4/1.2.3.4/tcp/4001`;
 const WSS_ADDR_A = `/dns4/example-a.libp2p.direct/tcp/443/tls/ws`;
 const WSS_ADDR_B = `/dns4/example-b.libp2p.direct/tcp/443/tls/ws`;
 const WEBRTC_ADDR = `/ip4/1.2.3.4/udp/4001/webrtc-direct/certhash/uEiAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`;
+// kubo announces two certhashes for WebTransport (current + next certificate) and rotates them, so the
+// address string changes even though host and port stay the same.
+const WEBTRANSPORT_ADDR_A = `/ip4/1.2.3.4/udp/443/quic-v1/webtransport/certhash/uEiAQk5I5LfDHFiqGeL85eF7IvNU3TL7KKSDv9ZN3oZRZjw/certhash/uEiDxAAP4p5uGp5KZiQzw385mk5sKr-RNPSTI2FNe-djMQQ`;
+const WEBTRANSPORT_ADDR_B = `/ip4/1.2.3.4/udp/443/quic-v1/webtransport/certhash/uEiDxAAP4p5uGp5KZiQzw385mk5sKr-RNPSTI2FNe-djMQQ/certhash/uEiB1j2YF127qijOUPu7peW4cvVV3GGWGQmeX2uvl3r2xJQ`;
 
 function makeClient(initialIdAddrs: string[]): {
     client: ReprovideKuboRpcClient;
@@ -74,6 +81,12 @@ describe("isBrowserDialableAddr", () => {
     it("keeps WSS and WebRTC addresses", () => {
         expect(isBrowserDialableAddr(WSS_ADDR_A)).toBe(true);
         expect(isBrowserDialableAddr(WEBRTC_ADDR)).toBe(true);
+    });
+    it("keeps WebTransport addresses that carry a certhash (pkc-js#475)", () => {
+        expect(isBrowserDialableAddr(WEBTRANSPORT_ADDR_A)).toBe(true);
+    });
+    it("rejects WebTransport addresses without a certhash, which a browser cannot dial (pkc-js#475)", () => {
+        expect(isBrowserDialableAddr("/ip6/2001:db8::1/udp/4001/quic-v1/webtransport")).toBe(false);
     });
     it("rejects plain TCP/QUIC addresses a browser cannot dial", () => {
         expect(isBrowserDialableAddr(TCP_ADDR)).toBe(false);
@@ -121,6 +134,22 @@ describe("reprovideConnectionCidsIfBrowserAddrsChanged", () => {
         const res = await reprovideConnectionCidsIfBrowserAddrsChanged(community);
         expect(res.reprovided).toBe(true);
         expect(provideCalls).toEqual([PUBSUB_ROUTING_CID, IPNS_PUBSUB_ROUTING_CID]);
+    });
+
+    it("re-provides when only a WebTransport certhash rotates", async () => {
+        setIdAddrs([TCP_ADDR, WSS_ADDR_A, WEBTRANSPORT_ADDR_A]);
+        await reprovideConnectionCidsIfBrowserAddrsChanged(community); // baseline
+        setIdAddrs([TCP_ADDR, WSS_ADDR_A, WEBTRANSPORT_ADDR_B]);
+        const res = await reprovideConnectionCidsIfBrowserAddrsChanged(community);
+        expect(res.reprovided).toBe(true);
+        expect(provideCalls).toEqual([PUBSUB_ROUTING_CID, IPNS_PUBSUB_ROUTING_CID]);
+    });
+
+    it("re-provides when a UDP 443 WebTransport listener is added", async () => {
+        await reprovideConnectionCidsIfBrowserAddrsChanged(community); // baseline: TCP + WSS only
+        setIdAddrs([TCP_ADDR, WSS_ADDR_A, WEBTRANSPORT_ADDR_A]);
+        const res = await reprovideConnectionCidsIfBrowserAddrsChanged(community);
+        expect(res.reprovided).toBe(true);
     });
 
     it("does NOT re-provide when only a non-browser-dialable (TCP) address changes", async () => {
@@ -172,5 +201,78 @@ describe("normalizeSelfAddrsForProvider", () => {
 
     it("returns an empty array for empty input", () => {
         expect(normalizeSelfAddrsForProvider([], NORMALIZE_PEER_ID)).toEqual([]);
+    });
+});
+
+// Issue #576: the node's own addresses are the same for every community on it, but each community asked kubo for
+// them (id() and swarm.addrs(), which lists every peer the node knows) once a minute.
+describe("reprovideOnAddressChangeIfDue shares the node's addresses between its communities", () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    function makeCountingClient() {
+        const { client, provideCalls, setIdAddrs } = makeClient([TCP_ADDR, WSS_ADDR_A]);
+        const id = vi.fn(client.id);
+        const swarmAddrs = vi.fn(client.swarm.addrs);
+        const countingClient: ReprovideKuboRpcClient = { ...client, id, swarm: { addrs: swarmAddrs } };
+        return { client: countingClient, id, swarmAddrs, provideCalls, setIdAddrs };
+    }
+
+    it("asks kubo once for all the communities of a node that check within the same quarter of the poll interval", async () => {
+        const { client, id, swarmAddrs } = makeCountingClient();
+        const communities = Array.from({ length: 50 }, () => makeCommunity(client));
+
+        await Promise.all(communities.slice(0, 25).map((community) => reprovideOnAddressChangeIfDue(community)));
+        for (const community of communities.slice(25)) await reprovideOnAddressChangeIfDue(community);
+
+        expect(id).toHaveBeenCalledTimes(1);
+        expect(swarmAddrs).toHaveBeenCalledTimes(1);
+        for (const community of communities) expect(community._lastProvidedBrowserDialableSelfAddrs).toEqual([WSS_ADDR_A]);
+    });
+
+    it("every community still notices a rotated address on its next check and re-provides its own CIDs", async () => {
+        vi.useFakeTimers();
+        const { client, id, provideCalls, setIdAddrs } = makeCountingClient();
+        const communities = Array.from({ length: 3 }, () => makeCommunity(client));
+        for (const community of communities) await reprovideOnAddressChangeIfDue(community); // baseline
+        expect(id).toHaveBeenCalledTimes(1);
+
+        setIdAddrs([TCP_ADDR, WSS_ADDR_B]);
+        vi.advanceTimersByTime(ADDRESS_REPROVIDE_POLL_INTERVAL_MS);
+        for (const community of communities) await reprovideOnAddressChangeIfDue(community);
+
+        expect(id).toHaveBeenCalledTimes(2);
+        expect(provideCalls).toHaveLength(communities.length * 2);
+        for (const community of communities) expect(community._lastProvidedBrowserDialableSelfAddrs).toEqual([WSS_ADDR_B]);
+    });
+
+    // Every due community of the node waits on the one read, so a request that never answers would hold them all
+    it("gives id() and swarm.addrs() a timeout", async () => {
+        const { client, id, swarmAddrs } = makeCountingClient();
+        await reprovideOnAddressChangeIfDue(makeCommunity(client));
+        expect(id.mock.calls[0][0]?.timeout).toEqual(SHARED_KUBO_READ_TIMEOUT_MS);
+        expect(swarmAddrs.mock.calls[0][0]?.timeout).toEqual(SHARED_KUBO_READ_TIMEOUT_MS);
+    });
+
+    // A community that is handed a read another community made has seen the addresses as they were then. Its next
+    // check is due a poll interval after that read, not a poll interval after the moment it was handed it.
+    it("a community that reused an older read checks again one poll interval after that read was made", async () => {
+        vi.useFakeTimers();
+        const { client, id, provideCalls, setIdAddrs } = makeCountingClient();
+        const first = makeCommunity(client);
+        const staggered = makeCommunity(client);
+        await reprovideOnAddressChangeIfDue(first); // reads the addresses
+        setIdAddrs([TCP_ADDR, WSS_ADDR_B]); // which rotate right after
+        vi.advanceTimersByTime(ADDRESS_REPROVIDE_POLL_INTERVAL_MS / 4 - 1);
+        await reprovideOnAddressChangeIfDue(staggered); // handed the read from before the rotation
+        expect(id).toHaveBeenCalledTimes(1);
+        expect(staggered._lastProvidedBrowserDialableSelfAddrs).toEqual([WSS_ADDR_A]);
+
+        vi.advanceTimersByTime((ADDRESS_REPROVIDE_POLL_INTERVAL_MS * 3) / 4 + 1);
+        await reprovideOnAddressChangeIfDue(staggered);
+        expect(id).toHaveBeenCalledTimes(2);
+        expect(staggered._lastProvidedBrowserDialableSelfAddrs).toEqual([WSS_ADDR_B]);
+        expect(provideCalls.length).toBeGreaterThan(0);
     });
 });

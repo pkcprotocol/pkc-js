@@ -3,6 +3,7 @@ import Logger from "@pkcprotocol/pkc-logger";
 import path from "node:path";
 import { v4 as uuidV4 } from "uuid";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import Database from "better-sqlite3";
 import { deleteOldCommunityInWindows } from "../../../dist/node/runtime/node/util.js";
 
 // Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
@@ -85,5 +86,42 @@ describe("deleteOldCommunityInWindows", () => {
         expect(existsSync(filePath)).to.be.true;
         expect(storage.get(STORAGE_KEY)).to.deep.equal([path.basename(filePath)]);
         await fsPromises.unlink(filePath);
+    });
+
+    // The one case with a real second handle rather than a stubbed rm, so the Windows CI job checks what the stubs
+    // assume: that SQLite holding a file is what makes its removal fail there (SQLite opens without FILE_SHARE_DELETE),
+    // with a code the retry recognises, and that the removal goes through once the handle is closed. This is the
+    // state a failed rename's partial DB copy was in when another PKC instance on the dataPath read it (issue #514).
+    // On Linux and macOS an open file can be unlinked, so there the first attempt succeeds.
+    it("removes a file that a SQLite connection holds once the connection closes", async () => {
+        const { pkc, storage } = createPkcWithStorage();
+        const filePath = await createOldDbFile();
+        await fsPromises.unlink(filePath);
+        const holder = new Database(filePath);
+        holder.exec("CREATE TABLE held(id INTEGER PRIMARY KEY)");
+        const realRm = fsPromises.rm.bind(fsPromises);
+        const rmFailureCodes: (string | undefined)[] = [];
+        vi.spyOn(fsPromises, "rm").mockImplementation(async (...args) => {
+            try {
+                return await realRm(...args);
+            } catch (e) {
+                rmFailureCodes.push((e as NodeJS.ErrnoException).code);
+                throw e;
+            }
+        });
+        const release = setTimeout(() => holder.close(), 500);
+
+        try {
+            await deleteOldCommunityInWindows(filePath, pkc);
+        } finally {
+            clearTimeout(release);
+            if (holder.open) holder.close();
+        }
+        expect(existsSync(filePath)).to.be.false;
+        expect(storage.get(STORAGE_KEY)).to.be.undefined;
+        if (process.platform === "win32") {
+            expect(rmFailureCodes.length).to.be.greaterThan(0);
+            for (const code of rmFailureCodes) expect(["EBUSY", "EPERM"]).to.include(code);
+        } else expect(rmFailureCodes).to.deep.equal([]);
     });
 });

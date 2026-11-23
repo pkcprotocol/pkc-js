@@ -16,7 +16,6 @@ import {
     calculateLatestUpdateTrigger,
     calculateNewPostUpdates,
     requireCommunityUpdateIfModQueueChanged,
-    resolveIpnsAndLogIfPotentialProblematicSequence,
     shouldResolveDomainForVerification,
     syncIpnsWithDb,
     updateCommunityIpnsIfNeeded
@@ -32,7 +31,6 @@ describe("ipns-publishing: export shape", () => {
         expect(typeof calculateLatestUpdateTrigger).to.equal("function");
         expect(typeof calculateNewPostUpdates).to.equal("function");
         expect(typeof requireCommunityUpdateIfModQueueChanged).to.equal("function");
-        expect(typeof resolveIpnsAndLogIfPotentialProblematicSequence).to.equal("function");
         expect(typeof shouldResolveDomainForVerification).to.equal("function");
         expect(typeof syncIpnsWithDb).to.equal("function");
         expect(typeof updateCommunityIpnsIfNeeded).to.equal("function");

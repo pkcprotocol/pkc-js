@@ -1,13 +1,4 @@
-import {
-    existsSync,
-    readdirSync,
-    openSync,
-    readSync,
-    closeSync,
-    watch as fsWatch,
-    promises as fsPromises,
-    createReadStream
-} from "node:fs";
+import { existsSync, promises as fsPromises, createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
 import { default as nodeNativeFunctions } from "./native-functions.js";
 import type { KuboRpcClient, NativeFunctions } from "../../types.js";
@@ -24,7 +15,6 @@ import os from "os";
 import type { OpenGraphScraperOptions } from "open-graph-scraper/types";
 import { Agent as HttpAgent } from "http";
 import { Agent as HttpsAgent } from "https";
-import { stringify as deterministicStringify } from "safe-stable-stringify";
 // kubo-rpc-client (~371 modules) is dynamic-imported inside createKuboRpcClient (below) so it stays
 // off the eager import path; only a PKC that actually constructs a kubo client pays for it.
 import type { Logger } from "@pkcprotocol/pkc-logger";
@@ -41,11 +31,8 @@ import type {
     DbPostsFormat
 } from "../../publications/comment/types.js";
 import { DbHandler } from "./community/db-handler.js";
-import { isCommunityStartLockedSync } from "./community/start-lock.js";
-import { doesCommunitiesEntryMatch, toCommunitiesEntry } from "../../community/communities-entry-util.js";
-import type { CommunitiesEntryIdentity, CommunitiesEntryLookup } from "../../community/communities-entry-util.js";
-import type { PKCCommunitiesEntry } from "../../clients/rpc-client/types.js";
-import { areEquivalentNames, isStringDomain } from "../../domain-util.js";
+import { getCommunitiesRegistry, markCommunityDbAsBeingWritten } from "./community/communities-registry.js";
+import type { CommunitiesEntryLookup } from "../../community/communities-entry-util.js";
 import Database from "better-sqlite3";
 import { CommentIpfsSchema, CommentUpdateSchema } from "../../publications/comment/schema.js";
 import type { PageIpfs } from "../../pages/types.js";
@@ -177,6 +164,32 @@ export const setNativeFunctions = (newNativeFunctions: Partial<NativeFunctions>)
 // The codes Windows returns while a file is still held, e.g. for a moment after its DB connection closed
 const WINDOWS_FILE_BUSY_ERROR_CODES = ["EBUSY", "EPERM"];
 
+// Removes a file, at once when nothing holds it, and retried with a growing delay only while Windows reports it busy.
+// Rejects with the last error when the file is still busy at the deadline or the removal failed for another reason.
+// `keepIf` is asked before every attempt and ends the removal when it returns true: a file can stay busy for seconds,
+// and what made it removable when the first attempt started may no longer hold by the time a later one runs.
+export async function removeFileRetryingWhileBusy(
+    filePath: string,
+    { timeoutMs = 10000, log, keepIf }: { timeoutMs?: number; log: Logger; keepIf?: () => boolean }
+) {
+    const deadline = Date.now() + timeoutMs;
+    for (let retryDelayMs = 50; ; retryDelayMs = Math.min(retryDelayMs * 2, 1000)) {
+        if (keepIf?.()) {
+            log(`${filePath} is not to be removed any more, leaving it in place`);
+            return;
+        }
+        try {
+            await fsPromises.rm(filePath, { force: true });
+            return;
+        } catch (e) {
+            const code = (e as NodeJS.ErrnoException).code;
+            if (!code || !WINDOWS_FILE_BUSY_ERROR_CODES.includes(code) || Date.now() + retryDelayMs >= deadline) throw e;
+            log(`${filePath} is still busy (${code}), retrying its removal in ${retryDelayMs}ms`);
+            await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        }
+    }
+}
+
 // Removes a community's old DB file after a delete or a rename. It is tried at once and retried with a growing delay
 // only while Windows reports the file busy, so nothing waits when the file is free (it used to sleep 10s every time)
 export const deleteOldCommunityInWindows = async (
@@ -186,23 +199,11 @@ export const deleteOldCommunityInWindows = async (
 ) => {
     const log = pkc._log;
     const communityAddress = path.basename(subPath);
-    const deadline = Date.now() + timeoutMs;
-    for (let retryDelayMs = 50; ; retryDelayMs = Math.min(retryDelayMs * 2, 1000)) {
-        try {
-            await fsPromises.rm(subPath, { force: true });
-            log(`deleteStaleCommunityInWindows: Succeeded in deleting old community (${communityAddress})`);
-            return;
-        } catch (e) {
-            const code = (e as NodeJS.ErrnoException).code;
-            if (!code || !WINDOWS_FILE_BUSY_ERROR_CODES.includes(code) || Date.now() + retryDelayMs >= deadline) {
-                await recordCommunityThatFailedToBeDeleted({ communityAddress, pkc, error: e, log });
-                return;
-            }
-            log(
-                `deleteStaleCommunityInWindows: Old community (${communityAddress}) is still busy (${code}), retrying in ${retryDelayMs}ms`
-            );
-            await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-        }
+    try {
+        await removeFileRetryingWhileBusy(subPath, { timeoutMs, log });
+        log(`deleteStaleCommunityInWindows: Succeeded in deleting old community (${communityAddress})`);
+    } catch (e) {
+        await recordCommunityThatFailedToBeDeleted({ communityAddress, pkc, error: e, log });
     }
 };
 
@@ -227,6 +228,30 @@ async function recordCommunityThatFailedToBeDeleted({
     if (!communitiesThatWeFailedToDelete.includes(communityAddress)) communitiesThatWeFailedToDelete.push(communityAddress);
     await pkc._storage.setItem(storageKey, communitiesThatWeFailedToDelete);
     log(`deleteStaleCommunityInWindows: Updated persistent deleted communities in storage`, communitiesThatWeFailedToDelete);
+}
+
+// Called when a live community DB is written to communities/<communityAddress> (a rename onto it, a new community): the
+// file there is no longer the one whose deletion failed, and tryToDeleteCommunitiesThatFailedToBeDeletedBefore would
+// delete the live DB on the next start
+export async function forgetCommunityThatFailedToBeDeleted({
+    communityAddress,
+    pkc,
+    log
+}: {
+    communityAddress: string;
+    pkc: Pick<PKC, "_storage">;
+    log: Logger;
+}) {
+    const storageKey = STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES];
+    const communitiesThatWeFailedToDelete = <string[] | undefined>await pkc._storage.getItem(storageKey);
+    if (!Array.isArray(communitiesThatWeFailedToDelete) || !communitiesThatWeFailedToDelete.includes(communityAddress)) return;
+    const remaining = communitiesThatWeFailedToDelete.filter((address) => address !== communityAddress);
+    if (remaining.length === 0) await pkc._storage.removeItem(storageKey);
+    else await pkc._storage.setItem(storageKey, remaining);
+    log(
+        `forgetCommunityThatFailedToBeDeleted: A live DB is being written to communities/${communityAddress}, removed it from the persistent deleted communities`,
+        remaining
+    );
 }
 
 export async function tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc: PKC, log: Logger) {
@@ -270,153 +295,31 @@ export async function tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc: PKC
     }
 }
 
-// The { name, publicKey } of each local community DB, by filename (issue #455). Per PKC instance and in memory only, so
-// a restart or a new instance reads every DB again. Keyed by filename alone, which is safe because neither half changes
-// under one filename: the name is the filename itself (see readLocalCommunityIdentity), and the key is fixed for the
-// community's lifetime. A rename moves the file, so it is a new filename, and a file that disappears is evicted on the
-// next refresh, so a community deleted and recreated under the same filename is read again.
-const localCommunityIdentities = new WeakMap<PKC, Map<string, CommunitiesEntryIdentity>>();
-
-function getLocalCommunityIdentities(pkc: PKC): Map<string, CommunitiesEntryIdentity> {
-    let identities = localCommunityIdentities.get(pkc);
-    if (!identities) localCommunityIdentities.set(pkc, (identities = new Map()));
-    return identities;
-}
-
-// Reads the identity key from the DB's internal record. A delegated community is identified by its anchor, not by the
-// minter it signs with. The name is not read from the DB but taken from the filename, which is the community's address,
-// i.e. its name when it has one (issue #430): a rename moves the file before it writes the new name into the DB (a
-// started community only on its next update), so any reader of the moved file in between, such as another PKC instance
-// on the same dataPath, would otherwise get the old name and cache it under the new filename. Returns undefined, without caching, if the DB can't be read yet (mid-creation, mid-migration,
-// corrupt), so the next refresh tries again
-function readLocalCommunityIdentity(pkc: PKC, communityAddress: string): CommunitiesEntryIdentity | undefined {
-    const log = pkc._log;
-    const dbPath = path.join(pkc.dataPath!, "communities", communityAddress);
-    let db: Database.Database | undefined;
-    try {
-        db = new Database(dbPath, { readonly: true, fileMustExist: true });
-        const row = db.prepare("SELECT value FROM keyv WHERE key = ?").get(`keyv:${STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]}`) as
-            | { value: string }
-            | undefined;
-        const internalState = row ? JSON.parse(row.value)?.value : undefined;
-        const publicKey = internalState?.anchor?.publicKey ?? internalState?.signer?.address;
-        if (typeof publicKey !== "string") {
-            log(
-                `readLocalCommunityIdentity: Community DB (${communityAddress}) has no internal state yet, leaving it out of pkc.communities for now`
-            );
-            return undefined;
-        }
-        return isStringDomain(communityAddress) ? { name: communityAddress, publicKey } : { publicKey };
-    } catch (e) {
-        log.error(
-            `readLocalCommunityIdentity: Failed to read the identity of community DB (${communityAddress}), leaving it out of pkc.communities for now`,
-            e
-        );
-        return undefined;
-    } finally {
-        db?.close();
-    }
-}
-
-function listCommunitiesEntriesSync(pkc: PKC): PKCCommunitiesEntry[] {
-    const communityAddresses = listCommunitiesSync(pkc);
-    const identities = getLocalCommunityIdentities(pkc);
-    for (const cachedAddress of identities.keys()) if (!communityAddresses.includes(cachedAddress)) identities.delete(cachedAddress);
-
-    const entries: PKCCommunitiesEntry[] = [];
-    for (const communityAddress of communityAddresses) {
-        let identity = identities.get(communityAddress);
-        if (!identity) {
-            identity = readLocalCommunityIdentity(pkc, communityAddress);
-            if (!identity) continue;
-            identities.set(communityAddress, identity);
-        }
-        entries.push(
-            toCommunitiesEntry({ ...identity, started: isCommunityStartLockedSync({ dataPath: pkc.dataPath!, communityAddress }) })
-        );
-    }
-    return entries;
-}
-
 // The filename (the address the DB is stored under) of the local community matching a lookup by address, name or
-// identity key, or undefined if there is none. A DB whose identity couldn't be read yet still matches by filename, when
-// every supplied identifier is that filename
+// identity key, or undefined if there is none. Read from the communities registry, not from the directory (issue #585)
 export function findLocalCommunityAddress(pkc: PKC, lookup: CommunitiesEntryLookup): string | undefined {
-    const identities = getLocalCommunityIdentities(pkc);
-    const communityAddresses = listCommunitiesSync(pkc);
-    const identifiers = [lookup.address, lookup.name, lookup.publicKey].filter((id): id is string => typeof id === "string");
-    return (
-        communityAddresses.find((communityAddress) => {
-            const identity = identities.get(communityAddress);
-            return identity && doesCommunitiesEntryMatch(identity, lookup);
-        }) ??
-        communityAddresses.find(
-            (communityAddress) =>
-                !identities.has(communityAddress) &&
-                identifiers.length > 0 &&
-                identifiers.every((id) => areEquivalentNames(communityAddress, id))
-        )
-    );
+    return getCommunitiesRegistry(pkc).findAddress(lookup);
 }
 
-// Reads dataPath/communities now and emits communitieschange if pkc.communities is out of date. The filesystem watcher
-// calls it on every change, and a rename calls it right after moving the DB file: the watcher fires later (much later on
-// macOS), and until then pkc.createCommunity and the RPC server would resolve the old address (issue #430). Starting or
-// stopping a community calls it too, so `started` is current as soon as the start lock changes.
-export function refreshCommunitiesList(pkc: PKC) {
-    const communities = listCommunitiesEntriesSync(pkc);
-    if (deterministicStringify(communities) !== deterministicStringify(pkc.communities)) pkc.emit("communitieschange", { communities });
+// Whether a community DB is stored under exactly this address
+export function isLocalCommunityAddress(pkc: PKC, communityAddress: string): boolean {
+    return getCommunitiesRegistry(pkc).hasCommunityDb(communityAddress);
 }
 
-export function listCommunitiesSync(pkc: PKC) {
-    const log = pkc._log;
-    if (typeof pkc.dataPath !== "string") throw Error("pkc.dataPath needs to be defined to listCommunities");
-    const communitiesPath = path.join(pkc.dataPath, "communities");
+// Lists a community whose DB file the caller has just written, now and not when its filesystem event arrives
+export function registerLocalCommunity(pkc: PKC, communityAddress: string) {
+    getCommunitiesRegistry(pkc).registerCommunity(communityAddress);
+}
 
-    // We'll skip the deleted persistent subs handling for now since it's async
-    // and would need separate handling
+// Unlists a community whose DB file the caller has just deleted or moved away
+export function unregisterLocalCommunity(pkc: PKC, communityAddress: string) {
+    getCommunitiesRegistry(pkc).unregisterCommunity(communityAddress);
+}
 
-    // Only regular files can be community DBs. Subdirectories live here too (`deleted/` from the
-    // delete flow, `.backup_before_migration/` from db-handler) and must never be opened: openSync()
-    // succeeds on a directory, readSync() then throws EISDIR, and before #380 the fd was leaked on
-    // every call until the process hit EMFILE.
-    const files = readdirSync(communitiesPath, { recursive: false, withFileTypes: true })
-        .filter((dirent) => dirent.isFile())
-        .map((dirent) => dirent.name)
-        .filter((file) => !file.includes(".lock") && !file.endsWith("-journal") && !file.endsWith("-shm") && !file.endsWith("-wal"));
-
-    const knownCommunities = getLocalCommunityIdentities(pkc);
-    const communityFilesWeDontNeedToCheck = files.filter((address) => knownCommunities.has(address));
-
-    // For the remaining files, check if they're SQLite files synchronously
-    const filesToCheckIfSqlite = files.filter((address) => !communityFilesWeDontNeedToCheck.includes(address));
-    const sqliteFiles = filesToCheckIfSqlite.filter((address) => {
-        const filePath = path.join(communitiesPath, address);
-        try {
-            // Simple synchronous check for SQLite files
-            // Look for the SQLite file header "SQLite format 3\0"
-            const fd = openSync(filePath, "r");
-            const buffer = Buffer.alloc(16);
-            try {
-                readSync(fd, buffer, 0, 16, 0);
-            } finally {
-                closeSync(fd); // must run whatever readSync throws, or the fd leaks (#380)
-            }
-
-            // Check for SQLite header
-            return buffer.toString().startsWith("SQLite format 3");
-        } catch (e) {
-            // ENOENT is expected: the file can be removed between readdirSync and openSync (community delete).
-            // Anything else was silently swallowed before #380 and stayed hidden until the daemon ran out of fds.
-            if (!(e instanceof Error && "code" in e && e.code === "ENOENT"))
-                log.error(`listCommunitiesSync: Failed to check whether ${filePath} is a SQLite file, skipping it`, e);
-            return false;
-        }
-    });
-
-    // Combine and sort the results
-    const filtered_results = [...communityFilesWeDontNeedToCheck, ...sqliteFiles].sort();
-    return filtered_results;
+// Marks a community DB as being created or moved into place by this process: the filesystem events of its writes are
+// not acted on until the returned function is called. Whoever writes the file registers it once it is complete
+export function markLocalCommunityDbAsBeingWritten(pkc: PKC, communityAddress: string): () => void {
+    return markCommunityDbAsBeingWritten({ dataPath: pkc.dataPath!, communityAddress });
 }
 
 export async function importSignerIntoKuboNode(
@@ -659,63 +562,20 @@ export async function createKuboRpcClient(
     return kuboRpcClient;
 }
 
-const COMMUNITIES_DIR_EXTENSIONS_TO_IGNORE = [".lock", "-journal", "-shm", "-wal"];
-const START_LOCK_SUFFIX = ".start.lock";
-
-// Whether a filesystem event on this file in dataPath/communities can change pkc.communities. A start lock decides a
-// community's `started` (issue #455), but proper-lockfile also touches a held lock's mtime every few seconds, and the
-// watcher reports that touch with the same event type as taking or releasing the lock ("rename" on Linux). A full
-// refresh stats every community's lock, so refreshing on every touch costs O(started × communities) sync work every
-// few seconds per PKC instance, which blocked the event loop on the Windows CI runner. So a start lock event only
-// counts when that one community's `started` no longer matches its listed entry. Runs in the watcher callback, where a
-// throw is uncaught, so a lock check that fails (EACCES, EIO) counts as a change and the refresh handles the error
-export function isCommunitiesListChangeEvent({ pkc, filename }: { pkc: PKC; filename: string | null }): boolean {
-    if (typeof filename !== "string") return true;
-    if (filename.endsWith(START_LOCK_SUFFIX)) {
-        const communityAddress = filename.slice(0, -START_LOCK_SUFFIX.length);
-        const entry = pkc.communities.find((listed) => listed.address === communityAddress);
-        if (!entry) return true;
-        try {
-            return entry.started !== isCommunityStartLockedSync({ dataPath: pkc.dataPath!, communityAddress });
-        } catch {
-            return true;
-        }
-    }
-    return !COMMUNITIES_DIR_EXTENSIONS_TO_IGNORE.some((ext) => filename.endsWith(ext));
-}
-
+// Builds pkc.communities from the communities registry and keeps it current: `communitieschange` is emitted with the
+// list now, and whenever it changes (see communities-registry.ts). Aborting the returned controller closes the
+// registry, which releases the lock of this PKC instance: nothing of it may be running any more by then
 export async function monitorCommunitiesDirectory(pkc: PKC) {
-    const log = pkc._log;
     const watchAbortController = new AbortController();
-    const communitiesPath = path.join(pkc.dataPath!, "communities");
-
-    // Create directory synchronously if it doesn't exist
-    await fsPromises.mkdir(communitiesPath, { recursive: true });
-
-    let isProcessingChange = false;
-
-    // Initial check
-    refreshCommunitiesList(pkc);
-
-    // Set up watcher with synchronous check
-    fsWatch(communitiesPath, { signal: watchAbortController.signal, persistent: false }, (eventType, filename) => {
-        if (!isCommunitiesListChangeEvent({ pkc, filename })) return;
-
-        // Prevent overlapping processing
-        if (isProcessingChange) return;
-
-        isProcessingChange = true;
-        try {
-            refreshCommunitiesList(pkc);
-        } catch (error) {
-            // pkc.communities keeps its last list until a later event refreshes it, e.g. when one community's start lock
-            // check fails (EACCES, EIO), which aborts the whole refresh
-            log.error("monitorCommunitiesDirectory: Failed to refresh pkc.communities after a change in", communitiesPath, error);
-        } finally {
-            isProcessingChange = false;
-        }
-    });
-
+    const registry = getCommunitiesRegistry(pkc);
+    watchAbortController.signal.addEventListener("abort", () => registry.close(), { once: true });
+    try {
+        registry.startMonitoring({ onChange: (communities) => pkc.emit("communitieschange", { communities }) });
+    } catch (error) {
+        // nobody gets the controller of a PKC that failed to be created: its connection and its lock end here
+        registry.close();
+        throw error;
+    }
     return watchAbortController;
 }
 
@@ -886,7 +746,8 @@ export function resolveDbPostsCidRefs(opts: { dbPosts: DbPostsFormat; dbHandler:
     // For preloaded sorts (with commentCids): query those posts from DB and resolve their nested replies.
     // For non-preloaded sorts (allPageCids only): reconstruct pageCids.
     const { dbPosts, dbHandler } = opts;
-    const commentUpdateCols = keys(CommentUpdateSchema.shape);
+    // extraProps: the signed record's unknown keys (a challenge's commentUpdate extras), spread back by the mapper
+    const commentUpdateCols = [...keys(CommentUpdateSchema.shape), "extraProps"];
     const commentIpfsCols = [...keys(CommentIpfsSchema.shape), "extraProps"];
 
     const pages: Record<string, PageIpfs> = {};

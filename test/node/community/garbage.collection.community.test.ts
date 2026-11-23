@@ -30,7 +30,7 @@ vi.mock("../../../dist/node/runtime/node/util.js", () => ({
     getThumbnailPropsOfLink: vi.fn(),
     importSignerIntoKuboNode: vi.fn(),
     moveCommunityDbToDeletedDirectory: vi.fn(),
-    refreshCommunitiesList: vi.fn()
+    unregisterLocalCommunity: vi.fn()
 }));
 
 interface StubKuboClient {
@@ -62,6 +62,7 @@ interface TestLocalCommunity {
     address: string;
     _cidsToUnPin: Set<string>;
     _mfsPathsToRemove: Set<string>;
+    _mfsPathRemovalWatchers: Set<Set<string>>;
     _blocksToRm: string[];
     _communityUpdateTrigger: boolean;
     updateCid?: string;
@@ -134,10 +135,10 @@ function createTestCommunity(overrides: { address?: string } = {}): { community:
         address: overrides.address || "test-address",
         _cidsToUnPin: new Set<string>(),
         _mfsPathsToRemove: new Set<string>(),
+        _mfsPathRemovalWatchers: new Set<Set<string>>(),
         _blocksToRm: [] as string[],
         _pendingEditProps: [],
         _communityUpdateTrigger: true,
-        _firstUpdateAfterStart: false,
         _pkc: {
             publishInterval: 20,
             _timeouts: { "page-ipfs": 1000 },
@@ -197,7 +198,6 @@ function createTestCommunity(overrides: { address?: string } = {}): { community:
         _updateIpnsPubsubPropsIfNeeded: vi.fn(),
         _validateCommunitySizeSchemaAndSignatureBeforePublishing: vi.fn(),
         initCommunityIpfsPropsNoMerge: vi.fn(),
-        _resolveIpnsAndLogIfPotentialProblematicSequence: vi.fn(),
         _calculateNewPostUpdates: vi.fn().mockResolvedValue(undefined),
         _changeStateEmitEventEmitStateChangeEvent: vi.fn()
     }) as TestLocalCommunity;
@@ -403,6 +403,7 @@ describe("local community garbage collection", () => {
             _clientsManager: { getDefaultKuboRpcClient: vi.fn(() => kuboClient) },
             _cidsToUnPin: new Set<string>(),
             _mfsPathsToRemove: new Set<string>(),
+            _mfsPathRemovalWatchers: new Set<Set<string>>(),
             _blocksToRm: [] as string[],
             raw: { communityIpfs: { posts: { pageCids: { hot: "QmPostsPage" }, pages: {} } } },
             statsCid: "QmStatsCid",

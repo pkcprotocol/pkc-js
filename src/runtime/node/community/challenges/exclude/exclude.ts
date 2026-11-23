@@ -103,7 +103,7 @@ const shouldExcludePublication = async ({
         if (!testPublicationType(exclude.publicationType, request)) {
             shouldExclude = false;
         }
-        if (!testRateLimit(exclude, request)) {
+        if (!testRateLimit(exclude, request, community?.address)) {
             shouldExclude = false;
         }
         // Comparing against the signer-derived address is free, so it stays with the other cheap predicates.

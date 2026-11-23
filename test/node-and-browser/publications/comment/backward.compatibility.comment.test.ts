@@ -8,7 +8,8 @@ import {
     iterateThroughPagesToFindCommentInParentPagesInstance,
     waitTillPostInCommunityPages,
     addStringToIpfs,
-    isPKCFetchingUsingGateways
+    isPKCFetchingUsingGateways,
+    publishStaticCommunityWithPostInPages
 } from "../../../../dist/node/test/test-util.js";
 import { messages } from "../../../../dist/node/errors.js";
 import { _signJson } from "../../../../dist/node/signer/signatures.js";
@@ -296,8 +297,16 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it(`loads a page and correctly derives runtime author fields from wire format`, async () => {
             const pageCid = await addStringToIpfs(JSON.stringify(validPageIpfsFixture));
-            const community = await pkc.getCommunity({ address: communityAddress });
-            const loadedPage = await community.posts.getPage({ cid: pageCid });
+            // A static community whose record has no posts pages: the fixture page is then its first page. The shared
+            // signers[0] community accumulates posts, and once it has pageCids the fixture cid is no longer a first page
+            const fixture = await publishStaticCommunityWithPostInPages({ withPostOnlyInPostUpdates: true });
+            let loadedPage;
+            try {
+                const community = await pkc.getCommunity({ address: fixture.communityAddress });
+                loadedPage = await community.posts.getPage({ cid: pageCid });
+            } finally {
+                await fixture.ipnsObj.pkc.destroy();
+            }
 
             // Find a domain author comment (author.name on wire)
             const domainComment = loadedPage.comments.find((comment) => typeof comment.raw.comment.author?.name === "string") as
