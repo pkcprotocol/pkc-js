@@ -367,7 +367,15 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
 
     community._publishLoopPromise = publishLoop(community, community._pkc.publishInterval).catch((err) => {
         log.error(err);
-        community.emit("error", err);
+        // A loop that ended with an error (a DB fault the loop could not get past) leaves nothing that
+        // publishes: the community goes down too, instead of staying "started". Not awaited: stop() waits for this very
+        // promise, which settles when this handler returns. The error is emitted first, and even when that throws (nobody
+        // listens, as documented) the community is stopped.
+        try {
+            community.emit("error", err);
+        } finally {
+            community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after its publish loop ended`, e));
+        }
     });
 }
 

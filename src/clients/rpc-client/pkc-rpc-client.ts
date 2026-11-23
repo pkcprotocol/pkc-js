@@ -1,4 +1,5 @@
 import Logger from "../../logger.js";
+import { guardDetached } from "../../detached-guard.js";
 import { Client as WebSocketClient } from "rpc-websockets";
 import assert from "assert";
 import { PKCError } from "../../pkc-error.js";
@@ -453,14 +454,25 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         ).socket;
         if (!socket || this._socketsWithNotificationHandler.has(socket)) return;
         this._socketsWithNotificationHandler.add(socket);
-        socket.on("message", (jsonMessage) => {
-            const message: unknown = JSON.parse(jsonMessage);
-            if (!isRpcSubscriptionNotification(message)) return; // a response to a call, handled by rpc-websockets
-            const serverSubscriptionId = message.params.subscription;
-            const subscriptionId = this._localIdByServerId.get(serverSubscriptionId) ?? serverSubscriptionId;
-            message.params.subscription = subscriptionId;
-            this._dispatchNotification(subscriptionId, message);
-        });
+        // Nothing awaits this listener, and the server is not trusted: a frame that is not JSON, or a notification whose
+        // handler throws, is dropped and reported as an "error" of the client. Without the guard either one is an uncaught
+        // exception, whatever listeners the application attached.
+        socket.on(
+            "message",
+            guardDetached({
+                entryPoint: "PKCRpcClient socket message",
+                handler: (jsonMessage: string) => {
+                    const message: unknown = JSON.parse(jsonMessage);
+                    if (!isRpcSubscriptionNotification(message)) return; // a response to a call, handled by rpc-websockets
+                    const serverSubscriptionId = message.params.subscription;
+                    const subscriptionId = this._localIdByServerId.get(serverSubscriptionId) ?? serverSubscriptionId;
+                    message.params.subscription = subscriptionId;
+                    this._dispatchNotification(subscriptionId, message);
+                },
+                onFailure: (cause) =>
+                    this.emit("error", new PKCError("ERR_RPC_CLIENT_FAILED_TO_HANDLE_SERVER_MESSAGE", { rpcUrl: this._websocketServerUrl, cause }))
+            })
+        );
     }
 
     // save all subscription messages (ie json rpc messages without 'id', also called json rpc 'notifications')

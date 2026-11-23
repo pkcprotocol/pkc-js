@@ -21,6 +21,7 @@ import type {
 } from "../pubsub-messages/types.js";
 import type { AuthorPubsubJsonType, CreatePublicationOptions, IpfsHttpClientPubsubMessage, PublicationTypeName } from "../types.js";
 import Logger from "../logger.js";
+import { guardDetached } from "../detached-guard.js";
 import env from "../version.js";
 import { PKC } from "../pkc/pkc.js";
 import {
@@ -235,7 +236,8 @@ class Publication extends TypedEmitter<PublicationEvents> {
             target: author,
             props: { ...runtimeAuthor, shortAddress: shortifyAddress(runtimeAuthor.address) }
         });
-        if (skipped.length > 0) Logger("pkc-js:publication:_initAuthor").error("Refused author props of a record that collide with an object", skipped);
+        if (skipped.length > 0)
+            Logger("pkc-js:publication:_initAuthor").error("Refused author props of a record that collide with an object", skipped);
         this.author = <typeof this.author>author;
         this.protocolVersion = props.protocolVersion;
     }
@@ -1223,47 +1225,42 @@ class Publication extends TypedEmitter<PublicationEvents> {
         else this._pkc._publishingPublications.delete(this);
     }
 
-    // Wraps an entry point nothing awaits (a pubsub or RPC subscription handler, a listener on a local community):
-    // a throw there is an unhandled rejection, which ends a Node process, and with it every other publication,
-    // community and RPC client it serves. The wrapper turns the throw into the end of this one publication.
-    private _guardDetachedHandler<Args extends unknown[]>(
+    // Wraps an entry point nothing awaits (a pubsub or RPC subscription handler, a listener on a local community) in the
+    // shared guard (src/detached-guard.ts): a throw there is an unhandled rejection, which ends a Node process, and with it
+    // every other publication, community and RPC client it serves. The failure becomes the end of this one publication.
+    private _guardDetachedHandler<Args extends unknown[], Result>(
         entryPoint: string,
-        handler: (...args: Args) => unknown
-    ): (...args: Args) => Promise<void> {
-        return async (...args: Args) => {
-            try {
-                await handler(...args);
-            } catch (e) {
-                await this._endPublicationAfterDetachedFailure(entryPoint, e);
-            }
-        };
+        handler: (...args: Args) => Result
+    ): (...args: Args) => Result extends PromiseLike<unknown> ? Promise<void> : void {
+        return guardDetached({
+            entryPoint: `Publication ${entryPoint}`,
+            handler,
+            onFailure: (cause) => this._endPublicationAfterDetachedFailure(entryPoint, cause)
+        });
     }
 
-    // Never throws: it runs where a throw would be fatal. Before an end nothing can recover the exchange, so the
-    // publication fails (first end wins, see _claimPublishEnd). After a verdict its outcome stands and the error is
-    // only reported. After stop() the caller has left, so it is only logged.
+    // Before an end nothing can recover the exchange, so the publication fails (first end wins, see _claimPublishEnd).
+    // After a verdict its outcome stands and the error is only reported. After stop() the caller has left, so it is only
+    // logged. The teardown never masks the failure, and runs before the error is emitted. The emit is NOT contained: with no
+    // "error" listener on the publication or the pkc, or with one that throws, it throws, which is the documented behaviour
+    // for an unlistened error (README, "Error handling") and the same as for every other detached entry point.
     private async _endPublicationAfterDetachedFailure(entryPoint: string, cause: unknown): Promise<void> {
         const log = Logger("pkc-js:publication:_endPublicationAfterDetachedFailure");
         log.error(`Handler ${entryPoint} of a publication threw`, cause);
         const error = new PKCError("ERR_PUBLICATION_INTERNAL_ERROR", { entryPoint, cause });
         const endedBefore = this._publishEndedBy;
         const failsThePublication = this._claimPublishEnd("failure");
-        try {
-            if (failsThePublication) {
-                try {
-                    await this._postSucessOrFailurePublishing();
-                } catch (teardownError) {
-                    log.error(`Teardown after the failure of ${entryPoint} threw as well`, teardownError);
-                }
-                this._changePublicationStateEmitEventEmitStateChangeEvent({
-                    newPublishingState: "failed",
-                    event: { name: "error", args: [error] }
-                });
-            } else if (endedBefore !== "stop") this.emit("error", error);
-        } catch (emitError) {
-            // an "error" emit throws when nothing listens to it; the process must outlive that too
-            log.error(`Could not report the failure of ${entryPoint}`, emitError);
-        }
+        if (failsThePublication) {
+            try {
+                await this._postSucessOrFailurePublishing();
+            } catch (teardownError) {
+                log.error(`Teardown after the failure of ${entryPoint} threw as well`, teardownError);
+            }
+            this._changePublicationStateEmitEventEmitStateChangeEvent({
+                newPublishingState: "failed",
+                event: { name: "error", args: [error] }
+            });
+        } else if (endedBefore !== "stop") this.emit("error", error);
     }
 
     // For the places that end a publish after its verdict: a teardown that rejects must not replace the error the caller is
