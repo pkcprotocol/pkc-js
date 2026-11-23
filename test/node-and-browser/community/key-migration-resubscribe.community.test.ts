@@ -72,8 +72,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
                 // With the sibling gone the re-created updating instance is this loader's own, addressed
                 // by key: it loads the key's record, finds the name claim contradicted, and stays there.
-                // The loader's way back from the sibling's key is announced like a migration, which is
-                // part of the sharing case still open in #450 and not asserted here.
+                // The loader's way back from the sibling's key is announced like a migration; the test
+                // below records that.
                 await resolveWhenConditionIsTrue({
                     toUpdate: community,
                     predicate: async () =>
@@ -82,6 +82,80 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 expect(community.address).to.equal(ipnsKey);
 
                 await community.stop();
+            } finally {
+                await testPKC.destroy();
+            }
+        });
+
+        // Records what a by-key loader does today when it shares an updating instance with a loader
+        // that asked for the name. It never migrates on its own (#605), but it mirrors the shared
+        // instance, so the sibling's migration moves it too. Once it resubscribes alone its own
+        // updating instance is addressed by key, and it comes back. That return is announced with
+        // ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY although no name resolved to its key.
+        // Both halves are the sharing case open in #450: a change there should update this test on
+        // purpose rather than by accident.
+        // Cannot run under RPC: the name resolver is configured on the client, and the shared RPC test
+        // server strips client-supplied nameResolvers.
+        itSkipIfRpc(`a by-key loader follows a by-name sibling's migration while they share, and returns to its key alone`, async () => {
+            const communityName = "migration-shared-then-alone.bso";
+            const migratedKey = signers[0].address;
+            const { communityAddress: ipnsKey } = await createMockedCommunityIpns({ name: communityName });
+
+            const testPKC = await config.pkcInstancePromise({
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [createMockNameResolver({ records: new Map([[communityName, migratedKey]]) })]
+                }
+            });
+
+            const collectMigrationErrors = (community: { on: (event: "error", listener: (err: Error) => void) => unknown }) => {
+                const errors: { previousPublicKey: string; newPublicKey: string }[] = [];
+                community.on("error", (err) => {
+                    const pkcError = err as PKCError;
+                    if (pkcError.code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY")
+                        errors.push({
+                            previousPublicKey: pkcError.details.previousPublicKey,
+                            newPublicKey: pkcError.details.newPublicKey
+                        });
+                });
+                return errors;
+            };
+
+            try {
+                const sibling = await testPKC.createCommunity({ name: communityName, publicKey: ipnsKey });
+                await sibling.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: sibling,
+                    predicate: async () => sibling.publicKey === migratedKey
+                });
+
+                // While sharing: the by-key loader is told about the sibling's migration and follows it
+                const byKey = await testPKC.createCommunity({ address: ipnsKey });
+                const errorsWhileSharing = collectMigrationErrors(byKey);
+                await byKey.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: byKey,
+                    predicate: async () => byKey.publicKey === migratedKey
+                });
+                expect(errorsWhileSharing).to.deep.equal([{ previousPublicKey: ipnsKey, newPublicKey: migratedKey }]);
+                expect(byKey.address).to.equal(ipnsKey);
+
+                await byKey.stop();
+                await sibling.stop();
+
+                // Alone: back on the key it asked for, with the name claim contradicted
+                const errorsAlone = collectMigrationErrors(byKey);
+                await byKey.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: byKey,
+                    predicate: async () =>
+                        byKey.publicKey === ipnsKey && typeof byKey.updatedAt === "number" && byKey.nameResolved === false
+                });
+                expect(errorsAlone).to.deep.equal([{ previousPublicKey: migratedKey, newPublicKey: ipnsKey }]);
+                expect(byKey.address).to.equal(ipnsKey);
+                expect(byKey.name).to.equal(communityName);
+
+                await byKey.stop();
             } finally {
                 await testPKC.destroy();
             }
