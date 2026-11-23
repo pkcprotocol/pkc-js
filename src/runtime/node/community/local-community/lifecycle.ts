@@ -17,6 +17,7 @@ import {
     untrackUpdatingCommunity
 } from "../../../../pkc/tracked-instance-registry-util.js";
 import { LocalCommunity } from "../local-community.js";
+import { classifyDbFault, MAX_CONSECUTIVE_IO_ERRORS } from "./db-fault.js";
 import { findProcessStartedCommunity, processStartedCommunities, syncProcessStartedCommunity } from "./registry.js";
 import { syncPageSortsWithRegistry } from "./registry-sync.js";
 import { communityChallengePubsubTopic } from "./comment-updates.js";
@@ -37,6 +38,7 @@ import type { DecryptedChallengeAnswer } from "../../../../pubsub-messages/types
 import type { RemoteCommunity } from "../../../../community/remote-community.js";
 
 const MIN_MS_BETWEEN_PUBLISH_CYCLES = 100;
+const MS_BETWEEN_DB_READ_RETRIES = 100;
 
 export async function publishLoop(community: LocalCommunity, syncIntervalMs: number) {
     const log = Logger("pkc-js:local-community:_publishLoop");
@@ -53,6 +55,27 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
         );
     };
 
+    // calculateLatestUpdateTrigger reads the DB. A fault of that read is handled by what it means (db-fault.ts): a busy
+    // DB and a short run of I/O errors pass, so the read is tried again after a pause, without running a cycle against
+    // a DB that cannot be read. Anything else is thrown: it ends the loop, and startCommunity emits it once and stops
+    // the community. stop() is looked at before every retry, so a DB that stays busy cannot keep it waiting.
+    const readUpdateTriggerRidingOutDbFaults = async () => {
+        let consecutiveIoErrors = 0;
+        while (true) {
+            try {
+                calculateLatestUpdateTrigger(community);
+                return;
+            } catch (error) {
+                const kind = classifyDbFault(error);
+                const passes = kind === "busy" || (kind === "maybe-transient" && ++consecutiveIoErrors <= MAX_CONSECUTIVE_IO_ERRORS);
+                if (!passes) throw error;
+                if (shouldStopPublishLoop()) return;
+                log(`The DB of community (${community.address}) could not be read (${kind}), reading again in ${MS_BETWEEN_DB_READ_RETRIES}ms`);
+                await new Promise<void>((resolve) => setTimeout(resolve, MS_BETWEEN_DB_READ_RETRIES));
+            }
+        }
+    };
+
     // The loop sleeps until something asks for a record or the sync interval passes, whichever is first. It does not
     // poll: every write that needs a new record sets _communityUpdateTrigger (the DB handler does on each publication
     // write), the trigger's setter calls _wakePublishLoop, and so does stop(). A community on which nothing happens
@@ -66,7 +89,7 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
         // What the cycle left behind and no write will announce: a block it could not remove, an edit that is still
         // pending, a record that is now too old. After a failure this is the state the failed cycle tried to publish,
         // not a new request, and the trigger is already set, so it changes nothing.
-        calculateLatestUpdateTrigger(community);
+        await readUpdateTriggerRidingOutDbFaults();
         if (shouldStopPublishLoop()) return;
         const recordAlreadyRequested = !lastSyncFailed && community._communityUpdateTrigger;
         // No cycle starts sooner than this after the last one ended. One publication writes several times in a row
@@ -367,7 +390,7 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
 
     community._publishLoopPromise = publishLoop(community, community._pkc.publishInterval).catch((err) => {
         log.error(err);
-        // A loop that ended with an error (a DB fault the loop could not get past) leaves nothing that
+        // A loop that ended with an error (a DB fault that reading again does not fix, see db-fault.ts) leaves nothing that
         // publishes: the community goes down too, instead of staying "started". Not awaited: stop() waits for this very
         // promise, which settles when this handler returns. The error is emitted first, and even when that throws (nobody
         // listens, as documented) the community is stopped.
