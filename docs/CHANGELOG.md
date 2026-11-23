@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.158](https://github.com/pkcprotocol/pkc-js/compare/v0.0.157...v0.0.158) (2026-11-23)
+
+### Features
+
+* **comment-update:** mark the comment an author was banned from (authorBanExpiresAt) ([#560](https://github.com/pkcprotocol/pkc-js/issues/560)) ([afe2e3e](https://github.com/pkcprotocol/pkc-js/commit/afe2e3e7e48bf1c4b52cbd23c53d31a06e596024)), closes [#363](https://github.com/pkcprotocol/pkc-js/issues/363)
+
+### Bug Fixes
+
+* **community:** rewrite the posts of a postUpdates bucket that MFS lost ([#593](https://github.com/pkcprotocol/pkc-js/issues/593)) ([ef4a93e](https://github.com/pkcprotocol/pkc-js/commit/ef4a93effcacdfa0738496d85e491a68b51420a5)), closes [#590](https://github.com/pkcprotocol/pkc-js/issues/590)
+
 ## [0.0.157](https://github.com/pkcprotocol/pkc-js/compare/v0.0.156...v0.0.157) (2026-11-23)
 
 ### Performance
