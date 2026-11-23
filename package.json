@@ -121,7 +121,7 @@
         "localforage": "1.10.0",
         "lodash.merge": "4.6.2",
         "lru-cache": "10.1.0",
-        "multiformats": "^14.0.5",
+        "multiformats": "14.0.7",
         "node-forge": "1.4.2",
         "open-graph-scraper": "6.11.0",
         "p-limit": "7.3.0",
