@@ -44,6 +44,7 @@ const baseUpdate = (cid: string): CommentUpdateType =>
         archived: true,
         removed: false,
         reason: "a reason",
+        authorBanExpiresAt: now + 1000,
         approved: true,
         updatedAt: now,
         author: { community: { postScore: 1, replyScore: 2, firstCommentTimestamp: now - 10, lastCommentCid: OTHER_CID } },
