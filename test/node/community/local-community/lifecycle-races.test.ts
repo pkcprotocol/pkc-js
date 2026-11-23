@@ -14,7 +14,7 @@ import { mockPKCV2 } from "../../../../dist/node/test/test-util.js";
 import { syncIpnsWithDb } from "../../../../dist/node/runtime/node/community/local-community/ipns-publishing.js";
 import { providePubsubTopicRoutingCidsIfNeeded } from "../../../../dist/node/runtime/node/community/local-community/pubsub.js";
 import { communityChallengePubsubTopic } from "../../../../dist/node/runtime/node/community/local-community/comment-updates.js";
-import { isCommunityStartLocked } from "../../../../dist/node/runtime/node/community/start-lock.js";
+import { isCommunityStartLocked } from "../../../../dist/node/runtime/node/community/communities-registry.js";
 import { findUpdatingCommunity } from "../../../../dist/node/pkc/tracked-instance-registry-util.js";
 import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
@@ -483,36 +483,34 @@ describeSkipIfRpc("edit() on a started community", () => {
         expect(community.title).to.equal(title);
 
         // What a restart after a crash here would load
-        const storedState = await community._getDbInternalState(false);
+        const storedState = await community._getDbInternalState();
         expect(storedState.title).to.equal(title);
         await community.stop();
     });
 
-    it("stays in the DB when stop() is called while the edit holds the state lock: stop() waits for the edit's write", async () => {
+    it("stays in the DB when stop() is called the moment the edit has stored itself: stop() builds its record after the edit", async () => {
         const { community } = await createOfflineCommunity();
         await community.start();
         const title = `edited ${uuidV4()}`;
 
-        // Hold edit() once it has stored the edit and still holds the state lock, until stop() has been called. stop() used
-        // to build the whole record before taking the lock, without the edit, and wrote it over the edit.
+        // Call stop() once edit() has stored the edit, before edit() runs on. stop() used to build the whole record before
+        // its own write, without the edit, and wrote it over the edit.
         const dbHandler = community._dbHandler;
-        const unlockCommunityState = dbHandler.unlockCommunityState.bind(dbHandler);
+        const runInWriteTransaction = dbHandler.runInWriteTransaction.bind(dbHandler);
         const editStored = deferred();
-        const stopCalled = deferred();
-        let editHeld = false;
-        dbHandler.unlockCommunityState = async () => {
-            if (!editHeld) {
-                editHeld = true;
-                editStored.resolve();
-                await stopCalled.promise;
+        let editSeen = false;
+        dbHandler.runInWriteTransaction = <T>(write: () => T): T => {
+            const result = runInWriteTransaction(write);
+            if (!editSeen) {
+                editSeen = true;
+                editStored.resolve(); // the test resumes before edit() does: it was queued first
             }
-            return unlockCommunityState();
+            return result;
         };
 
         const editPromise = community.edit({ title });
         await editStored.promise;
         const stopPromise = community.stop();
-        stopCalled.resolve();
         await Promise.all([editPromise, stopPromise]);
         expect(community.state).to.equal("stopped");
         expect(community.title).to.equal(title);
@@ -520,10 +518,47 @@ describeSkipIfRpc("edit() on a started community", () => {
         // What the next start() would load
         await dbHandler.initDbIfNeeded();
         try {
-            expect((await community._getDbInternalState(false)).title).to.equal(title);
+            expect((await community._getDbInternalState()).title).to.equal(title);
         } finally {
             dbHandler.destoryConnection();
         }
+    });
+
+    it("stays in the DB when a write of the whole record was queued the moment the edit stored itself", async () => {
+        const { community } = await createOfflineCommunity();
+        await community.start();
+        const title = `edited ${uuidV4()}`;
+
+        // A publish cycle writes the whole record, built from the instance inside its write transaction. Queue such a
+        // write right before edit() stores the edit: its transaction then runs after the edit's, and before edit()
+        // resumes and applies the edit to the instance. It used to build the record without the edit and write it
+        // over the edit.
+        const dbHandler = community._dbHandler;
+        const runInWriteTransaction = dbHandler.runInWriteTransaction.bind(dbHandler);
+        let wholeRecordWrite: Promise<unknown> | undefined;
+        let titleWhenWholeRecordWasBuilt: string | undefined;
+        const initDbIfNeeded = dbHandler.initDbIfNeeded.bind(dbHandler);
+        dbHandler.runInWriteTransaction = <T>(write: () => T): T => {
+            if (!wholeRecordWrite) {
+                // The whole-record write is one step from its transaction, as a publish cycle is once the connection
+                // it asked for is there (it is open: the community is started)
+                dbHandler.initDbIfNeeded = () => Promise.resolve();
+                wholeRecordWrite = community._updateDbInternalState(() => {
+                    titleWhenWholeRecordWasBuilt = community.title;
+                    return community.toJSONInternalBeforeFirstUpdate();
+                });
+                dbHandler.initDbIfNeeded = initDbIfNeeded;
+            }
+            return runInWriteTransaction(write);
+        };
+
+        await community.edit({ title });
+        await wholeRecordWrite;
+        expect(titleWhenWholeRecordWasBuilt, "the whole record was built before edit() applied itself").to.not.equal(title);
+
+        // What a restart after a crash here would load
+        expect((await community._getDbInternalState()).title).to.equal(title);
+        await community.stop();
     });
 
     it("called while stop() is tearing down waits for the teardown, then edits the stopped community", async () => {
@@ -531,35 +566,24 @@ describeSkipIfRpc("edit() on a started community", () => {
         await community.start();
         const title = `edited ${uuidV4()}`;
 
-        // Hold stop() while it stores its record and holds the state lock. An edit() called then used to find the lock
-        // held, and retry a second later on the connection stop() had closed by then: it rejected with a TypeError.
+        // Call edit() once stop() has stored its record, before stop() runs on to close the connection. An edit() called
+        // then used to run on the connection stop() had closed by the time it wrote: it rejected with a TypeError.
         const dbHandler = community._dbHandler;
-        const lockCommunityState = dbHandler.lockCommunityState.bind(dbHandler);
-        const unlockCommunityState = dbHandler.unlockCommunityState.bind(dbHandler);
-        const stopHoldsLock = deferred();
-        const releaseStop = deferred();
-        const editAsksForLock = deferred();
-        let stopHeld = false;
-        dbHandler.unlockCommunityState = async () => {
-            if (!stopHeld) {
-                stopHeld = true;
-                stopHoldsLock.resolve();
-                await releaseStop.promise;
+        const runInWriteTransaction = dbHandler.runInWriteTransaction.bind(dbHandler);
+        const stopStoredItsRecord = deferred();
+        let stopSeen = false;
+        dbHandler.runInWriteTransaction = <T>(write: () => T): T => {
+            const result = runInWriteTransaction(write);
+            if (!stopSeen) {
+                stopSeen = true;
+                stopStoredItsRecord.resolve(); // the test resumes before stop() does: it was queued first
             }
-            return unlockCommunityState();
-        };
-        dbHandler.lockCommunityState = async () => {
-            if (stopHeld) editAsksForLock.resolve();
-            return lockCommunityState();
+            return result;
         };
 
         const stopPromise = community.stop();
-        await stopHoldsLock.promise;
+        await stopStoredItsRecord.promise;
         const editPromise = community.edit({ title });
-        // Released once the edit's attempt at the lock has failed and it waits to retry. An edit() that waits for the
-        // teardown never asks for the lock stop() holds, so this is released on a timer then.
-        await Promise.race([editAsksForLock.promise.then(() => sleep(200)), sleep(500)]);
-        releaseStop.resolve();
         await stopPromise;
         await expect(editPromise).resolves.to.equal(community);
         expect(community.state).to.equal("stopped");
@@ -568,7 +592,7 @@ describeSkipIfRpc("edit() on a started community", () => {
         // What the next start() would load
         await dbHandler.initDbIfNeeded();
         try {
-            expect((await community._getDbInternalState(false)).title).to.equal(title);
+            expect((await community._getDbInternalState()).title).to.equal(title);
         } finally {
             dbHandler.destoryConnection();
         }
@@ -579,20 +603,20 @@ describeSkipIfRpc("edit() on a started community", () => {
         await community.start();
         const title = `edited ${uuidV4()}`;
 
-        // Hold edit() before it takes the state lock. A stop() called then used to run its whole teardown and close the
-        // connection, and the edit took the lock on a closed connection: it rejected with a TypeError.
+        // Hold edit() right before its write. A stop() called then used to run its whole teardown and close the
+        // connection, and the edit wrote on a closed connection: it rejected with a TypeError.
         const dbHandler = community._dbHandler;
-        const lockCommunityState = dbHandler.lockCommunityState.bind(dbHandler);
+        const initDbIfNeeded = dbHandler.initDbIfNeeded.bind(dbHandler);
         const editAsksForLock = deferred();
         const releaseEdit = deferred();
         let editHeld = false;
-        dbHandler.lockCommunityState = async () => {
+        dbHandler.initDbIfNeeded = async (...args) => {
             if (!editHeld) {
                 editHeld = true;
                 editAsksForLock.resolve();
                 await releaseEdit.promise;
             }
-            return lockCommunityState();
+            return initDbIfNeeded(...args);
         };
 
         const editPromise = community.edit({ title });
@@ -613,7 +637,7 @@ describeSkipIfRpc("edit() on a started community", () => {
         // What the next start() would load
         await dbHandler.initDbIfNeeded();
         try {
-            expect((await community._getDbInternalState(false)).title).to.equal(title);
+            expect((await community._getDbInternalState()).title).to.equal(title);
         } finally {
             dbHandler.destoryConnection();
         }

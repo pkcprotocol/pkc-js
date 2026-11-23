@@ -447,8 +447,15 @@ describe("publications over RPC (fake RPC server)", () => {
             const subscriptionId = server.subscriptionIdOf("publishVote");
             sendServerError(subscriptionId, "stopped");
 
-            await vi.waitFor(() => expect(vote.state).to.equal("stopped"), { timeout: 10000, interval: 10 });
-            expect(vote.publishingState).to.equal("failed");
+            // The publication goes "stopped" first, then awaits the server unsubscribe, and only then sets publishingState "failed"
+            // and emits the error, so wait for the last of them rather than for the first
+            await vi.waitFor(
+                () => {
+                    expect(vote.state).to.equal("stopped");
+                    expect(vote.publishingState).to.equal("failed");
+                },
+                { timeout: 10000, interval: 10 }
+            );
             expect(events.filter((event) => event.startsWith("error:"))).to.deep.equal([
                 "error:ERR_PUBSUB_DID_NOT_RECEIVE_RESPONSE_AFTER_PUBLISHING_CHALLENGE_REQUEST"
             ]);

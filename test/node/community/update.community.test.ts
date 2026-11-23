@@ -1,7 +1,7 @@
-import lockfile from "@pkcprotocol/proper-lock-file";
 import path from "path";
 import { createSubWithNoChallenge, mockPKC, publishRandomPost, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
 import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
+import { holdStartLockInAnotherProcess } from "../../helpers/start-lock-holder.js";
 import { describe, beforeAll, afterAll, it } from "vitest";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
@@ -92,14 +92,7 @@ describe.concurrent(`community.update - Local subs`, async () => {
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
         await community.stop();
 
-        const communityDbPath = path.join(pkc.dataPath!, "communities", community.address);
-        const lockfilePath = `${communityDbPath}.start.lock`;
-
-        const releaseLock = await lockfile.lock(communityDbPath, {
-            lockfilePath,
-            retries: 0,
-            onCompromised: () => {}
-        });
+        const holder = await holdStartLockInAnotherProcess({ dataPath: pkc.dataPath!, communityAddress: community.address });
 
         const secondPKC = await mockPKC({ dataPath: pkc.dataPath! });
 
@@ -109,7 +102,7 @@ describe.concurrent(`community.update - Local subs`, async () => {
         } catch (e) {
             throw e;
         } finally {
-            await releaseLock();
+            await holder.kill();
             await secondPKC.destroy();
         }
     });

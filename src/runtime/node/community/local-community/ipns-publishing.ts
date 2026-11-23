@@ -14,6 +14,7 @@ import env from "../../../../version.js";
 import { PKCError } from "../../../../pkc-error.js";
 import { STORAGE_KEYS } from "../../../../constants.js";
 import { calculateExpectedSignatureSize } from "../../util.js";
+import { isAbsentPathError, markPostsMissingFromBucketForRewrite } from "./post-updates-bucket.js";
 import { iterateOverPageCidsToFindAllCids } from "../../../../pages/util.js";
 import { cleanUpBeforePublishing, signCommunity } from "../../../../signer/signatures.js";
 import { CommunityIpfsSchema } from "../../../../community/schema.js";
@@ -39,19 +40,57 @@ import { syncWithRegistries } from "./registry-sync.js";
 export async function calculateNewPostUpdates(community: LocalCommunity): Promise<CommunityIpfsType["postUpdates"]> {
     const postUpdates: CommunityIpfsType["postUpdates"] = {};
     const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
+    const log = Logger("pkc-js:local-community:sync:calculateNewPostUpdates");
     for (const timeBucket of community._postUpdatesBuckets) {
+        const rememberedCid = community._postUpdatesBucketCids.get(timeBucket);
+        let cidInMfs: string | undefined;
+        let absent = false;
         try {
             // Retries on transient Kubo connection errors so a daemon blip doesn't silently drop a bucket.
             const statRes = await statMfsPathSafely({ kuboRpcClient, path: `/${community.address}/postUpdates/${timeBucket}` });
-            if (statRes.blocks !== 0) postUpdates[String(timeBucket)] = String(statRes.cid);
-        } catch {}
+            cidInMfs = String(statRes.cid);
+            if (statRes.blocks !== 0) postUpdates[String(timeBucket)] = cidInMfs;
+        } catch (error) {
+            // A bucket that was never there is normal (a young community has no week bucket), and any other error is a
+            // Kubo hiccup that is retried above
+            if (!isAbsentPathError(error)) continue;
+            absent = true;
+        }
+        // What this process left in the bucket is what it holds, unless somebody else changed it. A bucket that is
+        // absent is lost when this process wrote it or the previous record listed it. A bucket that is there with
+        // another cid than the one this process left may have lost posts, which the stat cannot tell: the bucket's
+        // listing is compared against the posts that were published into it. That is for the rare change, not each build.
+        const lost = absent && (rememberedCid !== undefined || community.postUpdates?.[String(timeBucket)] !== undefined);
+        const changed = !absent && rememberedCid !== undefined && rememberedCid !== cidInMfs;
+        if (lost || changed) {
+            try {
+                await markPostsMissingFromBucketForRewrite({ community, bucket: timeBucket, log });
+            } catch (error) {
+                // Not remembered as audited: the next record build looks again
+                log.error(`Failed to check the postUpdates bucket ${timeBucket} of community ${community.address}`, error);
+                continue;
+            }
+        }
+        if (lost || changed) community._postUpdatesBucketsWithUnconfirmedRemovals.delete(timeBucket);
+        if (cidInMfs !== undefined) community._postUpdatesBucketCids.set(timeBucket, cidInMfs);
+        else community._postUpdatesBucketCids.delete(timeBucket);
     }
     if (isEmpty(postUpdates)) return undefined;
     return postUpdates;
 }
 
+// A community record is published every 15 minutes at least: clients take a community whose updatedAt is older for
+// one that is offline
+const MAX_SECONDS_BETWEEN_COMMUNITY_RECORDS = 60 * 15;
+
+// How long until calculateLatestUpdateTrigger finds the last record too old. Nothing announces that moment, so the
+// publish loop sleeps no longer than this. timestamp() rounds to the second, hence the half second
+export function msUntilLastPublishIsTooOld(community: LocalCommunity): number {
+    return ((community.updatedAt || 0) + MAX_SECONDS_BETWEEN_COMMUNITY_RECORDS) * 1000 + 500 - Date.now();
+}
+
 export function calculateLatestUpdateTrigger(community: LocalCommunity) {
-    const lastPublishTooOld = (community.updatedAt || 0) < timestamp() - 60 * 15; // Publish a community record every 15 minutes at least
+    const lastPublishTooOld = (community.updatedAt || 0) < timestamp() - MAX_SECONDS_BETWEEN_COMMUNITY_RECORDS;
 
     // these two checks below are for rare cases where a purged comments or post is not forcing community for a new update
     const lastPostCidChanged = community.lastPostCid !== community._dbHandler.queryLatestPostCid()?.cid;
@@ -417,7 +456,7 @@ async function publishCommunityRecordToIpns(
 
     log.trace("Updated combined hash of pending comments to", community._combinedHashOfPendingCommentsCids);
 
-    // built under the state lock, so it keeps an edit stored meanwhile (see updateDbInternalState)
+    // built inside the write transaction, so it keeps an edit stored meanwhile (see updateDbInternalState)
     await community._updateDbInternalState(() => community.toJSONInternalAfterFirstUpdate());
 
     community._changeStateEmitEventEmitStateChangeEvent({
@@ -481,30 +520,78 @@ export async function updateCommunityIpnsIfNeeded(community: LocalCommunity, cid
     }
 }
 
+// A cycle that takes longer than the publish interval means the community publishes later than it is set to. It is
+// logged with the time each step took, slowest first, so the step to look at is named without a profiler (issue #576).
+// The times are wall time: a step that waits on Kubo counts its wait. Whether the main thread was blocked is reported
+// separately (see event-loop-watch.ts).
+export function slowCycleReport({
+    cycleMs,
+    slowAfterMs,
+    phasesMs
+}: {
+    cycleMs: number;
+    slowAfterMs: number;
+    phasesMs: Record<string, number>;
+}): string | undefined {
+    if (cycleMs <= slowAfterMs) return undefined;
+    const phases = Object.entries(phasesMs)
+        .filter(([, ms]) => ms > 0)
+        .sort(([, a], [, b]) => b - a)
+        .map(([phase, ms]) => `${phase} ${ms}ms`);
+    return `took ${Math.round(cycleMs)}ms, longer than the publish interval of ${slowAfterMs}ms: ${phases.join(", ")}`;
+}
+
+function reportCycleIfSlow({
+    community,
+    cycleMs,
+    phasesMs,
+    log
+}: {
+    community: LocalCommunity;
+    cycleMs: number;
+    phasesMs: Record<string, number>;
+    log: ReturnType<typeof Logger>;
+}) {
+    const report = slowCycleReport({ cycleMs, slowAfterMs: community._pkc.publishInterval, phasesMs });
+    if (report) log.error(`A publish cycle of community`, community.address, report);
+}
+
 export async function syncIpnsWithDb(community: LocalCommunity) {
     const log = Logger("pkc-js:local-community:sync");
 
     const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
+    const cycleStartedAtMs = performance.now();
+    const phasesMs: Record<string, number> = {};
+    const timed = async <T>(phase: string, run: () => Promise<T>): Promise<T> => {
+        const phaseStartedAtMs = performance.now();
+        try {
+            return await run();
+        } finally {
+            phasesMs[phase] = Math.round(performance.now() - phaseStartedAtMs);
+        }
+    };
     try {
-        await community._listenToIncomingRequests();
-        await providePubsubTopicRoutingCidsIfNeeded(community);
-        await adjustPostUpdatesBucketsIfNeeded(community);
+        await timed("listenToIncomingRequests", () => community._listenToIncomingRequests());
+        await timed("providePubsubTopicRoutingCids", () => providePubsubTopicRoutingCidsIfNeeded(community));
+        await timed("adjustPostUpdatesBuckets", () => adjustPostUpdatesBucketsIfNeeded(community));
         community._setStartedStateWithEmission("publishing-ipns");
         community._clientsManager.updateKuboRpcState("publishing-ipns", kuboRpc.url);
-        await purgeDisapprovedCommentsOlderThan(community);
+        await timed("purgeDisapprovedComments", () => purgeDisapprovedCommentsOlderThan(community));
         // Before any CommentUpdate or page is generated, so a package replaced in the registry applies to this cycle
-        await syncWithRegistries(community);
-        const cidsUpdatedInThisCycle = await updateCommentsAndWritePostUpdates(community);
+        await timed("syncWithRegistries", () => syncWithRegistries(community));
+        const cidsUpdatedInThisCycle = await timed("updateCommentsAndWritePostUpdates", () => updateCommentsAndWritePostUpdates(community));
         // The record's postUpdates cids are stat'd from MFS, so a path still queued here (e.g. a purge
         // whose own MFS cleanup failed) would keep the purged CommentUpdate in the published record.
         // writePostUpdatesToMfs drains the queue only on cycles that write a post, so drain it on
         // every cycle. A failure throws before the update trigger is consumed, so the next pass
         // retries (issue #420).
-        if (community._mfsPathsToRemove.size > 0) await rmUnneededMfsPaths(community);
+        if (community._mfsPathsToRemove.size > 0) await timed("rmUnneededMfsPaths", () => rmUnneededMfsPaths(community));
         requireCommunityUpdateIfModQueueChanged(community);
-        await updateCommunityIpnsIfNeeded(community, cidsUpdatedInThisCycle);
-        await cleanUpIpfsRepoIfDue(community);
+        await timed("updateCommunityIpns", () => updateCommunityIpnsIfNeeded(community, cidsUpdatedInThisCycle));
+        await timed("cleanUpIpfsRepo", () => cleanUpIpfsRepoIfDue(community));
+        reportCycleIfSlow({ community, cycleMs: performance.now() - cycleStartedAtMs, phasesMs, log });
     } catch (e) {
+        reportCycleIfSlow({ community, cycleMs: performance.now() - cycleStartedAtMs, phasesMs, log });
         //@ts-expect-error
         e.details = { ...e.details, communityAddress: community.address };
         const errorTyped = <Error>e;

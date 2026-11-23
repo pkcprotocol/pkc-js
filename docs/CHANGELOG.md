@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.0.158](https://github.com/pkcprotocol/pkc-js/compare/v0.0.157...v0.0.158) (2026-11-23)
+
+### Features
+
+* **comment-update:** mark the comment an author was banned from (authorBanExpiresAt) ([#560](https://github.com/pkcprotocol/pkc-js/issues/560)) ([afe2e3e](https://github.com/pkcprotocol/pkc-js/commit/afe2e3e7e48bf1c4b52cbd23c53d31a06e596024)), closes [#363](https://github.com/pkcprotocol/pkc-js/issues/363)
+
+### Bug Fixes
+
+* **community:** rewrite the posts of a postUpdates bucket that MFS lost ([#593](https://github.com/pkcprotocol/pkc-js/issues/593)) ([ef4a93e](https://github.com/pkcprotocol/pkc-js/commit/ef4a93effcacdfa0738496d85e491a68b51420a5)), closes [#590](https://github.com/pkcprotocol/pkc-js/issues/590)
+
+## [0.0.157](https://github.com/pkcprotocol/pkc-js/compare/v0.0.156...v0.0.157) (2026-11-23)
+
+### Performance
+
+* **community:** idle communities stop polling, and share the node-wide Kubo calls ([#579](https://github.com/pkcprotocol/pkc-js/issues/579)) ([c5b3bde](https://github.com/pkcprotocol/pkc-js/commit/c5b3bdec288edf8be029591a8b41e73295254526)), closes [#576](https://github.com/pkcprotocol/pkc-js/issues/576) [#430](https://github.com/pkcprotocol/pkc-js/issues/430) [#576](https://github.com/pkcprotocol/pkc-js/issues/576) [#576](https://github.com/pkcprotocol/pkc-js/issues/576) [#430](https://github.com/pkcprotocol/pkc-js/issues/430)
+
+## [0.0.156](https://github.com/pkcprotocol/pkc-js/compare/v0.0.155...v0.0.156) (2026-11-23)
+
+## [0.0.155](https://github.com/pkcprotocol/pkc-js/compare/v0.0.154...v0.0.155) (2026-11-23)
+
+### Features
+
+* **wallets:** verify and enforce author.wallets proofs per BSIP-22 ([#577](https://github.com/pkcprotocol/pkc-js/issues/577)) ([087b854](https://github.com/pkcprotocol/pkc-js/commit/087b8540e49f383af6fd126485a60a469ed559b0)), closes [#566](https://github.com/pkcprotocol/pkc-js/issues/566)
+
+### Performance
+
+* **pkc:** keep local communities in a registry, with one start lock per PKC instance ([#586](https://github.com/pkcprotocol/pkc-js/issues/586)) ([d32fd05](https://github.com/pkcprotocol/pkc-js/commit/d32fd0569ca7e2289102a7375f392cbad2585d44)), closes [#576](https://github.com/pkcprotocol/pkc-js/issues/576) [#585](https://github.com/pkcprotocol/pkc-js/issues/585)
+
+## [0.0.154](https://github.com/pkcprotocol/pkc-js/compare/v0.0.153...v0.0.154) (2026-11-21)
+
+### Bug Fixes
+
+* **ci:** skip Claude reviews on draft PRs [skip ci] [skip github-alerts] ([6b4e0f5](https://github.com/pkcprotocol/pkc-js/commit/6b4e0f549f440d5c8550f5d3df4fab039707ac5c))
+* **community:** hold the start lock in the kernel so a killed process frees it at once ([#564](https://github.com/pkcprotocol/pkc-js/issues/564)) ([b8c8f53](https://github.com/pkcprotocol/pkc-js/commit/b8c8f53505596e670dbca9b6a8b64f391c4c8bdd)), closes [#546](https://github.com/pkcprotocol/pkc-js/issues/546) [#561](https://github.com/pkcprotocol/pkc-js/issues/561) [#546](https://github.com/pkcprotocol/pkc-js/issues/546)
+* **publication:** publish once per instance, and fix the publish and update state-machine bugs ([#534](https://github.com/pkcprotocol/pkc-js/issues/534)) ([eb06f44](https://github.com/pkcprotocol/pkc-js/commit/eb06f44d145107e9a7058c218d59b253ae927d7a)), closes [#503](https://github.com/pkcprotocol/pkc-js/issues/503) [#270](https://github.com/pkcprotocol/pkc-js/issues/270) [#516](https://github.com/pkcprotocol/pkc-js/issues/516) [#517](https://github.com/pkcprotocol/pkc-js/issues/517) [#530](https://github.com/pkcprotocol/pkc-js/issues/530) [#516](https://github.com/pkcprotocol/pkc-js/issues/516) [#503](https://github.com/pkcprotocol/pkc-js/issues/503) [#362](https://github.com/pkcprotocol/pkc-js/issues/362) [#571](https://github.com/pkcprotocol/pkc-js/issues/571)
+
 ## [0.0.153](https://github.com/pkcprotocol/pkc-js/compare/v0.0.152...v0.0.153) (2026-11-17)
 
 ### Bug Fixes

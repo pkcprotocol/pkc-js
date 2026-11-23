@@ -1,330 +1,177 @@
 import { it, describe, beforeAll, afterAll, expect } from "vitest";
+import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
+import { stringify as deterministicStringify } from "safe-stable-stringify";
 import env from "../../../dist/node/version.js";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
-import { commentUpdateToDbRow } from "../../../dist/node/runtime/node/community/comment-update-row.js";
+import { mockRemotePKC, generateMockPost } from "../../../dist/node/test/test-util.js";
+import { getPKCAddressFromPublicKeySync } from "../../../dist/node/signer/util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
+import { resignVerbatim } from "../../helpers/resign-verbatim.js";
+import type { WirePublication } from "../../helpers/resign-verbatim.js";
+import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
-import type { CommentUpdateType } from "../../../dist/node/publications/comment/types.js";
+import type { CommentsTableRowInsert } from "../../../dist/node/publications/comment/types.js";
 import type Database from "better-sqlite3";
 
-// v46 -> v47 adds the commentUpdates.pseudonymityAuthorTag column (issue #381): the own-post recognition
-// tag on comments the community aliased. commentUpdates is dropped and rebuilt on every version bump, so
-// no update row is migrated; the update cycle recomputes every record and tags each aliased comment from
-// the surviving pseudonymityAliases table, which is how existing comments get tagged on upgrade.
+// v46 -> v47 has no schema change. The version bump makes the open-time sweeps run again, and those now apply the
+// rule that a record with a key named like an object member (toString, constructor, __proto__) or starting with an
+// underscore is invalid, in the record and in its author. A community that stored such a comment before the upgrade
+// (it was accepted then) would otherwise fail its own signature check on every publish cycle, and so would a stored
+// challenge `commentUpdate` extra with such a key. Real signed records: the purge calls verifyCommentIpfs.
+// Uses DbHandler directly (Node-only), cannot run under RPC.
 
-const V46_CREATE_COMMENTS = `
-    CREATE TABLE IF NOT EXISTS comments (
-        cid TEXT NOT NULL PRIMARY KEY UNIQUE,
-        authorSignerAddress TEXT NOT NULL,
-        author TEXT NULLABLE,
-        link TEXT NULLABLE,
-        linkWidth INTEGER NULLABLE,
-        linkHeight INTEGER NULLABLE,
-        thumbnailUrl TEXT NULLABLE,
-        thumbnailUrlWidth INTEGER NULLABLE,
-        thumbnailUrlHeight INTEGER NULLABLE,
-        parentCid TEXT NULLABLE REFERENCES comments(cid),
-        postCid TEXT NOT NULL REFERENCES comments(cid),
-        previousCid TEXT NULLABLE,
-        communityPublicKey TEXT,
-        communityName TEXT,
-        content TEXT NULLABLE,
-        timestamp INTEGER NOT NULL,
-        signature TEXT NOT NULL,
-        originalCommentSignatureEncoded TEXT NULLABLE,
-        title TEXT NULLABLE,
-        depth INTEGER NOT NULL,
-        linkHtmlTagName TEXT NULLABLE,
-        flairs TEXT NULLABLE,
-        spoiler INTEGER NULLABLE,
-        pendingApproval INTEGER NULLABLE,
-        number INTEGER NULLABLE,
-        postNumber INTEGER NULLABLE,
-        nsfw INTEGER NULLABLE,
-        pseudonymityMode TEXT NULLABLE,
-        quotedCids TEXT NULLABLE,
-        crosspost TEXT NULLABLE,
-        gallery TEXT NULLABLE,
-        extraProps TEXT NULLABLE,
-        challengeCommentUpdate TEXT NULLABLE,
-        protocolVersion TEXT NOT NULL,
-        insertedAt INTEGER NOT NULL
-    )
-`;
-
-// v46 commentUpdates: v45 columns + extraProps, and NO pseudonymityAuthorTag yet.
-const V46_CREATE_COMMENT_UPDATES = `
-    CREATE TABLE IF NOT EXISTS commentUpdates (
-        cid TEXT NOT NULL PRIMARY KEY UNIQUE REFERENCES comments(cid),
-        edit TEXT NULLABLE,
-        upvoteCount INTEGER NOT NULL,
-        downvoteCount INTEGER NOT NULL,
-        replyCount INTEGER NOT NULL,
-        childCount INTEGER NOT NULL,
-        number INTEGER NULLABLE,
-        postNumber INTEGER NULLABLE,
-        flairs TEXT NULLABLE,
-        spoiler INTEGER NULLABLE,
-        nsfw INTEGER NULLABLE,
-        pinned INTEGER NULLABLE,
-        locked INTEGER NULLABLE,
-        archived INTEGER NULLABLE,
-        removed INTEGER NULLABLE,
-        approved INTEGER NULLABLE,
-        reason TEXT NULLABLE,
-        updatedAt INTEGER NOT NULL CHECK(updatedAt > 0),
-        protocolVersion TEXT NOT NULL,
-        signature TEXT NOT NULL,
-        author TEXT NULLABLE,
-        replies TEXT NULLABLE,
-        lastChildCid TEXT NULLABLE,
-        lastReplyTimestamp INTEGER NULLABLE,
-        postUpdatesBucket INTEGER NULLABLE,
-        publishedToPostUpdatesMFS INTEGER NOT NULL,
-        insertedAt INTEGER NOT NULL,
-        extraProps TEXT NULLABLE
-    )
-`;
-
-const V46_CREATE_VOTES = `
-    CREATE TABLE IF NOT EXISTS votes (
-        commentCid TEXT NOT NULL REFERENCES comments(cid),
-        authorSignerAddress TEXT NOT NULL,
-        timestamp INTEGER CHECK(timestamp > 0) NOT NULL,
-        vote INTEGER CHECK(vote BETWEEN -1 AND 1) NOT NULL,
-        protocolVersion TEXT NOT NULL,
-        insertedAt INTEGER NOT NULL,
-        extraProps TEXT NULLABLE,
-        PRIMARY KEY (commentCid, authorSignerAddress)
-    )
-`;
-
-const V46_CREATE_COMMENT_EDITS = `
-    CREATE TABLE IF NOT EXISTS commentEdits (
-        commentCid TEXT NOT NULL REFERENCES comments(cid),
-        authorSignerAddress TEXT NOT NULL,
-        author TEXT NULLABLE,
-        signature TEXT NOT NULL,
-        protocolVersion TEXT NOT NULL,
-        communityPublicKey TEXT,
-        communityName TEXT,
-        timestamp INTEGER CHECK(timestamp > 0) NOT NULL,
-        content TEXT NULLABLE,
-        reason TEXT NULLABLE,
-        deleted INTEGER NULLABLE,
-        spoiler INTEGER NULLABLE,
-        nsfw INTEGER NULLABLE,
-        flairs TEXT NULLABLE,
-        isAuthorEdit INTEGER NOT NULL,
-        insertedAt INTEGER NOT NULL,
-        extraProps TEXT NULLABLE
-    )
-`;
-
-const V46_CREATE_COMMENT_MODERATIONS = `
-    CREATE TABLE IF NOT EXISTS commentModerations (
-        commentCid TEXT NOT NULL REFERENCES comments(cid),
-        author TEXT NULLABLE,
-        signature TEXT NOT NULL,
-        modSignerAddress TEXT NOT NULL,
-        protocolVersion TEXT NOT NULL,
-        communityPublicKey TEXT,
-        communityName TEXT,
-        timestamp INTEGER CHECK(timestamp > 0) NOT NULL,
-        commentModeration TEXT NOT NULL,
-        insertedAt INTEGER NOT NULL,
-        extraProps TEXT NULLABLE,
-        targetAuthorSignerAddress TEXT NULLABLE,
-        targetAuthorDomain TEXT NULLABLE
-    )
-`;
-
-const V46_CREATE_PSEUDONYMITY_ALIASES = `
-    CREATE TABLE IF NOT EXISTS pseudonymityAliases (
-        commentCid TEXT NOT NULL PRIMARY KEY UNIQUE REFERENCES comments(cid) ON DELETE CASCADE,
-        aliasPrivateKey TEXT NOT NULL,
-        originalAuthorPublicKey TEXT NOT NULL,
-        originalAuthorSignerAddress TEXT NULLABLE,
-        originalAuthorName TEXT NULLABLE,
-        mode TEXT NOT NULL CHECK(mode IN ('per-post', 'per-reply', 'per-author')),
-        insertedAt INTEGER NOT NULL
-    )
-`;
-
-const COMMUNITY_ADDRESS = "12D3KooWTestCommunityAddressV47";
-const now = Math.floor(Date.now() / 1000);
-const ALIASED_POST_CID = "QmV47AliasedPost";
-const PLAIN_POST_CID = "QmV47PlainPost";
-const author = { address: "12D3KooWAuthorV47" };
-const ALIAS_AUTHOR_PUBLIC_KEY = "C7w0aldmfDgBIL2cf9flHSxf3+o3zS9b9AWyxr9vLXg";
-const signature = {
-    type: "ed25519",
-    signature: "sig",
-    publicKey: "pk",
-    signedPropertyNames: ["communityPublicKey", "author", "timestamp"]
-};
-
-interface FakeCommunity {
-    address: string;
-    _pkc: { noData: boolean };
-    _cidsToUnPin: Set<string>;
-    _blocksToRm: string[];
-    _mfsPathsToRemove: Set<string>;
-    _clientsManager: object;
-    _calculateLocalMfsPathForCommentUpdate: () => string;
-    _addOldPageCidsToCidsToUnpin: () => Promise<void>;
-    _addAllCidsUnderPurgedCommentToBeRemoved: () => void;
-}
-
-function createFakeCommunity(address: string): FakeCommunity {
-    return {
-        address,
-        _pkc: { noData: true },
-        _cidsToUnPin: new Set<string>(),
-        _blocksToRm: [],
-        _mfsPathsToRemove: new Set<string>(),
-        _clientsManager: {},
-        _calculateLocalMfsPathForCommentUpdate: () => "",
-        _addOldPageCidsToCidsToUnpin: async () => {},
-        _addAllCidsUnderPurgedCommentToBeRemoved: () => {}
-    };
-}
+const COMMUNITY = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
+type Bag = Record<string, unknown>;
 
 interface DbHandlerPrivate {
     _db: Database.Database;
-    _purgeCommentsWithInvalidSchemaOrSignature: () => Promise<void>;
-    _purgeCommentEditsWithInvalidSchemaOrSignature: () => Promise<void>;
-    _purgePublicationTablesWithDuplicateSignatures: () => Promise<void>;
+    _createdTables: boolean;
 }
 
-function getPrivate(handler: DbHandler): DbHandlerPrivate {
-    return handler as unknown as DbHandlerPrivate;
-}
+describeSkipIfRpc("v46 → v47 DB migration (records with forbidden keys stored by an older version)", () => {
+    let pkc: PKC;
+    let dbHandler: DbHandler;
+    const cids: Record<string, string> = {};
+    let cidCounter = 0;
 
-// Uses DbHandler directly (Node-only) — cannot run under RPC.
-describeSkipIfRpc("v46 → v47 DB migration (commentUpdates.pseudonymityAuthorTag column)", function () {
-    let dbHandler: DbHandler | undefined;
-
-    afterAll(() => {
-        if (dbHandler) {
-            dbHandler.destoryConnection();
-            dbHandler = undefined;
+    // A signed post, re-signed verbatim so the key is part of the signed bytes, stored the way a community stores it
+    const storeSignedPost = async (
+        label: string,
+        mutate: (wire: Bag) => void,
+        extra: { challengeCommentUpdate?: Record<string, unknown> } = {}
+    ) => {
+        const comment = <Comment>await generateMockPost({ communityAddress: COMMUNITY, pkc, postProps: undefined });
+        if (!comment.raw.pubsubMessageToPublish) {
+            await comment._initCommunity();
+            await comment._signPublicationWithCommunityFields();
         }
-    });
+        const wire = <Bag>JSON.parse(JSON.stringify(comment.raw.pubsubMessageToPublish));
+        mutate(wire);
+        await resignVerbatim(<WirePublication>(<unknown>wire), comment.signer!);
+        const commentIpfs = { ...wire, depth: 0 };
+        const cid = await calculateIpfsHash(deterministicStringify(commentIpfs)!);
+        cids[label] = cid;
+        const known = new Set([
+            "author",
+            "content",
+            "title",
+            "communityPublicKey",
+            "communityName",
+            "timestamp",
+            "signature",
+            "protocolVersion",
+            "depth"
+        ]);
+        const extraProps = Object.fromEntries(Object.entries(wire).filter(([k]) => !known.has(k) && k !== "link"));
+        const numbers = dbHandler.getNextCommentNumbers(0);
+        const row = <CommentsTableRowInsert>(<unknown>{
+            cid,
+            authorSignerAddress: getPKCAddressFromPublicKeySync((<{ publicKey: string }>wire.signature).publicKey),
+            author: wire.author,
+            content: wire.content,
+            title: wire.title,
+            communityPublicKey: wire.communityPublicKey,
+            communityName: wire.communityName,
+            timestamp: wire.timestamp,
+            depth: 0,
+            postCid: cid,
+            signature: wire.signature,
+            protocolVersion: wire.protocolVersion,
+            number: numbers.number,
+            postNumber: numbers.postNumber,
+            insertedAt: Math.floor(Date.now() / 1000) + cidCounter++,
+            ...(Object.keys(extraProps).length > 0 ? { extraProps } : {}),
+            ...(extra.challengeCommentUpdate ? { challengeCommentUpdate: extra.challengeCommentUpdate } : {})
+        });
+        dbHandler.insertComments([row]);
+    };
+
+    const exists = (label: string) => dbHandler.queryComment(cids[label]) !== undefined;
 
     beforeAll(async () => {
-        dbHandler = new DbHandler(createFakeCommunity(COMMUNITY_ADDRESS) as unknown as LocalCommunity);
+        pkc = await mockRemotePKC();
+        const anyComment = <Comment>await generateMockPost({ communityAddress: COMMUNITY, pkc });
+        const fakeCommunity = {
+            address: COMMUNITY,
+            _pkc: { noData: true },
+            _cidsToUnPin: new Set<string>(),
+            _blocksToRm: <string[]>[],
+            _mfsPathsToRemove: new Set<string>(),
+            _clientsManager: anyComment._clientsManager,
+            _calculateLocalMfsPathForCommentUpdate: () => "",
+            _addOldPageCidsToCidsToUnpin: async () => {},
+            _addAllCidsUnderPurgedCommentToBeRemoved: () => {}
+        };
+        dbHandler = new DbHandler(<LocalCommunity>(<unknown>fakeCommunity));
         await dbHandler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
+        await dbHandler.createOrMigrateTablesIfNeeded(); // the v46 schema is the current schema
 
-        const priv = getPrivate(dbHandler);
-        const db = priv._db;
-        db.exec(V46_CREATE_COMMENTS);
-        db.exec(V46_CREATE_COMMENT_UPDATES);
-        db.exec(V46_CREATE_VOTES);
-        db.exec(V46_CREATE_COMMENT_EDITS);
-        db.exec(V46_CREATE_COMMENT_MODERATIONS);
-        db.exec(V46_CREATE_PSEUDONYMITY_ALIASES);
+        await storeSignedPost("clean", () => {});
+        await storeSignedPost("benign-extra", (w) => {
+            w.extraProp = "kept";
+        });
+        await storeSignedPost("author-underscore", (w) => {
+            (<Bag>w.author)._x = 1;
+        });
+        await storeSignedPost("author-tostring", (w) => {
+            (<Bag>w.author)["toString"] = "x";
+        });
+        await storeSignedPost("top-level-underscore", (w) => {
+            w._y = 1;
+        });
+        await storeSignedPost("top-level-constructor", (w) => {
+            w["constructor"] = "x";
+        });
+        await storeSignedPost("extras-with-forbidden", () => {}, {
+            challengeCommentUpdate: <Bag>(
+                JSON.parse('{"tip": 1, "_z": 2, "toString": "x", "author": {"community": {"postScore": 3}, "_w": 1}}')
+            )
+        });
+        await storeSignedPost("extras-only-forbidden", () => {}, { challengeCommentUpdate: { _only: 1 } });
+        await storeSignedPost("extras-clean", () => {}, { challengeCommentUpdate: { tip: 5 } });
 
-        const insertPost = db.prepare(
-            `INSERT INTO comments (cid, authorSignerAddress, author, postCid, communityPublicKey, content, title, timestamp, signature,
-                depth, protocolVersion, insertedAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '1.0.0', ?)`
-        );
-        insertPost.run(
-            ALIASED_POST_CID,
-            author.address,
-            JSON.stringify(author),
-            ALIASED_POST_CID,
-            COMMUNITY_ADDRESS,
-            "content",
-            "title",
-            now - 300,
-            JSON.stringify(signature),
-            now - 300
-        );
-        insertPost.run(
-            PLAIN_POST_CID,
-            author.address,
-            JSON.stringify(author),
-            PLAIN_POST_CID,
-            COMMUNITY_ADDRESS,
-            "content",
-            "title",
-            now - 200,
-            JSON.stringify({ ...signature, signature: "sig2" }),
-            now - 200
-        );
-
-        // The aliased post has an alias row; the plain post does not.
-        db.prepare(
-            `INSERT INTO pseudonymityAliases (commentCid, aliasPrivateKey, originalAuthorPublicKey, originalAuthorSignerAddress, mode, insertedAt)
-             VALUES (?, ?, ?, ?, 'per-post', ?)`
-        ).run(ALIASED_POST_CID, "aliasPrivKey", ALIAS_AUTHOR_PUBLIC_KEY, author.address, now - 300);
-
-        // Old update rows the pre-v47 community had stored (carry no tag).
-        const insertUpdate = db.prepare(
-            `INSERT INTO commentUpdates (cid, upvoteCount, downvoteCount, replyCount, childCount, updatedAt, protocolVersion, signature,
-                publishedToPostUpdatesMFS, insertedAt)
-             VALUES (?, 1, 0, 0, 0, ?, '1.0.0', ?, 1, ?)`
-        );
-        insertUpdate.run(ALIASED_POST_CID, now - 100, JSON.stringify(signature), now - 100);
-        insertUpdate.run(PLAIN_POST_CID, now - 100, JSON.stringify(signature), now - 100);
-
-        db.pragma("user_version = 46");
-
-        priv._purgeCommentsWithInvalidSchemaOrSignature = async () => {};
-        priv._purgeCommentEditsWithInvalidSchemaOrSignature = async () => {};
-        priv._purgePublicationTablesWithDuplicateSignatures = async () => {};
-
+        const priv = <DbHandlerPrivate>(<unknown>dbHandler);
+        priv._db.pragma("user_version = 46");
+        priv._createdTables = false; // the first call above marked the tables as created; this is the start after the upgrade
         await dbHandler.createOrMigrateTablesIfNeeded();
-    });
+    }, 120_000);
 
-    it("the commentUpdates table has a pseudonymityAuthorTag column", () => {
-        const columns = (getPrivate(dbHandler!)._db.prepare("PRAGMA table_info(commentUpdates)").all() as { name: string }[]).map(
-            (c) => c.name
-        );
-        expect(columns).to.include("pseudonymityAuthorTag");
-    });
-
-    it("commentUpdates is rebuilt empty: the update cycle recomputes every record and tags the aliased ones", () => {
-        const count = getPrivate(dbHandler!)._db.prepare("SELECT COUNT(*) AS n FROM commentUpdates").get() as { n: number };
-        expect(count.n).to.equal(0);
-    });
-
-    it("the pseudonymityAliases row survives, so the aliased comment can be retagged on recompute", () => {
-        const alias = dbHandler!.queryPseudonymityAliasByCommentCid(ALIASED_POST_CID);
-        expect(alias?.originalAuthorPublicKey).to.equal(ALIAS_AUTHOR_PUBLIC_KEY);
-        expect(dbHandler!.queryPseudonymityAliasByCommentCid(PLAIN_POST_CID)).to.be.undefined;
-    });
-
-    it("comments survive the migration", () => {
-        const row = dbHandler!.queryComment(ALIASED_POST_CID)!;
-        expect(row.cid).to.equal(ALIASED_POST_CID);
-        expect(row.author).to.deep.equal(author);
-    });
-
-    it("a recomputed record with a tag round-trips through the new column", () => {
-        const update = {
-            cid: ALIASED_POST_CID,
-            upvoteCount: 1,
-            downvoteCount: 0,
-            replyCount: 0,
-            childCount: 0,
-            updatedAt: now,
-            protocolVersion: "1.0.0",
-            signature: { type: "ed25519", signature: "sig", publicKey: "pk", signedPropertyNames: [] },
-            pseudonymityAuthorTag: "nBUe3DGZKQ8fBcP6YGnpRQ"
-        } as unknown as CommentUpdateType;
-        dbHandler!.upsertCommentUpdates([
-            commentUpdateToDbRow({ update, dbOnlyFields: { publishedToPostUpdatesMFS: false, insertedAt: now } })
-        ]);
-        const stored = dbHandler!.queryStoredCommentUpdate({ cid: ALIASED_POST_CID })!;
-        expect(stored.pseudonymityAuthorTag).to.equal("nBUe3DGZKQ8fBcP6YGnpRQ");
+    afterAll(async () => {
+        dbHandler?.destoryConnection();
+        await pkc?.destroy();
     });
 
     it("DB version was bumped to the latest", () => {
-        const userVersion = getPrivate(dbHandler!)._db.pragma("user_version", { simple: true }) as number;
-        expect(userVersion).to.equal(env.DB_VERSION);
-        expect(env.DB_VERSION).to.equal(47);
+        expect((<DbHandlerPrivate>(<unknown>dbHandler))._db.pragma("user_version", { simple: true })).toBe(env.DB_VERSION);
+        expect(env.DB_VERSION).toBeGreaterThanOrEqual(47);
+    });
+
+    it("keeps a comment with no forbidden key and one with a benign extra key", () => {
+        expect(exists("clean")).toBe(true);
+        expect(exists("benign-extra")).toBe(true);
+        expect(dbHandler.queryComment(cids["benign-extra"])!.extraProps).toEqual({ extraProp: "kept" });
+    });
+
+    for (const label of ["author-underscore", "author-tostring", "top-level-underscore", "top-level-constructor"])
+        it(`purges the comment stored with ${label}`, () => {
+            expect(exists(label)).toBe(false);
+        });
+
+    it("drops the forbidden keys from stored challenge extras and keeps the rest and the comment", () => {
+        expect(exists("extras-with-forbidden")).toBe(true);
+        expect(dbHandler.queryComment(cids["extras-with-forbidden"])!.challengeCommentUpdate).toEqual({
+            tip: 1,
+            author: { community: { postScore: 3 } }
+        });
+    });
+
+    it("clears extras that held only forbidden keys, and leaves the comment", () => {
+        expect(exists("extras-only-forbidden")).toBe(true);
+        expect(dbHandler.queryComment(cids["extras-only-forbidden"])!.challengeCommentUpdate).toBeUndefined();
+    });
+
+    it("leaves clean extras alone", () => {
+        expect(dbHandler.queryComment(cids["extras-clean"])!.challengeCommentUpdate).toEqual({ tip: 5 });
     });
 });

@@ -17,6 +17,8 @@
 import { getAuthorNameFromWire } from "../publication-author.js";
 import { MAX_CROSSPOST_DEPTH } from "./crosspost-depth.js";
 import { sha256 } from "js-sha256";
+import { mergeAuthorProps } from "../../unknown-props.js";
+import Logger from "../../logger.js";
 import type { LRUCache } from "lru-cache";
 import type { Crosspost } from "./schema.js";
 import type { CrosspostRuntime } from "./types.js";
@@ -37,7 +39,14 @@ export function cloneCrosspostForRuntime(crosspost: Crosspost): CrosspostRuntime
     for (let i = chain.length - 1; i >= 0; i--) {
         const level = chain[i];
         const comment = { ...level.comment } as CrosspostRuntime["comment"];
-        if (level.comment.author) comment.author = { ...level.comment.author };
+        if (level.comment.author) {
+            // not a plain spread: a key such as toString or __proto__ in a signed author must not become a member
+            const author: Record<string, unknown> = {};
+            const { skipped } = mergeAuthorProps({ target: author, props: level.comment.author });
+            if (skipped.length > 0)
+                Logger("pkc-js:comment:crosspost-runtime").error(`Refused author props of crosspost level ${i} that collide with an object`, skipped);
+            comment.author = <CrosspostRuntime["comment"]["author"]>author;
+        }
         // `child` is defined exactly when this level had a nested crosspost, so this preserves
         // absence rather than writing an explicit undefined.
         if (child) comment.crosspost = child;

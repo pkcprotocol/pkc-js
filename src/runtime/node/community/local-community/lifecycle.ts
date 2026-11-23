@@ -4,7 +4,8 @@ import { LRUCache } from "lru-cache";
 import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
 import { pubsubTopicToDhtKey, removeMfsFilesSafely, sleepUntilTimeoutOrAbort } from "../../../../util.js";
-import { moveCommunityDbToDeletedDirectory, refreshCommunitiesList } from "../../util.js";
+import { moveCommunityDbToDeletedDirectory, unregisterLocalCommunity } from "../../util.js";
+import { holdEventLoopWatch } from "../../event-loop-watch.js";
 import { deriveCommunityChallengesOrThrow } from "../challenges/index.js";
 import { collectChallengeSettingsValidationFailures } from "../challenges/validate-challenge-settings.js";
 import {
@@ -29,11 +30,13 @@ import {
     updateInstancePropsWithStartedCommunityOrDb,
     updateInstanceStateWithDbState
 } from "./db-state.js";
-import { calculateLatestUpdateTrigger, syncIpnsWithDb } from "./ipns-publishing.js";
+import { calculateLatestUpdateTrigger, msUntilLastPublishIsTooOld, syncIpnsWithDb } from "./ipns-publishing.js";
 import { getPersistedAnchorRecordBytes, reprovideAnchorRecordIfDue, reprovideAnchorRecordIfNeeded } from "./anchor-publishing.js";
 import type { CommunityState, CommunityUpdatingState } from "../../../../community/types.js";
 import type { DecryptedChallengeAnswer } from "../../../../pubsub-messages/types.js";
 import type { RemoteCommunity } from "../../../../community/remote-community.js";
+
+const MIN_MS_BETWEEN_PUBLISH_CYCLES = 100;
 
 export async function publishLoop(community: LocalCommunity, syncIntervalMs: number) {
     const log = Logger("pkc-js:local-community:_publishLoop");
@@ -43,64 +46,124 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
     // sort configuration, or an unreachable Kubo, would make stop() hang.
     let syncFailedSinceStop = false;
 
-    // After a lost start lock the loop runs no further cycle, even with an edit pending: the process that holds the lock now
-    // may be running the community. Such an edit is not published by this process. edit() stored it in the DB at once, but
-    // the process that holds the lock writes the whole internal state from its own memory and can overwrite it, so the owner
-    // may have to apply it again
     const shouldStopPublishLoop = () => {
         return (
             community.state !== "started" ||
-            community._startLockLost ||
             (community._stopHasBeenCalled && (community._pendingEditProps.length === 0 || syncFailedSinceStop))
         );
     };
 
-    // A failed cycle leaves the update trigger set, so waking on it would retry on the next 100ms tick and emit the same
-    // error about ten times a second (issue #430). After a failure the loop wakes only for a new request for a record
-    // (an edit, a new publication), counted by _updateTriggerGeneration, and otherwise waits the full sync interval.
+    // The loop sleeps until something asks for a record or the sync interval passes, whichever is first. It does not
+    // poll: every write that needs a new record sets _communityUpdateTrigger (the DB handler does on each publication
+    // write), the trigger's setter calls _wakePublishLoop, and so does stop(). A community on which nothing happens
+    // costs one timer per interval here (issue #576; it used to be a 100ms interval running two queries per tick).
+    //
+    // A failed cycle leaves the update trigger set, so waking on it would retry at once and emit the same error over
+    // and over (issue #430). After a failure the loop wakes only for a new request for a record (an edit, a new
+    // publication: each one sets the trigger again, which is what calls _wakePublishLoop), and otherwise waits the
+    // full sync interval.
     const waitUntilNextSync = async ({ lastSyncFailed }: { lastSyncFailed: boolean }) => {
-        const doneWithLoopTime = Date.now();
-        // the state the failed cycle tried to publish is not a new request: take it in before the snapshot
-        if (lastSyncFailed) calculateLatestUpdateTrigger(community);
-        const triggerGenerationAfterFailure = community._updateTriggerGeneration;
-        await new Promise((resolve) => {
-            const checkInterval = setInterval(() => {
-                const syncIntervalMsPassedSinceDoneWithLoop = Date.now() - doneWithLoopTime >= syncIntervalMs;
-                calculateLatestUpdateTrigger(community); // will update community._communityUpdateTrigger
-                const wokenByTrigger = lastSyncFailed
-                    ? community._updateTriggerGeneration !== triggerGenerationAfterFailure
-                    : community._communityUpdateTrigger;
-                if (wokenByTrigger || shouldStopPublishLoop() || syncIntervalMsPassedSinceDoneWithLoop) {
-                    clearInterval(checkInterval);
-                    resolve(1);
-                }
-            }, 100);
+        // What the cycle left behind and no write will announce: a block it could not remove, an edit that is still
+        // pending, a record that is now too old. After a failure this is the state the failed cycle tried to publish,
+        // not a new request, and the trigger is already set, so it changes nothing.
+        calculateLatestUpdateTrigger(community);
+        if (shouldStopPublishLoop()) return;
+        const recordAlreadyRequested = !lastSyncFailed && community._communityUpdateTrigger;
+        // No cycle starts sooner than this after the last one ended. One publication writes several times in a row
+        // and each write asks for a record: without the pause each write got a cycle and a published record of its
+        // own, where the 100ms tick of the old loop took them together. It also keeps a cycle that always leaves the
+        // trigger set (a block that never gets removed) from spinning.
+        const minPauseMs = Math.min(MIN_MS_BETWEEN_PUBLISH_CYCLES, syncIntervalMs);
+        // With nothing requested the loop sleeps the sync interval, but not past the moment the last record gets too
+        // old: no write announces that, and a publish interval above 15 minutes would sleep through it. Not after a
+        // failure, which waits the interval out whatever the age of the record (issue #430).
+        const idleSleepMs = lastSyncFailed
+            ? syncIntervalMs
+            : Math.min(syncIntervalMs, Math.max(minPauseMs, msUntilLastPublishIsTooOld(community)));
+        const sleepingSince = Date.now();
+        await new Promise<void>((resolve) => {
+            let timer: ReturnType<typeof setTimeout>;
+            const endSleep = () => {
+                clearTimeout(timer);
+                if (community._wakePublishLoop === wake) community._wakePublishLoop = undefined;
+                resolve();
+            };
+            const wake = () => {
+                const pauseLeftMs = minPauseMs - (Date.now() - sleepingSince);
+                if (pauseLeftMs <= 0 || shouldStopPublishLoop()) return endSleep();
+                clearTimeout(timer);
+                timer = setTimeout(endSleep, pauseLeftMs);
+            };
+            timer = setTimeout(endSleep, recordAlreadyRequested ? minPauseMs : idleSleepMs);
+            community._wakePublishLoop = wake;
         });
     };
 
-    while (!shouldStopPublishLoop()) {
-        let lastSyncFailed = false;
-        try {
-            await syncIpnsWithDb(community);
-            // Re-announce browser-dialable (WSS/WebRTC) addresses to HTTP routers when they rotate, so browsers
-            // don't hit NoValidAddressesError against stale addresses. Throttled internally; runs inside the
-            // publish loop so it's torn down with the loop on stop(). Its own failures must not break publishing.
-            await reprovideOnAddressChangeIfDue(community).catch((e) =>
-                log.error("Failed to re-provide connection CIDs on address change", e)
-            );
-            // Keep the anchor -> minter binding alive: its routers expire it, and this node is the only
-            // party online that can put it (the owner holds As and is offline by design). Its failures
-            // must not break publishing either.
-            await reprovideAnchorRecordIfDue(community).catch((e) => log.error("Failed to re-provide the anchor record", e));
-        } catch (e) {
-            lastSyncFailed = true;
-            if (community._stopHasBeenCalled) syncFailedSinceStop = true;
-            community.emit("error", e as Error);
-        } finally {
-            await waitUntilNextSync({ lastSyncFailed });
-        }
+    // reports when the main thread is held up, for as long as any community of this process is running
+    const releaseEventLoopWatch = holdEventLoopWatch();
+    try {
+        await runCyclesUntilStopped();
+    } finally {
+        releaseEventLoopWatch();
     }
     log("Stopping the publishing loop of community", community.address);
+
+    async function runCyclesUntilStopped() {
+        while (!shouldStopPublishLoop()) {
+            // Two instances publishing one community would each sign records under the same key, with the same sequence
+            // numbers. start() can't let that happen, so this is a second line: whatever took this instance's claim from
+            // it while it was running, the community goes down here and says why (issue #585)
+            if (isCommunityStartTakenByAnotherInstance(community, log)) {
+                const error = new PKCError("ERR_COMMUNITY_START_TAKEN_BY_ANOTHER_PKC_INSTANCE", {
+                    address: community.address,
+                    dataPath: community._pkc.dataPath
+                });
+                log.error(error);
+                // Read by the teardown, also by that of a stop() that is waiting for this loop already. Set before anything
+                // that may throw: a teardown that does not see it writes to what is another instance's
+                community._startTakenByAnotherInstance = true;
+                try {
+                    community.emit("error", error);
+                } catch (e) {
+                    // nobody listens for errors, or a listener threw. The community goes down all the same
+                    log.error(`A listener of the error of community (${community.address}) threw, or there is none`, e);
+                }
+                // not awaited: stop() waits for this loop to end
+                community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after its start was taken`, e));
+                break;
+            }
+            let lastSyncFailed = false;
+            try {
+                await syncIpnsWithDb(community);
+                // Re-announce browser-dialable (WSS/WebRTC) addresses to HTTP routers when they rotate, so browsers
+                // don't hit NoValidAddressesError against stale addresses. Throttled internally; runs inside the
+                // publish loop so it's torn down with the loop on stop(). Its own failures must not break publishing.
+                await reprovideOnAddressChangeIfDue(community).catch((e) =>
+                    log.error("Failed to re-provide connection CIDs on address change", e)
+                );
+                // Keep the anchor -> minter binding alive: its routers expire it, and this node is the only
+                // party online that can put it (the owner holds As and is offline by design). Its failures
+                // must not break publishing either.
+                await reprovideAnchorRecordIfDue(community).catch((e) => log.error("Failed to re-provide the anchor record", e));
+            } catch (e) {
+                lastSyncFailed = true;
+                if (community._stopHasBeenCalled) syncFailedSinceStop = true;
+                community.emit("error", e as Error);
+            } finally {
+                await waitUntilNextSync({ lastSyncFailed });
+            }
+        }
+    }
+}
+
+// A failure to read the registry is not a verdict: the cycle runs and the next one asks again
+function isCommunityStartTakenByAnotherInstance(community: LocalCommunity, log: Logger): boolean {
+    try {
+        return community._dbHandler.confirmCommunityStartIsStillOurs() === "taken";
+    } catch (e) {
+        log.error(`Failed to confirm that community (${community.address}) is still started by this PKC instance`, e);
+        return false;
+    }
 }
 
 export async function initBeforeStarting(community: LocalCommunity) {
@@ -189,12 +252,20 @@ export async function start(community: LocalCommunity) {
     // the publish loop it waits for running forever, and a second start() tore the first one down once it lost the lock.
     if (community.state === "started" || community._startOrUpdateInFlight)
         throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: community.address });
+    // A start() let through here would take the start lock on the connection the delete() is about to close, and run
+    // on a DB that is being moved away (see deleteCommunity)
+    if (community._deleteInFlight) throw new PKCError("ERR_COMMUNITY_IS_BEING_DELETED", { address: community.address });
     await runAsStartOrUpdateInFlight({ community, setUp: (releaseMark) => startCommunity({ community, releaseMark }) });
 }
 
 async function startCommunity({ community, releaseMark }: { community: LocalCommunity; releaseMark: () => void }) {
     const log = Logger("pkc-js:local-community:start");
+    // An edit of this instance as a stopped community is still running: it may be closing the DB connection and
+    // renaming the DB (see editPropsOnNotStartedCommunity). Waited for under this start's own mark, so nothing else
+    // starts or edits meanwhile; the start then runs on what the edit left, under the new address after a rename.
+    while (community._stoppedEditsInFlight.size > 0) await Promise.allSettled([...community._stoppedEditsInFlight]);
     community._stopHasBeenCalled = false;
+    community._startTakenByAnotherInstance = false;
     // Re-baseline address-change re-provide for this run (start() provides everything fresh below).
     community._lastProvidedBrowserDialableSelfAddrs = undefined;
     community._lastAddressReprovideCheckAt = undefined;
@@ -208,14 +279,6 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
         findProcessStartedCommunity(community)
     )
         throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: community.address });
-    // Reset only past the check above: a start() refused there, one called from an error listener while the stop after a
-    // lost start lock runs for example, must not turn that stop's writes back on
-    community._startLockLost = false;
-    // This process can lose the start lock, mostly to another process that takes it over (see lockCommunityStart). While
-    // start() still runs it fails with that error before it subscribes to challenge requests or at its end, after that the
-    // running community stops
-    let startLockLostDuringStart: PKCError | undefined;
-    let startFinished = false;
     try {
         await initBeforeStarting(community);
         // A delegated community whose anchor record was never published is half-created: nothing points
@@ -240,15 +303,7 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
         // "stopped" and the stop() below does nothing. From "started" it ran the running-community teardown, which unlocks
         // by path and released the lock of the start() that won (held locks are keyed by path, per process).
         // Will throw if community is locked already
-        await community._dbHandler.lockCommunityStart({
-            onCompromised: (error) => {
-                // Before any stop: the stop that follows, or one already running, must skip its writes (see stop())
-                community._startLockLost = true;
-                const lostLockError = new PKCError("ERR_COMMUNITY_START_LOCK_COMPROMISED", { communityAddress: community.address, error });
-                if (startFinished) stopAfterLosingStartLock(community, lostLockError);
-                else startLockLostDuringStart = lostLockError;
-            }
-        });
+        await community._dbHandler.lockCommunityStart();
         community._setState("started");
         await community._updateStartedValue();
         trackStartedCommunity(community._pkc, community);
@@ -283,9 +338,6 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
         community._setStartedStateWithEmission("publishing-ipns");
         await community._repinCommentsIPFSIfNeeded();
         await repinCommentUpdateIfNeeded(community);
-        // A start that lost its lock (most likely while the VACUUM above blocked the event loop) must not take challenge
-        // requests, which write the DB next to the process that holds the lock now
-        if (startLockLostDuringStart) throw startLockLostDuringStart;
         await community._listenToIncomingRequests();
 
         // Option validation only reports; it never throws. A config that was persisted before these checks existed, or
@@ -299,8 +351,6 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
         community._pageSorts = undefined;
         community._pageSortFactories = undefined;
         await syncPageSortsWithRegistry(community);
-        if (startLockLostDuringStart) throw startLockLostDuringStart;
-        startFinished = true;
     } catch (e) {
         // Released first, so this failed start's own stop() does not wait for it, and a start() called during that stop()
         // (from a "stopped" statechange listener) is not refused. A stop() that was already waiting for this start() resumes
@@ -319,19 +369,6 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
         log.error(err);
         community.emit("error", err);
     });
-}
-
-// This process lost the community's start lock, and another process may be running the community now. Two processes
-// running one community both publish and write its DB, so this one stops, and emits why. The stop starts first:
-// emit("error") throws when nobody listens for it (on the community or on its PKC), and the stop must not depend on that.
-// A community that is stopping already is not stopped a second time, but the error is still emitted: that stop now skips
-// its writes and the publish of a pending edit (see stop()), which the owner would otherwise never hear of.
-export function stopAfterLosingStartLock(community: LocalCommunity, error: PKCError) {
-    const log = Logger("pkc-js:local-community:stopAfterLosingStartLock");
-    if (community.state !== "started") return;
-    if (!community._stopHasBeenCalled)
-        community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after losing its start lock`, e));
-    community.emit("error", error);
 }
 
 export async function initMirroringStartedOrUpdatingCommunity(community: LocalCommunity, startedCommunity: LocalCommunity) {
@@ -546,6 +583,10 @@ export async function stop(community: LocalCommunity) {
         await (community._startOrUpdateInFlight ?? community._stopInFlight ?? Promise.allSettled([...community._editStoresInFlight]));
         community._stopHasBeenCalled = true; // a start() begun meanwhile cleared it
     }
+    // The publish loop sleeps between cycles and has to see _stopHasBeenCalled now. Woken only here, after the edits
+    // whose DB write was running: such an edit is pending once its write is done, and the loop, which goes on while an
+    // edit is pending, ended without publishing it when it was woken before that.
+    community._wakePublishLoop?.();
     let settle!: () => void;
     const stopInFlight = new Promise<void>((resolve) => (settle = resolve));
     community._stopInFlight = stopInFlight;
@@ -591,12 +632,14 @@ async function stopCommunity(community: LocalCommunity) {
             community._publishLoopPromise = undefined;
         }
 
-        if (community._startLockLost) {
-            // The process that took the lock may be running the community already: its internal state, the cids it
-            // publishes and its lock are not this process's to overwrite, unpin or release. The stale cids queued here
-            // stay pinned, and an edit no cycle published stays unpublished (see publishLoop).
-            log(`Community (${community.address}) lost its start lock, stopping without writing its state, unpinning or unlocking`);
-        } else {
+        // Not when another instance has taken the community over (the publish loop, which has ended by now, found it
+        // so): the community's DB and its files in Kubo are that instance's. The record this one holds is older than
+        // what that one has stored, and the cids this one thinks stale may be in what that one publishes
+        // Asked here too: the loop ends on a stop request without having looked
+        const startTakenByAnotherInstance =
+            community._startTakenByAnotherInstance || isCommunityStartTakenByAnotherInstance(community, log);
+        community._startTakenByAnotherInstance = false;
+        if (!startTakenByAnotherInstance) {
             try {
                 // Bypass the unpin grace period: this is the process's last chance to unpin, and a
                 // community that never starts again would otherwise leak its queued pins forever.
@@ -606,19 +649,19 @@ async function stopCommunity(community: LocalCommunity) {
             }
 
             try {
-                // built under the state lock, so it keeps an edit stored meanwhile (see updateDbInternalState)
+                // built inside the write transaction, so it keeps an edit stored meanwhile (see updateDbInternalState)
                 await updateDbInternalState(community, () =>
                     community.updateCid ? community.toJSONInternalAfterFirstUpdate() : community.toJSONInternalBeforeFirstUpdate()
                 );
             } catch (e) {
                 log.error("Failed to update db internal state before stopping", e);
             }
+        }
 
-            try {
-                await community._dbHandler.unlockCommunityStart();
-            } catch (e) {
-                log.error(`Failed to unlock start lock on community (${community.address})`, e);
-            }
+        try {
+            await community._dbHandler.unlockCommunityStart();
+        } catch (e) {
+            log.error(`Failed to unlock start lock on community (${community.address})`, e);
         }
         const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
 
@@ -628,7 +671,6 @@ async function stopCommunity(community: LocalCommunity) {
         community._duplicatePublicationAttempts?.clear();
         community._inFlightPublicationExchanges.clear();
         await community._dbHandler.rollbackAllTransactions();
-        await community._dbHandler.unlockCommunityState();
         await community._updateStartedValue();
         community._clientsManager.updateKuboRpcState("stopped", kuboRpcClient.url);
         community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("stopped");
@@ -654,8 +696,27 @@ async function stopCommunity(community: LocalCommunity) {
 // How many comments delete() reads, queues and unpins at a time (issue #389). 5,000 cids is a few hundred KB.
 export const DELETE_UNPIN_SLICE_SIZE = 5000;
 
+// Marked for its whole run, from before its first await: start() refuses while the mark is set. The delete closes the
+// community's DB connection and moves the DB away, and a start() that ran meanwhile had the community started on that
+// connection: the close was refused (see DbHandler.destoryConnection), the DB went all the same, and the community
+// stayed started on a file that was no longer there.
 export async function deleteCommunity(community: LocalCommunity) {
+    let settle!: () => void;
+    const inFlight = new Promise<void>((resolve) => (settle = resolve));
+    community._deleteInFlight = inFlight;
+    try {
+        await deleteCommunityWhileMarked(community);
+    } finally {
+        if (community._deleteInFlight === inFlight) community._deleteInFlight = undefined;
+        settle();
+    }
+}
+
+async function deleteCommunityWhileMarked(community: LocalCommunity) {
     const log = Logger("pkc-js:local-community:delete");
+    // A start() or update() still setting this instance up: its state is "stopped" until it is done, so the stop below
+    // would be skipped and the delete would run next to it. Waited for, as stop() and edit() do, then stopped below.
+    while (community._startOrUpdateInFlight) await community._startOrUpdateInFlight;
     log.trace(`Attempting to stop the community (${community.address}) before deleting, if needed`);
 
     const startedCommunity = <LocalCommunity | undefined>(
@@ -756,7 +817,13 @@ export async function deleteCommunity(community: LocalCommunity) {
     }
 
     await moveCommunityDbToDeletedDirectory(community.address, community._pkc);
-    refreshCommunitiesList(community._pkc); // unlist the address now, not when the filesystem watcher fires
+    try {
+        unregisterLocalCommunity(community._pkc, community.address); // unlist the address now, not when the filesystem watcher fires
+    } catch (e) {
+        // The community is deleted: its DB has moved. A row that could not be removed (storage.db locked for too long)
+        // goes with the filesystem event of the move, or with the next lookup of the address
+        log.error(`Failed to remove deleted community (${community.address}) from the communities registry`, e);
+    }
 
     log(`Deleted community (${community.address}) successfully`);
 }

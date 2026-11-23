@@ -16,6 +16,7 @@ Concise protocol reference for AI agents and contributors. Each doc covers one d
 | [crossposts.md](crossposts.md) | `comment.crosspost`, the embedded record, tier-1 vs tier-2 verification, `features.noCrossposts` |
 | [author-communities.md](author-communities.md) | Profiles as a community configuration: identity-key address, owner-only posting via challenge excludes, crosspost feed |
 | [pseudonymity-author-tag.md](pseudonymity-author-tag.md) | `commentUpdate.pseudonymityAuthorTag` (issue #381): own-post recognition on `pseudonymityMode` boards, the X25519 + HKDF + HMAC derivation, test vectors, client (WebCrypto) snippet, security notes |
+| [author-wallet-proofs.md](author-wallet-proofs.md) | `author.wallets` proofs (BSIP-22, issue #566): valid / invalid / unknown, where pkc-js verifies, and where clients and challenges copy a verifier from |
 | [challenge-flow.md](challenge-flow.md) | 4-message encrypted challenge exchange |
 | [challenge-settings.md](challenge-settings.md) | Private (`settings.challenges`) vs public (`challenges`) boundary, sensitive options |
 | [challenge-authoring.md](challenge-authoring.md) | For challenge package authors: core `optionInputs` validation, the `validateChallengeSettings` hook, publication obligations |

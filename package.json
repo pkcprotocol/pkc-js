@@ -1,6 +1,6 @@
 {
     "name": "@pkcprotocol/pkc-js",
-    "version": "0.0.153",
+    "version": "0.0.158",
     "type": "module",
     "scripts": {
         "prebuild": "node config/generate-version.js",
@@ -93,10 +93,9 @@
         "@libp2p/webtransport": "6.0.44",
         "@multiformats/multiaddr": "13.0.3",
         "@multiformats/murmur3": "2.2.5",
-        "@noble/curves": "2.2.0",
-        "@noble/hashes": "2.2.0",
+        "@noble/curves": "2.4.0",
+        "@noble/hashes": "2.4.0",
         "@pkcprotocol/pkc-logger": "0.1.0",
-        "@pkcprotocol/proper-lock-file": "4.2.1",
         "@types/better-sqlite3": "7.6.13",
         "assert": "2.1.0",
         "better-sqlite3": "12.9.0",

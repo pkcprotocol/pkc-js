@@ -1,7 +1,9 @@
 import {
     getDefaultDataPath,
-    listCommunitiesSync as nodeListCommunities,
+    isLocalCommunityAddress,
     findLocalCommunityAddress,
+    registerLocalCommunity,
+    markLocalCommunityDbAsBeingWritten,
     createKuboRpcClient,
     monitorCommunitiesDirectory,
     tryToDeleteCommunitiesThatFailedToBeDeletedBefore
@@ -993,8 +995,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             "../runtime/node/community/local-community.js"
         );
 
-        const localCommunities = await nodeListCommunities(this);
-        const isLocalCommunity = localCommunities.includes(options.address); // Community exists already, only pass address so we don't override other props
+        const isLocalCommunity = isLocalCommunityAddress(this, options.address); // Community exists already, only pass address so we don't override other props
         const community = new LocalCommunity(this);
         if (isLocalCommunity) {
             // If the community is already created before, then load it with address only. We don't care about other props
@@ -1007,7 +1008,16 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
             // This is a new community
             const parsedOptions = <CreateNewLocalCommunityParsedOptions>options;
             await community.initNewLocalCommunityPropsNoMerge(parsedOptions); // We're initializing a new local community props here
-            await createNewLocalCommunityDb(community);
+            // The DB file is the community and its row in the communities registry is written from it, so the file
+            // comes first. Its creator lists it, as soon as it is complete: the filesystem events of its writes are
+            // not acted on meanwhile (issue #585)
+            const doneWritingDbFile = markLocalCommunityDbAsBeingWritten(this, community.address);
+            try {
+                await createNewLocalCommunityDb(community);
+            } finally {
+                doneWritingDbFile();
+            }
+            registerLocalCommunity(this, community.address);
             log.trace(`Created a new local community (${community.address}) with props:`);
             community.emit("update", community);
             await this._awaitCommunitiesToIncludeCommunity(community.address);

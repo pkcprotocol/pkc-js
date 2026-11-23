@@ -5,6 +5,7 @@ import {
 } from "../../../../publications/comment/schema.js";
 import { CommunityAuthorChallengeReservedFieldNames } from "../../../../schema/schema.js";
 import { PKCError } from "../../../../pkc-error.js";
+import { isForbiddenRecordKey } from "../../../../unknown-props.js";
 import type { ChallengeResult } from "../../../../community/types.js";
 
 // Throws when a challenge result tries to set a key that the protocol owns.
@@ -41,7 +42,7 @@ export function validateChallengeResultExtras({
             if (
                 (CommentUpdateChallengeReservedFieldNames as readonly string[]).includes(key) ||
                 (CommentUpdateReservedFields as readonly string[]).includes(key) ||
-                key === "__proto__"
+                isForbiddenRecordKey(key)
             ) {
                 throw new PKCError("ERR_CHALLENGE_RESULT_OVERRIDES_RESERVED_COMMENT_UPDATE_FIELD", {
                     challengeIndex,
