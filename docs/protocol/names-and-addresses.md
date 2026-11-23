@@ -52,7 +52,8 @@ that is `undefined`, which is also the marker that lets a later pass retry.
 | What happened                                   | `community.nameResolved`                          | `author.nameResolved`            |
 | ----------------------------------------------- | ------------------------------------------------- | -------------------------------- |
 | resolved to the expected key                    | `true`                                            | `true`                           |
-| resolved to a **different** key                 | `true` (key migration, identity follows the name) | `false`                          |
+| asked for by name, resolved to a **different** key | `true` (key migration, identity follows the name) | `false`                          |
+| asked for by key, record's name resolves to a **different** key | `false` (the key stays, no migration) | n/a |
 | resolved to a non-anchor hop of its own chain   | `false`                                           | n/a                              |
 | resolvers answered, no TXT record               | `false`                                           | `false`                          |
 | one resolver errored, a later one answered      | as the answering resolver says                    | as the answering resolver says   |
@@ -67,6 +68,13 @@ The community row for a key change is the one exception to the rule: a migration
 rather than contradicting it. `_applyKeyMigration` repoints `community.publicKey` at the key the name now
 resolves to, wipes every record from the old key as potentially compromised, and tells the application through
 an `ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY` error event rather than through the flag.
+
+A migration needs a name the caller asked for: `createCommunity({ address: "name.bso" })` or
+`createCommunity({ name, publicKey })`. A community asked for by key alone never migrates. The name in its
+record is a claim that anyone can publish, so when that name resolves to another key the claim is contradicted
+and `nameResolved` is `false`, like any other name that does not point at the key. The community keeps its
+key and its record. An application that stored a community by key and wants to follow it across a key
+change loads it by name. Issue #605.
 
 `_resolveViaNameResolvers` is what makes the distinction possible. It returns `null` when the resolvers ran and
 found no record, and throws `ERR_ALL_NAME_RESOLVERS_FAILED` (with each resolver's error in `details`, keyed by

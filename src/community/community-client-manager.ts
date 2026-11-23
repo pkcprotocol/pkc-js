@@ -839,6 +839,18 @@ export class CommunityClientsManager extends PKCClientsManager {
                         setNameResolvedAndEmitUpdate(false);
                         return;
                     }
+                    if (!isStringDomain(this._community.address)) {
+                        // This community was asked for by key, and the name is only what its record claims.
+                        // Anyone can publish a record claiming a name they do not hold, so a claim that
+                        // resolves to another key is contradicted, not a key migration: following it would
+                        // move a loader that asked for one key onto a key it never asked for, and register
+                        // it in pkc._updatingCommunities under that key for the next loader to share (#605).
+                        log(
+                            `Community ${this._community.address} was loaded by key and its record claims the name ${name}, which resolves to ${resolved}. Marking nameResolved false and staying on the key`
+                        );
+                        setNameResolvedAndEmitUpdate(false);
+                        return;
+                    }
                     // Key change detected: name now points to a different key.
                     // Most likely: cached publicKey is stale after community key migration.
                     this._applyKeyMigration({ communityName: name, newPublicKey: resolved });
