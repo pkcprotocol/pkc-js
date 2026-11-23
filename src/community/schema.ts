@@ -220,6 +220,9 @@ export const GetChallengeArgsSchema = z.object({
     challengeSettings: CommunityChallengeSettingSchema,
     challengeRequestMessage: z.custom<DecryptedChallengeRequestMessageTypeWithCommunityAuthor>(), // no need to validate because extra props may be there
     challengeIndex: z.number().int().nonnegative(),
+    // This challenge's own pre-answer from challengeRequestMessage.challengeAnswers, undefined when the author sent none
+    // for this index. Optional so a challenge package written against an older core still type-checks. Issue #567.
+    challengeAnswer: z.string().optional(),
     community: z.custom<LocalCommunity>(),
     // Decides whether a configured identity string (a listed address, a domain) refers to this publication's
     // author, binding a domain to the signer rather than to the publisher-controlled author.address. Shared
@@ -599,6 +602,10 @@ export const CommunityIpfsReservedFields = difference(
         "nameResolved",
         "ipnsHops",
         "anchor",
+        // derived by the client from the address it loaded; a record that signed them would pick the pubsub topic
+        "ipnsName",
+        "ipnsPubsubTopic",
+        "ipnsPubsubTopicRoutingCid",
         "raw",
         "shortCommunityAddress",
         "deleted",

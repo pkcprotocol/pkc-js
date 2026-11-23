@@ -15,6 +15,7 @@ import { VoteTablesRowSchema } from "../../../publications/vote/schema.js";
 import { CommentModerationsTableRowSchema } from "../../../publications/comment-moderation/schema.js";
 import type { CommentUpdateType, CommentsTableRow, CommentUpdatesRow, CommentIpfsType } from "../../../publications/comment/types.js";
 import { withSortedKeys, withSortedKeysDeep } from "../../../util.js";
+import { spreadCommentUpdateExtraProps } from "./comment-update-row.js";
 import type { CommentEditsTableRow } from "../../../publications/comment-edit/types.js";
 import type { VotesTableRow } from "../../../publications/vote/types.js";
 import type { CommentModerationTableRow } from "../../../publications/comment-moderation/types.js";
@@ -100,7 +101,10 @@ type ColumnKind = 0 | 1 | 2; // plain | boolean | json
 type CompiledColumn = { key: string; kind: ColumnKind };
 
 const commentIpfsCoercions = collectSchemaRowCoercions({ ...CommentIpfsSchema.shape, extraProps: CommentsTableRowSchema.shape.extraProps });
-const commentUpdateCoercions = collectSchemaRowCoercions(CommentUpdateSchema.shape);
+const commentUpdateCoercions = collectSchemaRowCoercions({
+    ...CommentUpdateSchema.shape,
+    extraProps: CommentUpdateTableRowSchema.shape.extraProps
+});
 
 function compileColumns(columns: string[], coercions: { booleanKeys: Set<string>; jsonKeys: Set<string> }): CompiledColumn[] {
     return columns.map((key) => ({ key, kind: coercions.booleanKeys.has(key) ? 1 : coercions.jsonKeys.has(key) ? 2 : 0 }));
@@ -164,6 +168,16 @@ export function createPositionalCommentRowMapper(cols: {
             }
             const commentUpdate: Record<string, unknown> = {};
             assignColumns(commentUpdate, row, updateOffset, updateColumns, "commentUpdate_");
+            // the signed record's unknown keys (a challenge's commentUpdate extras): the same record MFS serves
+            const commentUpdateExtraProps = commentUpdate.extraProps;
+            if (commentUpdateExtraProps !== undefined) {
+                delete commentUpdate.extraProps;
+                spreadCommentUpdateExtraProps(commentUpdate, commentUpdateExtraProps);
+                return {
+                    comment: comment as CommentIpfsType,
+                    commentUpdate: withSortedKeys(commentUpdate) as CommentUpdateType
+                };
+            }
             return { comment: comment as CommentIpfsType, commentUpdate: commentUpdate as CommentUpdateType };
         }
     };

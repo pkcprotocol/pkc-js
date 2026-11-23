@@ -25,7 +25,7 @@ interface FakeCommunity {
     _pkc: { noData: boolean; dataPath: undefined };
     _dbHandler?: DbHandler;
     // updateDbInternalState (run by the settings migration) reads the current state and mirrors it into raw
-    _getDbInternalState: (lock: boolean) => Promise<unknown>;
+    _getDbInternalState: () => unknown;
     raw: { communityIpfs?: unknown; localCommunity?: unknown };
     settings?: unknown;
     updateCid?: string;
@@ -42,7 +42,7 @@ function createFakeCommunity(address: string): FakeCommunity {
     const fake: FakeCommunity = {
         address,
         _pkc: { noData: true, dataPath: undefined },
-        _getDbInternalState: async () => fake._dbHandler!.keyvGet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]),
+        _getDbInternalState: () => fake._dbHandler!.keyvGet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]),
         raw: {},
         _cidsToUnPin: new Set<string>(),
         _blocksToRm: [],
@@ -61,8 +61,6 @@ interface DbHandlerPrivate {
     _purgeCommentsWithInvalidSchemaOrSignature: () => Promise<void>;
     _purgeCommentEditsWithInvalidSchemaOrSignature: () => Promise<void>;
     _purgePublicationTablesWithDuplicateSignatures: () => Promise<void>;
-    lockCommunityState: () => Promise<void>;
-    unlockCommunityState: () => Promise<void>;
 }
 
 function getPrivate(handler: DbHandler): DbHandlerPrivate {
@@ -136,9 +134,6 @@ describeSkipIfRpc("v41 -> v42 DB migration (exclude.address split into publicKey
         priv._purgeCommentsWithInvalidSchemaOrSignature = async () => {};
         priv._purgeCommentEditsWithInvalidSchemaOrSignature = async () => {};
         priv._purgePublicationTablesWithDuplicateSignatures = async () => {};
-        // updateDbInternalState takes a file lock under dataPath; an in-memory DB has none.
-        priv.lockCommunityState = async () => {};
-        priv.unlockCommunityState = async () => {};
 
         const legacyInternalState: Omit<InternalCommunityRecordBeforeFirstUpdateType, "settings" | "challenges"> & {
             settings: { challenges: typeof legacyChallenges };
@@ -180,6 +175,15 @@ describeSkipIfRpc("v41 -> v42 DB migration (exclude.address split into publicKey
         const priv = getPrivate(dbHandler!);
         expect(priv._db.pragma("user_version", { simple: true })).to.equal(env.DB_VERSION);
         expect(env.DB_VERSION).to.be.greaterThanOrEqual(42);
+    });
+
+    // The migration writes its settings through updateDbInternalState, which merges them into the stored record
+    it("keeps the rest of the stored internal state", () => {
+        const kept = migrated as unknown as { address: string; createdAt: number; signer: { privateKey: string }; updateCid: string };
+        expect(kept.address).to.equal(COMMUNITY_ADDRESS);
+        expect(kept.createdAt).to.equal(now);
+        expect(kept.signer.privateKey).to.equal(signers[0].privateKey);
+        expect(kept.updateCid).to.equal("QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f");
     });
 
     it("splits a mixed exclude.address into publicKeys and names", () => {

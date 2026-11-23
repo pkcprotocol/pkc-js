@@ -56,7 +56,7 @@ describeSkipIfRpc("leak: stop() during update()", () => {
                 })
             );
 
-            it.fails("comment.update() then stop() in the same tick", () =>
+            it("comment.update() then stop() in the same tick", () =>
                 withPkc(async () => {
                     const comment = await pkc.createComment({ cid: fixture.commentCid });
                     const updating = comment.update();
@@ -68,8 +68,7 @@ describeSkipIfRpc("leak: stop() during update()", () => {
                         updatingComments: pkc._updatingComments.size(),
                         updatingCommunities: pkc._updatingCommunities.size()
                     }).toEqual({ state: "stopped", updatingComments: 0, updatingCommunities: 0 });
-                })
-            );
+                }));
 
             it.fails("two instances of one community calling update() together share one updating instance", () =>
                 withPkc(async () => {

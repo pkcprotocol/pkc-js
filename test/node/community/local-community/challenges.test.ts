@@ -197,7 +197,7 @@ const createChallengeAnswer = async ({
 }: {
     challengeRequestId: Uint8Array;
     signer: SignerType;
-    challengeAnswers: string[];
+    challengeAnswers: Record<string, string>;
 }): Promise<ChallengeAnswerMessageType> => {
     const toSign: Omit<ChallengeAnswerMessageType, "signature"> = cleanUpBeforePublishing({
         type: "CHALLENGEANSWER",
@@ -236,13 +236,17 @@ describe("challenges: handleChallengeAnswer with an answer that fails verificati
             name: "signed by a key the request id is not derived from",
             expectedCode: "ERR_CHALLENGE_REQUEST_ID_NOT_DERIVED_FROM_SIGNATURE",
             forge: (challengeRequestId: Uint8Array) =>
-                createChallengeAnswer({ challengeRequestId, signer: otherPeerSigner, challengeAnswers: ["1"] })
+                createChallengeAnswer({ challengeRequestId, signer: otherPeerSigner, challengeAnswers: { "0": "1" } })
         },
         {
             name: "carrying the publisher's key with a signature that does not verify",
             expectedCode: "ERR_SIGNATURE_IS_INVALID",
             forge: async (challengeRequestId: Uint8Array): Promise<ChallengeAnswerMessageType> => {
-                const signed = await createChallengeAnswer({ challengeRequestId, signer: publisherPubsubSigner, challengeAnswers: ["1"] });
+                const signed = await createChallengeAnswer({
+                    challengeRequestId,
+                    signer: publisherPubsubSigner,
+                    challengeAnswers: { "0": "1" }
+                });
                 return { ...signed, signature: { ...signed.signature, signature: new Uint8Array(signed.signature.signature.length) } };
             }
         }
@@ -263,10 +267,14 @@ describe("challenges: handleChallengeAnswer with an answer that fails verificati
             expect(community._challengeAnswerResolveReject.has(idString)).to.equal(true);
             expect(community._challengeAnswerPromises.has(idString)).to.equal(true);
 
-            const realAnswer = await createChallengeAnswer({ challengeRequestId, signer: publisherPubsubSigner, challengeAnswers: ["2"] });
+            const realAnswer = await createChallengeAnswer({
+                challengeRequestId,
+                signer: publisherPubsubSigner,
+                challengeAnswers: { "0": "2" }
+            });
             await handleChallengeAnswer(localCommunity, realAnswer);
 
-            expect(answerPromise.resolve).toHaveBeenCalledWith(["2"]);
+            expect(answerPromise.resolve).toHaveBeenCalledWith({ "0": "2" });
             // No ERR_CHALLENGE_ANSWER_WITH_NO_CHALLENGE_REQUEST verification for the real answer
             expect(community.emit.mock.calls.map(([eventName]) => eventName)).to.deep.equal(["challengeanswer"]);
         });
@@ -310,10 +318,10 @@ describe("challenges: handleChallengeRequest with a request that fails before it
         const realAnswer = await createChallengeAnswer({
             challengeRequestId: liveId,
             signer: publisherPubsubSigner,
-            challengeAnswers: ["2"]
+            challengeAnswers: { "0": "2" }
         });
         await handleChallengeAnswer(localCommunity, realAnswer);
-        expect(answerPromise.resolve).toHaveBeenCalledWith(["2"]);
+        expect(answerPromise.resolve).toHaveBeenCalledWith({ "0": "2" });
     });
 
     it("a validly signed request whose publication carries an unparseable public key releases its slot", async () => {

@@ -15,16 +15,16 @@ import type { CommentUpdateType } from "../../../dist/node/publications/comment/
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// A slice with enough posts for one postUpdates bucket rebuilds the bucket in node and swaps it into MFS
-// instead of writing its files one by one (issue #471). The threshold is lowered to one post here so every
-// cycle takes that path on a small board; the published record must still point at a bucket that holds
-// every post's current CommentUpdate, a swap an earlier process left half done must be finished or
-// discarded, and a purge landing mid-rebuild must not be undone by the swap (issue #304).
+// Every slice of post CommentUpdates reaches MFS by building its bucket in node (the posts' new files
+// linked into the live bucket's directory) and swapping it in (issues #471, #556). The published record
+// must point at a bucket that holds every post's current CommentUpdate, a swap an earlier process left
+// half done must be finished or discarded, a purge landing mid-swap must not be undone by it (issue
+// #304), and a swap the daemon reported as done but does not hold must be noticed and repeated.
 //
-// Skipped under RPC: the test instruments LocalCommunity internals (the rebuild threshold, the
-// community's kubo files API and its MFS tree), which is impossible when the community lives in a
+// Skipped under RPC: the test instruments LocalCommunity internals (the community's kubo files API
+// and its MFS tree), which is impossible when the community lives in a
 // separate RPC server process.
-describeSkipIfRpc("postUpdates bucket rebuilt in node (issue #471)", () => {
+describeSkipIfRpc("postUpdates bucket built in node and swapped into MFS (issues #471, #556)", () => {
     let pkc: PKC;
     let community: LocalCommunity;
     let moderatorSigner: SignerWithPublicKeyAddress;
@@ -84,7 +84,6 @@ describeSkipIfRpc("postUpdates bucket rebuilt in node (issue #471)", () => {
     beforeAll(async () => {
         pkc = await mockPKC();
         community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
-        community._postUpdatesNodeBuiltBucketMinPosts = 1; // every slice with a post rebuilds its bucket
         await community.start();
         await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
 

@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.0.155](https://github.com/pkcprotocol/pkc-js/compare/v0.0.154...v0.0.155) (2026-11-23)
+
+### Features
+
+* **wallets:** verify and enforce author.wallets proofs per BSIP-22 ([#577](https://github.com/pkcprotocol/pkc-js/issues/577)) ([087b854](https://github.com/pkcprotocol/pkc-js/commit/087b8540e49f383af6fd126485a60a469ed559b0)), closes [#566](https://github.com/pkcprotocol/pkc-js/issues/566)
+
+### Performance
+
+* **pkc:** keep local communities in a registry, with one start lock per PKC instance ([#586](https://github.com/pkcprotocol/pkc-js/issues/586)) ([d32fd05](https://github.com/pkcprotocol/pkc-js/commit/d32fd0569ca7e2289102a7375f392cbad2585d44)), closes [#576](https://github.com/pkcprotocol/pkc-js/issues/576) [#585](https://github.com/pkcprotocol/pkc-js/issues/585)
+
+## [0.0.154](https://github.com/pkcprotocol/pkc-js/compare/v0.0.153...v0.0.154) (2026-11-21)
+
+### Bug Fixes
+
+* **ci:** skip Claude reviews on draft PRs [skip ci] [skip github-alerts] ([6b4e0f5](https://github.com/pkcprotocol/pkc-js/commit/6b4e0f549f440d5c8550f5d3df4fab039707ac5c))
+* **community:** hold the start lock in the kernel so a killed process frees it at once ([#564](https://github.com/pkcprotocol/pkc-js/issues/564)) ([b8c8f53](https://github.com/pkcprotocol/pkc-js/commit/b8c8f53505596e670dbca9b6a8b64f391c4c8bdd)), closes [#546](https://github.com/pkcprotocol/pkc-js/issues/546) [#561](https://github.com/pkcprotocol/pkc-js/issues/561) [#546](https://github.com/pkcprotocol/pkc-js/issues/546)
+* **publication:** publish once per instance, and fix the publish and update state-machine bugs ([#534](https://github.com/pkcprotocol/pkc-js/issues/534)) ([eb06f44](https://github.com/pkcprotocol/pkc-js/commit/eb06f44d145107e9a7058c218d59b253ae927d7a)), closes [#503](https://github.com/pkcprotocol/pkc-js/issues/503) [#270](https://github.com/pkcprotocol/pkc-js/issues/270) [#516](https://github.com/pkcprotocol/pkc-js/issues/516) [#517](https://github.com/pkcprotocol/pkc-js/issues/517) [#530](https://github.com/pkcprotocol/pkc-js/issues/530) [#516](https://github.com/pkcprotocol/pkc-js/issues/516) [#503](https://github.com/pkcprotocol/pkc-js/issues/503) [#362](https://github.com/pkcprotocol/pkc-js/issues/362) [#571](https://github.com/pkcprotocol/pkc-js/issues/571)
+
+## [0.0.153](https://github.com/pkcprotocol/pkc-js/compare/v0.0.152...v0.0.153) (2026-11-17)
+
+### Bug Fixes
+
+* **comment-update:** sign and store challenge commentUpdate extra keys ([#573](https://github.com/pkcprotocol/pkc-js/issues/573)) ([1c2a0c8](https://github.com/pkcprotocol/pkc-js/commit/1c2a0c8529f9a9874b2d2186b23a621b0ae7fadd)), closes [#572](https://github.com/pkcprotocol/pkc-js/issues/572)
+
+## [0.0.152](https://github.com/pkcprotocol/pkc-js/compare/v0.0.151...v0.0.152) (2026-11-17)
+
+### ⚠ BREAKING CHANGES
+
+* **challenges:** carry challenge answers as per-index records, not arrays (#569)
+
+### Features
+
+* **challenges:** carry challenge answers as per-index records, not arrays ([#569](https://github.com/pkcprotocol/pkc-js/issues/569)) ([c255031](https://github.com/pkcprotocol/pkc-js/commit/c255031b20854cf1af4b0c6a1953352e27c9f91a)), closes [#567](https://github.com/pkcprotocol/pkc-js/issues/567)
+
+## [0.0.151](https://github.com/pkcprotocol/pkc-js/compare/v0.0.150...v0.0.151) (2026-11-17)
+
+### Bug Fixes
+
+* **comment:** look up community peers at once in getComment() and update() ([#563](https://github.com/pkcprotocol/pkc-js/issues/563)) ([d9acf5a](https://github.com/pkcprotocol/pkc-js/commit/d9acf5a6c2b42e0e30ef43d782152339d622f090)), closes [#562](https://github.com/pkcprotocol/pkc-js/issues/562) [#562](https://github.com/pkcprotocol/pkc-js/issues/562) [#562](https://github.com/pkcprotocol/pkc-js/issues/562)
+
+## [0.0.150](https://github.com/pkcprotocol/pkc-js/compare/v0.0.149...v0.0.150) (2026-11-16)
+
+### Bug Fixes
+
+* write post updates by bucket swap only, end pubsub warmups on stop ([#555](https://github.com/pkcprotocol/pkc-js/issues/555)) ([3450989](https://github.com/pkcprotocol/pkc-js/commit/3450989ef22bf7efe231cb4ec3abff04549f4a35)), closes [#541](https://github.com/pkcprotocol/pkc-js/issues/541) [#551](https://github.com/pkcprotocol/pkc-js/issues/551) [#456](https://github.com/pkcprotocol/pkc-js/issues/456) [ipfs/kubo#11494](https://github.com/ipfs/kubo/issues/11494) [#556](https://github.com/pkcprotocol/pkc-js/issues/556) [#551](https://github.com/pkcprotocol/pkc-js/issues/551) [ipfs/kubo#11494](https://github.com/ipfs/kubo/issues/11494) [#556](https://github.com/pkcprotocol/pkc-js/issues/556)
+
+## [0.0.149](https://github.com/pkcprotocol/pkc-js/compare/v0.0.148...v0.0.149) (2026-11-16)
+
+### Bug Fixes
+
+* **community:** drop the own-name IPNS resolve, publish with the stored sequence ([#548](https://github.com/pkcprotocol/pkc-js/issues/548)) ([3448445](https://github.com/pkcprotocol/pkc-js/commit/344844581a0f436db77d675277b55651f1c50d9c)), closes [#239](https://github.com/pkcprotocol/pkc-js/issues/239) [#553](https://github.com/pkcprotocol/pkc-js/issues/553) [#239](https://github.com/pkcprotocol/pkc-js/issues/239) [#553](https://github.com/pkcprotocol/pkc-js/issues/553)
+
+## [0.0.148](https://github.com/pkcprotocol/pkc-js/compare/v0.0.147...v0.0.148) (2026-11-16)
+
+### Bug Fixes
+
+* **community:** ignore forged challenge messages, rate-limit per community, unpin raced approvals ([#523](https://github.com/pkcprotocol/pkc-js/issues/523)) ([8ef97a1](https://github.com/pkcprotocol/pkc-js/commit/8ef97a15ef4937024c158de68645b75d7df3fb16))
+
 ## [0.0.147](https://github.com/pkcprotocol/pkc-js/compare/v0.0.146...v0.0.147) (2026-11-16)
 
 ### Bug Fixes

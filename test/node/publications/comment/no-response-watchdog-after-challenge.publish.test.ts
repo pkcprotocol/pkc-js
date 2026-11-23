@@ -148,7 +148,7 @@ describeSkipIfRpc("no-response watchdog after a challenge was received (#340)", 
         post.on("challengeverification", (msg) => (verification = msg));
         post.on("challenge", (challenge) => challenges.push(challenge));
         const answerChallenge = () =>
-            post.publishChallengeAnswers({ challengeAnswers: ["anything"] }).catch((error) => errors.push(error as PKCError));
+            post.publishChallengeAnswers({ challengeAnswers: { "0": "anything" } }).catch((error) => errors.push(error as PKCError));
 
         // Requests the community has seen for this signed publication: A, then the retry B.
         let requestsReceivedByCommunity = 0;

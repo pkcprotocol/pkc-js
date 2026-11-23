@@ -184,7 +184,7 @@ What happens to comments published before an address change:
 
 A local community's address is its name when it has one, else its identity key (the anchor's key on a delegated
 community), so changing the name and changing the address are one operation. `edit({ name })` and `edit({ address })`
-both move the community's DB file, its start lock and its MFS `postUpdates` folder to the new address, and from the next
+both move the community's DB file, its row in the communities registry and its MFS `postUpdates` folder to the new address, and from the next
 page build the identity rule above filters by the new name:
 
 | Edit                                                               | Result                                                |

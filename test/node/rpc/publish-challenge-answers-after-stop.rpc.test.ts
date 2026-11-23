@@ -66,7 +66,7 @@ describe("RPC: publishChallengeAnswers after the publish subscription is gone ra
 
             let thrown: unknown;
             try {
-                await comment.publishChallengeAnswers({ challengeAnswers: ["2"] });
+                await comment.publishChallengeAnswers({ challengeAnswers: { "0": "2" } });
             } catch (e) {
                 thrown = e;
             }

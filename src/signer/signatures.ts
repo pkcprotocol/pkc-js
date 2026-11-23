@@ -98,6 +98,7 @@ import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { RemoteCommunity } from "../community/remote-community.js";
 import { getAuthorNameFromWire } from "../publications/publication-author.js";
+import { forbiddenKeysOf } from "../unknown-props.js";
 
 export type ValidationResult = { valid: true } | { valid: false; reason: string };
 
@@ -309,9 +310,18 @@ export async function signCommentUpdate({
 }): Promise<CommentUpdateSignature> {
     const log = Logger("pkc-js:signatures:signCommentUpdate");
     // Not sure, should we validate update.authorEdit here?
-    return <CommentUpdateSignature>(
-        await _signJson(<JsonSignature["signedPropertyNames"]>CommentUpdateSignedPropertyNames, update, signer, log)
-    );
+    // Challenge-supplied keys that CommentUpdateSchema does not know (db-handler seeds them into the update from
+    // comments.challengeCommentUpdate) must be signed too, or verifyCommentUpdate rejects the community's own
+    // record and its update cycle stalls (issue #572).
+    return <CommentUpdateSignature>await _signJson(_withExtraKeysSigned(CommentUpdateSignedPropertyNames, update), update, signer, log);
+}
+
+// The base property names plus every other key present on the record (except `signature`), so verification, which
+// reads the keys from signature.signedPropertyNames, covers them. Shared by both CommentUpdate signers so they
+// cannot drift apart again.
+function _withExtraKeysSigned(baseNames: readonly string[], record: Record<string, unknown>): JsonSignature["signedPropertyNames"] {
+    const extraKeys = Object.keys(record).filter((k) => !baseNames.includes(k) && k !== "signature");
+    return <JsonSignature["signedPropertyNames"]>[...baseNames, ...extraKeys];
 }
 
 export async function signCommentUpdateForChallengeVerification({
@@ -325,13 +335,7 @@ export async function signCommentUpdateForChallengeVerification({
     // Dynamic signedPropertyNames so challenge-supplied keys (e.g. `reason`, `countryCode`) land in
     // the signature alongside the base picked fields. Verification on the author side reads keys
     // from signature.signedPropertyNames, so extras are signed-and-verified.
-    const extraKeys = Object.keys(update).filter(
-        (k) => !(CommentUpdateForChallengeVerificationSignedPropertyNames as readonly string[]).includes(k) && k !== "signature"
-    );
-    const signedPropertyNames = [
-        ...CommentUpdateForChallengeVerificationSignedPropertyNames,
-        ...extraKeys
-    ] as JsonSignature["signedPropertyNames"];
+    const signedPropertyNames = _withExtraKeysSigned(CommentUpdateForChallengeVerificationSignedPropertyNames, update);
     return <CommentUpdateForChallengeVerificationSignature>await _signJson(signedPropertyNames, update, signer, log);
 }
 
@@ -508,6 +512,12 @@ const _verifyPublicationSignatureAndAuthor = async ({
 }: {
     publicationJson: PublicationFromDecryptedChallengeRequest;
 }): Promise<ValidationResult> => {
+    // Unknown props are copied onto the instance and the author object is merged into the runtime author of every
+    // reader, for every publication type
+    if (forbiddenKeysOf(publicationJson).length > 0) return { valid: false, reason: messages.ERR_PUBLICATION_INCLUDES_FORBIDDEN_KEY };
+    if (forbiddenKeysOf((<{ author?: unknown }>publicationJson).author).length > 0)
+        return { valid: false, reason: messages.ERR_PUBLICATION_AUTHOR_INCLUDES_FORBIDDEN_KEY };
+
     const signatureValidity = await _verifyJsonSignature(publicationJson);
     if (!signatureValidity) return { valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID };
 
@@ -615,6 +625,11 @@ async function _verifyCrosspost({
         return { valid: false, reason: messages.ERR_CROSSPOST_COMMENT_INCLUDES_RESERVED_FIELD };
     if (crosspost.comment.author && intersection(Object.keys(crosspost.comment.author), AuthorCommentIpfsReservedFields).length > 0)
         return { valid: false, reason: messages.ERR_CROSSPOST_COMMENT_AUTHOR_INCLUDES_RESERVED_FIELD };
+    // Every level of a chain descends through here, so this covers each embedded record and author
+    if (forbiddenKeysOf(crosspost.comment).length > 0)
+        return { valid: false, reason: messages.ERR_CROSSPOST_COMMENT_INCLUDES_FORBIDDEN_KEY };
+    if (forbiddenKeysOf(crosspost.comment.author).length > 0)
+        return { valid: false, reason: messages.ERR_CROSSPOST_COMMENT_AUTHOR_INCLUDES_FORBIDDEN_KEY };
 
     // 3. every signable field the embedded record carries must be signed. Must run before the pick
     // in check 4, which would drop an unsigned field from what gets verified while it remains in
@@ -729,6 +744,11 @@ export async function verifyCommentIpfs(opts: {
     if (opts.comment.author && intersection(Object.keys(opts.comment.author), AuthorCommentIpfsReservedFields).length > 0)
         return { valid: false, reason: messages.ERR_COMMENT_IPFS_AUTHOR_INCLUDES_RESERVED_FIELD };
 
+    // The author object is merged into comment.author on every reader
+    if (forbiddenKeysOf(opts.comment).length > 0) return { valid: false, reason: messages.ERR_COMMENT_IPFS_INCLUDES_FORBIDDEN_KEY };
+    if (forbiddenKeysOf(opts.comment.author).length > 0)
+        return { valid: false, reason: messages.ERR_COMMENT_IPFS_AUTHOR_INCLUDES_FORBIDDEN_KEY };
+
     // Must run on the raw record, before the pick below drops unsigned fields from what gets
     // verified. See _isThereUnsignedSignableFieldInRecord. Issue #249.
     if (_isThereUnsignedSignableFieldInRecord(opts.comment))
@@ -758,6 +778,12 @@ export async function verifyCommunityList({ communityList }: { communityList: Co
     if (communityList.author && intersection(Object.keys(communityList.author), AuthorReservedFields).length > 0)
         return { valid: false, reason: messages.ERR_COMMUNITY_LIST_AUTHOR_INCLUDES_RESERVED_FIELD };
 
+    // The runtime list, its author and its entries are built by spreading these records, so a key named like a member of
+    // an object (or starting with _) would become an own member of them: refused like it is on a comment
+    if (forbiddenKeysOf(communityList).length > 0) return { valid: false, reason: messages.ERR_COMMUNITY_LIST_INCLUDES_FORBIDDEN_KEY };
+    if (forbiddenKeysOf(communityList.author).length > 0)
+        return { valid: false, reason: messages.ERR_COMMUNITY_LIST_AUTHOR_INCLUDES_FORBIDDEN_KEY };
+
     // author.address = name || publicKey, so a non-domain name would display another key's address as
     // the author. Comments are vetted by their community; a list has no such gate, so verification is it
     if (communityList.author?.name !== undefined && !isStringDomain(communityList.author.name))
@@ -766,6 +792,8 @@ export async function verifyCommunityList({ communityList }: { communityList: Co
     for (const entry of communityList.communities)
         if (intersection(Object.keys(entry), CommunityListEntryReservedFields).length > 0)
             return { valid: false, reason: messages.ERR_COMMUNITY_LIST_ENTRY_INCLUDES_RESERVED_FIELD };
+        else if (forbiddenKeysOf(entry).length > 0)
+            return { valid: false, reason: messages.ERR_COMMUNITY_LIST_ENTRY_INCLUDES_FORBIDDEN_KEY };
 
     if (!communityListHasNoDuplicateEntryPublicKeys(communityList))
         return { valid: false, reason: messages.ERR_COMMUNITY_LIST_HAS_DUPLICATE_COMMUNITY_PUBLIC_KEY };
@@ -949,6 +977,9 @@ export async function verifyCommentUpdate({
         return { valid: false, reason: messages.ERR_COMMENT_UPDATE_RECORD_INCLUDES_FIELD_NOT_IN_SIGNED_PROPERTY_NAMES };
     if (_isThereReservedFieldInRecord(update, CommentUpdateReservedFields))
         return { valid: false, reason: messages.ERR_COMMENT_UPDATE_RECORD_INCLUDES_RESERVED_FIELD };
+    if (forbiddenKeysOf(update).length > 0) return { valid: false, reason: messages.ERR_COMMENT_UPDATE_INCLUDES_FORBIDDEN_KEY };
+    if (forbiddenKeysOf(update.author).length > 0)
+        return { valid: false, reason: messages.ERR_COMMENT_UPDATE_AUTHOR_INCLUDES_FORBIDDEN_KEY };
 
     const log = Logger("pkc-js:signatures:verifyCommentUpdate");
 

@@ -20,6 +20,7 @@ import { timestamp } from "../../../dist/node/util.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import fs from "fs";
 import path from "path";
+import { isCommunityStartLockedSync } from "../../../dist/node/runtime/node/community/communities-registry.js";
 import { isDeepEqual, pick } from "remeda";
 
 import { v4 as uuidV4 } from "uuid";
@@ -167,8 +168,9 @@ for (const editKey of ["address", "name"] as const) {
 
         it(`Start locks are moved to the new address`, async () => {
             // Check for locks
-            expect(fs.existsSync(path.join(community._pkc.dataPath!, "communities", `${community.signer.address}.start.lock`))).to.be.false;
-            expect(fs.existsSync(path.join(community._pkc.dataPath!, "communities", `${bsoNameAddress}.start.lock`))).to.be.true;
+            const dataPath = community._pkc.dataPath!;
+            expect(isCommunityStartLockedSync({ dataPath, communityAddress: community.signer.address })).to.be.false;
+            expect(isCommunityStartLockedSync({ dataPath, communityAddress: bsoNameAddress })).to.be.true;
         });
 
         // The remote's IPNS resolve can still serve the pre-edit record (no name) for up to its ttl, which a by-name
@@ -329,10 +331,10 @@ for (const editKey of ["address", "name"] as const) {
         });
 
         it(`start locks are moved from signer/.eth to .bso`, async () => {
-            const communitiesDir = path.join(community._pkc.dataPath!, "communities");
-            expect(fs.existsSync(path.join(communitiesDir, `${community.signer.address}.start.lock`))).to.be.false;
-            expect(fs.existsSync(path.join(communitiesDir, `${ethAddress}.start.lock`))).to.be.false;
-            expect(fs.existsSync(path.join(communitiesDir, `${bsoAddress}.start.lock`))).to.be.true;
+            const dataPath = community._pkc.dataPath!;
+            expect(isCommunityStartLockedSync({ dataPath, communityAddress: community.signer.address })).to.be.false;
+            expect(isCommunityStartLockedSync({ dataPath, communityAddress: ethAddress })).to.be.false;
+            expect(isCommunityStartLockedSync({ dataPath, communityAddress: bsoAddress })).to.be.true;
         });
 
         it(`posts are preserved locally after .eth -> .bso edit (alias transition)`, async () => {

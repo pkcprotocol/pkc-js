@@ -1,14 +1,16 @@
 import { it, describe, beforeAll, afterAll, expect } from "vitest";
 import env from "../../../dist/node/version.js";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
+import { commentUpdateToDbRow } from "../../../dist/node/runtime/node/community/comment-update-row.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { CommentUpdateType } from "../../../dist/node/publications/comment/types.js";
 import type Database from "better-sqlite3";
 
-// v45 -> v46 adds the commentUpdates.authorBanExpiresAt column (issue #363): the ban a mod published on that comment.
-// Like every migration this one drops the commentUpdates table, so nothing is backfilled into rows; the mark comes
-// from the commentModerations rows, which are kept, the next time each CommentUpdate is calculated. A ban published
-// before the upgrade therefore marks its comment after it.
+// v45 -> v46 adds the commentUpdates.extraProps JSON column (issue #572): the unknown keys of the signed CommentUpdate
+// (a challenge's `commentUpdate` extras), so a page entry rebuilt from the row is the record that was signed.
+// commentUpdates is dropped and rebuilt on every version bump, so no row is migrated: the update cycle recomputes each
+// record, and comments.challengeCommentUpdate, the durable source of the extras, survives untouched.
 
 const V45_CREATE_COMMENTS = `
     CREATE TABLE IF NOT EXISTS comments (
@@ -149,16 +151,16 @@ const V45_CREATE_PSEUDONYMITY_ALIASES = `
 
 const COMMUNITY_ADDRESS = "12D3KooWTestCommunityAddressV46";
 const now = Math.floor(Date.now() / 1000);
-const BANNED_POST_CID = "QmPostTheBanWasPublishedOn";
-const OTHER_POST_CID = "QmOtherPostOfTheBannedAuthor";
-const BAN_EXPIRES_AT = now + 100_000;
-const author = { address: "12D3KooWBannedAuthor" };
-const signature = (name: string) => ({
+const POST_CID = "QmV46PostWithChallengeExtras";
+const OTHER_POST_CID = "QmV46PostWithoutChallengeExtras";
+const author = { address: "12D3KooWAuthorV46" };
+const challengeCommentUpdate = { myExtraKey: "hello", tip: { chainId: 1, txHash: "0xabc" } };
+const signature = {
     type: "ed25519",
-    signature: `sig-${name}`,
-    publicKey: `pk-${name}`,
-    signedPropertyNames: [] as string[]
-});
+    signature: "sig",
+    publicKey: "pk",
+    signedPropertyNames: ["communityPublicKey", "author", "timestamp"]
+};
 
 interface FakeCommunity {
     address: string;
@@ -197,8 +199,8 @@ function getPrivate(handler: DbHandler): DbHandlerPrivate {
     return handler as unknown as DbHandlerPrivate;
 }
 
-// Uses DbHandler directly (Node-only), so it cannot run under RPC.
-describeSkipIfRpc("v45 → v46 DB migration (commentUpdates.authorBanExpiresAt column)", function () {
+// Uses DbHandler directly (Node-only) — cannot run under RPC.
+describeSkipIfRpc("v45 → v46 DB migration (commentUpdates.extraProps column)", function () {
     let dbHandler: DbHandler | undefined;
 
     afterAll(() => {
@@ -209,13 +211,11 @@ describeSkipIfRpc("v45 → v46 DB migration (commentUpdates.authorBanExpiresAt c
     });
 
     beforeAll(async () => {
-        const fakeCommunity = createFakeCommunity(COMMUNITY_ADDRESS);
-        dbHandler = new DbHandler(fakeCommunity as unknown as LocalCommunity);
+        dbHandler = new DbHandler(createFakeCommunity(COMMUNITY_ADDRESS) as unknown as LocalCommunity);
         await dbHandler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
 
         const priv = getPrivate(dbHandler);
         const db = priv._db;
-
         db.exec(V45_CREATE_COMMENTS);
         db.exec(V45_CREATE_COMMENT_UPDATES);
         db.exec(V45_CREATE_VOTES);
@@ -223,67 +223,46 @@ describeSkipIfRpc("v45 → v46 DB migration (commentUpdates.authorBanExpiresAt c
         db.exec(V45_CREATE_COMMENT_MODERATIONS);
         db.exec(V45_CREATE_PSEUDONYMITY_ALIASES);
 
-        const insertComment = db.prepare(
+        const insertPost = db.prepare(
             `INSERT INTO comments (cid, authorSignerAddress, author, postCid, communityPublicKey, content, title, timestamp, signature,
-                depth, number, postNumber, protocolVersion, insertedAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                depth, challengeCommentUpdate, protocolVersion, insertedAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, '1.0.0', ?)`
         );
-        const insertCommentUpdate = db.prepare(
-            `INSERT INTO commentUpdates (cid, upvoteCount, downvoteCount, replyCount, childCount, updatedAt, protocolVersion, signature,
-                author, postUpdatesBucket, publishedToPostUpdatesMFS, insertedAt)
-             VALUES (?, 0, 0, 0, 0, ?, '1.0.0', ?, ?, 0, 1, ?)`
-        );
-        [BANNED_POST_CID, OTHER_POST_CID].forEach((cid, index) => {
-            const timestamp = now - 300 + index;
-            insertComment.run(
-                cid,
-                author.address,
-                JSON.stringify(author),
-                cid,
-                COMMUNITY_ADDRESS,
-                `content of ${cid}`,
-                `title of ${cid}`,
-                timestamp,
-                JSON.stringify(signature(cid)),
-                0,
-                index + 1,
-                index + 1,
-                "1.0.0",
-                timestamp
-            );
-            // What a v45 community stored: the author aggregate on both posts, nothing saying which one the ban was on
-            insertCommentUpdate.run(
-                cid,
-                now - 100,
-                JSON.stringify(signature(`update-${cid}`)),
-                JSON.stringify({
-                    community: {
-                        postScore: 0,
-                        replyScore: 0,
-                        firstCommentTimestamp: now - 300,
-                        lastCommentCid: OTHER_POST_CID,
-                        banExpiresAt: BAN_EXPIRES_AT
-                    }
-                }),
-                now - 100
-            );
-        });
-        db.prepare(
-            `INSERT INTO commentModerations (commentCid, author, signature, modSignerAddress, protocolVersion, communityPublicKey,
-                timestamp, commentModeration, insertedAt, targetAuthorSignerAddress)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-            BANNED_POST_CID,
-            JSON.stringify({ address: "12D3KooWMod" }),
-            JSON.stringify(signature("ban")),
-            "12D3KooWMod",
-            "1.0.0",
+        insertPost.run(
+            POST_CID,
+            author.address,
+            JSON.stringify(author),
+            POST_CID,
             COMMUNITY_ADDRESS,
-            now - 200,
-            JSON.stringify({ author: { banExpiresAt: BAN_EXPIRES_AT }, reason: "banned before the upgrade" }),
-            now - 200,
-            author.address
+            "content",
+            "title",
+            now - 300,
+            JSON.stringify(signature),
+            JSON.stringify(challengeCommentUpdate),
+            now - 300
         );
+        insertPost.run(
+            OTHER_POST_CID,
+            author.address,
+            JSON.stringify(author),
+            OTHER_POST_CID,
+            COMMUNITY_ADDRESS,
+            "content",
+            "title",
+            now - 200,
+            JSON.stringify({ ...signature, signature: "sig2" }),
+            null,
+            now - 200
+        );
+        // the stale updates the old version had stored: one of them is the CommentUpdate a pre-fix community computed for the
+        // post with extras, which carried no extras
+        const insertUpdate = db.prepare(
+            `INSERT INTO commentUpdates (cid, upvoteCount, downvoteCount, replyCount, childCount, updatedAt, protocolVersion, signature,
+                publishedToPostUpdatesMFS, insertedAt)
+             VALUES (?, 1, 0, 0, 0, ?, '1.0.0', ?, 1, ?)`
+        );
+        insertUpdate.run(POST_CID, now - 100, JSON.stringify(signature), now - 100);
+        insertUpdate.run(OTHER_POST_CID, now - 100, JSON.stringify(signature), now - 100);
 
         db.pragma("user_version = 45");
 
@@ -294,36 +273,57 @@ describeSkipIfRpc("v45 → v46 DB migration (commentUpdates.authorBanExpiresAt c
         await dbHandler.createOrMigrateTablesIfNeeded();
     });
 
-    it("the commentUpdates table has an authorBanExpiresAt column", () => {
+    it("the commentUpdates table has an extraProps column", () => {
         const columns = (getPrivate(dbHandler!)._db.prepare("PRAGMA table_info(commentUpdates)").all() as { name: string }[]).map(
             (c) => c.name
         );
-        expect(columns).to.include("authorBanExpiresAt");
+        expect(columns).to.include("extraProps");
     });
 
-    it("the commentUpdates rows are dropped to be recalculated, the comments and the ban moderation are kept", () => {
-        const db = getPrivate(dbHandler!)._db;
-        expect((db.prepare("SELECT COUNT(*) AS count FROM commentUpdates").get() as { count: number }).count).to.equal(0);
-        expect((db.prepare("SELECT COUNT(*) AS count FROM comments").get() as { count: number }).count).to.equal(2);
-        const moderations = dbHandler!.queryAllCommentModerations();
-        expect(moderations).to.have.length(1);
-        expect(moderations[0].commentCid).to.equal(BANNED_POST_CID);
-        expect(moderations[0].commentModeration.author?.banExpiresAt).to.equal(BAN_EXPIRES_AT);
+    it("commentUpdates is rebuilt empty: the update cycle recomputes every record", () => {
+        const count = getPrivate(dbHandler!)._db.prepare("SELECT COUNT(*) AS n FROM commentUpdates").get() as { n: number };
+        expect(count.n).to.equal(0);
     });
 
-    it("a ban published before the upgrade marks the comment it was published on, and only that one", () => {
-        const banned = dbHandler!.queryCalculatedCommentUpdate({ comment: dbHandler!.queryComment(BANNED_POST_CID)! });
-        const other = dbHandler!.queryCalculatedCommentUpdate({ comment: dbHandler!.queryComment(OTHER_POST_CID)! });
-        expect(banned.authorBanExpiresAt).to.equal(BAN_EXPIRES_AT);
-        expect(banned.reason).to.equal("banned before the upgrade");
-        expect(other.authorBanExpiresAt).to.be.undefined;
-        expect(banned.author.community.banExpiresAt).to.equal(BAN_EXPIRES_AT);
-        expect(other.author.community.banExpiresAt).to.equal(BAN_EXPIRES_AT);
+    it("comments.challengeCommentUpdate, the durable source of the extras, survives the migration", () => {
+        const withExtras = dbHandler!.queryComment(POST_CID)!;
+        expect(withExtras.challengeCommentUpdate).to.deep.equal(challengeCommentUpdate);
+        const without = dbHandler!.queryComment(OTHER_POST_CID)!;
+        expect(without.challengeCommentUpdate).to.be.undefined;
+    });
+
+    it("the other comment columns survive the migration", () => {
+        const row = dbHandler!.queryComment(POST_CID)!;
+        expect(row.cid).to.equal(POST_CID);
+        expect(row.content).to.equal("content");
+        expect(row.title).to.equal("title");
+        expect(row.author).to.deep.equal(author);
+        expect(row.timestamp).to.equal(now - 300);
+    });
+
+    it("a recomputed record with extras is stored in extraProps and read back whole", () => {
+        const update = {
+            cid: POST_CID,
+            upvoteCount: 1,
+            downvoteCount: 0,
+            replyCount: 0,
+            childCount: 0,
+            updatedAt: now,
+            protocolVersion: "1.0.0",
+            signature: { type: "ed25519", signature: "sig", publicKey: "pk", signedPropertyNames: [] },
+            ...challengeCommentUpdate
+        } as unknown as CommentUpdateType;
+        dbHandler!.upsertCommentUpdates([
+            commentUpdateToDbRow({ update, dbOnlyFields: { publishedToPostUpdatesMFS: false, insertedAt: now } })
+        ]);
+        const stored = dbHandler!.queryStoredCommentUpdate({ cid: POST_CID })!;
+        expect(stored.extraProps).to.deep.equal(challengeCommentUpdate);
+        expect(stored.upvoteCount).to.equal(1);
     });
 
     it("DB version was bumped to the latest", () => {
         const userVersion = getPrivate(dbHandler!)._db.pragma("user_version", { simple: true }) as number;
         expect(userVersion).to.equal(env.DB_VERSION);
-        expect(env.DB_VERSION).to.be.at.least(46);
+        expect(env.DB_VERSION).to.be.greaterThanOrEqual(46);
     });
 });

@@ -1,3 +1,4 @@
+import { forbiddenKeysOf } from "../../../unknown-props.js";
 import {
     getEquivalentCommunityAddresses,
     hideClassPrivateProps,
@@ -23,8 +24,7 @@ import env from "../../../version.js";
 import Database, { type Database as BetterSqlite3Database, type Statement } from "better-sqlite3";
 import { sha256 } from "js-sha256";
 
-import lockfile from "@pkcprotocol/proper-lock-file";
-import { isCommunityStartLocked } from "./start-lock.js";
+import { getCommunitiesRegistry, markCommunityDbAsBeingWritten, type StartOwnership } from "./communities-registry.js";
 import type { PageOptions } from "./page-generator.js";
 import type {
     InternalCommunityRecordAfterFirstUpdateType,
@@ -142,8 +142,8 @@ export class DbHandler {
     // update cycle's author memo (CommunityAuthorMemo) is only reused while it stays the same.
     private _publicationWriteGeneration = 0;
     private _preparedStatements: Map<string, Statement>;
-    // Identifies the start lock this handler holds, from lockCommunityStart until unlockCommunityStart or its loss
-    private _heldStartLock: object | undefined = undefined;
+    // The address this handler has claimed the start of, from lockCommunityStart until unlockCommunityStart
+    private _startLockAddress: string | undefined = undefined;
 
     constructor(community: DbHandler["_community"]) {
         this._community = community;
@@ -253,7 +253,9 @@ export class DbHandler {
                 `Community (${this._community.address}) failed to create/migrate tables. Current db version (${this.getDbVersion()}), latest db version (${env.DB_VERSION}). Error`,
                 e
             );
-            await this.destoryConnection();
+            // A start() that fails here has claimed the community, and its stop() gives the claim back and closes the
+            // connection
+            if (this._startLockAddress === undefined) this.destoryConnection();
             throw e;
         }
         hideClassPrivateProps(this);
@@ -287,6 +289,19 @@ export class DbHandler {
 
     destoryConnection() {
         const log = Logger("pkc-js:local-community:dbHandler:destroyConnection");
+        // A handler that has claimed the community's start is running it, and a running community needs its connection.
+        // stop() gives the claim back before it gets here, so anything else that does is a caller that took a starting
+        // or started community for a stopped one. The connection stays open. Under vitest it throws, so a test that
+        // reaches such a path fails.
+        if (this.holdsStartLock() && this._db?.open) {
+            const error = new Error(
+                `Refused to close the DB connection of community (${this._startLockAddress}) while it has the community started (issue #561)`
+            );
+            log.error(error);
+            if (process.env["VITEST"]) throw error;
+            return;
+        }
+        this._startLockAddress = undefined;
         this._preparedStatements.clear(); // statements belong to the connection
         if (this._db && this._db.open) {
             try {
@@ -462,7 +477,8 @@ export class DbHandler {
                 lastReplyTimestamp INTEGER NULLABLE, 
                 postUpdatesBucket INTEGER NULLABLE,
                 publishedToPostUpdatesMFS INTEGER NOT NULL, -- BOOLEAN (0/1)
-                insertedAt INTEGER NOT NULL 
+                insertedAt INTEGER NOT NULL,
+                extraProps TEXT NULLABLE -- JSON: unknown keys of the signed record (issue #572); a snapshot, this table is rebuilt on every DB_VERSION bump
             )
         `);
     }
@@ -615,7 +631,6 @@ export class DbHandler {
 
         if (needToMigrate) {
             if (dbExistsAlready && currentDbVersion > 0) {
-                this.destoryConnection();
                 backupDbPath = path.join(
                     path.dirname(dbPath),
                     ".backup_before_migration",
@@ -623,11 +638,8 @@ export class DbHandler {
                 );
                 log(`Copying db ${path.basename(dbPath)} to ${backupDbPath} before migration`);
                 if (!fs.existsSync(path.dirname(backupDbPath))) await fs.promises.mkdir(path.dirname(backupDbPath), { recursive: true });
-                const sourceDb = new Database(dbPath, { fileMustExist: true });
-                await sourceDb.backup(backupDbPath); // Use better-sqlite3's native backup method
-                sourceDb.close();
-                this._db = new Database(dbPath);
-                this._db.pragma("journal_mode = WAL");
+                // Through the open connection, which is not closed: start() migrates on the connection it runs on
+                await this._db.backup(backupDbPath);
             }
             this._db.exec("PRAGMA foreign_keys = OFF");
             const tablesToDrop = ["challengeRequests", "challenges", "challengeAnswers", "challengeVerifications", "signers"];
@@ -684,6 +696,10 @@ export class DbHandler {
             if (currentDbVersion < 29) this._backfillApprovedCommentNumbers();
             if (currentDbVersion < 31) this._backfillTargetAuthorSignerAddress();
             if (currentDbVersion < 32) this._backfillTargetAuthorDomain();
+            // v47: records are refused when a key is named like an object member or starts with `_` (the purges above
+            // apply that rule to the comments and edits stored by an older version). The challenge extras a row holds are
+            // community-chosen, not author-signed, so the offending keys are dropped from them instead of the row
+            if (currentDbVersion < 47) this._stripForbiddenKeysFromChallengeCommentUpdates();
 
             this._db.exec("PRAGMA foreign_keys = ON");
             this._db.pragma(`user_version = ${env.DB_VERSION}`);
@@ -832,6 +848,39 @@ export class DbHandler {
 
         updateMany(moderationsToUpdate);
         log(`Backfilled targetAuthorSignerAddress for ${moderationsToUpdate.length} comment moderations`);
+    }
+
+    // comments.challengeCommentUpdate is spread into every CommentUpdate the community signs, and a CommentUpdate with a
+    // forbidden key (see isForbiddenRecordKey) no longer verifies, so a stored extra with such a key would stall the
+    // update cycle. The comment stays, only the key goes
+    private _stripForbiddenKeysFromChallengeCommentUpdates() {
+        const log = Logger("pkc-js:local-community:db-handler:_stripForbiddenKeysFromChallengeCommentUpdates");
+        const rows = this._db
+            .prepare(`SELECT cid, challengeCommentUpdate FROM ${TABLES.COMMENTS} WHERE challengeCommentUpdate IS NOT NULL`)
+            .all() as { cid: string; challengeCommentUpdate: string }[];
+        const update = this._db.prepare(`UPDATE ${TABLES.COMMENTS} SET challengeCommentUpdate = ? WHERE cid = ?`);
+        for (const row of rows) {
+            let extras: Record<string, unknown>;
+            try {
+                extras = JSON.parse(row.challengeCommentUpdate);
+            } catch {
+                continue; // not valid JSON: the query path reports it, this sweep only strips keys
+            }
+            if (typeof extras !== "object" || extras === null) continue;
+            const topLevel = forbiddenKeysOf(extras);
+            const author = extras.author as Record<string, unknown> | undefined;
+            const authorKeys = forbiddenKeysOf(author);
+            if (topLevel.length === 0 && authorKeys.length === 0) continue;
+            log(`Comment ${row.cid} has challenge commentUpdate keys that are no longer allowed, dropping`, [...topLevel, ...authorKeys]);
+            const cleaned: Record<string, unknown> = {};
+            for (const [key, value] of Object.entries(extras)) if (!topLevel.includes(key)) cleaned[key] = value;
+            if (author && authorKeys.length > 0) {
+                const cleanedAuthor: Record<string, unknown> = {};
+                for (const [key, value] of Object.entries(author)) if (!authorKeys.includes(key)) cleanedAuthor[key] = value;
+                cleaned.author = cleanedAuthor;
+            }
+            update.run(Object.keys(cleaned).length > 0 ? JSON.stringify(cleaned) : null, row.cid);
+        }
     }
 
     private _backfillTargetAuthorDomain() {
@@ -1288,8 +1337,8 @@ export class DbHandler {
 
         const stmt = this._prepareCached(`
             INSERT INTO ${TABLES.COMMENT_UPDATES} 
-            (cid, edit, upvoteCount, downvoteCount, replyCount, childCount, number, postNumber, flairs, spoiler, nsfw, pinned, locked, archived, removed, approved, reason, authorBanExpiresAt, updatedAt, protocolVersion, signature, author, replies, lastChildCid, lastReplyTimestamp, postUpdatesBucket, publishedToPostUpdatesMFS, insertedAt)
-            VALUES (@cid, @edit, @upvoteCount, @downvoteCount, @replyCount, @childCount, @number, @postNumber, @flairs, @spoiler, @nsfw, @pinned, @locked, @archived, @removed, @approved, @reason, @authorBanExpiresAt, @updatedAt, @protocolVersion, @signature, @author, @replies, @lastChildCid, @lastReplyTimestamp, @postUpdatesBucket, @publishedToPostUpdatesMFS, @insertedAt)
+            (cid, edit, upvoteCount, downvoteCount, replyCount, childCount, number, postNumber, flairs, spoiler, nsfw, pinned, locked, archived, removed, approved, reason, authorBanExpiresAt, updatedAt, protocolVersion, signature, author, replies, lastChildCid, lastReplyTimestamp, postUpdatesBucket, publishedToPostUpdatesMFS, insertedAt, extraProps)
+            VALUES (@cid, @edit, @upvoteCount, @downvoteCount, @replyCount, @childCount, @number, @postNumber, @flairs, @spoiler, @nsfw, @pinned, @locked, @archived, @removed, @approved, @reason, @authorBanExpiresAt, @updatedAt, @protocolVersion, @signature, @author, @replies, @lastChildCid, @lastReplyTimestamp, @postUpdatesBucket, @publishedToPostUpdatesMFS, @insertedAt, @extraProps)
             ON CONFLICT(cid) DO UPDATE SET
                 edit = excluded.edit, upvoteCount = excluded.upvoteCount, downvoteCount = excluded.downvoteCount, replyCount = excluded.replyCount, childCount = excluded.childCount,
                 number = COALESCE(excluded.number, ${TABLES.COMMENT_UPDATES}.number),
@@ -1299,7 +1348,8 @@ export class DbHandler {
                 signature = excluded.signature, author = excluded.author, replies = excluded.replies, lastChildCid = excluded.lastChildCid,
                 lastReplyTimestamp = excluded.lastReplyTimestamp, postUpdatesBucket = excluded.postUpdatesBucket,
                 publishedToPostUpdatesMFS = excluded.publishedToPostUpdatesMFS,
-                insertedAt = excluded.insertedAt
+                insertedAt = excluded.insertedAt,
+                extraProps = excluded.extraProps
         `);
 
         const defaults = mapToObj(columnNames, (column) => [column, null]);
@@ -1460,9 +1510,12 @@ export class DbHandler {
     // The column set of a page entry: every CommentIpfs column plus extraProps, and every CommentUpdate column
     // unless the caller excludes some (a flat page drops `replies`). Compiled mappers are cached per column set.
     private _pageEntryMapper(commentUpdateFieldsToExclude?: (keyof CommentUpdateType)[], existingOnly = false): PositionalCommentRowMapper {
-        const commentUpdateCols = keys(
-            commentUpdateFieldsToExclude ? omit(CommentUpdateSchema.shape, commentUpdateFieldsToExclude) : CommentUpdateSchema.shape
-        );
+        const commentUpdateCols = [
+            ...keys(
+                commentUpdateFieldsToExclude ? omit(CommentUpdateSchema.shape, commentUpdateFieldsToExclude) : CommentUpdateSchema.shape
+            ),
+            "extraProps" // the signed record's unknown keys, spread back by the mapper (comment-update-row.ts)
+        ];
         const commentIpfsCols = [...keys(CommentIpfsSchema.shape), "extraProps"];
         return this._positionalMapperFor({
             commentIpfsCols: existingOnly ? this._existingColumns(TABLES.COMMENTS, commentIpfsCols) : commentIpfsCols,
@@ -3594,6 +3647,8 @@ export class DbHandler {
         await fs.promises.mkdir(path.dirname(oldPathString), { recursive: true });
         await fs.promises.mkdir(path.dirname(newPathString), { recursive: true });
 
+        // The copy at the new path is not a community until it is complete: the caller lists it then
+        const doneWritingNewDbFile = markCommunityDbAsBeingWritten({ dataPath, communityAddress: newDbName });
         try {
             // Check if oldDb exists before attempting to open for backup
             if (!fs.existsSync(oldPathString)) {
@@ -3612,100 +3667,81 @@ export class DbHandler {
         } catch (error) {
             log.error(`Failed to backup/rename database from ${oldPathString} to ${newPathString}: `, error);
             throw error;
+        } finally {
+            doneWritingNewDbFile();
         }
         this._dbConfig = { ...this._dbConfig, filename: newPathString };
         log(`Changed db path from (${oldPathString}) to (${newPathString})`);
     }
 
-    // The lock library keeps the lock fresh from a timer. When this event loop is blocked past the lock's 10s stale
-    // threshold (a VACUUM or migration of a large DB, a suspended process), another process on the same dataPath sees it
-    // as stale and takes it over; the library then reports it compromised and onCompromised is called. The library also
-    // reports a lock directory that disappeared (ENOENT), even one whose taker released it again. Either way this process
-    // no longer holds the lock from that point on, so it must stop running the community.
-    async lockCommunityStart({ onCompromised }: { onCompromised: (error: Error) => void }) {
+    // Claims the community for this PKC instance in the communities registry (see communities-registry.ts), which holds
+    // it until unlockCommunityStart(). An instance that dies holds nothing: its lock is the kernel's, and a claim whose
+    // instance is gone is taken over. Throws if a live instance has the community started.
+    async lockCommunityStart() {
         const log = Logger("pkc-js:local-community:db-handler:lock:start");
         const communityAddress = this._community.address;
-
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${communityAddress}.start.lock`);
-        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", communityAddress);
-
-        const startLock = {};
-        try {
-            await lockfile.lock(communityDbPath, {
-                lockfilePath,
-                onCompromised: (error) => {
-                    // The library can still report a lock after it was released, which is not a lock this process lost
-                    if (this._heldStartLock !== startLock) return;
-                    this._heldStartLock = undefined;
-                    log.error(`Lost the start lock of community (${communityAddress}), taken over or removed`, error);
-                    onCompromised(error);
-                }
-            });
-            this._heldStartLock = startLock;
-            log(`Locked the start of community (${communityAddress}) successfully`);
-        } catch (e: unknown) {
-            if (e instanceof Error && e.message === "Lock file is already being held")
-                throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { communityAddress: communityAddress, error: e });
-            else {
-                log(`Error while trying to lock start of community (${communityAddress}): ${e}`);
-                throw e;
-            }
+        const dataPath = this._community._pkc.dataPath!;
+        await this.initDbIfNeeded();
+        // a community is started on the connection it writes with
+        if (this._db.readonly) throw Error("The start of a community can't be claimed on a read-only connection to its DB");
+        const registry = getCommunitiesRegistry(this._community._pkc);
+        if (!registry.claimStart(communityAddress)) throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { communityAddress });
+        // The connection was opened some awaits ago. Another process that deleted or renamed the community since has
+        // moved its DB away, and the claim just made is for a community with no DB at its path: it would run, publish
+        // and write to a file nothing reads again. Given back at once (no await since the claim was made).
+        if (!fs.existsSync(path.join(dataPath, "communities", communityAddress))) {
+            registry.unregisterCommunity(communityAddress);
+            throw new PKCError("CAN_NOT_LOAD_LOCAL_COMMUNITY_IF_DB_DOES_NOT_EXIST", { communityAddress, dataPath });
         }
+        this._startLockAddress = communityAddress;
+        log(`Locked the start of community (${communityAddress}) successfully`);
     }
 
-    async unlockCommunityStart(communityAddress = this._community.address) {
+    // Whether this handler has claimed the community's start, i.e. this instance is starting or started
+    holdsStartLock(): boolean {
+        return this._startLockAddress !== undefined;
+    }
+
+    async unlockCommunityStart() {
         const log = Logger("pkc-js:local-community:db-handler:unlock:start");
-        log.trace(`Attempting to unlock the start of community (${communityAddress})`);
-        this._heldStartLock = undefined;
-
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${communityAddress}.start.lock`);
-        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", communityAddress);
-        if (!fs.existsSync(lockfilePath) || !fs.existsSync(communityDbPath)) return;
-
-        try {
-            await lockfile.unlock(communityDbPath, { lockfilePath });
-            log(`Unlocked start of community (${communityAddress})`);
-        } catch (e: unknown) {
-            log(`Error while trying to unlock start of community (${communityAddress}): ${e}`);
-            throw e;
-        }
+        const communityAddress = this._startLockAddress;
+        if (communityAddress === undefined) return;
+        this._startLockAddress = undefined;
+        getCommunitiesRegistry(this._community._pkc).releaseStart(communityAddress);
+        log(`Unlocked start of community (${communityAddress})`);
     }
 
     async isCommunityStartLocked(communityAddress = this._community.address): Promise<boolean> {
-        return isCommunityStartLocked({ dataPath: this._community._pkc.dataPath!, communityAddress });
+        return getCommunitiesRegistry(this._community._pkc).isStarted(communityAddress);
     }
 
-    // Community state lock
+    // For the community this handler has started: whether it is still this PKC instance's (see confirmStart)
+    confirmCommunityStartIsStillOurs(): StartOwnership {
+        if (this._startLockAddress === undefined) return "owned";
+        return getCommunitiesRegistry(this._community._pkc).confirmStart(this._startLockAddress);
+    }
 
-    async lockCommunityState() {
-        const log = Logger("pkc-js:local-community:db-handler:lock:lockCommunityState");
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${this._community.address}.state.lock`);
-        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
+    // Runs `write` as one write transaction on the community DB: SQLite lets one connection write at a time, across
+    // processes too, and the lock is the kernel's, so a killed writer leaves nothing behind. `write` must be synchronous
+    // (issue #417). A transaction that is already open on this connection is joined. Used for a read-modify-write of
+    // the community's internal state, which a lock file guarded before (issue #561).
+    runInWriteTransaction<T>(write: () => T): T {
+        if (this._db.inTransaction) return write();
         try {
-            await lockfile.lock(communityDbPath, {
-                lockfilePath,
-                retries: 5,
-                onCompromised: () => {}
-            });
-        } catch (e: unknown) {
-            log.error(`Error when attempting to lock community state`, this._community.address, e);
-            if (e instanceof Error && e.message === "Lock file is already being held")
+            this._db.exec("BEGIN IMMEDIATE");
+        } catch (e) {
+            // another connection kept writing for longer than this connection's busy timeout
+            if (typeof (e as { code?: unknown }).code === "string" && (e as { code: string }).code.startsWith("SQLITE_BUSY"))
                 throw new PKCError("ERR_COMMUNITY_STATE_LOCKED", { communityAddress: this._community.address, error: e });
-            // Not sure, do we need to throw error here
+            throw e;
         }
-    }
-
-    async unlockCommunityState() {
-        const log = Logger("pkc-js:local-community:db-handler:lock:unlockCommunityState");
-
-        const lockfilePath = path.join(this._community._pkc.dataPath!, "communities", `${this._community.address}.state.lock`);
-        const communityDbPath = path.join(this._community._pkc.dataPath!, "communities", this._community.address);
-        if (!fs.existsSync(lockfilePath)) return;
         try {
-            await lockfile.unlock(communityDbPath, { lockfilePath });
-        } catch (e: unknown) {
-            log.error(`Error when attempting to unlock community state`, this._community.address, e);
-            if (e instanceof Error && "code" in e && e.code !== "ENOTACQUIRED") throw e;
+            const result = write();
+            this._db.exec("COMMIT");
+            return result;
+        } catch (e) {
+            if (this._db.inTransaction) this._db.exec("ROLLBACK");
+            throw e;
         }
     }
 

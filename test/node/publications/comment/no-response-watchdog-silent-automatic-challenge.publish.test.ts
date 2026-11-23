@@ -217,8 +217,8 @@ describeSkipIfRpc("no-response watchdog on a silent automatic exchange (#362)", 
 
     // The verification the community published after the deadline reached nobody: the publisher had
     // already unsubscribed, and pubsub does not store and forward. Recovery does not depend on having
-    // stayed subscribed for long enough. Publishing the same signed publication again is answered by
-    // the community with an idempotent success carrying the cid it stored (issue #228).
+    // stayed subscribed for long enough. Publishing the same signed publication again, through a new
+    // instance, is answered by the community with an idempotent success carrying the cid it stored (issue #228).
     it("publishing the same signed publication again after the deadline returns the cid the community stored", async () => {
         const run = await runSilentExchangePastDeadline();
         try {
@@ -232,14 +232,27 @@ describeSkipIfRpc("no-response watchdog on a silent automatic exchange (#362)", 
             expect(run.post.cid).to.be.undefined;
             expect(run.post.publishingState).to.equal("failed");
 
-            const signatureBeforeRetry = run.post.signature!.signature;
-            await run.post.publish();
-            await waitFor(() => run.getVerification() !== undefined);
+            // A publication instance publishes once (#530), so the same signed publication goes out through a new instance
+            await expect(run.post.publish()).rejects.toMatchObject({ code: "ERR_PUBLICATION_PUBLISH_ALREADY_CALLED" });
+            const retry = await publisherPKC.createComment(run.post.raw.pubsubMessageToPublish!);
+            let retryVerification: DecryptedChallengeVerificationMessageType | undefined;
+            retry.on("challengeverification", (msg) => (retryVerification = msg));
+            retry.on("error", () => {});
+            try {
+                await retry.publish();
+                await waitFor(() => retryVerification !== undefined);
 
-            expect(run.post.signature!.signature, "the retry re-sends the same signed publication").to.equal(signatureBeforeRetry);
-            expect(run.getVerification()!.challengeSuccess).to.be.true;
-            expect(run.post.cid).to.equal(run.cidAcceptedByCommunity);
-            expect(run.post.publishingState).to.equal("succeeded");
+                expect(retry.signature!.signature, "the retry re-sends the same signed publication").to.equal(
+                    run.post.signature!.signature
+                );
+                expect(retryVerification!.challengeSuccess).to.be.true;
+                expect(retry.cid).to.equal(run.cidAcceptedByCommunity);
+                expect(retry.publishingState).to.equal("succeeded");
+                // The first instance keeps the outcome of its own attempt
+                expect(run.post.publishingState).to.equal("failed");
+            } finally {
+                await retry.stop();
+            }
         } finally {
             await run.cleanup();
         }

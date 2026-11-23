@@ -346,7 +346,7 @@ ChallengeRequestMessage extends PubsubMessage /* (sent by post author) */ {
     commentEdit?: CommentEdit
     commentModeration?: CommentModeration
     communityEdit?: CommunityEdit
-    challengeAnswers?: string[] // some challenges might be included in community.challenges and can be pre-answered
+    challengeAnswers?: {[challengeIndex: string]: string} // pre-answers to challenges in community.challenges, keyed by challenge index (the position in community.challenges, as a decimal string). A challenge with no key has no pre-answer. Non-empty when present
     challengeCommentCids?: string[] // some challenges could require including comment cids in other communities, like friendly community karma challenges
   }
   pkc-js should decrypt the encrypted fields when possible, and add them to the message for convenience, e.g. `ChallengeRequestMessage.comment` or `ChallengeRequestMessage.vote` (not part of the broadcasted pubsub message) */
@@ -354,14 +354,14 @@ ChallengeRequestMessage extends PubsubMessage /* (sent by post author) */ {
 ChallengeMessage extends PubsubMessage /* (sent by community owner) */ {
   encrypted: Encrypted
   /* ChallengeMessage.encrypted.ciphertext decrypts to JSON {
-    challenges: Challenge[]
+    challenges: {[challengeIndex: string]: Challenge} // only the challenges that still need an answer, keyed by challenge index (a sparse subset of community.challenges). Never empty
   }
   pkc-js should decrypt the encrypted fields when possible, and add `ChallengeMessage.challenges` property for convenience (not part of the broadcasted pubsub message) */
 }
 ChallengeAnswerMessage extends PubsubMessage /* (sent by post author) */ {
   encrypted: Encrypted
   /* ChallengeAnswerMessage.encrypted.ciphertext decrypts to JSON {
-    challengeAnswers: string[] // for example ['2+2=4', '1+7=8']
+    challengeAnswers: {[challengeIndex: string]: string} // keyed by the challenge index of each ChallengeMessage.challenges entry, for example {'0': '2+2=4', '2': '1+7=8'}
   }
   pkc-js should decrypt the encrypted fields when possible, and add `ChallengeAnswerMessage.challengeAnswers` property for convenience (not part of the broadcasted pubsub message) */
 }
@@ -563,7 +563,7 @@ An object which may have the following keys:
 | pkcRpcClientsOptions | `string[]` or `undefined` | `undefined` | Optional websocket URLs of PKC RPC servers, required to run a community from a browser/electron/webview |
 | httpRoutersOptions | `string[]` or `undefined` | `['https://peers.pleb.bot', 'https://routing.lol', 'https://peers.forumindex.com', 'https://peers.plebpubsub.xyz', 'https://routerofbitsocial.xyz', 'https://bsotracker.online']` | URLs of HTTP delegated-routing endpoints used by `libp2pJsClientsOptions` for content/peer routing and IPNS lookups. Each URL must start with `http://` or `https://`. |
 | libp2pJsClientsOptions | `Array<{key: string, libp2pOptions?: Partial<Libp2pOptions>, heliaOptions?: Partial<HeliaOptions>, blockstoreOptions?: {maxBytes?: number, lowWaterRatio?: number}}>` or `undefined` | `undefined` | Optional in-process libp2p/Helia client. When set, replaces `kuboRpcClientsOptions` and `pubsubKuboRpcClientsOptions` (which are then ignored). At most one entry; `key` is a unique identifier. `libp2pOptions` is forwarded to [Helia's libp2p](https://github.com/ipfs/helia) (e.g. `connectionGater`, `services`, transports), `heliaOptions` to [Helia](https://github.com/ipfs/helia) (e.g. `blockstore`, `blockBrokers`; a caller-supplied `blockBrokers` replaces the default bitswap broker, and `http` is not supported since the client is composed without Helia's HTTP components). Requires `httpRoutersOptions` to be set. By default WebRTC dials are rejected, so browser nodes connect over WebSocket(/WSS) or WebTransport; pass your own `libp2pOptions.connectionGater` to override this (it fully replaces the default gater). Peer addresses are dialed WSS first, then WebTransport on UDP 443, then IPv6, then IPv4 on other UDP ports; `libp2pOptions.connectionManager` replaces that sorter. Providers reachable only on private or loopback addresses are dialed after the public ones. `blockstoreOptions` tunes the block cache described below. |
-| dataPath | `string` or `undefined` | `.pkc` folder in the current working directory | (Node only) Optional folder path to create/resume the user and community databases |
+| dataPath | `string` or `undefined` | `.pkc` folder in the current working directory | (Node only) Optional folder path to create/resume the user and community databases. Must be on a local filesystem, not a network one (NFS, SMB): the lock that keeps two processes from running the same community is a file lock |
 | resolveAuthorNames | `boolean` or `undefined` | `true` | Optionally disable resolving crypto domain author names, which can be done lazily later to save time |
 | nameResolvers | `NameResolver[]` or `undefined` | `undefined` | Custom resolvers for crypto domain names. Each resolver: `{key, resolve, canResolve, provider, destroy?}`. |
 | validatePages | `boolean` or `undefined` | `true` | If `false`, pages returned in `commentUpdate` / `Community` / `getPage` are not validated. Use only when you trust the source. |
@@ -1015,7 +1015,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| challengeAnswers | `string[]` or `undefined` | Optional pre-answers to community.challenges |
+| challengeAnswers | `{[challengeIndex: string]: string}` or `undefined` | Optional pre-answers to community.challenges, keyed by challenge index. A challenge with no key has no pre-answer |
 | challengeCommentCids | `string[]` or `undefined` | Optional comment cids for community.challenges related to author karma/age in other communities |
 
 #### Returns
@@ -1094,7 +1094,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| challengeAnswers | `string[]` or `undefined` | Optional pre-answers to community.challenges |
+| challengeAnswers | `{[challengeIndex: string]: string}` or `undefined` | Optional pre-answers to community.challenges, keyed by challenge index. A challenge with no key has no pre-answer |
 | challengeCommentCids | `string[]` or `undefined` | Optional comment cids for community.challenges related to author karma/age in other communities |
 
 #### Returns
@@ -1257,7 +1257,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| challengeAnswers | `string[]` or `undefined` | Optional pre-answers to community.challenges |
+| challengeAnswers | `{[challengeIndex: string]: string}` or `undefined` | Optional pre-answers to community.challenges, keyed by challenge index. A challenge with no key has no pre-answer |
 | challengeCommentCids | `string[]` or `undefined` | Optional comment cids for community.challenges related to author karma/age in other communities |
 
 #### Returns
@@ -1319,7 +1319,7 @@ const signerFromPrivateKey = await pkc.createSigner({privateKey: 'AbCd...', type
 | `name` | `string` (optional) | The community's domain name, e.g. `memes.bso`. Absent for a community without a name |
 | `publicKey` | `string` | The community's IPNS public key, its identity |
 | `address` | `string` | Runtime-only, computed the same way as `community.address`: `name` when there is one, else `publicKey`. It is not sent over the RPC wire, each side computes it |
-| `started` | `boolean` | Whether the community is running, the same check as `community.started`: its start lock on the `dataPath` is held, by this process or another one |
+| `started` | `boolean` | Whether the community is running, the same check as `community.started`: a live PKC instance on the `dataPath` has it started, in this process or another one. A start or stop by another process shows up within about two seconds |
 
 The list updates when a community is created, deleted, renamed, started or stopped. Run one process with the RPC server and have other processes connect to it, rather than sharing a `dataPath` between processes.
 
@@ -1410,7 +1410,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| name | `string` or `undefined` | Crypto domain of the community, e.g. `'memes.bso'`. Changing it renames the community (its address, DB and start lock move to the new name) and hides the comments signed with the old name; `undefined` drops the name and the address becomes the public key, see [Changing a community's name](docs/protocol/names-and-addresses.md#changing-a-communitys-name). Owner-only over pubsub, see [Community roles and permissions](#community-roles-and-permissions) |
+| name | `string` or `undefined` | Crypto domain of the community, e.g. `'memes.bso'`. Changing it renames the community (its address and DB move to the new name) and hides the comments signed with the old name; `undefined` drops the name and the address becomes the public key, see [Changing a community's name](docs/protocol/names-and-addresses.md#changing-a-communitys-name). Owner-only over pubsub, see [Community roles and permissions](#community-roles-and-permissions) |
 | address | `string` or `undefined` | Legacy alias of `name`, kept for backward compatibility: a domain passed here is applied as `name`, the community's public key drops the name. Passing both `name` and `address` with different values throws `ERR_COMMUNITY_EDIT_NAME_AND_ADDRESS_MISMATCH`, see [Changing a community's name](docs/protocol/names-and-addresses.md#changing-a-communitys-name) |
 | title | `string` or `undefined` | Title of the community |
 | description | `string` or `undefined` | Description of the community |
@@ -1649,6 +1649,12 @@ The comment API for publishing a comment as an author, or getting comment update
 
 > Publish the comment to the pubsub. You must then wait for the `'challenge'` event and answer with a `ChallengeAnswer`.
 
+A publication instance (`Comment`, `Vote`, `CommentEdit`, `CommentModeration`, `CommunityEdit`) runs one challenge exchange. Once `publish()` has got past its pre-flight (loading the community, then signing and validating the publication), or once `stop()` has ended a `publish()` that was called, a second `publish()` on the same instance rejects with `ERR_PUBLICATION_PUBLISH_ALREADY_CALLED`, whatever came of the first: still in progress, succeeded, failed, or stopped with `stop()`. The error's `details` carry `state`, `publishingState`, `receivedChallenge` and `receivedChallengeVerification`, so you can tell what happened to the first attempt.
+
+The one exception is a `publish()` that rejected during pre-flight, because the community could not be loaded or the publication could not be signed or validated. Nothing left the instance, so you can call `publish()` on it again. A `publish()` call made while another one is still running on the same instance rejects.
+
+To publish again after that point, create a new instance and call `publish()` on that one. Call `stop()` on the old instance first if it is still publishing.
+
 #### Example
 
 ```js
@@ -1661,6 +1667,20 @@ comment.on('challengeverification', console.log)
 await comment.publish()
 ```
 
+#### Example: publishing again
+
+```js
+// a new publication, signed again with a new timestamp (for example after a wrong challenge answer)
+const retry = await pkc.createComment(commentObject)
+
+// or the same signed publication (for example when the verification never arrived).
+// A community that already stored it answers with the stored comment instead of rejecting a duplicate
+const sameSignedComment = await pkc.createComment(comment.raw.pubsubMessageToPublish)
+
+await comment.stop() // only needed while the old instance is still publishing
+await retry.publish()
+```
+
 ### `comment.publishChallengeAnswers({ challengeAnswers })`
 
 > Publish your answers to the challenges e.g. the captcha answers.
@@ -1669,7 +1689,7 @@ await comment.publish()
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| challengeAnswers | `string[]` | The challenge answers |
+| challengeAnswers | `{[challengeIndex: string]: string}` | The challenge answers, keyed by the challenge index of each entry in `challengeMessage.challenges`. A challenge you leave out fails as unanswered |
 
 #### Example
 

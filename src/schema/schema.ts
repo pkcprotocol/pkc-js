@@ -98,7 +98,12 @@ export const AuthorPubsubSchema = z
 
 export const ChallengeAnswerStringSchema = z.string(); // TODO add validation for challenge answer
 
-export const ChallengeAnswersSchema = ChallengeAnswerStringSchema.array().nonempty(); // for example ["1+1=2", "3+3=6"]
+// Answers keyed by challenge index (the position in community.challenges / settings.challenges, as a decimal string, the
+// same convention as challengeErrors). A challenge with no key has no answer, so a client can answer only the challenges
+// it chooses to. Used by CHALLENGEREQUEST (pre-answers) and CHALLENGEANSWER. Issue #567.
+export const ChallengeAnswersByIndexSchema = z
+    .record(nonNegativeIntStringSchema, ChallengeAnswerStringSchema)
+    .refine((answers) => Object.keys(answers).length > 0, "challengeAnswers must not be empty"); // for example { "0": "1+1=2", "2": "6" }
 export const CreatePublicationUserOptionsSchema = z.object({
     signer: CreateSignerSchema,
     author: AuthorPubsubSchema.partial().loose().optional(),
@@ -110,7 +115,7 @@ export const CreatePublicationUserOptionsSchema = z.object({
     // pubsubMessage field will contain fields to be added to request.encrypted
     challengeRequest: z
         .object({
-            challengeAnswers: ChallengeAnswersSchema.optional(),
+            challengeAnswers: ChallengeAnswersByIndexSchema.optional(),
             challengeCommentCids: CidStringSchema.array().optional()
         })
         .optional()

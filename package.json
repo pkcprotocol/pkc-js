@@ -1,6 +1,6 @@
 {
     "name": "@pkcprotocol/pkc-js",
-    "version": "0.0.147",
+    "version": "0.0.155",
     "type": "module",
     "scripts": {
         "prebuild": "node config/generate-version.js",
@@ -82,6 +82,7 @@
         "@helia/libp2p": "2.1.5",
         "@helia/unixfs": "8.0.9",
         "@ipld/dag-cbor": "9.2.7",
+        "@ipld/dag-pb": "4.2.0",
         "@libp2p/crypto": "5.2.0",
         "@libp2p/fetch": "4.1.17",
         "@libp2p/gossipsub": "17.2.1",
@@ -91,9 +92,10 @@
         "@libp2p/utils": "7.4.5",
         "@libp2p/webtransport": "6.0.44",
         "@multiformats/multiaddr": "13.0.3",
-        "@noble/curves": "2.2.0",
+        "@multiformats/murmur3": "2.2.5",
+        "@noble/curves": "2.4.0",
+        "@noble/hashes": "2.4.0",
         "@pkcprotocol/pkc-logger": "0.1.0",
-        "@pkcprotocol/proper-lock-file": "4.2.1",
         "@types/better-sqlite3": "7.6.13",
         "assert": "2.1.0",
         "better-sqlite3": "12.9.0",

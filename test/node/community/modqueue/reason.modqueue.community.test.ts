@@ -76,7 +76,7 @@ describeSkipIfRpc("commentUpdate.reason from a challenge in the pending-approval
         const { comment, challengeVerification } = await publishCommentToModQueue({
             community,
             pkc: remotePKC,
-            commentProps: { challengeRequest: { challengeAnswers: ["x"] } }
+            commentProps: { challengeRequest: { challengeAnswers: { "0": "x" } } }
         });
 
         const cv = challengeVerification as DecryptedChallengeVerificationMessageType;

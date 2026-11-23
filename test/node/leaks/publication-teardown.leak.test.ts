@@ -94,7 +94,10 @@ describeSkipIfRpc("leak: publications that never leave pkc._publishingPublicatio
         internals._setProviderFailureThresholdSeconds = THRESHOLD_SECONDS;
     };
 
-    it.fails("a second publish() on the same instance, still unanswered, fails and unregisters like the first", async () => {
+    // A second publish() on the same instance used to start a second exchange whose requests the first one's
+    // bookkeeping miscounted, so it never reached "failed" and never left the registry (#516). An instance now runs one
+    // exchange: the second call rejects, and a retry is a new instance
+    it("a second publish() on the same instance rejects and leaves nothing registered", async () => {
         const post = await generateMockPost({ communityAddress: silentCommunity.address, pkc: publisherPKC });
         const errors: string[] = [];
         post.on("error", (e: Error & { code?: string }) => errors.push(e.code ?? e.message));
@@ -104,14 +107,27 @@ describeSkipIfRpc("leak: publications that never leave pkc._publishingPublicatio
             const firstRunLeft = await waitFor(() => !publisherPKC._publishingPublications.has(post), 30_000);
             const firstRun = { left: firstRunLeft, publishingState: post.publishingState, errors: errors.length };
 
-            await post.publish();
-            // The first run needed about 2 * THRESHOLD_SECONDS; give the second one five times that
-            const secondRunLeft = await waitFor(() => !publisherPKC._publishingPublications.has(post), THRESHOLD_SECONDS * 10 * 1000);
-            const secondRun = { left: secondRunLeft, publishingState: post.publishingState, errors: errors.length };
+            const secondPublishCode = await post.publish().then(
+                (): string | undefined => undefined,
+                (e: { code?: string }) => e.code
+            );
+            const secondRun = {
+                code: secondPublishCode,
+                registered: publisherPKC._publishingPublications.has(post),
+                state: post.state,
+                publishingState: post.publishingState,
+                errors: errors.length
+            };
 
             expect({ firstRun, secondRun }).toEqual({
                 firstRun: { left: true, publishingState: "failed", errors: 1 },
-                secondRun: { left: true, publishingState: "failed", errors: 2 }
+                secondRun: {
+                    code: "ERR_PUBLICATION_PUBLISH_ALREADY_CALLED",
+                    registered: false,
+                    state: "stopped",
+                    publishingState: "failed",
+                    errors: 1
+                }
             });
         } finally {
             await post.stop();
@@ -126,7 +142,7 @@ describeSkipIfRpc("leak: publications that never leave pkc._publishingPublicatio
             const challenged = new Promise<void>((resolve) => post.once("challenge", () => resolve()));
             await post.publish();
             await challenged;
-            await post.publishChallengeAnswers({ challengeAnswers: ["2"] });
+            await post.publishChallengeAnswers({ challengeAnswers: { "0": "2" } });
             const left = await waitFor(() => !publisherPKC._publishingPublications.has(post), THRESHOLD_SECONDS * 10 * 1000);
             expect({ left, publishingState: post.publishingState }).toEqual({ left: true, publishingState: "failed" });
         } finally {

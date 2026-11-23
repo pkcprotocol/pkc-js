@@ -16,12 +16,20 @@ export const listCommunities = () => {
     throw Error("listCommunities should not be called in browser");
 };
 
-export const listCommunitiesSync = () => {
-    throw Error("listCommunitiesSync should not be called in browser");
+export const isLocalCommunityAddress = (): boolean => {
+    throw Error("isLocalCommunityAddress should not be called in browser");
 };
 
 export const findLocalCommunityAddress = (): string | undefined => {
     throw Error("findLocalCommunityAddress should not be called in browser");
+};
+
+export const registerLocalCommunity = () => {
+    throw Error("registerLocalCommunity should not be called in browser");
+};
+
+export const markLocalCommunityDbAsBeingWritten = (): (() => void) => {
+    throw Error("markLocalCommunityDbAsBeingWritten should not be called in browser");
 };
 
 export const monitorCommunitiesDirectory = () => {
@@ -57,9 +65,7 @@ export async function importSignerIntoKuboNode(ipnsKeyName: string, ipfsKey: Uin
     return { id: resJson.Id, name: resJson.Name };
 }
 
-export async function createKuboRpcClient(
-    kuboRpcClientOptions: KuboRpcClient["_clientOptions"]
-): Promise<KuboRpcClient["_client"]> {
+export async function createKuboRpcClient(kuboRpcClientOptions: KuboRpcClient["_clientOptions"]): Promise<KuboRpcClient["_client"]> {
     const log = Logger("pkc-js:pkc:createKuboRpcClient");
     log("Creating a new ipfs client on browser with options", kuboRpcClientOptions);
     const { create: CreateKuboRpcClient } = await import("kubo-rpc-client");
