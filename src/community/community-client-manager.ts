@@ -48,6 +48,7 @@ import { getAuthorNameFromRuntime } from "../publications/publication-author.js"
 
 import { type CommunityGatewayFetch, selectWinningGatewayCommunity } from "./community-gateway-selection.js";
 import type { Libp2pJsClient } from "../helia/libp2pjsClient.js";
+import { cancelKuboIpnsPubsubSubscriptions } from "../clients/kubo-ipns-pubsub.js";
 import type { IpnsRecordArrival, IpnsRecordArrivalListener } from "../helia/types.js";
 
 export const MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS = 1024 * 1024; // 1mb
@@ -474,6 +475,22 @@ export class CommunityClientsManager extends PKCClientsManager {
         this._gatewayEtagsOfLoadedRecords.clear();
         this._gatewayMaxAgeSecondsFromLastPoll = undefined;
         this._clearIpnsArrivalSubscriptions();
+        await this._cancelKuboIpnsPubsubSubscriptions();
+    }
+
+    // Every name.resolve through kubo left kubo subscribed to the record topic of each name it walked. This runs
+    // when the last follower of the community in this PKC instance is gone, so nothing here reads those records any
+    // more (issue #602). A name kubo holds the key for is left alone: the community is hosted through this node,
+    // and its host has to stay subscribed. Another process following the same name on this node is subscribed
+    // again by its next resolve.
+    private async _cancelKuboIpnsPubsubSubscriptions() {
+        const kuboRpcClient = Object.values(this._pkc.clients.kuboRpcClients)[0];
+        if (!kuboRpcClient) return; // helia and gateways hold no kubo subscription
+        await cancelKuboIpnsPubsubSubscriptions({
+            kuboRpcClient,
+            ipnsNames: this._community.ipnsHops?.length ? this._community.ipnsHops : [this._community.ipnsName],
+            unlessKuboHoldsTheKey: true
+        });
     }
 
     // How long the gateway-backed update loop sleeps before its next poll (issue #328). The
