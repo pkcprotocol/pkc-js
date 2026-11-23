@@ -614,6 +614,8 @@ process.on('uncaughtException', (err) => console.error(err))
 
 Attaching an `'error'` listener directly on a `community`, `comment`, or other publication object stops the bubble-up: in that case the error stays on the child and is not re-emitted on the pkc instance.
 
+Failures that happen where nothing awaits the code (a pubsub or RPC callback, a timer, an event listener) are reported as `'error'` events too, never as an uncaught exception or an unhandled rejection. Examples: a frame the RPC server sent that is not valid JSON, or a notification the RPC client could not handle, arrives as `ERR_RPC_CLIENT_FAILED_TO_HANDLE_SERVER_MESSAGE` and the frame is dropped; failing to subscribe again to a pubsub topic after the provider reported an error arrives as `ERR_FAILED_TO_RESUBSCRIBE_TO_PUBSUB_TOPIC_AFTER_ERROR`; a DB fault that ends a local community's publish loop arrives on that community. The error carries the underlying one as `details.cause` (or as the error itself). With no `'error'` listener attached, those emits throw like any other `'error'` event, and so does a listener of yours that throws. The listener is therefore the only protection your process needs, and the UI clients and bitsocial-cli already attach one.
+
 ### `pkc.clients.libp2pJsClients[key].heliaNode`
 
 #### Block storage and eviction

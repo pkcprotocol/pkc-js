@@ -227,7 +227,8 @@ describe("_guardDetachedHandler: the contract", () => {
         expect(errors.map((e) => e.message).join("|")).toContain("the comment does not verify");
     });
 
-    it("with no error listener on the publication or the pkc, the wrapper still does not throw", async () => {
+    // By decision (README, "Error handling"): an error nobody listens to stops the process, here as the rejection of the wrapper with the error itself
+    it("with no error listener on the publication or the pkc, the wrapper rejects with the publication error", async () => {
         const post = await freshPost();
         const g = asGuarded(post);
         g._publishEndedBy = "verification"; // after a verdict the wrapper uses a plain emit("error")
@@ -242,7 +243,7 @@ describe("_guardDetachedHandler: the contract", () => {
                 g._guardDetachedHandler("nobody-listens", () => {
                     throw new Error("boom");
                 })()
-            ).resolves.toBeUndefined();
+            ).rejects.toMatchObject({ code: "ERR_PUBLICATION_INTERNAL_ERROR" }); // emit("error", err) with no listener throws err itself
         } finally {
             for (const l of pkcStash) pkc.on("error", l as (...a: unknown[]) => void);
             for (const l of stash) post.on("error", l as (...a: unknown[]) => void);
