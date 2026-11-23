@@ -42,38 +42,47 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
 
             try {
+                // A loader by key never key-migrates on its own (#605), so the migrated key-addressed
+                // instance this regression needs comes from sharing: a sibling that asked for the name
+                // migrates the shared updating instance, and the by-key loader mirrors it.
+                const sibling = await testPKC.createCommunity({ name: communityName, publicKey: ipnsKey });
+                await sibling.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: sibling,
+                    predicate: async () => sibling.publicKey === migratedKey
+                });
+
                 const community = await testPKC.createCommunity({ address: ipnsKey });
                 await community.update();
-
-                // Background resolution of the record's name detects the migration and flips publicKey
                 await resolveWhenConditionIsTrue({
                     toUpdate: community,
                     predicate: async () => community.publicKey === migratedKey
                 });
-                expect(community.publicKey).to.equal(migratedKey);
                 expect(community.address).to.equal(ipnsKey); // address is immutable
 
                 await community.stop();
+                await sibling.stop();
 
                 // This is what the RPC server's setSettings handler does to every live subscription.
                 // Before the fix this threw "should be defined at this stage" out of
                 // fetchLatestCommunityOrSubscribeToEvent: the fresh updating instance was tracked
                 // under the pre-migration address while the lookup used the post-migration
                 // {publicKey, name}, which share no alias (#197).
-                let migrationReannounced = false;
+                const migrationErrors: PKCError[] = [];
                 community.on("error", (err) => {
-                    if ((err as PKCError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") migrationReannounced = true;
+                    if ((err as PKCError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY")
+                        migrationErrors.push(err as PKCError);
                 });
                 await community.update();
 
-                // Fresh-subscribe semantics: the re-created updating instance re-resolves and
-                // re-announces the migration, then settles on the migrated key's record.
+                // With the sibling gone the re-created updating instance is this loader's own, addressed
+                // by key: it loads the key's record, finds the name claim contradicted, and stays there.
                 await resolveWhenConditionIsTrue({
                     toUpdate: community,
-                    predicate: async () => community.publicKey === migratedKey && typeof community.updatedAt === "number"
+                    predicate: async () =>
+                        community.publicKey === ipnsKey && typeof community.updatedAt === "number" && community.nameResolved === false
                 });
-                expect(migrationReannounced).to.be.true;
-                expect(community.publicKey).to.equal(migratedKey);
+                expect(migrationErrors).to.deep.equal([]);
                 expect(community.address).to.equal(ipnsKey);
 
                 await community.stop();
