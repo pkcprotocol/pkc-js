@@ -34,7 +34,22 @@ describe("crypto.subtle.digest polyfill", () => {
         expect(toHex(await digestWithoutWebCrypto("SHA-256", data.slice().buffer))).to.equal(expectedHex("sha256", data));
     });
 
+    it("hashes empty input", async () => {
+        const empty = new Uint8Array(0);
+        expect(toHex(await digestWithoutWebCrypto("SHA-256", empty))).to.equal(expectedHex("sha256", empty));
+        expect(toHex(await digestWithoutWebCrypto("SHA-512", empty))).to.equal(expectedHex("sha512", empty));
+    });
+
     it("rejects algorithms it cannot compute", async () => {
         await expect(digestWithoutWebCrypto("SHA-1", data)).rejects.toThrow(/Unsupported digest algorithm/);
+        await expect(digestWithoutWebCrypto({ name: "SHA-1" }, data)).rejects.toThrow(/Unsupported digest algorithm/);
+    });
+
+    // a call that passes no usable algorithm must reject like WebCrypto does, not throw synchronously
+    it("rejects a missing algorithm instead of throwing synchronously", async () => {
+        const missingAlgorithm = undefined as unknown as string;
+        const missingName = {} as unknown as { name: string };
+        await expect(digestWithoutWebCrypto(missingAlgorithm, data)).rejects.toThrow(/Unsupported digest algorithm/);
+        await expect(digestWithoutWebCrypto(missingName, data)).rejects.toThrow(/Unsupported digest algorithm/);
     });
 });

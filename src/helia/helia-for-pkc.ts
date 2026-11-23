@@ -14,6 +14,7 @@ import { installWebTransportCloseShim } from "../runtime/node/webtransport-close
 import { CID } from "multiformats/cid";
 import { sha512 } from "multiformats/hashes/sha2";
 import { peerIdFromString } from "@libp2p/peer-id";
+import { generateKeyPair } from "@libp2p/crypto/keys";
 import { createBlockstoreForLibp2pJsClient } from "../runtime/node/blockstore.js";
 import { LruBlockstore } from "./lru-blockstore.js";
 import { delegatedRoutingV1HttpApiClientContentRouting } from "@helia/delegated-routing-v1-http-api-client";
@@ -286,13 +287,20 @@ export async function createLibp2pJsClientOrUseExistingOne(
         // (e.g. `ipfs add --hash sha2-512`) and helia looks the hasher up before the first block
         // fetch, so keep sha2-512 to match what fetched under helia 6.
         const { libp2p: mergedLibp2pInit, bitswap: bitswapInit, blockBrokers: callerBlockBrokers, ...heliaLightInit } = mergedHeliaInit;
+        // Without a privateKey, @helia/libp2p's start() calls loadOrCreateSelfKey(), which generates the node's key and
+        // stores it in the libp2p keychain. The keychain encrypts it with PBKDF2 + AES-GCM, which exists only in
+        // WebCrypto, so the node cannot start where crypto.subtle is missing (an insecure browser origin, React
+        // Native's Hermes; see runtime/browser/polyfill.ts). The helia datastore is in-memory, so that stored key is
+        // never read back: generating the key here gives the same new peer id per instance and skips the keychain.
+        // A caller's libp2pOptions.privateKey is kept as is.
+        const libp2pInit = { ...mergedLibp2pInit, privateKey: mergedLibp2pInit?.privateKey ?? (await generateKeyPair("Ed25519")) };
         const heliaWithLibp2p = withLibp2p(
             createHeliaLight({
                 ...heliaLightInit,
                 blockBrokers: callerBlockBrokers,
                 hashers: [sha512, ...(heliaLightInit.hashers ?? [])]
             }),
-            mergedLibp2pInit ?? {}
+            libp2pInit
         );
         // The composition is typed as helia's default service map (dht, relay, upnp, ...) while our
         // `services` above replaces it; HeliaWithLibp2pPubsub is the narrow map we actually run.
