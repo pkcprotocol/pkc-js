@@ -12,7 +12,7 @@ This dates from 990a2a0ad (2026-08-26). Before it, the conventional-commits pars
 
 ### What the number tells consumers
 
-npm treats `0.0.x` versions as mutually incompatible: `^0.0.135` matches only `0.0.135`. Downstream repos pin exact versions (on 2026-11-05, bitsocial-react-hooks pinned `0.0.132` and bitsocial-cli `0.0.134`), so a release reaches their users only when a downstream upgrade PR lands. The version number carries no compatibility signal. The release notes do, which is why the PR title and breaking-change markers below matter.
+npm treats `0.0.x` versions as mutually incompatible: `^0.0.135` matches only `0.0.135`. Downstream repos such as bitsocial-react-hooks and bitsocial-cli pin exact versions, so a release reaches their users only when a downstream upgrade PR lands. The version number carries no compatibility signal. The release notes do, which is why the PR title and breaking-change markers below matter.
 
 ## When a release happens
 
@@ -33,7 +33,7 @@ Do not edit `version` in `package.json` or `docs/CHANGELOG.md` by hand; the rele
 
 The notes come from conventional commit subjects since the previous tag. Only these types get a section: `feat` (Features), `fix` (Bug Fixes), `perf` (Performance), `revert` (Reverts) and `build` (Build). `chore`, `docs`, `test`, `ci`, `refactor` and `style` commits are left out.
 
-PRs are squash-merged, so the PR title becomes the only commit release-it sees. Give the title the type of the change's user-visible effect. The `lint-pr-title` CI job fails a title whose type would hide a releasable commit; run the same check locally with `npm run check:pr-title -- --title "$TITLE"` (see the Workflow rules in [AGENTS.md](../AGENTS.md)).
+PRs are squash-merged, so the PR title becomes the only commit release-it sees. Give the title the type of the change's user-visible effect. The `lint-pr-title` CI job fails a title whose type would hide a releasable commit; run the same check locally with `git fetch origin && npm run check:pr-title -- --title "$TITLE" --base origin/master` (see the Workflow rules in [AGENTS.md](../AGENTS.md)). Without `--base` the check compares against your local `master`, and a stale local `master` makes it count commits that are not yours.
 
 ## Breaking changes
 
@@ -50,9 +50,9 @@ Surfaces to check when deciding whether a change breaks callers:
 - The `exports` entry points in `package.json` (`.`, `./challenges`, `./page-sorts`, `./rpc`) and their TypeScript declarations.
 - The RPC protocol between `./rpc` clients and servers, which may run different pkc-js versions.
 - On-disk data: the database schema (`DB_VERSION` migrations) and the data path layout ([data-path-migration.md](protocol/data-path-migration.md)).
-- Supported runtimes: `engines.node` (currently `>=22.19.0`) and browsers.
+- Supported runtimes: `engines.node` in `package.json` and browsers.
 
-Wire-format and signature changes are a separate concern. Nodes running older pkc-js stay on the network, so they also affect interoperability, not only API callers. Read [wire-vs-runtime.md](protocol/wire-vs-runtime.md) and [signing.md](protocol/signing.md) before changing what goes on the wire.
+Wire-format and signature changes are a separate concern. For now servers and clients are updated together, so a wire change does not need to stay readable by older versions. That ends at the same point pkc-js [leaves `0.0.x`](#leaving-00x): from then on nodes running older versions stay on the network, and wire and signature changes need a compatibility plan. Read [wire-vs-runtime.md](protocol/wire-vs-runtime.md) and [signing.md](protocol/signing.md) before changing what goes on the wire.
 
 ## Upgrading pkc-js downstream
 
@@ -60,8 +60,8 @@ Read every `docs/CHANGELOG.md` entry between the pinned version and the target, 
 
 ## Leaving `0.0.x`
 
-There is no plan or date for leaving `0.0.x`; that is a maintainer decision. If it happens:
+pkc-js stays on `0.0.x` while servers and clients can be updated together. It will move to a higher version once enough people depend on it that an upgrade needs coordination. From then on the version number carries the compatibility signal that the release notes carry today. There is no date for this. When it happens:
 
 - CI build runs release-it without `--increment`, so the configured `patch` applies. A deliberate minor or major release needs an explicit `--increment` (990a2a0ad left that option open), which means a one-off change to how the release job runs.
-- `0.1.0` and `0.2.0` already exist on npm and are deprecated, and a later `0.1.x` or `0.2.x` would be picked up by `^0.1.0` or `^0.2.0` ranges. The first release above `0.0.x` should be `0.3.0` or higher to stay clear of those lines.
-- From `0.y.z` with `y >= 1`, caret ranges accept later patches on the same line (`^0.3.0` accepts `0.3.1`). Patch releases would then have to stay compatible, and breaking changes would need the next minor.
+- `0.1.0` and `0.2.0` already exist on npm and are deprecated, and a later `0.1.x` or `0.2.x` would be picked up by `^0.1.0` or `^0.2.0` ranges. The first release above `0.0.x` should be `0.3.0` or higher to stay clear of those lines (`1.0.0` is also an option).
+- From `0.y.z` with `y >= 1`, caret ranges accept later patches on the same line (`^0.3.0` accepts `0.3.1`). Patch releases will then have to stay compatible, and breaking changes will need the next minor.
