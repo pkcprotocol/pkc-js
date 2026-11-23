@@ -4,7 +4,8 @@ import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { beforeAll, afterAll, afterEach, it, expect, vi } from "vitest";
 import {
     calculateNewCommentUpdate,
-    syncPostUpdatesWithIpfs
+    syncPostUpdatesWithIpfs,
+    writePostUpdatesToMfs
 } from "../../../dist/node/runtime/node/community/local-community/comment-updates.js";
 import {
     addAllCidsUnderPurgedCommentToBeRemoved,
@@ -142,11 +143,81 @@ describeSkipIfRpc("postUpdates bucket that vanishes from MFS after a swap that K
                 { timeout: 30_000, interval: 250 }
             );
     }, 120_000);
+
+    it("fails the cycle when the bucket vanishes between two slices of it, so the first slice is not acknowledged", async () => {
+        await vi.waitFor(async () => expect(await existsInMfs(updateFileOf(postA))).to.be.true, { timeout: 30_000, interval: 250 });
+        await new Promise((resolve) => setTimeout(resolve, 1100)); // updatedAt is in seconds
+        const rowOf = (post: Comment) =>
+            calculateNewCommentUpdate({
+                community,
+                comment: community._dbHandler.queryComment(post.cid!)!,
+                batchStartTimestamp: timestamp()
+            });
+        const rowA = await rowOf(postA);
+        const rowB = await rowOf(postB);
+
+        // A cycle writes its posts slice by slice and acknowledges them all at its end: slice 1 is in the bucket
+        // when the bucket vanishes, and slice 2 would build a bucket that holds its own posts only
+        await writePostUpdatesToMfs(community, [rowA]);
+        await kubo().files.rm(bucketPath, { recursive: true });
+        const error = await writePostUpdatesToMfs(community, [rowB]).then(
+            (): undefined => undefined,
+            (e: PKCError) => e
+        );
+        expect(error?.code, "slice 2 was written into a bucket that no longer holds slice 1").to.equal(
+            "ERR_POST_UPDATES_BUCKET_SWAP_WAS_LOST"
+        );
+
+        // Nothing was acknowledged, so the next cycle writes all of it
+        await community.edit({ description: `a record after the lost slice ${Date.now()}` });
+        for (const [name, post] of [
+            ["A", postA],
+            ["B", postB]
+        ] as const)
+            await vi.waitFor(
+                async () => expect(await existsInMfs(updateFileOf(post)), `post ${name}'s CommentUpdate was not written again`).to.be.true,
+                { timeout: 30_000, interval: 250 }
+            );
+    }, 120_000);
+
+    it("notices a bucket that is still there and has lost the entries of some posts", async () => {
+        await vi.waitFor(
+            async () => {
+                expect(await existsInMfs(updateFileOf(postA))).to.be.true;
+                expect(await existsInMfs(updateFileOf(postB))).to.be.true;
+            },
+            { timeout: 30_000, interval: 250 }
+        );
+        // The last record lists the bucket
+        await vi.waitFor(() => expect(community.postUpdates?.[bucketPath.split("/").pop()!]).to.be.a("string"), {
+            timeout: 30_000,
+            interval: 250
+        });
+
+        // Somebody else drops post A's entry: the bucket is there, with another cid, and without A
+        await kubo().files.rm(`${bucketPath}/${postA.cid}`, { recursive: true });
+        expect(await existsInMfs(updateFileOf(postB))).to.be.true;
+
+        const updatedAtBefore = community.updatedAt!;
+        await community.edit({ description: `a record after a post was lost ${Date.now()}` });
+        await vi.waitFor(() => expect(community.updatedAt).to.be.greaterThan(updatedAtBefore), { timeout: 30_000, interval: 250 });
+        await vi.waitFor(
+            async () => expect(await existsInMfs(updateFileOf(postA)), "post A's CommentUpdate was not written again").to.be.true,
+            {
+                timeout: 30_000,
+                interval: 250
+            }
+        );
+        expect(await existsInMfs(updateFileOf(postB))).to.be.true;
+    }, 120_000);
 });
 
 // The other side of the repair: a bucket whose only post was purged is not a loss. The purge deletes the post
 // from the DB before it removes the MFS path, so there is nothing to rewrite, and no swap of the bucket may
 // follow (Kubo leaves the emptied directory in place, so the bucket is not even absent).
+//
+// RPC skipped: the test calls the low-level purge cleanup on a LocalCommunity and reaches into its kubo client,
+// neither of which exists on the RPC community wrapper.
 describeSkipIfRpc("postUpdates bucket whose only post was purged", () => {
     let pkc: PKCType;
     let community: LocalCommunity;

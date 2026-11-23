@@ -3751,15 +3751,13 @@ export class DbHandler {
         );
     }
 
-    // A postUpdates bucket that MFS no longer holds takes its posts' CommentUpdate files with it, and the posts
-    // already marked as published are never written again by a cycle. Marking them rewrites the bucket whole.
-    // Returns how many posts were marked.
-    markPublishedPostsOfBucketAsUnpublished(bucket: number): number {
+    // The posts whose CommentUpdate file was written to this postUpdates bucket and acknowledged. No index backs it:
+    // it is for the rare audit of a bucket MFS may have lost entries of, never for a hot path.
+    queryPublishedPostCidsOfBucket(bucket: number): string[] {
         return this._db
-            .prepare(
-                `UPDATE ${TABLES.COMMENT_UPDATES} SET publishedToPostUpdatesMFS = 0 WHERE postUpdatesBucket = ? AND publishedToPostUpdatesMFS = 1`
-            )
-            .run(bucket).changes;
+            .prepare(`SELECT cid FROM ${TABLES.COMMENT_UPDATES} WHERE postUpdatesBucket = ? AND publishedToPostUpdatesMFS = 1`)
+            .pluck()
+            .all(bucket) as string[];
     }
 
     forceUpdateOnAllComments(): void {
