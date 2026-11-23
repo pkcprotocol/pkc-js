@@ -22,30 +22,32 @@ function ipnsNameToPeerIdString(ipnsName: string): string | undefined {
 //
 // Never throws: a subscription left behind is a leak, a community that cannot stop is worse.
 //
-// unlessKuboHoldsTheKey is for a follower. Kubo cannot say who uses a subscription, but it can say whether it has
-// the name's key, which means the community is hosted through this node, possibly by another process. That host
-// has to stay subscribed to keep serving its record, so the follower leaves the name alone. When the key lookup
-// fails nothing is cancelled.
+// unlessKuboHoldsAKey is for a follower, which passes the names of one community: the name it is addressed by and
+// the names its records led to. Kubo cannot say who uses a subscription, but it can say whether it has a key, and a
+// key for any of these names means the community is hosted through this node, possibly by another process. That host
+// has to stay subscribed to all of them to keep serving its records, so the follower cancels none. One key is enough
+// because a delegated community is hosted with the key of its minter only: its anchor record is signed elsewhere, and
+// the host puts it again just once an hour. When the key lookup fails nothing is cancelled either.
 export async function cancelKuboIpnsPubsubSubscriptions({
     kuboRpcClient,
     ipnsNames,
-    unlessKuboHoldsTheKey
+    unlessKuboHoldsAKey
 }: {
     kuboRpcClient: Pick<KuboRpcClient, "_client" | "url">;
     ipnsNames: (string | undefined)[];
-    unlessKuboHoldsTheKey?: boolean;
+    unlessKuboHoldsAKey?: boolean;
 }): Promise<void> {
     const log = Logger("pkc-js:kubo-ipns-pubsub:cancel");
-    let namesToCancel = [...new Set(ipnsNames.map((name) => (name ? ipnsNameToPeerIdString(name) : undefined)))].filter(
+    const namesToCancel = [...new Set(ipnsNames.map((name) => (name ? ipnsNameToPeerIdString(name) : undefined)))].filter(
         (name): name is string => typeof name === "string"
     );
     if (namesToCancel.length === 0) return;
 
-    if (unlessKuboHoldsTheKey) {
+    if (unlessKuboHoldsAKey) {
         try {
             const keys = await kuboRpcClient._client.key.list({ signal: AbortSignal.timeout(KUBO_NAME_PUBSUB_TIMEOUT_MS) });
             const namesWithKey = new Set(keys.map((key) => ipnsNameToPeerIdString(key.id)));
-            namesToCancel = namesToCancel.filter((name) => !namesWithKey.has(name));
+            if (namesToCancel.some((name) => namesWithKey.has(name))) return;
         } catch (e) {
             log.error("Failed to list the keys of kubo", kuboRpcClient.url, "so no IPNS pubsub subscription is cancelled", e);
             return;
@@ -56,7 +58,8 @@ export async function cancelKuboIpnsPubsubSubscriptions({
         try {
             await kuboRpcClient._client.name.pubsub.cancel(name, { signal: AbortSignal.timeout(KUBO_NAME_PUBSUB_TIMEOUT_MS) });
         } catch (e) {
-            // Expected on a daemon started without --enable-namesys-pubsub, which has no such subscriptions
+            // Expected on a daemon started without --enable-namesys-pubsub, which has no such subscriptions. Kubo
+            // also refuses while it has a resolve of the name in progress, which then is another process following it.
             log.trace("Failed to cancel the IPNS pubsub subscription of", name, "on kubo", kuboRpcClient.url, e);
         }
 }

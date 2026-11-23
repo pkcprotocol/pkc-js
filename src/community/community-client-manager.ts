@@ -87,6 +87,10 @@ export class CommunityClientsManager extends PKCClientsManager {
     private _suppressUpdatingStateForNameResolution = 0;
     _ipnsLoadingOperation?: RetryOperation = undefined;
     _updateCidsAlreadyLoaded: LimitedSet<string> = new LimitedSet<string>(30); // we will keep track of the last 50 community update cids that we loaded
+    // Every name this update run asked kubo to resolve. Kubo subscribes to a name's record topic when asked, also
+    // when the resolve then fails, and community.ipnsHops holds only the chain of the last record that loaded, so
+    // it misses a minter that was rotated away, the key a domain pointed to before, and a hop with no record.
+    private _ipnsNamesResolvedThroughKubo = new Set<string>();
 
     // Gateway freshness plumbing (issue #328). Entity-tags (quotes preserved, W/ stripped) of
     // gateway responses whose record we already consumed. Etags are opaque per RFC 9110 —
@@ -480,17 +484,19 @@ export class CommunityClientsManager extends PKCClientsManager {
 
     // Every name.resolve through kubo left kubo subscribed to the record topic of each name it walked. This runs
     // when the last follower of the community in this PKC instance is gone, so nothing here reads those records any
-    // more (issue #602). A name kubo holds the key for is left alone: the community is hosted through this node,
-    // and its host has to stay subscribed. Another process following the same name on this node is subscribed
-    // again by its next resolve.
+    // more (issue #602). When kubo holds the key of any of them, all are left alone: the community is hosted
+    // through this node, and its host has to stay subscribed. Another process following the same names on this
+    // node is subscribed again by its next resolve.
     private async _cancelKuboIpnsPubsubSubscriptions() {
         const kuboRpcClient = Object.values(this._pkc.clients.kuboRpcClients)[0];
+        const ipnsNames = [...this._ipnsNamesResolvedThroughKubo];
+        this._ipnsNamesResolvedThroughKubo.clear();
         if (!kuboRpcClient) return; // helia and gateways hold no kubo subscription
-        await cancelKuboIpnsPubsubSubscriptions({
-            kuboRpcClient,
-            ipnsNames: this._community.ipnsHops?.length ? this._community.ipnsHops : [this._community.ipnsName],
-            unlessKuboHoldsTheKey: true
-        });
+        await cancelKuboIpnsPubsubSubscriptions({ kuboRpcClient, ipnsNames, unlessKuboHoldsAKey: true });
+    }
+
+    protected override _onIpnsNameAboutToBeResolvedP2P(ipnsName: string) {
+        if (Object.keys(this._pkc.clients.kuboRpcClients).length > 0) this._ipnsNamesResolvedThroughKubo.add(ipnsName);
     }
 
     // How long the gateway-backed update loop sleeps before its next poll (issue #328). The

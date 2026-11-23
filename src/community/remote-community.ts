@@ -321,8 +321,13 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         const unknownProps = difference(keys(this.raw.communityIpfs), keys(CommunityIpfsSchema.shape));
         if (unknownProps.length > 0) {
             log(`Found unknown props on community (${this.address}) ipfs record`, unknownProps);
-            const { skipped } = assignUnknownProps({ target: this, record: this.raw.communityIpfs, knownKeys: keys(CommunityIpfsSchema.shape) });
-            if (skipped.length > 0) log.error(`Refused unknown props of community (${this.address}) record that collide with the instance`, skipped);
+            const { skipped } = assignUnknownProps({
+                target: this,
+                record: this.raw.communityIpfs,
+                knownKeys: keys(CommunityIpfsSchema.shape)
+            });
+            if (skipped.length > 0)
+                log.error(`Refused unknown props of community (${this.address}) record that collide with the instance`, skipped);
         }
     }
 
@@ -1037,9 +1042,11 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
         if (this._updatingCommunityInstanceWithListeners) await this._cleanUpUpdatingCommunityInstanceWithListeners();
         else {
-            // this instance is pkc._updatingCommunity[address] itself
-            await this._clientsManager.stopUpdatingLoop();
+            // this instance is pkc._updatingCommunity[address] itself. Untracked before the await (a no-op when the
+            // caller already did), so an update() of another instance in that window starts a new updating instance
+            // instead of attaching to this one and being stopped with it.
             untrackUpdatingCommunity(this._pkc, this);
+            await this._clientsManager.stopUpdatingLoop();
         }
         this._setUpdatingStateWithEventEmissionIfNewState("stopped");
         this._setState("stopped");
