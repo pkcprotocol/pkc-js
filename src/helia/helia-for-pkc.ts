@@ -54,7 +54,7 @@ const creatingLibp2pJsClients: Partial<Record<string, Promise<Libp2pJsClient>>> 
 // ipfs-unixfs-exporter accepts a CID object only from its own multiformats copy (it checks `instanceof CID`), and a
 // consumer's install can hold a second copy next to ours: our exact pin gets its own copy once a newer 14.x ships, and
 // a Yarn lockfile keeps two until `yarn dedupe`. A CID string is parsed by the exporter's own copy, so unixfs cat/stat
-// get the root that way.
+// get the root that way. Upstream: ipfs/js-ipfs-unixfs#506. Covered by test/node/helia/two-multiformats-copies.test.ts.
 type UnixfsRoot = Parameters<ReturnType<typeof unixfs>["cat"]>[0];
 const asUnixfsRoot = (rootCidString: string): UnixfsRoot => rootCidString as unknown as UnixfsRoot;
 
