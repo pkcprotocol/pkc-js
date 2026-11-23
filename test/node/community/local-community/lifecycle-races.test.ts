@@ -14,7 +14,7 @@ import { mockPKCV2 } from "../../../../dist/node/test/test-util.js";
 import { syncIpnsWithDb } from "../../../../dist/node/runtime/node/community/local-community/ipns-publishing.js";
 import { providePubsubTopicRoutingCidsIfNeeded } from "../../../../dist/node/runtime/node/community/local-community/pubsub.js";
 import { communityChallengePubsubTopic } from "../../../../dist/node/runtime/node/community/local-community/comment-updates.js";
-import { isCommunityStartLocked } from "../../../../dist/node/runtime/node/community/start-lock.js";
+import { isCommunityStartLocked } from "../../../../dist/node/runtime/node/community/communities-registry.js";
 import { findUpdatingCommunity } from "../../../../dist/node/pkc/tracked-instance-registry-util.js";
 import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";

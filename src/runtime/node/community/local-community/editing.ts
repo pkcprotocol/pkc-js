@@ -24,7 +24,8 @@ import { findProcessStartedCommunity, processStartedCommunities, syncProcessStar
 import { updateDbInternalState, updateInstancePropsWithStartedCommunityOrDb } from "./db-state.js";
 import { setResolvedPageSorts } from "./registry-sync.js";
 import { communityIdentityPublicKey } from "./identity.js";
-import { refreshCommunitiesList, removeFileRetryingWhileBusy } from "../../util.js";
+import { removeFileRetryingWhileBusy } from "../../util.js";
+import { getCommunitiesRegistry } from "../communities-registry.js";
 import { findCommunitiesEntry } from "../../../../community/communities-entry-util.js";
 
 export async function movePostUpdatesFolderToNewAddress(community: LocalCommunity, oldAddress: string, newAddress: string) {
@@ -182,8 +183,17 @@ export function deriveNameAndAddressEdit<T extends Pick<ParsedCommunityEditOptio
 
 // Lists the new address now, not when the filesystem watcher fires (issue #430). The DB still holds the old name at
 // this point, which is fine: pkc.communities takes a community's name from its DB's filename (issue #455)
-function listRenamedCommunityNow(community: LocalCommunity) {
-    refreshCommunitiesList(community._pkc);
+// The files have moved by now and the rename goes on whatever happens here: the registry is an index of the files, and
+// one that could not be written (storage.db locked for too long) is put right by the next lookup of either address
+function listRenamedCommunityNow(community: LocalCommunity, { oldAddress, newAddress }: { oldAddress: string; newAddress: string }) {
+    try {
+        getCommunitiesRegistry(community._pkc).renameCommunity({ oldAddress, newAddress });
+    } catch (error) {
+        Logger("pkc-js:local-community:edit").error(
+            `Failed to list the renamed community under its new address (${newAddress}) in the communities registry`,
+            error
+        );
+    }
 }
 
 // Moves the postUpdates folder back under the old address after the DB rename that follows the move failed (issue
@@ -351,7 +361,7 @@ export async function editPropsOnStartedCommunity(
             else await restartCommunityAfterFailedRename({ community, oldAddress, newAddress, log });
             throw error;
         }
-        listRenamedCommunityNow(community);
+        listRenamedCommunityNow(community, { oldAddress, newAddress });
         community.setAddress(newAddress);
         await community._dbHandler.initDbIfNeeded();
         await updateDbInternalState(community, { ...parsedEditOptions }); // a copy: it sets _internalStateUpdateId on what it gets
@@ -422,9 +432,9 @@ export async function editPropsOnStartedCommunity(
 
 // Marked for its whole run, from before its first await: a start() of this instance waits for the mark (see
 // startCommunity). The edit works on the community's DB connection as that of a stopped community, and a rename closes
-// it and moves the DB to its new filename. A start() that ran meanwhile took the start lock on that connection: the
-// close was refused (see DbHandler.destoryConnection), the DB and its sidecar moved all the same, and the community ran
-// on the old file with a lock no other process could see.
+// it and moves the DB to its new filename. A start() that ran meanwhile started the community on that connection: the
+// close was refused (see DbHandler.destoryConnection), the DB moved all the same, and the community ran on the old
+// file, claimed under an address no other process would ask for.
 export async function editPropsOnNotStartedCommunity(
     community: LocalCommunity,
     parsedEditOptions: ParsedCommunityEditOptions,
@@ -468,7 +478,7 @@ async function editPropsOnNotStartedCommunityWhileMarked(
             // postUpdates folder under the old address, and no partial DB file at the new one
             throw (await undoRenameAfterDbRenameFailed({ community, oldAddress, newAddress, dbRenameError: e, log })).error;
         }
-        listRenamedCommunityNow(community);
+        listRenamedCommunityNow(community, { oldAddress, newAddress });
         await community._dbHandler.initDbIfNeeded();
         community.setAddress(parsedEditOptions.address);
     }

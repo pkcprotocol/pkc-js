@@ -5,6 +5,7 @@ import { timestamp } from "../../../../util.js";
 import env from "../../../../version.js";
 import { calculateInlineRepliesBudget } from "../../util.js";
 import { cleanUpBeforePublishing, signCommentUpdate, verifyCommentUpdate } from "../../../../signer/signatures.js";
+import { computePseudonymityAuthorTag, derivePseudonymityTagSharedKey } from "../../../../signer/pseudonymity-author-tag.js";
 import { PKCError } from "../../../../pkc-error.js";
 import { getAuthorNameFromWire } from "../../../../publications/publication-author.js";
 import { deriveDbReplies } from "../../util.js";
@@ -58,6 +59,42 @@ export function calculateLocalMfsPathForCommentUpdate(
     timestampRange: number
 ) {
     return [calculateLocalMfsPathForPostUpdatesBucket(community, timestampRange), postDbComment.cid, "update"].join("/");
+}
+
+// The pseudonymity author tag for one aliased comment, or undefined when the comment has no alias row
+// (mods, non-pseudonymous comments). Fail-soft: a stored author key the key exchange cannot handle (a
+// small-order point, say — kept as defence in depth even though verifyBufferEd25519 now rejects those)
+// yields no tag and an error log rather than throwing, so one unrecognizable author never wedges the
+// whole update cycle. K is cached per author on the community (recomputed if the signer rotated); the
+// per-comment HMAC over the cid is always recomputed.
+function computePseudonymityAuthorTagForComment(
+    community: LocalCommunity,
+    commentCid: string,
+    log: ReturnType<typeof Logger>
+): string | undefined {
+    const aliasRow = community._dbHandler.queryPseudonymityAliasByCommentCid(commentCid);
+    if (!aliasRow) return undefined;
+
+    const authorPublicKeyBase64 = aliasRow.originalAuthorPublicKey;
+    const signerPublicKey = community.signer.publicKey;
+    try {
+        let cached = community._pseudonymityTagKeyCache.get(authorPublicKeyBase64);
+        if (!cached || cached.signerPublicKey !== signerPublicKey) {
+            const sharedKey = derivePseudonymityTagSharedKey({
+                communityPrivateKeyBase64: community.signer.privateKey,
+                authorPublicKeyBase64
+            });
+            cached = { signerPublicKey, sharedKey };
+            community._pseudonymityTagKeyCache.set(authorPublicKeyBase64, cached);
+        }
+        return computePseudonymityAuthorTag({ sharedKey: cached.sharedKey, commentCid });
+    } catch (e) {
+        log.error(
+            `Failed to derive pseudonymityAuthorTag for comment (${commentCid}) with author public key (${authorPublicKeyBase64}); publishing the CommentUpdate without a tag`,
+            e
+        );
+        return undefined;
+    }
 }
 
 export async function calculateNewCommentUpdate(opts: {
@@ -121,6 +158,12 @@ export async function calculateNewCommentUpdate(opts: {
             protocolVersion: env.PROTOCOL_VERSION
         })
     };
+
+    // Own-post recognition tag on comments this community aliased (issue #381). Follows the existence
+    // of an alias row, so it covers every mode and stays on comments aliased while pseudonymityMode was
+    // on even after it is turned off. Mods are never aliased, so their comments get no tag.
+    const pseudonymityAuthorTag = computePseudonymityAuthorTagForComment(community, comment.cid, log);
+    if (pseudonymityAuthorTag) commentUpdatePriorToSigning.pseudonymityAuthorTag = pseudonymityAuthorTag;
 
     const inlineRepliesBudget = calculateInlineRepliesBudget({
         comment,

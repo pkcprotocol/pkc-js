@@ -27,6 +27,7 @@ import {
     PKCError
 } from "../pkc-error.js";
 import Logger from "../logger.js";
+import { guardDetached } from "../detached-guard.js";
 import type { PubsubMessage } from "../pubsub-messages/types.js";
 import type { PubsubSubscriptionHandler, ResultOfFetchingCommunity } from "../types.js";
 import * as cborg from "cborg";
@@ -41,6 +42,7 @@ import { convertBase58IpnsNameToBase36Cid } from "../signer/util.js";
 import pTimeout from "p-timeout";
 import { InflightResourceTypes } from "../util/inflight-fetch-manager.js";
 import { NameResolutionCache } from "./name-resolution-cache.js";
+import { invalidateSharedPubsubTopicList } from "./shared-pubsub-topic-list.js";
 import type { NameResolveCacheOptions } from "../schema.js";
 
 export type LoadType = "community" | "comment-update" | "comment" | "page-ipfs" | "generic-ipfs";
@@ -261,26 +263,42 @@ export class BaseClientsManager {
 
         const timeBefore = Date.now();
 
-        const handlePubsubError = async (err: Error) => {
-            error = err;
-            log.error(
-                "pubsub callback error, topic",
-                pubsubTopic,
-                "provider url",
-                kuboPubsubRpcUrlOrLibp2pJsKey,
-                "error",
-                err,
-                "Will unsubscribe and re-attempt to subscribe"
-            );
+        // The pubsub client calls this from a stream callback and does not await or catch it, so a throw or a rejection
+        // here (the provider is gone, so subscribing again fails) is an unhandled rejection that ends the process. The
+        // guard reports it as an "error" of the pkc instead: delivered to a listener, and, as documented, thrown when
+        // nothing listens.
+        const handlePubsubError = guardDetached({
+            entryPoint: `pubsub onError (${kuboPubsubRpcUrlOrLibp2pJsKey})`,
+            onFailure: (cause) =>
+                this._pkc.emit(
+                    "error",
+                    new PKCError("ERR_FAILED_TO_RESUBSCRIBE_TO_PUBSUB_TOPIC_AFTER_ERROR", {
+                        pubsubTopic,
+                        pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey,
+                        cause
+                    })
+                ),
+            handler: async (err: Error) => {
+                error = err;
+                log.error(
+                    "pubsub callback error, topic",
+                    pubsubTopic,
+                    "provider url",
+                    kuboPubsubRpcUrlOrLibp2pJsKey,
+                    "error",
+                    err,
+                    "Will unsubscribe and re-attempt to subscribe"
+                );
 
-            await this._pkc._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe");
-            try {
-                await this.pubsubUnsubscribeOnProvider(pubsubTopic, kuboPubsubRpcUrlOrLibp2pJsKey, handler);
-            } catch (e) {
-                log.error("Failed to unsubscribe after onError, topic", pubsubTopic, "provider url", kuboPubsubRpcUrlOrLibp2pJsKey, e);
+                await this._pkc._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe");
+                try {
+                    await this.pubsubUnsubscribeOnProvider(pubsubTopic, kuboPubsubRpcUrlOrLibp2pJsKey, handler);
+                } catch (e) {
+                    log.error("Failed to unsubscribe after onError, topic", pubsubTopic, "provider url", kuboPubsubRpcUrlOrLibp2pJsKey, e);
+                }
+                await this.pubsubSubscribeOnProvider(pubsubTopic, handler, kuboPubsubRpcUrlOrLibp2pJsKey);
             }
-            await this.pubsubSubscribeOnProvider(pubsubTopic, handler, kuboPubsubRpcUrlOrLibp2pJsKey);
-        };
+        });
 
         let error: Error | undefined;
         try {
@@ -289,6 +307,7 @@ export class BaseClientsManager {
                     try {
                         await pubsubClient.pubsub.subscribe(pubsubTopic, handler, { onError: handlePubsubError });
                     } catch (e) {
+                        invalidateSharedPubsubTopicList(pubsubClient);
                         // Only a transient socket-level failure is retried, e.g. kubo's API refusing connections
                         // while saturated (#422). Anything else, including "Already subscribed", stops immediately.
                         const networkErrorDetails = extractNetworkErrorDetails(e);
@@ -312,6 +331,7 @@ export class BaseClientsManager {
                     }
                 }
             );
+            invalidateSharedPubsubTopicList(pubsubClient);
             if (error) throw error;
             await this._pkc._stats.recordGatewaySuccess(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe", Date.now() - timeBefore);
             this.pubsubProviderSubscriptions[kuboPubsubRpcUrlOrLibp2pJsKey].push(pubsubTopic);
@@ -354,7 +374,12 @@ export class BaseClientsManager {
         if (!pubsubClient) throw new PKCError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
 
         try {
-            await pubsubClient.pubsub.unsubscribe(pubsubTopic, handler);
+            try {
+                await pubsubClient.pubsub.unsubscribe(pubsubTopic, handler);
+            } finally {
+                // the node's list changed, or may have: nobody may act on one read before this (issue #576)
+                invalidateSharedPubsubTopicList(pubsubClient);
+            }
             this.pubsubProviderSubscriptions[kuboPubsubRpcUrlOrLibp2pJsKey] = this.pubsubProviderSubscriptions[
                 kuboPubsubRpcUrlOrLibp2pJsKey
             ].filter((subPubsubTopic) => subPubsubTopic !== pubsubTopic);

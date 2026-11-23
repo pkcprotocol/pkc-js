@@ -7,11 +7,20 @@ import {
     expectCommunityListed,
     expectCommunityNotListed
 } from "../../../dist/node/test/test-util.js";
-import { refreshCommunitiesList } from "../../../dist/node/runtime/node/util.js";
+import { getCommunitiesRegistry } from "../../../dist/node/runtime/node/community/communities-registry.js";
+
+// The filesystem watcher of a PKC, closed: what the test then sees in pkc.communities was put there by the rename or
+// the delete itself
+const stopWatchingCommunitiesDirectory = (pkc: PKCType) =>
+    (getCommunitiesRegistry(pkc) as unknown as { _watcher?: { close: () => void } })._watcher?.close();
+
+// What another PKC instance did reaches a PKC on a timer (see communities-registry.ts). This is that read, now
+const refreshCommunitiesList = (pkc: PKCType) => getCommunitiesRegistry(pkc).readChangesOfOtherInstances();
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { v4 as uuidV4 } from "uuid";
 
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 
 // pkc.communities is refreshed by a filesystem watcher on dataPath/communities, so right after a rename moves the DB
 // file the same process can still see the old list. pkc.createCommunity({ address }) picks a local or a remote instance
@@ -43,7 +52,7 @@ describeSkipIfRpc(`pkc.communities right after renaming a local community`, asyn
                         });
                     }
                     expectCommunityListed({ pkc: pkc, publicKey: community.signer.address, address: keyAddress, name: undefined });
-                    (pkc as unknown as { _communityFsWatchAbort?: AbortController })._communityFsWatchAbort?.abort();
+                    stopWatchingCommunitiesDirectory(pkc);
 
                     await community.edit({ [editKey]: newName });
                     expectCommunityListed({ pkc: pkc, publicKey: community.signer.address, address: newName, name: newName });
@@ -83,7 +92,7 @@ describeSkipIfRpc(`pkc.communities right after deleting a local community`, asyn
                     await resolveWhenConditionIsTrue({ toUpdate: deleted, predicate: async () => typeof deleted.updatedAt === "number" });
                 }
                 expectCommunityListed({ pkc: pkc, publicKey: deleted.signer.address, address: name, name: name });
-                (pkc as unknown as { _communityFsWatchAbort?: AbortController })._communityFsWatchAbort?.abort();
+                stopWatchingCommunitiesDirectory(pkc);
 
                 await deleted.delete();
                 expectCommunityNotListed({ pkc, publicKey: deleted.signer.address, address: name });

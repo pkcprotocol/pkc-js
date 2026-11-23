@@ -87,7 +87,7 @@ CommentModeration extends Publication {
     reason?: string
     author?: {
       flairs?: Flair[]
-      banExpiresAt?: number
+      banExpiresAt?: number // a future timestamp bans the author and marks this comment, a past timestamp lifts the ban and keeps the mark, 0 removes the mark and leaves the ban as it is (see "Banning an author")
     }
   }
 }
@@ -113,6 +113,7 @@ CommentUpdate /* (IPFS file) */ {
   approved?: boolean // if comment was pending approval and it got approved or disapproved
   removed?: boolean // mod deleted a comment
   reason?: string // reason the mod took a mod action
+  authorBanExpiresAt?: number // present only on a comment a mod banned the author from. Rely on its presence only, the value can be a timestamp in the past; for whether the author is banned now read author.community.banExpiresAt (see "Banning an author")
   updatedAt: number // timestamp in seconds the CommentUpdate was updated
   protocolVersion: '1.0.0' // semantic version of the protocol https://semver.org/
   signature: Signature // signature of the CommentUpdate by the community owner to protect against malicious gateway
@@ -121,6 +122,7 @@ CommentUpdate /* (IPFS file) */ {
   }
   lastReplyTimestamp?: number // the timestamp of the most recent reply that replyCount counts, so removing a reply un-bumps its thread
   lastChildCid?: string // the CID of the most recent direct reply that childCount counts
+  pseudonymityAuthorTag?: string // base64, 16 bytes, only on comments the community aliased on a pseudonymityMode board; lets the author's own devices recognize the post, see docs/protocol/pseudonymity-author-tag.md
 }
 Author {
   address: string // not part of IPFS files, added to `Author` instance as convenience: author.name if there is one, else author.publicKey
@@ -136,7 +138,7 @@ Author {
   community?: CommunityAuthor // (added by CommentUpdate) up to date author properties specific to the community it's in
 }
 CommunityAuthor {
-  banExpiresAt?: number // (added by moderator only) timestamp in second, if defined the author was banned for this comment
+  banExpiresAt?: number // (added by moderator only) timestamp in seconds of the author's latest ban in the community. It is an author aggregate that appears on the author's comments, not a mark of which comment the ban was for (that is commentUpdate.authorBanExpiresAt). The author is banned while it is in the future
   flairs?: Flair[] // (added by moderator only) for when a mod wants to edit an author's flairs
   postScore: number // total post karma in the community
   replyScore: number // total reply karma in the community
@@ -612,6 +614,8 @@ process.on('uncaughtException', (err) => console.error(err))
 ```
 
 Attaching an `'error'` listener directly on a `community`, `comment`, or other publication object stops the bubble-up: in that case the error stays on the child and is not re-emitted on the pkc instance.
+
+Failures that happen where nothing awaits the code (a pubsub or RPC callback, a timer, an event listener) are reported as `'error'` events too, never as an uncaught exception or an unhandled rejection. Examples: a frame the RPC server sent that is not valid JSON, or a notification the RPC client could not handle, arrives as `ERR_RPC_CLIENT_FAILED_TO_HANDLE_SERVER_MESSAGE` and the frame is dropped; failing to subscribe again to a pubsub topic after the provider reported an error arrives as `ERR_FAILED_TO_RESUBSCRIBE_TO_PUBSUB_TOPIC_AFTER_ERROR`; a DB fault that ends a local community's publish loop arrives on that community. The error carries the underlying one as `details.cause` (or as the error itself). With no `'error'` listener attached, those emits throw like any other `'error'` event, and so does a listener of yours that throws. The listener is therefore the only protection your process needs, and the UI clients and bitsocial-cli already attach one.
 
 ### `pkc.clients.libp2pJsClients[key].heliaNode`
 
@@ -1164,7 +1168,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| banExpiresAt | `number` or `undefined` | Comment author was banned for this comment |
+| banExpiresAt | `number` or `undefined` | Bans the comment's author until this timestamp (seconds) and marks this comment as the one the ban was for. A timestamp in the past lifts the ban and keeps the mark, `0` removes the mark and leaves the ban as it is. See [Banning an author](#banning-an-author) |
 | flairs | `Flair[]` or `undefined` | Edited flairs of the comment author |
 
 #### Returns
@@ -1183,6 +1187,57 @@ commentModeration.on('challenge', async (challengeMessage) => {
 })
 commentModeration.on('challengeverification', console.log)
 await commentModeration.publish()
+```
+
+#### Banning an author
+
+A ban is published on one of the author's comments, through `commentModeration.author.banExpiresAt`. It has two effects, which are published as two separate fields of `CommentUpdate`:
+
+| Field | What it says | Where it appears |
+| ---- | ---- | ---- |
+| `author.community.banExpiresAt` | The author's latest ban in the community. The author cannot publish while it is in the future | On the author's comments (all of them unless the community uses a pseudonymity mode) |
+| `authorBanExpiresAt` | A mod banned the author from this comment | Only on the comment the ban was published on |
+
+`commentModeration.author.banExpiresAt` takes three kinds of value:
+
+| Value | The author's ban | `authorBanExpiresAt` on that comment |
+| ---- | ---- | ---- |
+| A timestamp in the future | Banned until then | Set to the timestamp |
+| A timestamp in the past | Lifted | Stays, and its value becomes the past timestamp |
+| `0` | Unchanged | Removed |
+
+The two fields are independent. `authorBanExpiresAt` follows the newest moderation on that one comment that carries a `banExpiresAt`, and a `0` there removes it. `author.community.banExpiresAt` follows the newest moderation across all of the author's comments that carries a timestamp, and skips every `0`. So `0` only ever removes a label, and only a timestamp changes the ban. `0` is an input only, neither published field is ever `0`.
+
+| To do this | Publish on | `author.banExpiresAt` |
+| ---- | ---- | ---- |
+| Ban the author and label the comment | The offending comment | A timestamp in the future |
+| Change the length of the ban | The labelled comment | The new timestamp |
+| Unban and keep the label | The labelled comment | A timestamp in the past |
+| Remove a label and keep the ban | The labelled comment | `0` |
+| Move the label to another comment | Both comments, in either order | A future timestamp on the right one, `0` on the wrong one |
+| Undo a mistaken ban | The labelled comment, twice | A timestamp in the past, then `0` |
+
+`author.community.banExpiresAt` is never removed. After an unban, or after a ban runs out, it keeps the past timestamp.
+
+What a client showing a "user was banned for this post" label should know:
+
+- Rely only on the presence of `authorBanExpiresAt`. It stays after the ban runs out, and an unban published on the same comment leaves a timestamp in the past in it.
+- For whether the author is banned right now, compare `author.community.banExpiresAt` with the current time. Its presence alone is not enough, because it keeps a past timestamp once the ban is over.
+- Send `author.banExpiresAt` only when the mod is banning from that comment. Every moderation that carries a timestamp marks its comment, so pre-filling the field from `author.community.banExpiresAt` when a mod removes or locks another comment of a banned author marks that comment too.
+- `0` removes the label only from the comment it is published on, and does nothing on a comment that has none. It is the way to clear a label that should not be there, with no effect on the ban.
+- An unban is a timestamp in the past, and it marks the comment it is published on like any other timestamp. Publish it on the comment that already carries the label. Published on another comment, it lifts the ban but gives that comment a label too, which a `0` on it then clears.
+- To undo a ban completely, publish the past timestamp first and the `0` second, on the same comment. In the other order the unban puts the label back, and one more `0` clears it. The author is unbanned either way.
+
+```js
+const banUntil = (days) => Math.round(Date.now() / 1000) + days * 24 * 60 * 60
+const moderateAuthor = async (commentCid, banExpiresAt) => {
+  const moderation = await pkc.createCommentModeration({ communityAddress, commentCid, signer, commentModeration: { author: { banExpiresAt } } })
+  await moderation.publish()
+}
+
+await moderateAuthor(offendingCommentCid, banUntil(7)) // ban for a week, the comment gets authorBanExpiresAt
+await moderateAuthor(offendingCommentCid, Math.round(Date.now() / 1000) - 1) // lift the ban, the comment keeps authorBanExpiresAt
+await moderateAuthor(offendingCommentCid, 0) // the comment loses authorBanExpiresAt, the ban is not touched
 ```
 
 ### `pkc.createVote(createVoteOptions)`
@@ -1279,7 +1334,7 @@ const signerFromPrivateKey = await pkc.createSigner({privateKey: 'AbCd...', type
 | `name` | `string` (optional) | The community's domain name, e.g. `memes.bso`. Absent for a community without a name |
 | `publicKey` | `string` | The community's IPNS public key, its identity |
 | `address` | `string` | Runtime-only, computed the same way as `community.address`: `name` when there is one, else `publicKey`. It is not sent over the RPC wire, each side computes it |
-| `started` | `boolean` | Whether the community is running, the same check as `community.started`: its start lock on the `dataPath` is held, by this process or another one |
+| `started` | `boolean` | Whether the community is running, the same check as `community.started`: a live PKC instance on the `dataPath` has it started, in this process or another one. A start or stop by another process shows up within about two seconds |
 
 The list updates when a community is created, deleted, renamed, started or stopped. Run one process with the RPC server and have other processes connect to it, rather than sharing a `dataPath` between processes.
 
@@ -1370,7 +1425,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| name | `string` or `undefined` | Crypto domain of the community, e.g. `'memes.bso'`. Changing it renames the community (its address, DB and start lock move to the new name) and hides the comments signed with the old name; `undefined` drops the name and the address becomes the public key, see [Changing a community's name](docs/protocol/names-and-addresses.md#changing-a-communitys-name). Owner-only over pubsub, see [Community roles and permissions](#community-roles-and-permissions) |
+| name | `string` or `undefined` | Crypto domain of the community, e.g. `'memes.bso'`. Changing it renames the community (its address and DB move to the new name) and hides the comments signed with the old name; `undefined` drops the name and the address becomes the public key, see [Changing a community's name](docs/protocol/names-and-addresses.md#changing-a-communitys-name). Owner-only over pubsub, see [Community roles and permissions](#community-roles-and-permissions) |
 | address | `string` or `undefined` | Legacy alias of `name`, kept for backward compatibility: a domain passed here is applied as `name`, the community's public key drops the name. Passing both `name` and `address` with different values throws `ERR_COMMUNITY_EDIT_NAME_AND_ADDRESS_MISMATCH`, see [Changing a community's name](docs/protocol/names-and-addresses.md#changing-a-communitys-name) |
 | title | `string` or `undefined` | Title of the community |
 | description | `string` or `undefined` | Description of the community |
