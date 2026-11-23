@@ -662,6 +662,38 @@ describeSkipIfRpc(`Concurrency with community.edit`, async () => {
         kuboClient._client.name.publish = originalPublish;
         await community.delete();
     });
+
+    // The publish loop sleeps between cycles and stop() wakes it. An edit that is pending when the loop looks is
+    // published before the community goes down, and an edit whose DB write is still running is not pending yet
+    // (issue #576): the loop must not be let go before that write is done.
+    it(`community.stop() publishes an edit whose DB write was still running when stop() was called`, async () => {
+        const community = (await createSubWithNoChallenge({}, pkc)) as LocalCommunity;
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+        // the loop is asleep between two cycles
+        while (!community._wakePublishLoop) await new Promise((resolve) => setTimeout(resolve, 10));
+
+        // stop() is called in the same synchronous run in which the edit's write starts
+        const editStores = community._editStoresInFlight;
+        const addEditStore = editStores.add.bind(editStores);
+        let stopped: Promise<void> | undefined;
+        editStores.add = (store) => {
+            addEditStore(store);
+            stopped = community.stop();
+            return editStores;
+        };
+
+        const title = `edited as stop() was called ${Date.now()}`;
+        await community.edit({ title });
+        expect(stopped).to.not.be.undefined;
+        await stopped;
+
+        // a pending edit is dropped from the list only by the publish of a record that carries it
+        expect(community._pendingEditProps).to.have.length(0);
+        expect(community.raw.communityIpfs?.title).to.equal(title);
+
+        await community.delete();
+    });
 });
 
 for (const editKey of ["address", "name"] as const) {

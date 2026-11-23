@@ -41,6 +41,7 @@ import { convertBase58IpnsNameToBase36Cid } from "../signer/util.js";
 import pTimeout from "p-timeout";
 import { InflightResourceTypes } from "../util/inflight-fetch-manager.js";
 import { NameResolutionCache } from "./name-resolution-cache.js";
+import { invalidateSharedPubsubTopicList } from "./shared-pubsub-topic-list.js";
 import type { NameResolveCacheOptions } from "../schema.js";
 
 export type LoadType = "community" | "comment-update" | "comment" | "page-ipfs" | "generic-ipfs";
@@ -289,6 +290,7 @@ export class BaseClientsManager {
                     try {
                         await pubsubClient.pubsub.subscribe(pubsubTopic, handler, { onError: handlePubsubError });
                     } catch (e) {
+                        invalidateSharedPubsubTopicList(pubsubClient);
                         // Only a transient socket-level failure is retried, e.g. kubo's API refusing connections
                         // while saturated (#422). Anything else, including "Already subscribed", stops immediately.
                         const networkErrorDetails = extractNetworkErrorDetails(e);
@@ -312,6 +314,7 @@ export class BaseClientsManager {
                     }
                 }
             );
+            invalidateSharedPubsubTopicList(pubsubClient);
             if (error) throw error;
             await this._pkc._stats.recordGatewaySuccess(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe", Date.now() - timeBefore);
             this.pubsubProviderSubscriptions[kuboPubsubRpcUrlOrLibp2pJsKey].push(pubsubTopic);
@@ -354,7 +357,12 @@ export class BaseClientsManager {
         if (!pubsubClient) throw new PKCError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
 
         try {
-            await pubsubClient.pubsub.unsubscribe(pubsubTopic, handler);
+            try {
+                await pubsubClient.pubsub.unsubscribe(pubsubTopic, handler);
+            } finally {
+                // the node's list changed, or may have: nobody may act on one read before this (issue #576)
+                invalidateSharedPubsubTopicList(pubsubClient);
+            }
             this.pubsubProviderSubscriptions[kuboPubsubRpcUrlOrLibp2pJsKey] = this.pubsubProviderSubscriptions[
                 kuboPubsubRpcUrlOrLibp2pJsKey
             ].filter((subPubsubTopic) => subPubsubTopic !== pubsubTopic);
