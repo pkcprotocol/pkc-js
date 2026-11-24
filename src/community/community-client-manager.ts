@@ -1421,10 +1421,10 @@ export class CommunityClientsManager extends PKCClientsManager {
             const gatewayFetch = { abortController } as CommunityGatewayFetch[string];
             gatewayFetches[gatewayUrl] = gatewayFetch;
             const armTimeout = () =>
-                (gatewayFetch.timeoutId = setTimeout(
-                    () => abortController.abort("Aborting community IPNS request because it timed out after " + timeoutMs + "ms"),
-                    timeoutMs
-                ));
+                (gatewayFetch.timeoutId = setTimeout(() => {
+                    gatewayFetch.timedOut = true;
+                    abortController.abort("Aborting community IPNS request because it timed out after " + timeoutMs + "ms");
+                }, timeoutMs));
             // The timeout is this gateway's own, so it runs from when the gateway can send its request, as in
             // fetchFromMultipleGateways: armed now for the first `concurrencyLimit` gateways, which get a slot at once, and
             // when its request starts for a gateway that waits for a slot. Armed at enqueue, a queued gateway's timeout would
@@ -1441,6 +1441,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                     validateGatewayResponseFunc: throwIfGatewayRespondsWithInvalidCommunity,
                     abortRequestErrorBeforeLoadingBodyFunc: checkResponseHeadersIfOldCid,
                     abortController,
+                    gatewayTimedOut: () => gatewayFetch.timedOut === true,
                     maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS,
                     timeoutMs: this._pkc._timeouts["community-ipns"],
                     log,

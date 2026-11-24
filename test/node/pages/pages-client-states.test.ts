@@ -168,6 +168,7 @@ describe("page client states for a sort the instance has not seen", () => {
             maxFileSizeBytes: 1024 * 1024,
             timeoutMs: 60000,
             abortController: new AbortController(),
+            gatewayTimedOut: () => false,
             validateGatewayResponseFunc: async () => {},
             log: Logger("pkc-js:test:pages-client-states")
         };
