@@ -11,6 +11,7 @@ import { ResultOfFetchingCommunity } from "../types.js";
 import { NameResolverClient } from "../clients/name-resolver-client.js";
 import type { NameResolveCacheOptions } from "../schema.js";
 import { RemoteCommunity } from "./remote-community.js";
+import { refreshTrackedCommunityAliases } from "../pkc/tracked-instance-registry-util.js";
 import { keys, mapValues } from "remeda";
 import type { CommunityIpfsType } from "./types.js";
 import { getCommunityNameFromWire } from "./community-wire.js";
@@ -355,6 +356,7 @@ export class CommunityClientsManager extends PKCClientsManager {
             // claimed one.
             if (publicKeyBeforeApply && this._community.publicKey !== publicKeyBeforeApply) {
                 this._community.nameResolved = undefined;
+                refreshTrackedCommunityAliases(this._pkc, this._community);
                 // The retry floors were earned against the previous identity and must not pace the first
                 // classification of the new one.
                 this._nameResolvedFalseAtMs = undefined;
@@ -827,6 +829,9 @@ export class CommunityClientsManager extends PKCClientsManager {
             this._nameResolveFailedAtMs = undefined;
             if (this._community.nameResolved === newNameResolved) return;
             this._community.nameResolved = newNameResolved;
+            // A key-addressed updating instance is findable under its record's name only while that name
+            // is proven, so the registry follows the verdict
+            refreshTrackedCommunityAliases(this._pkc, this._community);
             // Only emit update if the community has been loaded at least once —
             // otherwise we'd fire a premature "update" before the IPNS fetch completes.
             if (typeof this._community.updatedAt === "number") {
@@ -864,6 +869,18 @@ export class CommunityClientsManager extends PKCClientsManager {
                         // community identity to the rotating minter key and wipe its loaded record (#257).
                         log(
                             `Community name ${name} resolves to ${resolved}, a non-anchor hop of the community's own chain, instead of its identity ${this._community.publicKey}. Marking nameResolved false`
+                        );
+                        setNameResolvedAndEmitUpdate(false);
+                        return;
+                    }
+                    if (!isStringDomain(this._community.address)) {
+                        // This community was asked for by key, and the name is only what its record claims.
+                        // Anyone can publish a record claiming a name they do not hold, so a claim that
+                        // resolves to another key is contradicted, not a key migration: following it would
+                        // move a loader that asked for one key onto a key it never asked for, and register
+                        // it in pkc._updatingCommunities under that key for the next loader to share (#605).
+                        log(
+                            `Community ${this._community.address} was loaded by key and its record claims the name ${name}, which resolves to ${resolved}. Marking nameResolved false and staying on the key`
                         );
                         setNameResolvedAndEmitUpdate(false);
                         return;
@@ -1071,7 +1088,27 @@ export class CommunityClientsManager extends PKCClientsManager {
                     (!communityForPublishing.name || !areEquivalentCommunityAddresses(previousForKey.name, communityForPublishing.name))
                 )
                     this._pkc._memCaches.communityForPublishing.delete(previousForKey.name);
-                this._pkc._memCaches.communityForPublishing.set(anchorIdentityAddress, communityForPublishing);
+                // The entry under the name answers publications addressed to the name, so it is written only
+                // for a name that leads to this key: the one this community was asked for by, or the one its
+                // record claims once that is proven. A community asked for by key may hold a record claiming
+                // a name it does not own, and must not become where publications to that name are sent (#605).
+                const recordName = communityForPublishing.name;
+                const nameLeadsToThisKey =
+                    !recordName ||
+                    (isStringDomain(this._community.address)
+                        ? areEquivalentCommunityAddresses(this._community.address, recordName)
+                        : // The verdict describes the name of the record applied so far, which this record may
+                          // have just changed: it vouches only for that name
+                          this._community.nameResolved === true &&
+                          Boolean(this._community.name) &&
+                          areEquivalentCommunityAddresses(this._community.name!, recordName));
+                if (nameLeadsToThisKey) this._pkc._memCaches.communityForPublishing.set(anchorIdentityAddress, communityForPublishing);
+                else if (
+                    recordName &&
+                    this._pkc._memCaches.communityForPublishing.get(recordName, { allowStale: true })?.publicKey === identityPublicKey
+                )
+                    // Written while the name was proven for this key, which it no longer is
+                    this._pkc._memCaches.communityForPublishing.delete(recordName);
                 if (anchorIdentityAddress !== identityPublicKey)
                     this._pkc._memCaches.communityForPublishing.set(identityPublicKey, communityForPublishing);
             }

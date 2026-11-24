@@ -146,6 +146,9 @@ Mechanics behind the table:
   `ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY` + refetch via the TXT's key) — unless the
   resolved key is a **non-anchor hop of the community's own loaded chain**, which is a misconfigured
   TXT, not a migration: identity is untouched and `nameResolved` becomes `false`.
+  The same holds for a community asked for by key alone, whatever key the TXT names: the name is
+  only a claim in its record, so there is no migration (see
+  [names-and-addresses.md](names-and-addresses.md), issue #605).
 - **The claim self-corrects a wrong turn.** If following the TXT lands a record whose anchor claim
   names the identity the reader already had (or any anchor), the instance re-anchors to the claim —
   after the claim has been proven against the claimed anchor's own chain (#261), so a TXT record

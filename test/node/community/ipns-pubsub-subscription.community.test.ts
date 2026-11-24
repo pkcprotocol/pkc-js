@@ -288,7 +288,9 @@ describeSkipIfRpc("kubo IPNS pubsub subscriptions are released (issue #602)", ()
                 await kubo.key.rm(movedTo.communityAddress); // only followed through this node
                 await kubo.name.pubsub.cancel(movedTo.communityAddress);
 
-                const community = await follower.createCommunity({ address: movedFrom.communityAddress });
+                // Asked for by name, with the key it used to point at: a community asked for by key alone
+                // stays on that key whatever its record's name resolves to (#605)
+                const community = await follower.createCommunity({ name: communityName, publicKey: movedFrom.communityAddress });
                 community.on("error", () => {});
                 await community.update();
                 await resolveWhenConditionIsTrue({
