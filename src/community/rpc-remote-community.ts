@@ -324,9 +324,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         if (this.state !== "stopped") return; // No need to do anything if community is already updating
         this._setState("updating");
         try {
-            const existingSub = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }) as
-                | RpcRemoteCommunity
-                | undefined;
+            const existingSub = findUpdatingCommunity(this._pkc, this._registryLookup()) as RpcRemoteCommunity | undefined;
             if (existingSub) {
                 if (existingSub === this) await this._initRpcUpdateSubscription();
                 else if (this._sharesRequestedIdentityWith(existingSub)) await this._initMirroringUpdatingCommunity(existingSub);
@@ -336,7 +334,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
                 // instance on its own instead, untracked, since the entry already owns the registry aliases.
                 else await this._initRpcUpdateSubscription();
             } else {
-                const startedSub = findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
+                const startedSub = findStartedCommunity(this._pkc, this._registryLookup());
                 if (startedSub) await this._initMirroringUpdatingCommunity(startedSub as RpcLocalCommunity);
                 else {
                     // creating a new entry in pkc._updatingCommunities

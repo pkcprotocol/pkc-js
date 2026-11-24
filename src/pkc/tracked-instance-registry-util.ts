@@ -14,6 +14,9 @@ type StartedCommunity = LocalCommunity | RpcLocalCommunity;
 type CommunityLookup = {
     name?: string;
     publicKey?: string;
+    // Which of the two identifies what the caller asked for when they lead to different instances. A caller
+    // that asked for a name sets this; its publicKey may predate a key migration. Everyone else is after a key.
+    preferName?: boolean;
 };
 
 type CommunityWithAliases = {
@@ -134,12 +137,20 @@ export function syncCommentRegistryEntry<T extends CommentLookup>(registry: Trac
     return registry.track({ value: comment, aliases: persistAliases(comment, registry, getCommentRegistryAliases(comment)) });
 }
 
+// The name and the key are looked up one after the other, never as one set: they can lead to different
+// instances, e.g. a key whose record claims a name and the community that name resolves to, both updating
+// in one PKC. A lookup that mixed them matched both and threw.
 export function findCommunityInRegistry<T extends CommunityWithAliases>(
     registry: TrackedInstanceRegistry<T>,
     lookup: CommunityLookup,
     dataPath?: string
 ): T | undefined {
-    return registry.findByAliases(getCommunityRegistryAliases(lookup, dataPath));
+    // Throws for a lookup that carries neither
+    if (!lookup.name && !lookup.publicKey) getCommunityRegistryAliases(lookup, dataPath);
+    const byKey = () =>
+        lookup.publicKey ? registry.findByAliases(getCommunityRegistryAliases({ publicKey: lookup.publicKey }, dataPath)) : undefined;
+    const byName = () => (lookup.name ? registry.findByAliases(getCommunityRegistryAliases({ name: lookup.name }, dataPath)) : undefined);
+    return lookup.preferName ? byName() ?? byKey() : byKey() ?? byName();
 }
 
 export function findCommentInRegistry<T extends CommentLookup>(registry: TrackedInstanceRegistry<T>, lookup: CommentLookup): T | undefined {

@@ -1059,7 +1059,23 @@ export class CommunityClientsManager extends PKCClientsManager {
                     (!communityForPublishing.name || !areEquivalentCommunityAddresses(previousForKey.name, communityForPublishing.name))
                 )
                     this._pkc._memCaches.communityForPublishing.delete(previousForKey.name);
-                this._pkc._memCaches.communityForPublishing.set(anchorIdentityAddress, communityForPublishing);
+                // The entry under the name answers publications addressed to the name, so it is written only
+                // for a name that leads to this key: the one this community was asked for by, or the one its
+                // record claims once that is proven. A community asked for by key may hold a record claiming
+                // a name it does not own, and must not become where publications to that name are sent (#605).
+                const recordName = communityForPublishing.name;
+                const nameLeadsToThisKey =
+                    !recordName ||
+                    (isStringDomain(this._community.address)
+                        ? areEquivalentCommunityAddresses(this._community.address, recordName)
+                        : this._community.nameResolved === true);
+                if (nameLeadsToThisKey) this._pkc._memCaches.communityForPublishing.set(anchorIdentityAddress, communityForPublishing);
+                else if (
+                    recordName &&
+                    this._pkc._memCaches.communityForPublishing.get(recordName, { allowStale: true })?.publicKey === identityPublicKey
+                )
+                    // Written while the name was proven for this key, which it no longer is
+                    this._pkc._memCaches.communityForPublishing.delete(recordName);
                 if (anchorIdentityAddress !== identityPublicKey)
                     this._pkc._memCaches.communityForPublishing.set(identityPublicKey, communityForPublishing);
             }
