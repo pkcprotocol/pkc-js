@@ -306,6 +306,9 @@ getAvailablePKCConfigsToTestAgainst({
                 expect(pkc._updatingCommunities.size()).to.equal(2);
                 const byNameInstance = findUpdatingCommunity(pkc, { name: communityName });
                 expect(byNameInstance).to.not.equal(byKeyInstance);
+                // Until the by-name instance has proven its name, the key stays with the instance that was
+                // asked for by that key, and a lookup by both goes to the key
+                await vi.waitFor(() => expect(byName.nameResolved).to.equal(true), { timeout: 30_000, interval: 50 });
                 expect(findUpdatingCommunity(pkc, { name: communityName, publicKey: key })).to.equal(byNameInstance);
 
                 // Both instances fetch a new record independently, so either can sync its aliases last

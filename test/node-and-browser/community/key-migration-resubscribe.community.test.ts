@@ -356,6 +356,88 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             );
         }
 
+        // A loader that asks for a name and passes a key alongside it follows the name: when the name
+        // resolves to another key it is told about the migration and lands on that key. That must hold
+        // whether or not a by-key loader of the passed key is already running in the same PKC.
+        // Cannot run under RPC: the name resolver is configured on the client, and the shared RPC test
+        // server strips client-supplied nameResolvers.
+        for (const claimantByKeyLoader of ["no by-key loader of that key", "a by-key loader of that key already running"] as const) {
+            itSkipIfRpc(`a loader by name and key follows the name to the key it resolves to, with ${claimantByKeyLoader}`, async () => {
+                const communityName = `name-and-key-follows-name-${claimantByKeyLoader.startsWith("no") ? "alone" : "shared"}.bso`;
+                const { communityAddress: claimantKey } = await createMockedCommunityIpns({ name: communityName });
+                const { communityAddress: ownerKey } = await createMockedCommunityIpns({ name: communityName });
+
+                const testPKC = await config.pkcInstancePromise({
+                    mockResolve: false,
+                    pkcOptions: {
+                        nameResolvers: [createMockNameResolver({ records: new Map([[communityName, ownerKey]]) })]
+                    }
+                });
+
+                try {
+                    const byKey =
+                        claimantByKeyLoader === "a by-key loader of that key already running"
+                            ? await testPKC.createCommunity({ address: claimantKey })
+                            : undefined;
+                    if (byKey) {
+                        await byKey.update();
+                        await resolveWhenConditionIsTrue({
+                            toUpdate: byKey,
+                            predicate: async () => typeof byKey.updatedAt === "number" && byKey.nameResolved === false
+                        });
+                    }
+
+                    const byNameAndKey = await testPKC.createCommunity({ name: communityName, publicKey: claimantKey });
+                    const migrationErrors: { previousPublicKey: string; newPublicKey: string }[] = [];
+                    byNameAndKey.on("error", (err) => {
+                        const pkcError = err as PKCError;
+                        if (pkcError.code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY")
+                            migrationErrors.push({
+                                previousPublicKey: pkcError.details.previousPublicKey,
+                                newPublicKey: pkcError.details.newPublicKey
+                            });
+                    });
+                    await byNameAndKey.update();
+                    await resolveWhenConditionIsTrue({
+                        toUpdate: byNameAndKey,
+                        predicate: async () => typeof byNameAndKey.updatedAt === "number" && byNameAndKey.nameResolved !== undefined
+                    });
+
+                    expect(byNameAndKey.publicKey).to.equal(ownerKey);
+                    expect(byNameAndKey.nameResolved).to.equal(true);
+                    expect(migrationErrors).to.deep.equal([{ previousPublicKey: claimantKey, newPublicKey: ownerKey }]);
+                    // The by-key loader asked for the claimant's key and stays on it
+                    if (byKey) expect(byKey.publicKey).to.equal(claimantKey);
+
+                    if (byKey) {
+                        // The migrating instance started on the claimant's key but never owned it in the
+                        // registry, so a later by-key loader of that key joins the by-key instance and is
+                        // not carried to the owner's key
+                        const laterByKey = await testPKC.createCommunity({ address: claimantKey });
+                        const laterMigrationErrors: PKCError[] = [];
+                        laterByKey.on("error", (err) => {
+                            if ((err as PKCError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY")
+                                laterMigrationErrors.push(err as PKCError);
+                        });
+                        await laterByKey.update();
+                        await resolveWhenConditionIsTrue({
+                            toUpdate: laterByKey,
+                            predicate: async () => typeof laterByKey.updatedAt === "number"
+                        });
+                        expect(laterByKey.publicKey).to.equal(claimantKey);
+                        expect(laterMigrationErrors).to.deep.equal([]);
+                        expect(testPKC._updatingCommunities.size()).to.equal(2);
+                        await laterByKey.stop();
+                    }
+
+                    await byNameAndKey.stop();
+                    if (byKey) await byKey.stop();
+                } finally {
+                    await testPKC.destroy();
+                }
+            });
+        }
+
         // The honest counterpart of the test above: once a by-key instance's name is proven, a loader of
         // that name shares the instance instead of opening a second one for the same community.
         // Cannot run under RPC: the name resolver is configured on the client, and the shared RPC test
