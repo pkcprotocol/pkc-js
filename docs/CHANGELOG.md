@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.162](https://github.com/pkcprotocol/pkc-js/compare/v0.0.161...v0.0.162) (2026-11-24)
+
+### Bug Fixes
+
+* **gateways:** sort gateways and pubsub providers by their score ([#487](https://github.com/pkcprotocol/pkc-js/issues/487)) ([41eecf3](https://github.com/pkcprotocol/pkc-js/commit/41eecf3227623c7c785f5d88250906019dd1a847))
+
 ## [0.0.161](https://github.com/pkcprotocol/pkc-js/compare/v0.0.160...v0.0.161) (2026-11-24)
 
 ### Bug Fixes
