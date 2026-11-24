@@ -214,6 +214,148 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         });
 
+        // A by-key loader keeps the name its record claims on `community.name` even when the name is
+        // contradicted. It never asked for that name, so its own registry lookups must go by key alone:
+        // with the name's real owner updating in the same PKC, a lookup by both matched the claimant's
+        // instance by key and the owner's by name.
+        // Cannot run under RPC: the name resolver is configured on the client, and the shared RPC test
+        // server strips client-supplied nameResolvers.
+        for (const claimantLoaders of ["two loaders", "one loader"] as const) {
+            itSkipIfRpc(
+                `a by-key loader of a contradicted name restarts on its own key beside the name's owner, with ${claimantLoaders}`,
+                async () => {
+                    const communityName = `migration-restart-beside-owner-${claimantLoaders === "two loaders" ? "two" : "one"}.bso`;
+                    const { communityAddress: claimantKey } = await createMockedCommunityIpns({ name: communityName });
+                    const { communityAddress: ownerKey } = await createMockedCommunityIpns({ name: communityName });
+
+                    const testPKC = await config.pkcInstancePromise({
+                        mockResolve: false,
+                        pkcOptions: {
+                            nameResolvers: [createMockNameResolver({ records: new Map([[communityName, ownerKey]]) })]
+                        }
+                    });
+
+                    try {
+                        const claimant = await testPKC.createCommunity({ address: claimantKey });
+                        const migrationErrors: PKCError[] = [];
+                        claimant.on("error", (err) => {
+                            if ((err as PKCError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY")
+                                migrationErrors.push(err as PKCError);
+                        });
+                        await claimant.update();
+                        await resolveWhenConditionIsTrue({
+                            toUpdate: claimant,
+                            predicate: async () => typeof claimant.updatedAt === "number" && claimant.nameResolved === false
+                        });
+                        // Keeps the claimant's updating instance alive across the restart below
+                        const secondClaimantLoader =
+                            claimantLoaders === "two loaders" ? await testPKC.createCommunity({ address: claimantKey }) : undefined;
+                        if (secondClaimantLoader) await secondClaimantLoader.update();
+
+                        const owner = await testPKC.createCommunity({ address: communityName });
+                        await owner.update();
+                        await resolveWhenConditionIsTrue({
+                            toUpdate: owner,
+                            predicate: async () => typeof owner.updatedAt === "number" && owner.publicKey === ownerKey
+                        });
+
+                        await claimant.stop();
+                        // With two loaders this threw "Tracked instance registry invariant violated for lookup";
+                        // with one it attached to the owner's instance and moved the loader onto the owner's key
+                        await claimant.update();
+                        await resolveWhenConditionIsTrue({
+                            toUpdate: claimant,
+                            predicate: async () => typeof claimant.updatedAt === "number" && claimant.nameResolved === false
+                        });
+                        expect(claimant.publicKey).to.equal(claimantKey);
+                        expect(migrationErrors).to.deep.equal([]);
+                        expect(owner.publicKey).to.equal(ownerKey);
+
+                        // A new by-key loader of the claimant's key is built beside the owner the same way
+                        const laterClaimantLoader = await testPKC.createCommunity({ address: claimantKey });
+                        await laterClaimantLoader.update();
+                        await resolveWhenConditionIsTrue({
+                            toUpdate: laterClaimantLoader,
+                            predicate: async () => typeof laterClaimantLoader.updatedAt === "number"
+                        });
+                        expect(laterClaimantLoader.publicKey).to.equal(claimantKey);
+
+                        await laterClaimantLoader.stop();
+                        await claimant.stop();
+                        if (secondClaimantLoader) await secondClaimantLoader.stop();
+                        await owner.stop();
+                    } finally {
+                        await testPKC.destroy();
+                    }
+                }
+            );
+        }
+
+        // The fetch path caches what a publication needs to reach a community, under the community's key
+        // and under its name. A publication addressed to a name reads the entry under that name, so a
+        // by-key load of a record that merely claims the name must not write it.
+        // Cannot run under RPC: the name resolver is configured on the client, and the shared RPC test
+        // server strips client-supplied nameResolvers.
+        for (const firstLoaded of ["claimant", "owner"] as const) {
+            itSkipIfRpc(
+                `a by-key load of a record claiming a name does not become the publishing entry of that name, ${firstLoaded} loaded first`,
+                async () => {
+                    const communityName = `publishing-cache-claimant-${firstLoaded}-first.bso`;
+                    const { communityAddress: claimantKey } = await createMockedCommunityIpns({ name: communityName });
+                    const { communityAddress: ownerKey } = await createMockedCommunityIpns({ name: communityName });
+
+                    const testPKC = await config.pkcInstancePromise({
+                        mockResolve: false,
+                        pkcOptions: {
+                            nameResolvers: [createMockNameResolver({ records: new Map([[communityName, ownerKey]]) })]
+                        }
+                    });
+                    const publishingCache = testPKC._memCaches.communityForPublishing;
+
+                    try {
+                        const loadClaimant = async () => {
+                            const claimant = await testPKC.createCommunity({ address: claimantKey });
+                            await claimant.update();
+                            await resolveWhenConditionIsTrue({
+                                toUpdate: claimant,
+                                predicate: async () => typeof claimant.updatedAt === "number" && claimant.nameResolved === false
+                            });
+                            return claimant;
+                        };
+                        const loadOwner = async () => {
+                            const owner = await testPKC.createCommunity({ address: communityName });
+                            await owner.update();
+                            await resolveWhenConditionIsTrue({
+                                toUpdate: owner,
+                                predicate: async () => typeof owner.updatedAt === "number" && owner.nameResolved === true
+                            });
+                            return owner;
+                        };
+
+                        if (firstLoaded === "claimant") {
+                            const claimant = await loadClaimant();
+                            expect(publishingCache.get(communityName, { allowStale: true })).to.be.undefined;
+                            expect(publishingCache.get(claimantKey, { allowStale: true })?.publicKey).to.equal(claimantKey);
+                            const owner = await loadOwner();
+                            expect(publishingCache.get(communityName, { allowStale: true })?.publicKey).to.equal(ownerKey);
+                            await owner.stop();
+                            await claimant.stop();
+                        } else {
+                            const owner = await loadOwner();
+                            expect(publishingCache.get(communityName, { allowStale: true })?.publicKey).to.equal(ownerKey);
+                            const claimant = await loadClaimant();
+                            expect(publishingCache.get(communityName, { allowStale: true })?.publicKey).to.equal(ownerKey);
+                            expect(publishingCache.get(claimantKey, { allowStale: true })?.publicKey).to.equal(claimantKey);
+                            await claimant.stop();
+                            await owner.stop();
+                        }
+                    } finally {
+                        await testPKC.destroy();
+                    }
+                }
+            );
+        }
+
         // The honest counterpart of the test above: once a by-key instance's name is proven, a loader of
         // that name shares the instance instead of opening a second one for the same community.
         // Cannot run under RPC: the name resolver is configured on the client, and the shared RPC test
