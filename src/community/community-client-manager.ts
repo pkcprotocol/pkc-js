@@ -11,6 +11,7 @@ import { ResultOfFetchingCommunity } from "../types.js";
 import { NameResolverClient } from "../clients/name-resolver-client.js";
 import type { NameResolveCacheOptions } from "../schema.js";
 import { RemoteCommunity } from "./remote-community.js";
+import { refreshTrackedCommunityAliases } from "../pkc/tracked-instance-registry-util.js";
 import { keys, mapValues } from "remeda";
 import type { CommunityIpfsType } from "./types.js";
 import { getCommunityNameFromWire } from "./community-wire.js";
@@ -349,6 +350,7 @@ export class CommunityClientsManager extends PKCClientsManager {
             // claimed one.
             if (publicKeyBeforeApply && this._community.publicKey !== publicKeyBeforeApply) {
                 this._community.nameResolved = undefined;
+                refreshTrackedCommunityAliases(this._pkc, this._community);
                 // The retry floors were earned against the previous identity and must not pace the first
                 // classification of the new one.
                 this._nameResolvedFalseAtMs = undefined;
@@ -798,6 +800,9 @@ export class CommunityClientsManager extends PKCClientsManager {
             this._nameResolveFailedAtMs = undefined;
             if (this._community.nameResolved === newNameResolved) return;
             this._community.nameResolved = newNameResolved;
+            // A key-addressed updating instance is findable under its record's name only while that name
+            // is proven, so the registry follows the verdict
+            refreshTrackedCommunityAliases(this._pkc, this._community);
             // Only emit update if the community has been loaded at least once —
             // otherwise we'd fire a premature "update" before the IPNS fetch completes.
             if (typeof this._community.updatedAt === "number") {

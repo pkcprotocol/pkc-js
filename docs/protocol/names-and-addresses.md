@@ -76,6 +76,14 @@ and `nameResolved` is `false`, like any other name that does not point at the ke
 key and its record. An application that stored a community by key and wants to follow it across a key
 change loads it by name. Issue #605.
 
+The same rule decides which loaders share an updating instance (`pkc._updatingCommunities`). An instance
+asked for by key is found under the name its record claims only while that name is proven, meaning
+`nameResolved` is `true`. While the verdict is pending or `false`, a caller asking for the name does not
+join that instance: it resolves the name itself and loads the key the name points at. Otherwise a record
+claiming a name it does not hold would be served to everyone who asks for that name. The cost is that a
+caller asking for an honest name before the by-key instance's verdict arrives opens a second updating
+instance for the same community.
+
 `_resolveViaNameResolvers` is what makes the distinction possible. It returns `null` when the resolvers ran and
 found no record, and throws `ERR_ALL_NAME_RESOLVERS_FAILED` (with each resolver's error in `details`, keyed by
 resolver key) when every resolver that could handle the name errored. Before issue #353 both collapsed into the

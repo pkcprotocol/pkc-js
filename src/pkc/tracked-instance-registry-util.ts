@@ -150,20 +150,39 @@ export function listRegistryValues<T extends object>(registry: TrackedInstanceRe
     return registry.values();
 }
 
+// A name is a lookup alias of an updating instance only while it is proven to point at the instance's key.
 // An updating instance loaded by a domain accepts every record its key signs, since its loaders by key share it,
 // including a record that claims another domain. Only the domain the instance resolved is proven to point at its
 // key, so a claimed one is left out of its aliases: a loader of that domain must resolve it rather than be handed
-// this key's records. An instance loaded by key has no domain of its own and keeps the name its record claims.
+// this key's records. An instance loaded by key has no domain of its own, and anyone can publish a record claiming
+// a name they do not hold, so the name its record claims counts only while its verdict is `nameResolved: true`.
+// Pending or contradicted, a loader of that name resolves it itself and reaches the key the name points at (#605).
 function withOnlyProvenUpdatingName(community: TrackedCommunity): CommunityWithAliases {
+    if (!community.name) return community;
     const loadedByDomain = isStringDomain(community.address) ? community.address : undefined;
-    if (!loadedByDomain || !community.name || areEquivalentNames(community.name, loadedByDomain)) return community;
+    const nameIsProven = loadedByDomain ? areEquivalentNames(community.name, loadedByDomain) : community.nameResolved === true;
+    if (nameIsProven) return community;
     return { name: undefined, publicKey: community.publicKey, signer: community.signer };
 }
 
+function forgetUpdatingCommunityAliasesOfName(pkc: PKC, community: TrackedCommunity, name: string): void {
+    const staleAliases = isEthAliasDomain(name) ? getEquivalentCommunityAliases(name) : [name];
+    const currentAliases = new Set(getCommunityRegistryAliases(withOnlyProvenUpdatingName(community)));
+    const aliasesToForget = staleAliases.filter((alias) => !currentAliases.has(alias));
+    const aliasHistory = getTrackedAliasHistory(community, pkc._updatingCommunities);
+    aliasesToForget.forEach((alias) => aliasHistory.delete(alias));
+    pkc._updatingCommunities.removeAliases(community, aliasesToForget);
+}
+
 function syncUpdatingCommunityRegistryEntry(pkc: PKC, community: TrackedCommunity): TrackedCommunity {
+    const provenIdentity = withOnlyProvenUpdatingName(community);
+    // The alias history is sticky, so a name that was proven and no longer is (a verdict that turned false or
+    // was cleared) has to be taken out of it, not merely left out of this sync
+    if (community.name && !provenIdentity.name && pkc._updatingCommunities.has(community))
+        forgetUpdatingCommunityAliasesOfName(pkc, community, community.name);
     return pkc._updatingCommunities.track({
         value: community,
-        aliases: persistAliases(community, pkc._updatingCommunities, getCommunityRegistryAliases(withOnlyProvenUpdatingName(community)))
+        aliases: persistAliases(community, pkc._updatingCommunities, getCommunityRegistryAliases(provenIdentity))
     });
 }
 
@@ -204,12 +223,7 @@ export function refreshTrackedCommunityAliases(pkc: PKC, community: TrackedCommu
 // by its old name, and its renames go through setAddress.
 export function forgetTrackedUpdatingCommunityName(pkc: PKC, community: TrackedCommunity, name: string): void {
     if (!pkc._updatingCommunities.has(community)) return;
-    const staleAliases = isEthAliasDomain(name) ? getEquivalentCommunityAliases(name) : [name];
-    const currentAliases = new Set(getCommunityRegistryAliases(withOnlyProvenUpdatingName(community)));
-    const aliasesToForget = staleAliases.filter((alias) => !currentAliases.has(alias));
-    const aliasHistory = getTrackedAliasHistory(community, pkc._updatingCommunities);
-    aliasesToForget.forEach((alias) => aliasHistory.delete(alias));
-    pkc._updatingCommunities.removeAliases(community, aliasesToForget);
+    forgetUpdatingCommunityAliasesOfName(pkc, community, name);
 }
 
 export function refreshTrackedCommentAliases(pkc: PKC, comment: Comment): void {

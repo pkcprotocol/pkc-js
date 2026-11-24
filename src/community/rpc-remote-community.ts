@@ -9,6 +9,7 @@ import { RpcLocalCommunity } from "./rpc-local-community.js";
 import {
     findStartedCommunity,
     findUpdatingCommunity,
+    refreshTrackedCommunityAliases,
     trackUpdatingCommunity,
     untrackUpdatingCommunity
 } from "../pkc/tracked-instance-registry-util.js";
@@ -84,6 +85,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         if (updateRecord.resetInstance && updateRecord.runtimeFields.newPublicKey) {
             this._clearDataForKeyMigration(updateRecord.runtimeFields.newPublicKey);
             if (typeof updateRecord.runtimeFields.nameResolved === "boolean") this.nameResolved = updateRecord.runtimeFields.nameResolved;
+            refreshTrackedCommunityAliases(this._pkc, this);
             this.emit("update", this);
             return;
         }
@@ -105,6 +107,9 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         // The merge skips undefined, and JSON drops it, so a server whose verdict was cleared (the record
         // dropped or changed its name) sends no nameResolved at all
         if (runtimeFieldsWithoutUpdatingState.nameResolved === undefined) this.nameResolved = undefined;
+        // The verdict arrives after the record, and a key-addressed updating instance is findable under its
+        // record's name only while that name is proven, so the registry follows the verdict
+        refreshTrackedCommunityAliases(this._pkc, this);
 
         // Emit "update" then updatingstatechange, in the order the non-RPC loop does
         this._changeStateEmitEventEmitStateChangeEvent({
@@ -236,6 +241,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         if ("code" in error && error.code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY" && error.details?.newPublicKey) {
             this._clearDataForKeyMigration(error.details.newPublicKey);
             this.nameResolved = true;
+            refreshTrackedCommunityAliases(this._pkc, this);
             this.emit("update", this);
         }
         // Emit "error" then updatingstatechange, like the non-RPC loop; the server's notification for
