@@ -275,6 +275,9 @@ getAvailablePKCConfigsToTestAgainst({
                     const [first, second] = firstLoader === "by key" ? [byKey, byName] : [byName, byKey];
                     await first.update();
                     await waitForUpdatedAt(first, staticCommunity.communityRecord.updatedAt);
+                    // A by-key instance is findable under its record's name only once the name is proven;
+                    // a by-name loader arriving before that opens an updating instance of its own
+                    await vi.waitFor(() => expect(first.nameResolved).to.equal(true), { timeout: 30_000, interval: 100 });
                     const countsBeforeSecond = listenerCounts(onlyUpdatingEntry(pkc));
                     await second.update();
                     await waitForUpdatedAt(second, staticCommunity.communityRecord.updatedAt);

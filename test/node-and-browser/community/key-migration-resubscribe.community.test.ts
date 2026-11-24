@@ -6,6 +6,7 @@ import {
     createMockedCommunityIpns,
     createMockNameResolver
 } from "../../../dist/node/test/test-util.js";
+import { findUpdatingCommunity, refreshTrackedCommunityAliases } from "../../../dist/node/pkc/tracked-instance-registry-util.js";
 import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 
 import { describe, expect } from "vitest";
@@ -157,6 +158,209 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
                 await byKey.stop();
             } finally {
+                await testPKC.destroy();
+            }
+        });
+
+        // The reverse of #605: a by-key loader whose record claims a name it does not hold stays on its
+        // key, and must not be found under that name by a later loader that asks for the name. That
+        // loader has to resolve the name itself and reach the key the name really points at.
+        // Cannot run under RPC: the name resolver is configured on the client, and the shared RPC test
+        // server strips client-supplied nameResolvers.
+        itSkipIfRpc(`a by-key loader of a record claiming a name does not capture a later loader of that name`, async () => {
+            const communityName = "migration-claimant-first.bso";
+            // Both records claim the name; only the owner's key is what the name resolves to
+            const { communityAddress: claimantKey } = await createMockedCommunityIpns({ name: communityName });
+            const { communityAddress: ownerKey } = await createMockedCommunityIpns({ name: communityName });
+
+            const testPKC = await config.pkcInstancePromise({
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [createMockNameResolver({ records: new Map([[communityName, ownerKey]]) })]
+                }
+            });
+
+            try {
+                const claimant = await testPKC.createCommunity({ address: claimantKey });
+                await claimant.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: claimant,
+                    predicate: async () => typeof claimant.updatedAt === "number" && claimant.nameResolved === false
+                });
+                expect(claimant.publicKey).to.equal(claimantKey);
+
+                const byName = await testPKC.createCommunity({ address: communityName });
+                await byName.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: byName,
+                    // The first record the loader of the name is handed must already be the owner's; the
+                    // verdict for the name follows it
+                    predicate: async () => typeof byName.updatedAt === "number"
+                });
+                expect(byName.publicKey).to.equal(ownerKey);
+                await resolveWhenConditionIsTrue({
+                    toUpdate: byName,
+                    predicate: async () => byName.nameResolved === true
+                });
+                expect(byName.publicKey).to.equal(ownerKey);
+                // The claimant is untouched by the loader of the name
+                expect(claimant.publicKey).to.equal(claimantKey);
+                expect(claimant.nameResolved).to.equal(false);
+
+                await byName.stop();
+                await claimant.stop();
+            } finally {
+                await testPKC.destroy();
+            }
+        });
+
+        // The honest counterpart of the test above: once a by-key instance's name is proven, a loader of
+        // that name shares the instance instead of opening a second one for the same community.
+        // Cannot run under RPC: the name resolver is configured on the client, and the shared RPC test
+        // server strips client-supplied nameResolvers.
+        itSkipIfRpc(`a by-key loader whose record's name is proven is shared with a later loader of that name`, async () => {
+            const communityName = "proven-name-shared.bso";
+            const { communityAddress: key } = await createMockedCommunityIpns({ name: communityName });
+
+            const testPKC = await config.pkcInstancePromise({
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [createMockNameResolver({ records: new Map([[communityName, key]]) })]
+                }
+            });
+
+            try {
+                const byKey = await testPKC.createCommunity({ address: key });
+                await byKey.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: byKey,
+                    predicate: async () => typeof byKey.updatedAt === "number" && byKey.nameResolved === true
+                });
+
+                const byName = await testPKC.createCommunity({ address: communityName });
+                await byName.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: byName,
+                    predicate: async () => typeof byName.updatedAt === "number" && byName.nameResolved === true
+                });
+                expect(byName.publicKey).to.equal(key);
+                expect(testPKC._updatingCommunities.size()).to.equal(1);
+
+                await byName.stop();
+                await byKey.stop();
+            } finally {
+                await testPKC.destroy();
+            }
+        });
+
+        // A proven name stops being a lookup alias when its verdict turns false (the name was re-pointed).
+        // The verdict is flipped by hand on the updating instance: driving a real re-resolve needs a new
+        // record and an expired resolver cache, and what is under test is that the registry follows the
+        // verdict, including out of its sticky alias history.
+        // Cannot run under RPC: the name resolver is configured on the client, and the shared RPC test
+        // server strips client-supplied nameResolvers.
+        itSkipIfRpc(`a by-key updating instance stops being findable by its record's name once the name is contradicted`, async () => {
+            const communityName = "proven-then-contradicted.bso";
+            const { communityAddress: key } = await createMockedCommunityIpns({ name: communityName });
+
+            const testPKC = await config.pkcInstancePromise({
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [createMockNameResolver({ records: new Map([[communityName, key]]) })]
+                }
+            });
+
+            try {
+                const byKey = await testPKC.createCommunity({ address: key });
+                await byKey.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: byKey,
+                    predicate: async () => typeof byKey.updatedAt === "number" && byKey.nameResolved === true
+                });
+
+                const updatingInstance = findUpdatingCommunity(testPKC, { name: communityName });
+                expect(updatingInstance).to.not.be.undefined;
+                expect(findUpdatingCommunity(testPKC, { publicKey: key })).to.equal(updatingInstance);
+
+                updatingInstance!.nameResolved = false;
+                refreshTrackedCommunityAliases(testPKC, updatingInstance!);
+                expect(findUpdatingCommunity(testPKC, { name: communityName })).to.be.undefined;
+                expect(findUpdatingCommunity(testPKC, { publicKey: key })).to.equal(updatingInstance);
+
+                // A later sync must not bring the name back from the alias history
+                refreshTrackedCommunityAliases(testPKC, updatingInstance!);
+                expect(findUpdatingCommunity(testPKC, { name: communityName })).to.be.undefined;
+
+                updatingInstance!.nameResolved = true;
+                refreshTrackedCommunityAliases(testPKC, updatingInstance!);
+                expect(findUpdatingCommunity(testPKC, { name: communityName })).to.equal(updatingInstance);
+
+                await byKey.stop();
+            } finally {
+                await testPKC.destroy();
+            }
+        });
+
+        // The cost of the rule above. While a by-key instance's verdict is still pending its name is not a
+        // lookup alias, so a loader of the name that arrives in that window opens its own updating
+        // instance even when the name turns out to be honest. Both loaders must still end on the key with
+        // the name proven.
+        // Cannot run under RPC: the name resolver is configured on the client, and the shared RPC test
+        // server strips client-supplied nameResolvers.
+        itSkipIfRpc(`a loader of a name that arrives while a by-key instance's verdict is pending still loads the community`, async () => {
+            const communityName = "pending-verdict.bso";
+            const { communityAddress: key } = await createMockedCommunityIpns({ name: communityName });
+
+            let releaseResolve!: () => void;
+            const resolveReleased = new Promise<void>((resolve) => (releaseResolve = resolve));
+            const testPKC = await config.pkcInstancePromise({
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            resolveFunction: async ({ name }) => {
+                                if (name !== communityName) return undefined;
+                                await resolveReleased;
+                                return { publicKey: key };
+                            }
+                        })
+                    ]
+                }
+            });
+
+            try {
+                const byKey = await testPKC.createCommunity({ address: key });
+                await byKey.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: byKey,
+                    predicate: async () => typeof byKey.updatedAt === "number"
+                });
+                expect(byKey.nameResolved).to.be.undefined;
+                expect(findUpdatingCommunity(testPKC, { name: communityName })).to.be.undefined;
+
+                const byName = await testPKC.createCommunity({ address: communityName });
+                await byName.update();
+                releaseResolve();
+
+                await resolveWhenConditionIsTrue({
+                    toUpdate: byName,
+                    predicate: async () => typeof byName.updatedAt === "number" && byName.nameResolved === true
+                });
+                await resolveWhenConditionIsTrue({
+                    toUpdate: byKey,
+                    predicate: async () => byKey.nameResolved === true
+                });
+                expect(byName.publicKey).to.equal(key);
+                expect(byKey.publicKey).to.equal(key);
+                // Two updating instances for one community: the by-key one and the one the loader of the
+                // name opened while the verdict was pending
+                expect(testPKC._updatingCommunities.size()).to.equal(2);
+
+                await byName.stop();
+                await byKey.stop();
+                expect(testPKC._updatingCommunities.size()).to.equal(0);
+            } finally {
+                releaseResolve();
                 await testPKC.destroy();
             }
         });

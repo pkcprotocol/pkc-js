@@ -1,4 +1,4 @@
-import { describe, expect } from "vitest";
+import { describe, expect, vi } from "vitest";
 import {
     getAvailablePKCConfigsToTestAgainst,
     createMockedCommunityIpns,
@@ -10,6 +10,7 @@ import {
 import { itSkipIfRpc } from "../../../../helpers/conditional-tests.js";
 import signers from "../../../../fixtures/signers.js";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";
+import { findUpdatingCommunity } from "../../../../../dist/node/pkc/tracked-instance-registry-util.js";
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`comment.update() during community key migration - ${config.name}`, () => {
@@ -87,6 +88,10 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     predicate: async () => typeof byName.updatedAt === "number"
                 });
 
+                const sharedInstance = findUpdatingCommunity(testPKC, { publicKey: oldPublicKey });
+                expect(sharedInstance).to.not.be.undefined;
+                const updateListenersBeforeComment = sharedInstance!.listenerCount("update");
+
                 const comment = await testPKC.createComment({ cid: commentCid });
                 await comment.update();
 
@@ -94,6 +99,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 await resolveWhenConditionIsTrue({
                     toUpdate: comment,
                     predicate: async () => !!comment.raw.comment
+                });
+
+                // CommentIpfs loads before the comment subscribes to its community, so wait for the
+                // subscription itself: released any earlier, the migration's update would fire with no
+                // comment handler attached and the test would pass without exercising it
+                await vi.waitFor(() => expect(sharedInstance!.listenerCount("update")).to.be.greaterThan(updateListenersBeforeComment), {
+                    timeout: 60_000,
+                    interval: 50
                 });
 
                 releaseResolve();
