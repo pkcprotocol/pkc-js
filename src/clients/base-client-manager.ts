@@ -644,8 +644,11 @@ export class BaseClientsManager {
             const gatewayConfirmedCurrentRecord =
                 (<PKCError>e).details?.status === 304 || String((<PKCError>e).code).startsWith("ERR_GATEWAY_ABORTING_LOADING");
             // A request we aborted ourselves is no verdict on the gateway, so it is not recorded at all:
-            // counted as a failure, the two gateways that lose every race of three would sink in the sort
-            const abortedByUs = (<PKCError>e).code === "ERR_GATEWAY_TIMED_OUT_OR_ABORTED" && !loadOpts.gatewayTimedOut();
+            // counted as a failure, the two gateways that lose every race of three would sink in the sort.
+            // The abort reaches us as ERR_GATEWAY_TIMED_OUT_OR_ABORTED from the gateway request itself, and as
+            // the plain AbortError from a fetch made while validating the response (the delegated IPNS chain)
+            const isAbort = (<PKCError>e).code === "ERR_GATEWAY_TIMED_OUT_OR_ABORTED" || isAbortError(e);
+            const abortedByUs = isAbort && !loadOpts.gatewayTimedOut();
             if (gatewayConfirmedCurrentRecord)
                 this._pkc._stats
                     .recordGatewaySuccess(gateway, loadOpts.recordIpfsType, Date.now() - timeBefore)
