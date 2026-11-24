@@ -1051,9 +1051,11 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
         if (this._updatingCommunityInstanceWithListeners) await this._cleanUpUpdatingCommunityInstanceWithListeners();
         else {
-            // this instance is pkc._updatingCommunity[address] itself
-            await this._clientsManager.stopUpdatingLoop();
+            // this instance is pkc._updatingCommunity[address] itself. Untracked before the await (a no-op when the
+            // caller already did), so an update() of another instance in that window starts a new updating instance
+            // instead of attaching to this one and being stopped with it.
             untrackUpdatingCommunity(this._pkc, this);
+            await this._clientsManager.stopUpdatingLoop();
         }
         this._setUpdatingStateWithEventEmissionIfNewState("stopped");
         this._setState("stopped");
