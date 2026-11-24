@@ -438,6 +438,56 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             });
         }
 
+        // Same as above, but the running by-key instance's record claims a different contradicted name
+        // than the one the caller asks for. Joining it leaves nobody to resolve the caller's name.
+        // Cannot run under RPC: the name resolver is configured on the client, and the shared RPC test
+        // server strips client-supplied nameResolvers.
+        itSkipIfRpc(`a loader by name and key follows its name beside a by-key instance claiming another contradicted name`, async () => {
+            const requestedName = "name-and-key-other-claim-requested.bso";
+            const claimedName = "name-and-key-other-claim-claimed.bso";
+            const { communityAddress: passedKey } = await createMockedCommunityIpns({ name: claimedName });
+            const { communityAddress: requestedNameKey } = await createMockedCommunityIpns({ name: requestedName });
+            const claimedNameKey = signers[0].address;
+
+            const testPKC = await config.pkcInstancePromise({
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            records: new Map([
+                                [requestedName, requestedNameKey],
+                                [claimedName, claimedNameKey]
+                            ])
+                        })
+                    ]
+                }
+            });
+
+            try {
+                const byKey = await testPKC.createCommunity({ address: passedKey });
+                await byKey.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: byKey,
+                    predicate: async () => typeof byKey.updatedAt === "number" && byKey.nameResolved === false
+                });
+
+                const byNameAndKey = await testPKC.createCommunity({ name: requestedName, publicKey: passedKey });
+                byNameAndKey.on("error", () => {});
+                await byNameAndKey.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: byNameAndKey,
+                    predicate: async () => typeof byNameAndKey.updatedAt === "number"
+                });
+                expect(byNameAndKey.publicKey).to.equal(requestedNameKey);
+                expect(byKey.publicKey).to.equal(passedKey);
+
+                await byNameAndKey.stop();
+                await byKey.stop();
+            } finally {
+                await testPKC.destroy();
+            }
+        });
+
         // The honest counterpart of the test above: once a by-key instance's name is proven, a loader of
         // that name shares the instance instead of opening a second one for the same community.
         // Cannot run under RPC: the name resolver is configured on the client, and the shared RPC test
