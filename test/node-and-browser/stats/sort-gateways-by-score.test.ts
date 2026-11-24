@@ -7,8 +7,9 @@ import Stats from "../../../dist/node/stats.js";
 
 type StatsDeps = ConstructorParameters<typeof Stats>[0];
 
-function makeStats(gatewayUrls: string[]) {
-    const store = new Map<string, unknown>();
+function makeStats(gatewayUrls: string[], opts?: { pubsubProviderUrls?: string[]; stored?: Record<string, unknown> }) {
+    const store = new Map<string, unknown>(Object.entries(opts?.stored ?? {}));
+    const toClients = (urls: string[]) => Object.fromEntries(urls.map((url) => [url, {}]));
     const deps = {
         _storage: {
             getItem: async (key: string) => store.get(key),
@@ -16,7 +17,11 @@ function makeStats(gatewayUrls: string[]) {
                 store.set(key, value);
             }
         },
-        clients: { ipfsGateways: Object.fromEntries(gatewayUrls.map((url) => [url, {}])) }
+        clients: {
+            ipfsGateways: toClients(gatewayUrls),
+            pubsubKuboRpcClients: toClients(opts?.pubsubProviderUrls ?? []),
+            libp2pJsClients: {}
+        }
     } as unknown as StatsDeps;
     return new Stats(deps);
 }
@@ -53,5 +58,26 @@ describe("Stats.sortGatewaysAccordingToScore", () => {
         for (let i = 0; i < 5; i++) await stats.recordGatewayFailure("https://a.example", "ipns");
         expect(await stats.sortGatewaysAccordingToScore("ipfs")).toEqual(gateways);
         expect((await stats.sortGatewaysAccordingToScore("ipns")).at(-1)).toBe("https://a.example");
+    });
+
+    it("sorts pubsub providers by their own record, not the gateways'", async () => {
+        const providers = ["https://pubsub-a.example", "https://pubsub-b.example"];
+        const stats = makeStats(gateways, { pubsubProviderUrls: providers });
+        for (let i = 0; i < 5; i++) await stats.recordGatewayFailure("https://pubsub-a.example", "pubsub-publish");
+        expect(await stats.sortGatewaysAccordingToScore("pubsub-publish")).toEqual([
+            "https://pubsub-b.example",
+            "https://pubsub-a.example"
+        ]);
+        expect(await stats.sortGatewaysAccordingToScore("pubsub-subscribe")).toEqual(providers);
+    });
+
+    // Until the sort worked, nothing read these counters, and they counted every request pkc-js aborted
+    // itself as a failure of the gateway. They are stored for good, so the counters now live under a new
+    // key and the ones recorded before are ignored.
+    it("ignores the counters recorded under the old STATS_ keys", async () => {
+        const stats = makeStats(gateways, {
+            stored: { "STATS_https://a.example_ipfs_COUNT_FAILURE": 50, "STATS_https://c.example_ipfs_COUNT_SUCCESS": 50 }
+        });
+        expect(await stats.sortGatewaysAccordingToScore("ipfs")).toEqual(gateways);
     });
 });

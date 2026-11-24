@@ -35,7 +35,10 @@ export default class Stats {
     }
 
     private _getBaseKey(url: string, type: StatTypes) {
-        return `STATS_${url}_${type}`;
+        // V2: the counters under the earlier `STATS_` keys counted every request we aborted ourselves as a
+        // failure of the gateway. Nothing read them until the sort below worked, and they are stored for
+        // good, so they are left behind instead of ordering gateways by them
+        return `STATS_V2_${url}_${type}`;
     }
 
     private _getFailuresCountKey(url: string, type: StatTypes) {

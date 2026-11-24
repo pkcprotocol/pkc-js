@@ -54,6 +54,7 @@ type GenericGatewayFetch = {
         response?: string;
         error?: Error;
         timeoutId: any;
+        timedOut?: boolean; // set by this gateway's own timeout, never by an abort of ours
     };
 };
 
@@ -81,6 +82,9 @@ export type OptionsToLoadFromGateway = {
     path?: string;
     recordPKCType: LoadType;
     abortController: AbortController;
+    // Whether the abort of `abortController` was this gateway's own timeout. Any other abort is ours (another
+    // gateway answered first, the caller stopped) and says nothing about the gateway
+    gatewayTimedOut: () => boolean;
     timeoutMs: number;
     abortRequestErrorBeforeLoadingBodyFunc?: (res: Response) => Promise<PKCError | undefined>; // this is called before consuming the body of the gateway response. Can be used to abort and stop the consumption. Should provide an abort error
     validateGatewayResponseFunc: (resObj: { resText: string | undefined; res: Response }) => Promise<void>; // can throw here to trigger a failure in response
@@ -639,11 +643,14 @@ export class BaseClientsManager {
             // gateway's score in the sorting stats (issue #328). Everything else stays a failure.
             const gatewayConfirmedCurrentRecord =
                 (<PKCError>e).details?.status === 304 || String((<PKCError>e).code).startsWith("ERR_GATEWAY_ABORTING_LOADING");
+            // A request we aborted ourselves is no verdict on the gateway, so it is not recorded at all:
+            // counted as a failure, the two gateways that lose every race of three would sink in the sort
+            const abortedByUs = (<PKCError>e).code === "ERR_GATEWAY_TIMED_OUT_OR_ABORTED" && !loadOpts.gatewayTimedOut();
             if (gatewayConfirmedCurrentRecord)
                 this._pkc._stats
                     .recordGatewaySuccess(gateway, loadOpts.recordIpfsType, Date.now() - timeBefore)
                     .catch((err) => log.error("Failed to report gateway success", err));
-            else
+            else if (!abortedByUs)
                 this._pkc._stats
                     .recordGatewayFailure(gateway, loadOpts.recordIpfsType)
                     .catch((err) => log.error("failed to report gateway error", err));
@@ -666,7 +673,7 @@ export class BaseClientsManager {
     }
 
     async fetchFromMultipleGateways(
-        loadOpts: Omit<OptionsToLoadFromGateway, "abortController"> & { abortSignal?: AbortSignal }
+        loadOpts: Omit<OptionsToLoadFromGateway, "abortController" | "gatewayTimedOut"> & { abortSignal?: AbortSignal }
     ): Promise<{ resText: string; res: Response }> {
         const timeoutMs = loadOpts.timeoutMs;
         const concurrencyLimit = 3;
@@ -702,7 +709,10 @@ export class BaseClientsManager {
             const gatewayFetch = { abortController, timeoutId: undefined } as GenericGatewayFetch[string];
             gatewayFetches[gateway] = gatewayFetch;
             const armTimeout = () =>
-                (gatewayFetch.timeoutId = setTimeout(() => abortController.abort("Gateway request timed out"), timeoutMs));
+                (gatewayFetch.timeoutId = setTimeout(() => {
+                    gatewayFetch.timedOut = true;
+                    abortController.abort("Gateway request timed out");
+                }, timeoutMs));
             // The timeout is this gateway's own, so it runs from when the gateway can send its request. The first
             // `concurrencyLimit` gateways get a slot at once, so theirs is armed now, before the caller arms a deadline of
             // the same length (getComment's is the comment-ipfs timeout too): when the gateways hang, their errors reach the
@@ -713,7 +723,11 @@ export class BaseClientsManager {
             if (startsAtOnce) armTimeout();
             gatewayFetch.promise = queueLimit(() => {
                 if (!startsAtOnce && !abortController.signal.aborted) armTimeout();
-                return this._fetchWithGateway(gateway, { ...loadOpts, abortController });
+                return this._fetchWithGateway(gateway, {
+                    ...loadOpts,
+                    abortController,
+                    gatewayTimedOut: () => gatewayFetch.timedOut === true
+                });
             });
         }
 
