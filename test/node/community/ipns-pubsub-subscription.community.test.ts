@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { peerIdFromString } from "@libp2p/peer-id";
 import {
+    createMockedCommunityIpns,
+    createMockNameResolver,
     createSubWithNoChallenge,
     mockPKC,
     mockPKCNoDataPathWithOnlyKuboClient,
@@ -267,6 +269,46 @@ describeSkipIfRpc("kubo IPNS pubsub subscriptions are released (issue #602)", ()
                 await follower.destroy();
                 await kubo.name.pubsub.cancel(anchorSigner.address).catch(() => {});
                 await kubo.name.pubsub.cancel(minterSigner.address).catch(() => {});
+            }
+        });
+
+        // A name moves from one community to another while it is followed, so the follower asked kubo for the names
+        // of two unrelated communities. Kubo hosting the old one says nothing about the new one.
+        it("stop() releases the community a name moved to, when kubo holds the key of the one it moved from", async () => {
+            const communityName = `issue-602-moved-${Date.now()}.bso`;
+            const movedFrom = await createMockedCommunityIpns({ name: communityName }); // its key stays in kubo: hosted here
+            const movedTo = await publishStaticCommunityWithPostInPages();
+            const follower = await mockPKCNoDataPathWithOnlyKuboClient({
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [createMockNameResolver({ records: new Map([[communityName, movedTo.communityAddress]]) })]
+                }
+            });
+            try {
+                await kubo.key.rm(movedTo.communityAddress); // only followed through this node
+                await kubo.name.pubsub.cancel(movedTo.communityAddress);
+
+                const community = await follower.createCommunity({ address: movedFrom.communityAddress });
+                community.on("error", () => {});
+                await community.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: community,
+                    predicate: async () => community.publicKey === movedTo.communityAddress
+                });
+                await vi.waitFor(async () => expect(await isSubscribed(movedTo.communityAddress)).to.equal(true), {
+                    timeout: 30000,
+                    interval: 100
+                });
+                await community.stop();
+
+                expect(await isSubscribed(movedFrom.communityAddress), "moved from, hosted here").to.equal(true);
+                expect(await isSubscribed(movedTo.communityAddress), "moved to, only followed").to.equal(false);
+            } finally {
+                await follower.destroy();
+                await movedTo.ipnsObj.pkc.destroy();
+                await kubo.key.rm(movedFrom.communityAddress).catch(() => {});
+                await kubo.name.pubsub.cancel(movedFrom.communityAddress).catch(() => {});
+                await kubo.name.pubsub.cancel(movedTo.communityAddress).catch(() => {});
             }
         });
 

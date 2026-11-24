@@ -741,8 +741,9 @@ export class BaseClientsManager {
     static readonly MAX_IPNS_HOPS = 1;
 
     // Called with every name resolveIpnsToCidP2P asks its client for, before the request, whether or not the
-    // resolve goes on to succeed. For subclasses that have to know which names a client was asked about.
-    protected _onIpnsNameAboutToBeResolvedP2P(_ipnsName: string) {}
+    // resolve goes on to succeed, together with the name that walk started from. For subclasses that have to know
+    // which names a client was asked about.
+    protected _onIpnsNameAboutToBeResolvedP2P(_ipnsName: string, _firstNameOfWalk: string) {}
 
     // Resolves an IPNS name to its terminal /ipfs/ CID, following any /ipns/ -> /ipns/
     // delegation hops along the way. Returns the resolved CID together with the ordered
@@ -802,7 +803,7 @@ export class BaseClientsManager {
                 // both resolution paths report failures identically. See docs/protocol/delegated-ipns.md.
                 const hopIndex = ipnsHops.length - 1;
                 const hopRole = hopIndex === 0 ? "anchor" : "minter";
-                this._onIpnsNameAboutToBeResolvedP2P(currentName);
+                this._onIpnsNameAboutToBeResolvedP2P(currentName, ipnsName);
                 const yieldedValues: string[] = await all(ipfsClient.name.resolve(currentName, clientResolveOpts));
                 // The single-hop value (kubo may yield it more than once; helia yields it once).
                 const value: string | undefined = yieldedValues[yieldedValues.length - 1];
