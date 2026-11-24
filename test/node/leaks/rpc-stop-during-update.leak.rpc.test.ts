@@ -50,7 +50,7 @@ describe.runIf(isRpcFlagOn())("leak: stop() during an in-flight RPC update()", (
         expect(rpcRegistries(pkc)).toEqual(before);
     });
 
-    it.fails("community.update() then community.stop() before the subscribe response", async () => {
+    it("community.update() then community.stop() before the subscribe response", async () => {
         const before = rpcRegistries(pkc);
         const community = await pkc.createCommunity({ address: fixture.communityAddress });
         const updating = community.update();
