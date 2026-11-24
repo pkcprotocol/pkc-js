@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.161](https://github.com/pkcprotocol/pkc-js/compare/v0.0.160...v0.0.161) (2026-11-24)
+
+### Bug Fixes
+
+* raise the libp2p-js per-peer pubsub topic budget and release kubo IPNS subscriptions ([#604](https://github.com/pkcprotocol/pkc-js/issues/604)) ([c3dda5f](https://github.com/pkcprotocol/pkc-js/commit/c3dda5f90b3fbfe3a34051ddbe67535297ede037)), closes [#602](https://github.com/pkcprotocol/pkc-js/issues/602) [#602](https://github.com/pkcprotocol/pkc-js/issues/602)
+
 ## [0.0.160](https://github.com/pkcprotocol/pkc-js/compare/v0.0.159...v0.0.160) (2026-11-24)
 
 ### Bug Fixes
