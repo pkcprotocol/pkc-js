@@ -8,7 +8,9 @@ import {
 } from "../../../dist/node/test/test-util.js";
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
 import { timestamp } from "../../../dist/node/util.js";
+import { findUpdatingCommunity, refreshTrackedCommunityAliases } from "../../../dist/node/pkc/tracked-instance-registry-util.js";
 import { describe, it, expect, vi } from "vitest";
+import { itSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
@@ -257,6 +259,78 @@ getAvailablePKCConfigsToTestAgainst({
                 expect(mismatchErrors.length).to.equal(1);
                 await byName.stop();
             } finally {
+                await pkc.destroy();
+                await staticCommunity.ipnsObj.pkc.destroy();
+            }
+        });
+
+        // While a by-key instance's verdict for its record's name is pending, a loader of that name opens
+        // an updating instance of its own (the name is not a lookup alias until proven) and resolves to
+        // the same key. The registry must keep the name and the key on one instance, or a lookup that
+        // passes both, which is what comments and publications do, matches two instances and throws.
+        // Not for remote-pkc-rpc: the name resolver is configured on the client, and the shared RPC test
+        // server strips client-supplied nameResolvers.
+        itSkipIfRpc(`a lookup by name and key finds one instance while a by-key instance's verdict is pending`, async () => {
+            const staticCommunity = await publishStaticCommunityWithPostInPages({ withSelfResolvingName: true });
+            const communityName = staticCommunity.communityName!;
+            const key = staticCommunity.communityAddress;
+            let resolveCalls = 0;
+            let releaseFirstResolve!: () => void;
+            const firstResolveReleased = new Promise<void>((resolve) => (releaseFirstResolve = resolve));
+            const pkc = await config.pkcInstancePromise({
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            resolveFunction: async ({ name }) => {
+                                if (name !== communityName) return undefined;
+                                // The first resolve is the by-key instance's background verdict: held
+                                if (resolveCalls++ === 0) await firstResolveReleased;
+                                return { publicKey: key };
+                            }
+                        })
+                    ]
+                }
+            });
+            try {
+                const byKey = await pkc.createCommunity({ address: key });
+                await byKey.update();
+                await waitForUpdatedAt(byKey, staticCommunity.communityRecord.updatedAt);
+                await vi.waitFor(() => expect(resolveCalls).to.equal(1), { timeout: 30_000, interval: 50 });
+                expect(byKey.nameResolved).to.be.undefined;
+                const byKeyInstance = onlyUpdatingEntry(pkc);
+
+                const byName = await pkc.createCommunity({ address: communityName });
+                await byName.update();
+                await waitForUpdatedAt(byName, staticCommunity.communityRecord.updatedAt);
+                expect(pkc._updatingCommunities.size()).to.equal(2);
+                const byNameInstance = findUpdatingCommunity(pkc, { name: communityName });
+                expect(byNameInstance).to.not.equal(byKeyInstance);
+                expect(findUpdatingCommunity(pkc, { name: communityName, publicKey: key })).to.equal(byNameInstance);
+
+                // Both instances fetch a new record independently, so either can sync its aliases last
+                const newer = await publishNewerRecord({ staticCommunity, previous: staticCommunity.communityRecord, name: communityName });
+                await waitForUpdatedAt(byKey, newer.updatedAt);
+                await waitForUpdatedAt(byName, newer.updatedAt);
+                expect(findUpdatingCommunity(pkc, { name: communityName, publicKey: key })).to.equal(byNameInstance);
+
+                // The order the fetches above may not have produced: the by-key instance syncs last. It
+                // used to take its key back and leave the name behind, and the lookup below threw.
+                refreshTrackedCommunityAliases(pkc, byKeyInstance);
+                expect(findUpdatingCommunity(pkc, { name: communityName, publicKey: key })).to.equal(byNameInstance);
+                expect(findUpdatingCommunity(pkc, { publicKey: key })).to.equal(byNameInstance);
+
+                // Once its own verdict arrives the by-key instance holds a proven name and takes the whole
+                // set, still on one instance
+                releaseFirstResolve();
+                await resolveWhenConditionIsTrue({ toUpdate: byKey, predicate: async () => byKey.nameResolved === true });
+                expect(findUpdatingCommunity(pkc, { name: communityName, publicKey: key })).to.equal(byKeyInstance);
+
+                await byName.stop();
+                await byKey.stop();
+                expect(pkc._updatingCommunities.size()).to.equal(0);
+            } finally {
+                releaseFirstResolve();
                 await pkc.destroy();
                 await staticCommunity.ipnsObj.pkc.destroy();
             }
