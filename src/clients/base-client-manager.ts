@@ -773,11 +773,15 @@ export class BaseClientsManager {
             keys(this._pkc.clients.kuboRpcClients).length === 0 && keys(this._pkc.clients.libp2pJsClients).length > 0;
         const ipnsResolveOpts = { nocache: !resolvingViaLibp2pJsClient, recursive: false, ...loadOpts };
         const ipfsClient = this.getIpfsClientWithKuboRpcClientFunctions();
-        // Ends the client's own request once we stop waiting for it (stop(), timeout, or a failed hop). The clients
-        // read `signal`, not loadOpts.abortSignal, so without this the resolve kept running inside kubo after a
-        // stop(), for up to a minute on a name with no record, and kubo refuses `name pubsub cancel` for a name
-        // with a resolve in progress (issue #602).
-        const resolveAbortController = new AbortController();
+        // Ends kubo's request once we stop waiting for it (stop(), timeout, or a failed hop). kubo-rpc-client reads
+        // `signal`, not loadOpts.abortSignal, so without this the resolve kept running inside kubo after a stop(),
+        // for up to a minute on a name with no record, and kubo refuses `name pubsub cancel` for a name with a
+        // resolve in progress (issue #602). Kubo only: the libp2p-js resolver hands its options to a pubsub warmup
+        // that is meant to outlive the resolve, and this signal is aborted on success too.
+        const kuboResolveAbortController = new AbortController();
+        const clientResolveOpts = resolvingViaLibp2pJsClient
+            ? ipnsResolveOpts
+            : { ...ipnsResolveOpts, signal: kuboResolveAbortController.signal };
 
         const performIpnsResolve = async () => {
             // We resolve ONE hop at a time (recursive: false) rather than letting the resolver
@@ -799,9 +803,7 @@ export class BaseClientsManager {
                 const hopIndex = ipnsHops.length - 1;
                 const hopRole = hopIndex === 0 ? "anchor" : "minter";
                 this._onIpnsNameAboutToBeResolvedP2P(currentName);
-                const yieldedValues: string[] = await all(
-                    ipfsClient.name.resolve(currentName, { ...ipnsResolveOpts, signal: resolveAbortController.signal })
-                );
+                const yieldedValues: string[] = await all(ipfsClient.name.resolve(currentName, clientResolveOpts));
                 // The single-hop value (kubo may yield it more than once; helia yields it once).
                 const value: string | undefined = yieldedValues[yieldedValues.length - 1];
                 if (!value)
@@ -895,7 +897,7 @@ export class BaseClientsManager {
             }
             throw error;
         } finally {
-            resolveAbortController.abort();
+            kuboResolveAbortController.abort();
         }
 
         throw Error("Should not reach this block in resolveIpnsToCidP2P");
