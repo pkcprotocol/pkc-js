@@ -153,8 +153,12 @@ export class BasePagesClientsManager extends BaseClientsManager {
         this._updatePageCidsSortCache(nextPageCid, sortTypes);
     }
 
+    // The sortTypes these four receive come from pkc._memCaches.pageCidToSortTypes, which every instance of a PKC shares.
+    // Another instance may have cached the cid under a sort this one holds no client state for: a custom sort from
+    // settings.pages (#73), on an instance created without a record. So each seeds the missing states before reading them.
     updateKuboRpcState(newState: PagesKuboRpcClient["state"], kuboRpcClientUrl: string, sortTypes: string[] | undefined) {
         if (!Array.isArray(sortTypes)) return;
+        this._updateKuboRpcClientStates(sortTypes);
         for (const sortType of sortTypes) {
             if (this.clients.kuboRpcClients[sortType][kuboRpcClientUrl].state === newState) continue;
             this.clients.kuboRpcClients[sortType][kuboRpcClientUrl].state = newState;
@@ -168,6 +172,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
         sortTypes: string[] | undefined
     ) {
         if (!Array.isArray(sortTypes)) return;
+        this._updateLibp2pJsClientStates(sortTypes);
         for (const sortType of sortTypes) {
             if (this.clients.libp2pJsClients[sortType][libp2pJsClientKey].state === newState) continue;
             this.clients.libp2pJsClients[sortType][libp2pJsClientKey].state = newState;
@@ -177,6 +182,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
     updateGatewayState(newState: PagesIpfsGatewayClient["state"], gateway: string, sortTypes: string[] | undefined) {
         if (!Array.isArray(sortTypes)) return;
+        this._updateIpfsGatewayClientStates(sortTypes);
         for (const sortType of sortTypes) {
             if (this.clients.ipfsGateways[sortType][gateway].state === newState) continue;
             this.clients.ipfsGateways[sortType][gateway].state = newState;
@@ -186,6 +192,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
     updateRpcState(newState: PagesPKCRpcStateClient["state"], rpcUrl: string, sortTypes: string[] | undefined) {
         if (!Array.isArray(sortTypes)) return;
+        this._updatePKCRpcClientStates(sortTypes);
         for (const sortType of sortTypes) {
             if (this.clients.pkcRpcClients[sortType][rpcUrl].state === newState) continue;
             this.clients.pkcRpcClients[sortType][rpcUrl].state = newState;
@@ -228,7 +235,8 @@ export class BasePagesClientsManager extends BaseClientsManager {
         this.updateRpcState("fetching-ipfs", currentRpcUrl, opts.sortTypes);
 
         try {
-            return this._requestPageFromRPC(opts);
+            // Awaited, so the finally below sets "stopped" once the request settles, not while it is in flight
+            return await this._requestPageFromRPC(opts);
         } catch (e) {
             opts.log.error(`Failed to retrieve page (${opts.pageCid}) with rpc due to error:`, e);
             throw e;
