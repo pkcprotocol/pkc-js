@@ -180,6 +180,16 @@ function syncUpdatingCommunityRegistryEntry(pkc: PKC, community: TrackedCommunit
     // was cleared) has to be taken out of it, not merely left out of this sync
     if (community.name && !provenIdentity.name && pkc._updatingCommunities.has(community))
         forgetUpdatingCommunityAliasesOfName(pkc, community, community.name);
+    // Two updating instances can hold one key: a loader of the name arrives while this by-key instance's
+    // verdict is pending, opens its own instance and resolves to the same key. Whichever syncs last takes
+    // every alias it has, and without a proven name this one has only the key. Taking it back would leave
+    // the name on the other instance and the key here, and a lookup that passes both would match two
+    // instances and throw. So it yields: lookups go to the other instance until this one's name is proven,
+    // and its attached loaders keep being served by it meanwhile.
+    if (community.name && !provenIdentity.name && provenIdentity.publicKey) {
+        const keyOwner = pkc._updatingCommunities.findByAlias(provenIdentity.publicKey);
+        if (keyOwner && keyOwner !== community) return pkc._updatingCommunities.track({ value: community });
+    }
     return pkc._updatingCommunities.track({
         value: community,
         aliases: persistAliases(community, pkc._updatingCommunities, getCommunityRegistryAliases(provenIdentity))
