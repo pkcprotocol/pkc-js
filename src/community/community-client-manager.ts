@@ -1068,7 +1068,11 @@ export class CommunityClientsManager extends PKCClientsManager {
                     !recordName ||
                     (isStringDomain(this._community.address)
                         ? areEquivalentCommunityAddresses(this._community.address, recordName)
-                        : this._community.nameResolved === true);
+                        : // The verdict describes the name of the record applied so far, which this record may
+                          // have just changed: it vouches only for that name
+                          this._community.nameResolved === true &&
+                          Boolean(this._community.name) &&
+                          areEquivalentCommunityAddresses(this._community.name!, recordName));
                 if (nameLeadsToThisKey) this._pkc._memCaches.communityForPublishing.set(anchorIdentityAddress, communityForPublishing);
                 else if (
                     recordName &&
