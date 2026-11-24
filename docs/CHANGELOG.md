@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.160](https://github.com/pkcprotocol/pkc-js/compare/v0.0.159...v0.0.160) (2026-11-24)
+
+### Bug Fixes
+
+* **pages:** keep the RPC page state while fetching, and fetch pages of sorts not seen yet ([#609](https://github.com/pkcprotocol/pkc-js/issues/609)) ([2b1c6fc](https://github.com/pkcprotocol/pkc-js/commit/2b1c6fcf6577d0527184c6a02f1b47c9f176d0da))
+
 ## [0.0.159](https://github.com/pkcprotocol/pkc-js/compare/v0.0.158...v0.0.159) (2026-11-23)
 
 ### Features
