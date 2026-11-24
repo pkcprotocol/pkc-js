@@ -520,6 +520,10 @@ describeIfRpc("RPC subscriptions after the websocket auto-reconnects (#425)", ()
             it("community.exports delivers the finished export (exportsSubscribe)", async () => {
                 const client = await createClient();
                 const community = <RpcLocalCommunity>await client.createCommunity({ address: updatingCommunity.address });
+                // A stopped instance keeps its exports subscription only while something listens or its own
+                // export is in flight (#490); the export below is started server-side, so listen for it
+                const onExportsChange = () => {};
+                community.on("exportschange", onExportsChange);
 
                 const exportIsDone = (exportId: string | undefined) => {
                     const record = community.exports.find((r) => r.exportId === exportId);
@@ -553,6 +557,7 @@ describeIfRpc("RPC subscriptions after the websocket auto-reconnects (#425)", ()
                         cleanup: async () => undefined
                     }
                 });
+                community.removeListener("exportschange", onExportsChange);
             });
         });
     }

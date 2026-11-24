@@ -14,7 +14,8 @@ import {
     encodeChallengeMessage,
     encodeChallengeRequest,
     encodeChallengeVerificationMessage,
-    generateSubscriptionId
+    generateSubscriptionId,
+    isOriginTrustedWithoutAuthKey
 } from "./utils.js";
 import Logger from "../../logger.js";
 import type {
@@ -120,7 +121,7 @@ import type {
 } from "../../clients/rpc-client/types.js";
 import type { CommunityExportRecord } from "../../community/types.js";
 import { findStartedCommunity } from "../../pkc/tracked-instance-registry-util.js";
-import { findLocalCommunityAddress, listCommunitiesSync } from "../../runtime/node/util.js";
+import { findLocalCommunityAddress, isLocalCommunityAddress } from "../../runtime/node/util.js";
 
 // store started communities to be able to stop them
 // store as a singleton because not possible to start the same community twice at the same time
@@ -268,7 +269,18 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                         req.url
                     );
                     callback(false, 403, "You need to set the auth key to connect remotely");
-                } else callback(true);
+                    return;
+                }
+
+                // a web page connects from localhost too, so a page from a remote origin also needs the auth key
+                const origin = req.headers.origin;
+                if (!hasAuth && !isOriginTrustedWithoutAuthKey(origin)) {
+                    log(`Rejecting RPC connection request from web page origin`, origin, `because there is no auth key, url:`, req.url);
+                    callback(false, 403, "You need to set the auth key to connect from this web page origin");
+                    return;
+                }
+
+                callback(true);
             }
         });
         // rpc-sockets uses this library https://www.npmjs.com/package/ws
@@ -484,12 +496,11 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         // `fetch failed`. Wait for the reconcile to settle before touching the node.
         await pkc._waitForHttpRoutersSetupToSettle();
 
-        const localCommunities = listCommunitiesSync(pkc); // the filenames, which are what community_states stores
-
         // Filter phase: determine which communities need starting
         const communitiesToStart: string[] = [];
         for (const row of rows) {
-            if (!localCommunities.includes(row.address)) {
+            // community_states stores the filename of the community's DB
+            if (!isLocalCommunityAddress(pkc, row.address)) {
                 autoStartLog(`Skipping auto-start for ${row.address} - community no longer exists`);
                 this._removeCommunityState(row.address);
                 continue;
@@ -1543,7 +1554,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             const commentRpcError = error as CommentRpcErrorToTransmit;
             commentRpcError.details = {
                 ...commentRpcError.details,
-                newPublishingState: comment.publishingState
+                newPublishingState: comment.publishingState,
+                newState: comment.state
             };
             sendEvent("error", commentRpcError);
         };
@@ -1616,7 +1628,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
         const errorListener = (error: PKCError | Error) => {
             const voteRpcError = error as PublicationRpcErrorToTransmit;
-            voteRpcError.details = { ...voteRpcError.details, newPublishingState: vote.publishingState };
+            voteRpcError.details = { ...voteRpcError.details, newPublishingState: vote.publishingState, newState: vote.state };
             sendEvent("error", voteRpcError);
         };
         vote.on("error", errorListener);
@@ -1689,7 +1701,11 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
 
         const errorListener = (error: PKCError | Error) => {
             const editRpcError = error as PublicationRpcErrorToTransmit;
-            editRpcError.details = { ...editRpcError.details, newPublishingState: communityEdit.publishingState };
+            editRpcError.details = {
+                ...editRpcError.details,
+                newPublishingState: communityEdit.publishingState,
+                newState: communityEdit.state
+            };
             sendEvent("error", editRpcError);
         };
         communityEdit.on("error", errorListener);
@@ -1763,7 +1779,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             const commentEditRpcError = error as PublicationRpcErrorToTransmit;
             commentEditRpcError.details = {
                 ...commentEditRpcError.details,
-                newPublishingState: commentEdit.publishingState
+                newPublishingState: commentEdit.publishingState,
+                newState: commentEdit.state
             };
             sendEvent("error", commentEditRpcError);
         };
@@ -1839,7 +1856,8 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             const commentModRpcError = error as PublicationRpcErrorToTransmit;
             commentModRpcError.details = {
                 ...commentModRpcError.details,
-                newPublishingState: commentMod.publishingState
+                newPublishingState: commentMod.publishingState,
+                newState: commentMod.state
             };
             sendEvent("error", commentModRpcError);
         };

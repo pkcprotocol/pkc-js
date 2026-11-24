@@ -24,6 +24,11 @@ on:
             - "package.json"
             - "package-lock.json"
 
+# A newer push to the same pull request cancels its older run. Pushes to master never cancel each other.
+concurrency:
+    group: ci-${{ github.event.pull_request.number || github.run_id }}
+    cancel-in-progress: true
+
 jobs:
     test-pkc-js-node-local:
         runs-on: ${{ matrix.os }}
@@ -75,7 +80,7 @@ jobs:
               shell: bash
               run: |
                   mkdir -p kubo-debug
-                  for port in 15001 15002 15003 15004 15005 15006; do
+                  for port in 15001 15002 15003 15004 15005 15006 15007; do
                       if curl -sS --max-time 20 "http://127.0.0.1:$port/debug/pprof/goroutine?debug=2" -o "kubo-debug/goroutine-$port.txt"; then
                           echo "saved kubo-debug/goroutine-$port.txt ($(wc -l < kubo-debug/goroutine-$port.txt) lines)"
                       else
@@ -199,7 +204,8 @@ jobs:
 
     test-pkc-js-browser-remote-configs:
         name: test-pkc-js-${{ matrix.environment }}-${{ matrix.config }}
-        runs-on: ubuntu-latest
+        # pinned: ubuntu-latest is now 26.04, where playwright 1.56.1 refuses to install browsers
+        runs-on: ubuntu-24.04
         timeout-minutes: 30
         strategy:
             fail-fast: false

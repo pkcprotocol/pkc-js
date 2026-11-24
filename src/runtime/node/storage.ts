@@ -23,6 +23,10 @@ export default class Storage implements StorageInterface {
             dbFilePath = path.join(this._pkc.dataPath, "storage.db");
         }
         this._db = new Database(dbFilePath);
+        // Every PKC instance on a dataPath has this file open, and so does its communities registry, which several
+        // instances write to (see communities-registry.ts, issue #585). In WAL mode readers and the one writer do not
+        // block each other. An in-memory database has no journal to choose
+        if (dbFilePath !== ":memory:") this._db.pragma("journal_mode = WAL");
         this._keyv = new KeyvBetterSqlite3(this._db);
 
         this._keyv.on("error", (err: any) => {

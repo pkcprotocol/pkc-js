@@ -465,11 +465,11 @@ communityAuthors[lowKarmaAuthor.address][excludeAccountAgeChallengeCommunity.tit
 const challengeCommentCids: Record<string, string[]> = {};
 challengeCommentCids[highKarmaAuthor.address] = ["Qm...friendly-sub.bso,high,old", "Qm...friendly-sub.bso,high,old"];
 
-const challengeAnswers: Record<string, Record<string, string[]>> = {};
+const challengeAnswers: Record<string, Record<string, Record<string, string>>> = {};
 challengeAnswers[highKarmaAuthor.address] = {};
-challengeAnswers[highKarmaAuthor.address][passwordChallengeCommunity.title] = ["password"];
+challengeAnswers[highKarmaAuthor.address][passwordChallengeCommunity.title] = { "0": "password" };
 challengeAnswers[lowKarmaAuthor.address] = {};
-challengeAnswers[lowKarmaAuthor.address][passwordChallengeCommunity.title] = ["wrong"];
+challengeAnswers[lowKarmaAuthor.address][passwordChallengeCommunity.title] = { "0": "wrong" };
 
 const communities: MockCommunity[] = [
     textMathChallengeCommunity,

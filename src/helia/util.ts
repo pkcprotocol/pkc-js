@@ -9,7 +9,8 @@ import type { IPNSRecord } from "ipns";
 import { equals as uint8ArrayEquals } from "uint8arrays/equals";
 import Logger from "../logger.js";
 import { PKCError } from "../pkc-error.js";
-import { pubsubTopicToDhtKeyCid } from "../util.js";
+import { linkAbortSignals, pubsubTopicToDhtKeyCid } from "../util.js";
+import { isLoopback, isPrivate } from "@libp2p/utils";
 
 const TOPIC_SUBSCRIBER_WAIT_TIMEOUT_MS = 10_000;
 const MESH_PEER_WAIT_TIMEOUT_MS = 3_000;
@@ -62,6 +63,39 @@ function isDialRetryableAfterAddrMerge(error: unknown): boolean {
 
 function multiaddrIsCircuitRelay(addr: Multiaddr): boolean {
     return addr.getComponents().some((component) => component.name === "p2p-circuit");
+}
+
+// Private, loopback, link-local or IPv6 site-local. @libp2p/utils' isPrivate covers RFC 1918, CGNAT,
+// loopback, link-local and fc00::/7 (and the name "localhost"), but not the deprecated site-local range
+// fec0::/10, which QEMU user-mode networking hands to guests and which NAT'd seeders in VMs announce (#475).
+export function multiaddrIsPrivateOrLoopback(addr: Multiaddr): boolean {
+    try {
+        if (isPrivate(addr) || isLoopback(addr)) return true;
+        const first = addr.getComponents()[0];
+        return first?.name === "ip6" && /^fe[c-f]/i.test(first.value ?? "");
+    } catch {
+        return false; // not parseable as an address: treat as public
+    }
+}
+
+// Issue #475: a provider whose dialable addrs are ALL private or loopback (a node behind NAT, often in a
+// VM, announcing 127.0.0.1, 10.0.2.15, fec0::...) can only be reached from its own machine or LAN. Its
+// dials still run (a LAN or localhost seeder is legitimate), but last: a WebTransport handshake to such
+// an address from anywhere else hangs for seconds, and dialing these peers first spent the direct
+// fetch's maxPeers slots on them while public providers waited. A provider with at least one public
+// dialable addr is dialed first, as before.
+// How long a private-only provider waits for the public ones before it is dialed anyway. The provider
+// stream ending releases them sooner; this bound matters when a router never answers (a black hole keeps
+// the stream open until the caller's own timeout) and the only reachable provider is on the LAN.
+export const PRIVATE_ONLY_PROVIDER_DIAL_DELAY_MS = 2_000;
+
+async function providerIsReachableOnlyPrivately(helia: HeliaWithLibp2pPubsub, announcedAddrs: Multiaddr[]): Promise<boolean> {
+    const directAddrs = announcedAddrs.filter((addr) => !multiaddrIsCircuitRelay(addr));
+    if (directAddrs.length === 0) return false;
+    const publicAddrs = directAddrs.filter((addr) => !multiaddrIsPrivateOrLoopback(addr));
+    if (publicAddrs.length > 0 && (await helia.libp2p.isDialable(publicAddrs))) return false;
+    const privateAddrs = directAddrs.filter(multiaddrIsPrivateOrLoopback);
+    return privateAddrs.length > 0 && (await helia.libp2p.isDialable(privateAddrs));
 }
 
 // Per-peer scheduler for the addr-merge retries (issues #213/#215). A peer marked retryable is
@@ -241,19 +275,45 @@ function waitForMeshPeer({
 // topic peers itself; that is the application's responsibility (same pattern Helia and
 // js-ipfs use): hash the topic to a CID, contentRouting.findProviders(), then dial.
 // See https://github.com/libp2p/js-libp2p/blob/main/doc/CONFIGURATION.md ("ambient peer discovery").
-export async function connectToPubsubPeers({
-    helia,
-    pubsubTopic,
-    maxPeers,
-    options,
-    log
-}: {
+export async function connectToPubsubPeers(params: {
     helia: HeliaWithLibp2pPubsub;
     pubsubTopic: string;
     maxPeers: number; // how many peers to dial before we stop
     log: Logger;
     options?: { signal?: AbortSignal };
+    // The node's own stop signal. It ends what this function waits for, and is checked by the dials that
+    // keep running after it returned. It is not linked into options.signal: a link has to be taken down
+    // when the wait settles (a listener left on a long-lived signal is the #144 leak), and the dials
+    // outlive the wait, so they hold the caller's signal itself and read this one directly.
+    stopSignal?: AbortSignal;
+}): Promise<Awaited<ReturnType<HeliaWithLibp2pPubsub["libp2p"]["dial"]>>[]> {
+    const waitLink = linkAbortSignals([params.options?.signal, params.stopSignal]);
+    try {
+        return await connectToPubsubPeersUntilSubscriber({ ...params, waitSignal: waitLink.signal });
+    } finally {
+        waitLink.dispose();
+    }
+}
+
+async function connectToPubsubPeersUntilSubscriber({
+    helia,
+    pubsubTopic,
+    maxPeers,
+    options,
+    stopSignal,
+    waitSignal,
+    log
+}: {
+    helia: HeliaWithLibp2pPubsub;
+    pubsubTopic: string;
+    maxPeers: number;
+    log: Logger;
+    options?: { signal?: AbortSignal };
+    stopSignal?: AbortSignal;
+    // options.signal and stopSignal as one signal, valid until this function returns
+    waitSignal?: AbortSignal;
 }): Promise<Awaited<ReturnType<typeof helia.libp2p.dial>>[]> {
+    const isAborted = () => Boolean(options?.signal?.aborted || stopSignal?.aborted);
     const contentCid = pubsubTopicToDhtKeyCid(pubsubTopic);
     const peersWithContent: PeerInfo[] = [];
     const connectedPeersWithContent: Awaited<ReturnType<typeof helia.libp2p.dial>>[] = [];
@@ -267,7 +327,7 @@ export async function connectToPubsubPeers({
     //     themselves to bitswap's peer set via the peer:connected event, giving the
     //     subsequent bitswap fetch more peers to wantBlock from.
     const findProvidersAbort = new AbortController();
-    const findProvidersSignal = options?.signal ? AbortSignal.any([options.signal, findProvidersAbort.signal]) : findProvidersAbort.signal;
+    const findProvidersSignal = waitSignal ? AbortSignal.any([waitSignal, findProvidersAbort.signal]) : findProvidersAbort.signal;
 
     // Event-based watcher for a peer subscribing to our topic on gossipsub.
     // Started immediately so we don't miss subscription-change events that fire during the dial loop.
@@ -315,7 +375,7 @@ export async function connectToPubsubPeers({
     const retryScheduler = createAddrMergeRetryScheduler({
         helia,
         runRetry: async (peerId) => {
-            if (options?.signal?.aborted) return "done";
+            if (isAborted()) return "done";
             try {
                 const conn = await helia.libp2p.dial(peerId, dialOptions);
                 connectedPeersWithContent.push(conn);
@@ -330,36 +390,67 @@ export async function connectToPubsubPeers({
             }
         }
     });
+    // Issue #475: providers reachable only on private/loopback addrs, dialed once the public dials have
+    // settled or PRIVATE_ONLY_PROVIDER_DIAL_DELAY_MS after the first one was seen, whichever comes first.
+    const privateOnlyPeers: PeerInfo[] = [];
+    let privateOnlyReleased = false;
+    let privateOnlyTimer: ReturnType<typeof setTimeout> | undefined;
+    const releasePrivateOnlyPeers = () => {
+        if (privateOnlyReleased) return;
+        privateOnlyReleased = true;
+        clearTimeout(privateOnlyTimer);
+        for (const peer of privateOnlyPeers.splice(0)) {
+            if (isAborted() || connectedPeersWithContent.length >= maxPeers) break;
+            startDial(peer);
+        }
+    };
+    const startDial = (peer: PeerInfo) => {
+        const dialPromise = (async () => {
+            try {
+                // Make sure dial-by-peerId can resolve addresses: not all content routers (notably
+                // delegated-routing-v1-http) auto-merge discovered multiaddrs into the peerstore,
+                // and dial(peerId) without addrs fails with "no addresses for peer".
+                if (peer.multiaddrs?.length) {
+                    await helia.libp2p.peerStore.merge(peer.id, { multiaddrs: peer.multiaddrs });
+                }
+                const conn = await helia.libp2p.dial(peer.id, dialOptions); // no-op if already connected
+                connectedPeersWithContent.push(conn);
+                if (connectedPeersWithContent.length >= maxPeers && !findProvidersAbort.signal.aborted) {
+                    log.trace("Aborting findProviders after reaching maxPeers", maxPeers);
+                    findProvidersAbort.abort();
+                }
+            } catch (e) {
+                const err = e as Error;
+                if (isDialRetryableAfterAddrMerge(err)) retryScheduler.markRetryable(peer.id);
+                peerDialToError[peer.id.toString()] = {
+                    multiaddrs: peer.multiaddrs.map(String),
+                    errorName: err.name,
+                    errorMessage: err.message,
+                    errorStack: err.stack
+                };
+                log.trace("Failed to dial IPNS-Over-Pubsub peer", peer.id.toString(), "Due to error", e);
+            }
+        })();
+        inflightDialPromises.push(dialPromise);
+    };
     try {
         for await (const peer of helia.libp2p.contentRouting.findProviders(contentCid, { ...options, signal: findProvidersSignal })) {
             peersWithContent.push(peer as PeerInfo);
-            const dialPromise = (async () => {
-                try {
-                    // Make sure dial-by-peerId can resolve addresses: not all content routers (notably
-                    // delegated-routing-v1-http) auto-merge discovered multiaddrs into the peerstore,
-                    // and dial(peerId) without addrs fails with "no addresses for peer".
-                    if (peer.multiaddrs?.length) {
-                        await helia.libp2p.peerStore.merge(peer.id, { multiaddrs: peer.multiaddrs });
-                    }
-                    const conn = await helia.libp2p.dial(peer.id, dialOptions); // no-op if already connected
-                    connectedPeersWithContent.push(conn);
-                    if (connectedPeersWithContent.length >= maxPeers && !findProvidersAbort.signal.aborted) {
-                        log.trace("Aborting findProviders after reaching maxPeers", maxPeers);
-                        findProvidersAbort.abort();
-                    }
-                } catch (e) {
-                    const err = e as Error;
-                    if (isDialRetryableAfterAddrMerge(err)) retryScheduler.markRetryable(peer.id);
-                    peerDialToError[peer.id.toString()] = {
-                        multiaddrs: peer.multiaddrs.map(String),
-                        errorName: err.name,
-                        errorMessage: err.message,
-                        errorStack: err.stack
-                    };
-                    log.trace("Failed to dial IPNS-Over-Pubsub peer", peer.id.toString(), "Due to error", e);
-                }
-            })();
-            inflightDialPromises.push(dialPromise);
+            // Issue #475: providers reachable only on private/loopback addrs are dialed after the
+            // provider stream ends, so they never queue ahead of public ones.
+            // The release flag is read again after the await: the timer can fire while a provider is being
+            // classified, and one queued after the release would never be dialed (a release happens once).
+            if (
+                !privateOnlyReleased &&
+                (await providerIsReachableOnlyPrivately(helia, (peer as PeerInfo).multiaddrs ?? [])) &&
+                !privateOnlyReleased
+            ) {
+                privateOnlyPeers.push(peer as PeerInfo);
+                privateOnlyTimer ??= setTimeout(releasePrivateOnlyPeers, PRIVATE_ONLY_PROVIDER_DIAL_DELAY_MS);
+                log.trace("Deferring dial to private-only provider", peer.id.toString(), "for topic", pubsubTopic);
+                continue;
+            }
+            startDial(peer as PeerInfo);
             if (connectedPeersWithContent.length >= maxPeers) {
                 log.trace("Breaking findProviders loop after reaching maxPeers", maxPeers);
                 break;
@@ -379,6 +470,9 @@ export async function connectToPubsubPeers({
                 peerDialToError,
                 ...getHeliaDebugContext(helia)
             };
+            // This path never releases the private-only peers. The normal path keeps the timer running so
+            // PRIVATE_ONLY_PROVIDER_DIAL_DELAY_MS still caps their wait while a public dial hangs.
+            clearTimeout(privateOnlyTimer);
             throw e;
         }
     } finally {
@@ -396,6 +490,15 @@ export async function connectToPubsubPeers({
         // captured — for the lifetime of the page. onProviderStreamEnded is idempotent (it
         // guards on listenerRemoved), so running it on every path is safe.
         retryScheduler.onProviderStreamEnded();
+    }
+
+    // Issue #475: the public providers have all been enqueued; dial the private-only ones (in the
+    // background like every other warmup dial) once those public dials have settled, or when the
+    // PRIVATE_ONLY_PROVIDER_DIAL_DELAY_MS timer fires first. Skipped if the caller gave up or enough
+    // peers connected by then.
+    if (privateOnlyPeers.length > 0) {
+        if (inflightDialPromises.length === 0) releasePrivateOnlyPeers();
+        else void Promise.allSettled([...inflightDialPromises]).then(releasePrivateOnlyPeers);
     }
 
     inflightDialPromises.push(...retryScheduler.retryTasks);
@@ -430,7 +533,7 @@ export async function connectToPubsubPeers({
     const pubsub = helia.libp2p.services.pubsub;
     if (!graftError && pubsub.getTopics().includes(pubsubTopic)) {
         const meshWaitStart = Date.now();
-        await waitForMeshPeer({ helia, topic: pubsubTopic, timeoutMs: MESH_PEER_WAIT_TIMEOUT_MS, abortSignal: options?.signal });
+        await waitForMeshPeer({ helia, topic: pubsubTopic, timeoutMs: MESH_PEER_WAIT_TIMEOUT_MS, abortSignal: waitSignal });
         const meshPeerCount = pubsub.getMeshPeers(pubsubTopic).length;
         const waitMs = Date.now() - meshWaitStart;
         if (meshPeerCount === 0) log.trace("Timed out waiting for mesh peers for topic", pubsubTopic, "after", waitMs, "ms");
@@ -441,7 +544,7 @@ export async function connectToPubsubPeers({
     // abort rather than reporting success. We may have happened to connect to some peers
     // via findProviders before the abort hit, but the caller asked us to stop — best-effort
     // semantics apply to timeouts, not to explicit aborts.
-    if (graftError && options?.signal?.aborted) {
+    if (graftError && isAborted()) {
         throw graftError;
     }
 
@@ -798,7 +901,45 @@ export async function directFetchIpnsRecordFromProviders({
                 return "done";
             }
         });
+        // Dial a discovered provider and fetch the record from it the moment the dial completes.
+        const dialAndFetch = async (peer: PeerInfo): Promise<void> => {
+            try {
+                // Not all routers merge discovered multiaddrs into the peerstore, so dial-by-id
+                // could otherwise fail with "no addresses for peer" (mirrors connectToPubsubPeers).
+                if (peer.multiaddrs?.length) await helia.libp2p.peerStore.merge(peer.id, { multiaddrs: peer.multiaddrs });
+                // Bind the dial to the winner signal too, so a losing dial is cancelled the
+                // moment another peer wins rather than running to its own timeout and delaying
+                // Promise.allSettled(dialFetchTasks) below.
+                const dialSignal = options?.signal ? AbortSignal.any([options.signal, resultController.signal]) : resultController.signal;
+                await helia.libp2p.dial(peer.id, { signal: dialSignal }); // no-op if already connected
+                markProviderDialed(peer.id); // the dial reached a real addr (peerstore knew one)
+                await tryFetchFromPeer(peer.id, "provider");
+            } catch (e) {
+                // DialDeniedError / NoValidAddressesError mean no real addr was ever tried, so
+                // the local verdict stands; any other failure happened on the wire.
+                if (isDialRetryableAfterAddrMerge(e)) retryScheduler.markRetryable(peer.id);
+                else markProviderDialed(peer.id);
+                recordErr(peer.id, e);
+            }
+        };
+        // Issue #475: providers reachable only on private/loopback addrs. Released once every public
+        // provider's dial has settled without a winner, or PRIVATE_ONLY_PROVIDER_DIAL_DELAY_MS after the
+        // first one was seen (a black-hole router can keep the provider stream open), whichever is first.
         let attempted = 0;
+        const privateOnlyProviders: PeerInfo[] = [];
+        const privateOnlyTasks: Promise<void>[] = [];
+        let privateOnlyReleased = false;
+        let privateOnlyTimer: ReturnType<typeof setTimeout> | undefined;
+        const releasePrivateOnlyProviders = () => {
+            if (privateOnlyReleased) return;
+            privateOnlyReleased = true;
+            clearTimeout(privateOnlyTimer);
+            for (const peer of privateOnlyProviders.splice(0)) {
+                if (winner || resultController.signal.aborted || options?.signal?.aborted || attempted >= maxPeers) break;
+                attempted++;
+                privateOnlyTasks.push(dialAndFetch(peer));
+            }
+        };
         try {
             for await (const peer of helia.libp2p.contentRouting.findProviders(contentCid, { ...options, signal: findProvidersSignal })) {
                 if (resultController.signal.aborted) break;
@@ -838,31 +979,21 @@ export async function directFetchIpnsRecordFromProviders({
                     verdict: hasDialableAddr ? "dialed" : "no-dialable-addrs",
                     announcedAddrs: announcedAddrs.map(String)
                 });
-                dialFetchTasks.push(
-                    (async () => {
-                        try {
-                            // Not all routers merge discovered multiaddrs into the peerstore, so dial-by-id
-                            // could otherwise fail with "no addresses for peer" (mirrors connectToPubsubPeers).
-                            if ((peer as PeerInfo).multiaddrs?.length)
-                                await helia.libp2p.peerStore.merge(peer.id, { multiaddrs: (peer as PeerInfo).multiaddrs });
-                            // Bind the dial to the winner signal too, so a losing dial is cancelled the
-                            // moment another peer wins rather than running to its own timeout and delaying
-                            // Promise.allSettled(dialFetchTasks) below.
-                            const dialSignal = options?.signal
-                                ? AbortSignal.any([options.signal, resultController.signal])
-                                : resultController.signal;
-                            await helia.libp2p.dial(peer.id, { signal: dialSignal }); // no-op if already connected
-                            markProviderDialed(peer.id); // the dial reached a real addr (peerstore knew one)
-                            await tryFetchFromPeer(peer.id, "provider");
-                        } catch (e) {
-                            // DialDeniedError / NoValidAddressesError mean no real addr was ever tried, so
-                            // the local verdict stands; any other failure happened on the wire.
-                            if (isDialRetryableAfterAddrMerge(e)) retryScheduler.markRetryable(peer.id);
-                            else markProviderDialed(peer.id);
-                            recordErr(peer.id, e);
-                        }
-                    })()
-                );
+                // Issue #475: dialed only after the public providers have had their turn (below).
+                // The release flag is read again after the await: the timer can fire while a provider is being
+                // classified, and one queued after the release would never be dialed (a release happens once).
+                if (
+                    !privateOnlyReleased &&
+                    hasDialableAddr &&
+                    (await providerIsReachableOnlyPrivately(helia, announcedAddrs)) &&
+                    !privateOnlyReleased
+                ) {
+                    privateOnlyProviders.push(peer as PeerInfo);
+                    privateOnlyTimer ??= setTimeout(releasePrivateOnlyProviders, PRIVATE_ONLY_PROVIDER_DIAL_DELAY_MS);
+                    log.trace("Deferring dial to private-only provider", peer.id.toString(), "for topic", pubsubTopic);
+                    continue;
+                }
+                dialFetchTasks.push(dialAndFetch(peer as PeerInfo));
                 if (hasDialableAddr && ++attempted >= maxPeers) {
                     findProvidersAbort.abort();
                     break;
@@ -881,6 +1012,10 @@ export async function directFetchIpnsRecordFromProviders({
         // already fired mid-stream, the moment the slower router's merge fired peer:update.
         retryScheduler.onProviderStreamEnded();
         await Promise.allSettled(dialFetchTasks);
+        // Issue #475: every public provider has had its turn and none won, so try the providers
+        // reachable only on private/loopback addrs, still bounded by maxPeers.
+        releasePrivateOnlyProviders();
+        await Promise.allSettled(privateOnlyTasks);
         // Drain retry tasks (they can grow while draining: a late initial-dial failure after
         // stream end triggers its retry inline) so no in-flight fetch/dial leaks past return.
         while (retryScheduler.retryTasks.length > 0) {

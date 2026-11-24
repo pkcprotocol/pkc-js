@@ -9,8 +9,9 @@ const {getChallengeVerification} = require('./challenges')
 // because they are sometimes skipped
 const getChallengeAnswers = async (challenges) => {
   // ...get challenge answers from user. e.g.:
+  // `challenges` is {[challengeIndex: string]: Challenge}, only the challenges that still need an answer
   // step 1. community publishes challenge pubsub message with `challenges` provided in argument of `getChallengeAnswers`
-  // step 2. community waits for challenge answer pubsub message with `challengeAnswers` and then returns `challengeAnswers`
+  // step 2. community waits for challenge answer pubsub message with `challengeAnswers` ({[challengeIndex: string]: string}) and then returns `challengeAnswers`
   return challengeAnswers
 }
 
@@ -44,7 +45,7 @@ ChallengeRequestMessage {
   encrypted: Encrypted
   /* ChallengeRequestMessage.encrypted.ciphertext decrypts to JSON {
     publication: Publication
-    challengeAnswers?: string[] // some challenges might be included in community.challenges and can be pre-answered
+    challengeAnswers?: {[challengeIndex: string]: string} // pre-answers to challenges in community.challenges, keyed by challenge index; a challenge with no key has no pre-answer
     challengeCommentCids?: string[] // some challenges could require including comment cids in other subs, like friendly community karma challenges
   } */
 }
@@ -79,7 +80,7 @@ ChallengeFile { // the result of the function exported by the challenge file
   getChallenge: GetChallengeFunction
 }
 GetChallengeFunction {
-  (challenge: CommunityChallengeSettings, challengeRequest: ChallengeRequestMessage, challengeIndex: number): Challenge | ChallengeResult
+  (args: {challengeSettings: CommunityChallengeSettings, challengeRequestMessage: ChallengeRequestMessage, challengeIndex: number, challengeAnswer?: string}): Challenge | ChallengeResult // challengeAnswer is this challenge's own pre-answer from challengeRequestMessage.challengeAnswers[challengeIndex], undefined if the author sent none
 }
 Challenge { // if the result of a challenge can't be optained by getChallenge(), return a challenge
   challenge: string // e.g. '2 + 2'

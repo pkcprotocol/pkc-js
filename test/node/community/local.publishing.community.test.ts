@@ -88,8 +88,8 @@ describeSkipIfRpc("Local publishing to community", async () => {
         expect((challengeRequest as { challengeRequestId: Uint8Array }).challengeRequestId.toString()).to.equal(
             (challenge as { challengeRequestId: Uint8Array }).challengeRequestId.toString()
         );
-        expect((challengeAnswer as { challengeAnswers: string[] }).challengeAnswers).to.deep.equal(["2"]);
-        expect((challenge as { challenges: { challenge: string }[] }).challenges[0].challenge).to.equal("1+1=?");
+        expect((challengeAnswer as { challengeAnswers: Record<string, string> }).challengeAnswers).to.deep.equal({ "0": "2" });
+        expect((challenge as { challenges: Record<string, { challenge: string }> }).challenges["0"].challenge).to.equal("1+1=?");
 
         // Verify the challenge succeeded
         expect((challengeVerification as { challengeSuccess: boolean }).challengeSuccess).to.be.true;

@@ -13,7 +13,7 @@ import type { LocalCommunity } from "../../../../dist/node/runtime/node/communit
 import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-local-community.js";
 
 const pendingApprovalChallengeCommentProps = {
-    challengeRequest: { challengeAnswers: ["pending"] }
+    challengeRequest: { challengeAnswers: { "0": "pending" } }
 };
 
 describe(`Modqueue limits`, () => {

@@ -1,6 +1,8 @@
 import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
 import { beforeEach, it } from "vitest";
 import { PageGenerator } from "../../../../dist/node/runtime/node/community/page-generator.js";
+import { calculateUnixFsDagSizeCidV0 } from "../../../../dist/node/util.js";
+import { MAX_PAGE_SIZE_BYTES } from "../../../../dist/node/pages/page-size.js";
 import { Buffer } from "buffer";
 import { readFileSync } from "node:fs";
 
@@ -194,6 +196,54 @@ describeSkipIfRpc("page-generator _chunkComments", () => {
         expect(lastChunkSize).to.be.lessThan(2 * 1024 * 1024);
     });
 
+    // Issue #504: the chunker summed each entry's DAG size as if it were its own file (11 to 14 bytes of leaf framing
+    // per entry) while a page's real DAG overhead is one leaf framing per 256 KiB chunk plus the root's links, about
+    // 7,950 bytes at 32 MiB. With a few hundred large entries per page the sum fell short of the real overhead by more
+    // than the 1 KiB margin and the generated page came out over its limit (ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE).
+    it("keeps a 32 MiB page of few large entries under its limit (issue #504)", async () => {
+        // 437 posts with large inline reply pages, sized so that the per-entry sum lands within a few hundred bytes of
+        // the budget: the shape of the page that came out 23 bytes over on a 1M-comment board
+        const LIMIT = MAX_PAGE_SIZE_BYTES;
+        const COUNT = 437;
+        const budget = LIMIT - SAFETY_MARGIN_BYTES;
+        const wrapperAsCounted = calculateUnixFsDagSizeCidV0(OBJECT_WRAPPER_WITH_CID_BYTES + 2) - 2;
+        const entryFraming = calculateUnixFsDagSizeCidV0(70_000) - 70_000; // what one entry costs beyond its bytes, as its own file
+        const entryBytes = Math.floor((budget - wrapperAsCounted - (COUNT - 1)) / COUNT) - entryFraming;
+        const comments = Array.from({ length: COUNT + 1 }, () => createCommentEntry(10)) as unknown as PageIpfs["comments"];
+        const chunks = pageGenerator._chunkComments({ comments, firstPageSizeBytes: LIMIT, sizeOf: () => entryBytes });
+        expect(chunks.length).to.equal(2);
+        const onPage = chunks[0].length; // the per-entry sum put all COUNT of them on the page, and the page came out over
+        const dagSize = calculateUnixFsDagSizeCidV0(measurePageBytes(onPage, entryBytes, true));
+        expect(dagSize, `the page of ${onPage} entries of ${entryBytes} bytes must be what the limit allows`).to.be.at.most(LIMIT);
+        expect(
+            calculateUnixFsDagSizeCidV0(measurePageBytes(onPage + 1, entryBytes, true)),
+            "the page ended before it was full"
+        ).to.be.greaterThan(LIMIT - SAFETY_MARGIN_BYTES);
+    });
+
+    it("fills every page up to its limit across the 1, 2, 4... 32 MiB steps", async () => {
+        const ENTRY_BYTES = 76_000;
+        const comments = Array.from({ length: 2_600 }, () => createCommentEntry(10)) as unknown as PageIpfs["comments"];
+        const firstPageSizeBytes = 1024 * 1024;
+        const chunks = pageGenerator._chunkComments({ comments, firstPageSizeBytes, sizeOf: () => ENTRY_BYTES });
+        expect(chunks.length).to.be.greaterThan(6); // 1 + 1 + 2 + 4 + 8 + 16 + 32 MiB pages, then more 32 MiB pages
+        const pageLimit = (index: number) =>
+            index === 0 ? firstPageSizeBytes : Math.min(1024 * 1024 * 2 ** (index - 1), MAX_PAGE_SIZE_BYTES);
+        for (let index = 0; index < chunks.length; index++) {
+            const hasNextCid = index < chunks.length - 1;
+            const dagSize = calculateUnixFsDagSizeCidV0(measurePageBytes(chunks[index].length, ENTRY_BYTES, hasNextCid));
+            expect(dagSize, `page ${index} with ${chunks[index].length} entries must fit its ${pageLimit(index)} byte limit`).to.be.at.most(
+                pageLimit(index)
+            );
+            // and not end early either: one more entry would not have fit under the limit
+            if (hasNextCid)
+                expect(
+                    calculateUnixFsDagSizeCidV0(measurePageBytes(chunks[index].length + 1, ENTRY_BYTES, true)),
+                    `page ${index} ended before it was full`
+                ).to.be.greaterThan(pageLimit(index) - SAFETY_MARGIN_BYTES);
+        }
+    });
+
     it("returns a chunk for empty comment lists so callers can reuse the original array", async () => {
         const emptyComments: CommentEntry[] = [];
         const chunks = await chunkComments(pageGenerator, emptyComments, 2048);
@@ -210,6 +260,13 @@ async function chunkComments(
     firstPageSizeBytes: number
 ): Promise<PageIpfs["comments"][]> {
     return pageGenerator._chunkComments({ comments, firstPageSizeBytes });
+}
+
+// The UTF-8 size of a page of `count` entries of `entryBytes` each: the page generator's wrapper, the entries and
+// the commas between them
+function measurePageBytes(count: number, entryBytes: number, hasNextCid: boolean): number {
+    const wrapper = hasNextCid ? OBJECT_WRAPPER_WITH_CID_BYTES + 2 : Buffer.byteLength(JSON.stringify({ comments: [] }), "utf8");
+    return wrapper + count * entryBytes + Math.max(count - 1, 0);
 }
 
 let commentCounter = 0;

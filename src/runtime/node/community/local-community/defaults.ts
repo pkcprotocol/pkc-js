@@ -22,6 +22,12 @@ export const DUPLICATE_PUBLICATION_ERRORS = new Set<string>([
 // the same signed publication (issue #228) is never parked forever.
 export const CHALLENGE_EXCHANGE_TTL_MS = 10 * 60 * 1000;
 
+// A publisher that has heard neither a challenge nor a verification gives up 120 s after its last
+// request (it re-sends once, 10 s after the first). A getChallenge() still running after this long is
+// eating most of that window, and the time the request waited before getChallenge() started is not
+// even counted here (issue #362). See "Time budget" in docs/protocol/challenge-authoring.md.
+export const SLOW_GET_CHALLENGE_WARNING_MS = 60 * 1000;
+
 export const defaultChallengeQuestionText =
     "What is the answer to this community's challenge? (check community.settings.challenges to see the answer, or set your own challenge)";
 

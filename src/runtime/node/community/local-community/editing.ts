@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import Logger from "../../../../logger.js";
-import { clone, keys, omit, omitBy, pick } from "remeda";
+import { clone, isEmpty, keys, omit, omitBy, pick } from "remeda";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { sha256 } from "js-sha256";
 import { doesDomainAddressHaveCapitalLetter, isStringDomain } from "../../../../util.js";
@@ -24,7 +24,8 @@ import { findProcessStartedCommunity, processStartedCommunities, syncProcessStar
 import { updateDbInternalState, updateInstancePropsWithStartedCommunityOrDb } from "./db-state.js";
 import { setResolvedPageSorts } from "./registry-sync.js";
 import { communityIdentityPublicKey } from "./identity.js";
-import { refreshCommunitiesList } from "../../util.js";
+import { removeFileRetryingWhileBusy } from "../../util.js";
+import { getCommunitiesRegistry } from "../communities-registry.js";
 import { findCommunitiesEntry } from "../../../../community/communities-entry-util.js";
 
 export async function movePostUpdatesFolderToNewAddress(community: LocalCommunity, oldAddress: string, newAddress: string) {
@@ -182,38 +183,80 @@ export function deriveNameAndAddressEdit<T extends Pick<ParsedCommunityEditOptio
 
 // Lists the new address now, not when the filesystem watcher fires (issue #430). The DB still holds the old name at
 // this point, which is fine: pkc.communities takes a community's name from its DB's filename (issue #455)
-function listRenamedCommunityNow(community: LocalCommunity) {
-    refreshCommunitiesList(community._pkc);
+// The files have moved by now and the rename goes on whatever happens here: the registry is an index of the files, and
+// one that could not be written (storage.db locked for too long) is put right by the next lookup of either address
+function listRenamedCommunityNow(community: LocalCommunity, { oldAddress, newAddress }: { oldAddress: string; newAddress: string }) {
+    try {
+        getCommunitiesRegistry(community._pkc).renameCommunity({ oldAddress, newAddress });
+    } catch (error) {
+        Logger("pkc-js:local-community:edit").error(
+            `Failed to list the renamed community under its new address (${newAddress}) in the communities registry`,
+            error
+        );
+    }
 }
 
-// Puts a started community back under its old address after its rename failed partway (issue #469): moves the
-// postUpdates folder back if it had moved, then restarts the community. edit() rejects with the rename's own error, so a
-// failure here is emitted as an error event instead. A folder that can't be moved back leaves the community stopped,
-// since starting it would publish without its postUpdates.
-async function restoreCommunityAfterFailedRename({
+// Moves the postUpdates folder back under the old address after the DB rename that follows the move failed (issue
+// #469). Resolves to the error when the folder can't be moved back; the caller reports it, since edit() rejects with the
+// rename's own error.
+async function movePostUpdatesFolderBack({
     community,
     oldAddress,
     newAddress,
-    postUpdatesFolderMoved,
     log
 }: {
     community: LocalCommunity;
     oldAddress: string;
     newAddress: string;
-    postUpdatesFolderMoved: boolean;
+    log: Logger;
+}): Promise<Error | undefined> {
+    try {
+        await movePostUpdatesFolderToNewAddress(community, newAddress, oldAddress);
+        return undefined;
+    } catch (moveBackError) {
+        log.error(`Failed to move the postUpdates folder of community (${oldAddress}) back from ${newAddress}`, moveBackError);
+        return moveBackError as Error;
+    }
+}
+
+// Restarts a started community under its old address after its rename failed (issue #469). edit() rejects with the
+// rename's own error, so a failure here is emitted as an error event instead.
+// Reports an error of a rename's undo with an error event. An error event nobody listens for throws where it is emitted
+// (a community with no listener of its own passes it on to its PKC, which may have none either), and here that throw
+// would replace the error edit() is about to reject with. So a throw of the emit is logged and goes no further
+function emitRenameUndoError({ community, error, log }: { community: LocalCommunity; error: Error; log: Logger }) {
+    try {
+        community.emit("error", error);
+    } catch (emitError) {
+        log.error(`Nothing listens for the errors of community (${community.address}), the error it could not report was`, error);
+    }
+}
+
+async function restartCommunityAfterFailedRename({
+    community,
+    oldAddress,
+    newAddress,
+    log
+}: {
+    community: LocalCommunity;
+    oldAddress: string;
+    newAddress: string;
     log: Logger;
 }) {
     try {
-        if (postUpdatesFolderMoved) await movePostUpdatesFolderToNewAddress(community, newAddress, oldAddress);
         await community.start();
-    } catch (restoreError) {
-        log.error(`Failed to restore community (${oldAddress}) after its rename to ${newAddress} failed`, restoreError);
-        community.emit("error", restoreError as Error);
+    } catch (restartError) {
+        log.error(`Failed to restart community (${oldAddress}) after its rename to ${newAddress} failed`, restartError);
+        emitRenameUndoError({ community, error: restartError as Error, log });
     }
 }
 
 // A DB backup that failed partway leaves a partial DB file at the new address, which lookups by filename would still
-// match. Only removed while the old DB is still there, so a failure after the old one was deleted never loses the DB
+// match. Only removed while the old DB is still there, so a failure after the old one was deleted never loses the DB.
+// On Windows the file can be busy for a moment, held by a reader of the communities directory that opened it, so the
+// removal is retried (issue #514). A file that stays busy is left where it is and named in the error edit() rejects
+// with. It is not recorded for a later delete: after a rename that succeeds on another attempt, that path holds the
+// community's real DB.
 async function removePartialDbCopy({
     community,
     oldAddress,
@@ -224,14 +267,54 @@ async function removePartialDbCopy({
     oldAddress: string;
     newAddress: string;
     log: Logger;
-}) {
+}): Promise<{ removed: true } | { removed: false; path: string; error?: Error }> {
     const communitiesPath = path.join(community._pkc.dataPath!, "communities");
-    if (!fs.existsSync(path.join(communitiesPath, oldAddress))) return;
+    const partialDbCopyPath = path.join(communitiesPath, newAddress);
+    if (!fs.existsSync(path.join(communitiesPath, oldAddress))) return { removed: false, path: partialDbCopyPath };
     try {
-        await fs.promises.rm(path.join(communitiesPath, newAddress), { force: true });
+        await removeFileRetryingWhileBusy(partialDbCopyPath, { log });
+        return { removed: true };
     } catch (e) {
-        log.error(`Failed to remove the partial DB copy of community (${oldAddress}) at ${newAddress}`, e);
+        log.error(`Failed to remove the partial DB copy of community (${oldAddress}) at ${partialDbCopyPath}`, e);
+        return { removed: false, path: partialDbCopyPath, error: e as Error };
     }
+}
+
+// The cleanup after the DB rename failed, shared by a started and a not started community: removes the partial DB file,
+// moves the postUpdates folder back, and builds the error edit() rejects with. It carries the rename's own error and
+// what could and could not be undone, so whoever runs the community can tell why the rename failed and what is left.
+async function undoRenameAfterDbRenameFailed({
+    community,
+    oldAddress,
+    newAddress,
+    dbRenameError,
+    log
+}: {
+    community: LocalCommunity;
+    oldAddress: string;
+    newAddress: string;
+    dbRenameError: unknown;
+    log: Logger;
+}): Promise<{ error: PKCError; moveBackError: Error | undefined }> {
+    const communitiesPath = path.join(community._pkc.dataPath!, "communities");
+    const partialDbCopy = await removePartialDbCopy({ community, oldAddress, newAddress, log });
+    const moveBackError = await movePostUpdatesFolderBack({ community, oldAddress, newAddress, log });
+    const renameError = dbRenameError as Partial<NodeJS.ErrnoException> | undefined;
+    const error = new PKCError("ERR_FAILED_TO_RENAME_COMMUNITY_DB", {
+        oldAddress,
+        newAddress,
+        oldDbPath: path.join(communitiesPath, oldAddress),
+        newDbPath: path.join(communitiesPath, newAddress),
+        error: dbRenameError,
+        errorMessage: renameError?.message,
+        errorName: renameError?.name,
+        errorCode: renameError?.code,
+        partialDbCopyRemoved: partialDbCopy.removed,
+        ...(partialDbCopy.removed ? {} : { partialDbCopyPath: partialDbCopy.path, partialDbCopyRemovalError: partialDbCopy.error }),
+        postUpdatesFolderMovedBack: moveBackError === undefined,
+        ...(moveBackError ? { postUpdatesFolderMoveBackError: moveBackError } : {})
+    });
+    return { error, moveBackError };
 }
 
 export async function editPropsOnStartedCommunity(
@@ -244,6 +327,7 @@ export async function editPropsOnStartedCommunity(
     const log = Logger("pkc-js:local-community:start:editPropsOnStartedCommunity");
     const oldAddress = clone(community.address);
     const uniqueEditId = sha256(deterministicStringify(parsedEditOptions));
+    let storedEdit: ParsedCommunityEditOptions | undefined; // in the DB, not on the instance yet
     if (typeof parsedEditOptions.address === "string" && community.address !== parsedEditOptions.address) {
         const newAddress = parsedEditOptions.address;
         await validateNewAddressBeforeEditing(community, newAddress, log);
@@ -258,37 +342,80 @@ export async function editPropsOnStartedCommunity(
         try {
             await movePostUpdatesFolderToNewAddress(community, oldAddress, newAddress);
         } catch (e) {
-            await restoreCommunityAfterFailedRename({ community, oldAddress, newAddress, postUpdatesFolderMoved: false, log });
+            await restartCommunityAfterFailedRename({ community, oldAddress, newAddress, log });
             throw e;
         }
         try {
             await community._dbHandler.changeDbFilename(oldAddress, newAddress);
         } catch (e) {
-            await removePartialDbCopy({ community, oldAddress, newAddress, log });
-            await restoreCommunityAfterFailedRename({ community, oldAddress, newAddress, postUpdatesFolderMoved: true, log });
-            throw e;
+            const { error, moveBackError } = await undoRenameAfterDbRenameFailed({
+                community,
+                oldAddress,
+                newAddress,
+                dbRenameError: e,
+                log
+            });
+            // A folder that can't be moved back leaves the community stopped, since starting it would publish without
+            // its postUpdates
+            if (moveBackError) emitRenameUndoError({ community, error: moveBackError, log });
+            else await restartCommunityAfterFailedRename({ community, oldAddress, newAddress, log });
+            throw error;
         }
-        listRenamedCommunityNow(community);
+        listRenamedCommunityNow(community, { oldAddress, newAddress });
         community.setAddress(newAddress);
         await community._dbHandler.initDbIfNeeded();
         await updateDbInternalState(community, { ...parsedEditOptions }); // a copy: it sets _internalStateUpdateId on what it gets
         // queued before start() so the restarted loop's first record already carries the edit
         community._pendingEditProps.push({ ...parsedEditOptions, editId: uniqueEditId });
         await community.start();
-    } else community._pendingEditProps.push({ ...parsedEditOptions, editId: uniqueEditId });
+    } else {
+        // Stored before edit() resolves, as a rename and an edit of a stopped community are. Otherwise only a successful
+        // publish or stop() stored it, and a crash before either (a cycle keeps failing while kubo is down) lost the edit.
+        // An empty edit (edit({}), or edit({ roles: undefined }) once parsed) has nothing to store, and updateDbInternalState()
+        // throws on empty props. The props are copied because it sets _internalStateUpdateId on what it gets.
+        // The publish cycle and stop() build the whole record from the instance inside their write transaction. The edit is
+        // on the instance only once this function resumes after its write, and a whole-record write that was queued before
+        // then built the record without the edit and wrote it over the edit. From its write until it is on the instance,
+        // the edit is in _editsStoredNotApplied, which every whole-record write lays over what it built.
+        // stop() waits for this write before it tears down. It closes the DB connection, and a write that came after it
+        // ran on the closed connection and rejected with a TypeError.
+        if (!isEmpty(parsedEditOptions)) {
+            const editToStore = { ...parsedEditOptions };
+            // added inside the write transaction, in the same synchronous run as the write
+            const store = updateDbInternalState(community, () => {
+                community._editsStoredNotApplied.add(editToStore);
+                return { ...parsedEditOptions };
+            });
+            storedEdit = editToStore;
+            community._editStoresInFlight.add(store);
+            try {
+                await store;
+            } catch (e) {
+                community._editsStoredNotApplied.delete(editToStore);
+                throw e;
+            } finally {
+                community._editStoresInFlight.delete(store);
+            }
+        }
+        community._pendingEditProps.push({ ...parsedEditOptions, editId: uniqueEditId });
+    }
 
-    if (community.updateCid)
-        await community.initInternalCommunityAfterFirstUpdateNoMerge({
-            ...community.toJSONInternalAfterFirstUpdate(),
-            ...parsedEditOptions,
-            _internalStateUpdateId: uniqueEditId
-        });
-    else
-        await community.initInternalCommunityBeforeFirstUpdateNoMerge({
-            ...community.toJSONInternalBeforeFirstUpdate(),
-            ...parsedEditOptions,
-            _internalStateUpdateId: uniqueEditId
-        });
+    try {
+        if (community.updateCid)
+            await community.initInternalCommunityAfterFirstUpdateNoMerge({
+                ...community.toJSONInternalAfterFirstUpdate(),
+                ...parsedEditOptions,
+                _internalStateUpdateId: uniqueEditId
+            });
+        else
+            await community.initInternalCommunityBeforeFirstUpdateNoMerge({
+                ...community.toJSONInternalBeforeFirstUpdate(),
+                ...parsedEditOptions,
+                _internalStateUpdateId: uniqueEditId
+            });
+    } finally {
+        if (storedEdit) community._editsStoredNotApplied.delete(storedEdit);
+    }
     await applyPagesEdit(community, pagesEdit);
     community._communityUpdateTrigger = true;
     log(
@@ -303,7 +430,28 @@ export async function editPropsOnStartedCommunity(
     return community;
 }
 
+// Marked for its whole run, from before its first await: a start() of this instance waits for the mark (see
+// startCommunity). The edit works on the community's DB connection as that of a stopped community, and a rename closes
+// it and moves the DB to its new filename. A start() that ran meanwhile started the community on that connection: the
+// close was refused (see DbHandler.destoryConnection), the DB moved all the same, and the community ran on the old
+// file, claimed under an address no other process would ask for.
 export async function editPropsOnNotStartedCommunity(
+    community: LocalCommunity,
+    parsedEditOptions: ParsedCommunityEditOptions,
+    pagesEdit?: PagesEdit
+): Promise<LocalCommunity> {
+    let settle!: () => void;
+    const inFlight = new Promise<void>((resolve) => (settle = resolve));
+    community._stoppedEditsInFlight.add(inFlight);
+    try {
+        return await editPropsOnNotStartedCommunityWhileMarked(community, parsedEditOptions, pagesEdit);
+    } finally {
+        community._stoppedEditsInFlight.delete(inFlight);
+        settle();
+    }
+}
+
+async function editPropsOnNotStartedCommunityWhileMarked(
     community: LocalCommunity,
     parsedEditOptions: ParsedCommunityEditOptions,
     pagesEdit?: PagesEdit
@@ -320,10 +468,17 @@ export async function editPropsOnNotStartedCommunity(
 
         // in this sceneario we're editing a community that's not started anywhere
         log("will rename the community", community.address, "db in edit() because the community is not being ran anywhere else");
-        await movePostUpdatesFolderToNewAddress(community, community.address, parsedEditOptions.address);
-        community._dbHandler.destoryConnection();
-        await community._dbHandler.changeDbFilename(community.address, parsedEditOptions.address);
-        listRenamedCommunityNow(community);
+        const newAddress = parsedEditOptions.address;
+        await movePostUpdatesFolderToNewAddress(community, oldAddress, newAddress);
+        await community._dbHandler.destoryConnection();
+        try {
+            await community._dbHandler.changeDbFilename(oldAddress, newAddress);
+        } catch (e) {
+            // The same undo a started community gets, so a failed rename leaves this one as it was: its DB and its
+            // postUpdates folder under the old address, and no partial DB file at the new one
+            throw (await undoRenameAfterDbRenameFailed({ community, oldAddress, newAddress, dbRenameError: e, log })).error;
+        }
+        listRenamedCommunityNow(community, { oldAddress, newAddress });
         await community._dbHandler.initDbIfNeeded();
         community.setAddress(parsedEditOptions.address);
     }
@@ -333,10 +488,17 @@ export async function editPropsOnNotStartedCommunity(
         await community.initInternalCommunityAfterFirstUpdateNoMerge(mergedInternalState);
     else await community.initInternalCommunityBeforeFirstUpdateNoMerge(mergedInternalState);
     await applyPagesEdit(community, pagesEdit);
-    await community._dbHandler.destoryConnection();
+    // Closed even when a start() was called while the awaits above ran: it is waiting for this edit and has not touched
+    // the connection, and it opens its own. Left open for it, a start() that then failed before it got to the DB left
+    // the connection open on a stopped community.
+    community._dbHandler.destoryConnection();
     community.emit("update", community);
     return community;
 }
+
+// A start() of this instance that has not entered the started state yet. update() marks itself in flight too, but
+// enters the "updating" state as it does
+const isStartInFlight = (community: LocalCommunity) => community.state === "stopped" && community._startOrUpdateInFlight !== undefined;
 
 export async function edit(community: LocalCommunity, newCommunityOptions: CommunityEditOptions): Promise<LocalCommunity> {
     // scenearios
@@ -344,6 +506,14 @@ export async function edit(community: LocalCommunity, newCommunityOptions: Commu
     // 2 - calling edit() on a community that's started in another process (should throw)
     // 3 - calling edit() on a community that's not started (should load db and edit it)
     // 4 - calling edit() on the community that's started (should edit the started community)
+
+    // A stop() that is tearing this instance down keeps the state "started" until it is done, and closes the DB connection
+    // on the way. Editing it as a started community meanwhile wrote to that connection. Waited for, the edit then finds the
+    // community stopped (sceneario 3), or started again by a "stopped" listener.
+    // A start() in flight keeps the state "stopped" until it holds the start lock, which it takes on this instance's DB
+    // connection. Editing it as a stopped community meanwhile closed that connection, and the lock with it (issue #561).
+    // Waited for, the edit then finds the community started (sceneario 4), or stopped if the start failed.
+    while (community._stopInFlight || isStartInFlight(community)) await (community._stopInFlight ?? community._startOrUpdateInFlight);
 
     const startedCommunity = <LocalCommunity | undefined>(
         (findStartedCommunity(community._pkc, { publicKey: community.publicKey, name: community.name }) ||
@@ -360,6 +530,8 @@ export async function edit(community: LocalCommunity, newCommunityOptions: Commu
 
     await community.initDbHandlerIfNeeded();
     await community._updateStartedValue();
+    // a start() of this instance began while the awaits above ran: the lock it holds is not another process's
+    if (isStartInFlight(community)) return edit(community, newCommunityOptions);
     if (community.started && community.state !== "started") {
         // sceneario 2
         community._dbHandler.destoryConnection();
@@ -389,6 +561,10 @@ export async function edit(community: LocalCommunity, newCommunityOptions: Commu
         ...omit(editWithDerivedName, ["roles"]), // we omit here to make tsc shut up
         ...newInternalProps
     };
+
+    // a stop() began tearing down or a start() began while the awaits above ran: what they found is stale, start over
+    // once it is done
+    if (community._stopInFlight || isStartInFlight(community)) return edit(community, newCommunityOptions);
 
     if (!community.started && !startedCommunity) {
         // sceneario 3

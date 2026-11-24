@@ -13,26 +13,27 @@ import type { ConnectionGater } from "@libp2p/interface";
 const getMergedConnectionGater = (client: Libp2pJsClient): ConnectionGater | undefined =>
     (client._mergedHeliaOptions?.libp2p as { connectionGater?: ConnectionGater } | undefined)?.connectionGater;
 
-// Pure (offline) coverage for the default dial-transport gater: pkc-js rejects WebRTC and
-// WebTransport dials so browser nodes connect over WebSocket(/WSS). See src/helia/dial-transport-filter.ts.
-describe("Default dial-transport gater (reject WebRTC + WebTransport)", () => {
+// Pure (offline) coverage for the default dial-transport gater: pkc-js rejects WebRTC dials, and allows
+// WebSocket(/WSS) and WebTransport (pkc-js#475). See src/helia/dial-transport-filter.ts.
+describe("Default dial-transport gater (reject WebRTC, allow WebTransport)", () => {
     const allowedMultiaddrs = [
         "/ip4/1.2.3.4/tcp/4001/ws", // plain WebSocket
         "/dns4/example.com/tcp/443/wss", // secure WebSocket
         "/ip4/1.2.3.4/tcp/4001", // plain TCP
         "/dns4/example.com/tcp/443/tls/ws", // WSS spelled as tls+ws
-        "/ip4/1.2.3.4/tcp/4001/ws/p2p-circuit" // relay reached over WebSocket
+        "/ip4/1.2.3.4/tcp/4001/ws/p2p-circuit", // relay reached over WebSocket
+        "/ip4/1.2.3.4/udp/4001/quic-v1/webtransport", // WebTransport (pkc-js#475)
+        "/ip6/2001:db8::1/udp/443/quic-v1/webtransport/certhash/uEiAQk5I5LfDHFiqGeL85eF7IvNU3TL7KKSDv9ZN3oZRZjw" // WebTransport with certhash
     ];
 
     const deniedMultiaddrs = [
         "/ip4/1.2.3.4/udp/4001/webrtc-direct", // server-reachable WebRTC
         "/ip4/1.2.3.4/udp/4001/webrtc", // WebRTC
-        "/ip4/1.2.3.4/udp/4001/quic-v1/webtransport", // WebTransport
         "/ip4/1.2.3.4/tcp/4001/ws/p2p-circuit/webrtc" // relayed WebRTC, even though the relay hop is WebSocket
     ];
 
-    it("lists exactly the WebRTC/WebTransport protocol names", () => {
-        expect([...DENIED_DIAL_TRANSPORTS_BY_DEFAULT]).to.deep.equal(["webrtc", "webrtc-direct", "webtransport"]);
+    it("lists exactly the WebRTC protocol names", () => {
+        expect([...DENIED_DIAL_TRANSPORTS_BY_DEFAULT]).to.deep.equal(["webrtc", "webrtc-direct"]);
     });
 
     for (const addr of allowedMultiaddrs)
@@ -49,6 +50,7 @@ describe("Default dial-transport gater (reject WebRTC + WebTransport)", () => {
         const gater = createDefaultDialTransportGater();
         expect(gater.denyDialMultiaddr(multiaddr("/ip4/1.2.3.4/tcp/4001/ws"))).to.equal(false);
         expect(gater.denyDialMultiaddr(multiaddr("/ip4/1.2.3.4/udp/4001/webrtc-direct"))).to.equal(true);
+        expect(gater.denyDialMultiaddr(multiaddr("/ip4/1.2.3.4/udp/4001/quic-v1/webtransport"))).to.equal(false);
     });
 });
 
@@ -72,17 +74,18 @@ describe("Default dial-transport gater wiring into the libp2p-js helia client", 
         while (clientsToStop.length) await clientsToStop.pop()!.heliaWithKuboRpcClientFunctions.stop();
     });
 
-    it("uses the default WebRTC/WebTransport-rejecting gater when none is supplied", async () => {
+    it("uses the default WebRTC-rejecting gater when none is supplied", async () => {
         const client = await createClient({});
         clientsToStop.push(client);
         const gater = getMergedConnectionGater(client);
         expect(typeof gater?.denyDialMultiaddr).to.equal("function");
         expect(await gater!.denyDialMultiaddr!(multiaddr("/ip4/1.2.3.4/udp/4001/webrtc-direct"))).to.equal(true);
         expect(await gater!.denyDialMultiaddr!(multiaddr("/ip4/1.2.3.4/tcp/4001/ws"))).to.equal(false);
+        expect(await gater!.denyDialMultiaddr!(multiaddr("/ip4/1.2.3.4/udp/4001/quic-v1/webtransport"))).to.equal(false);
     });
 
     it("lets a caller override the default gater via libp2pOptions.connectionGater", async () => {
-        // An allow-all gater, e.g. to re-enable WebRTC/WebTransport dialing.
+        // An allow-all gater, e.g. to re-enable WebRTC dialing.
         const allowAll = { denyDialMultiaddr: async () => false };
         const client = await createClient({ connectionGater: allowAll });
         clientsToStop.push(client);

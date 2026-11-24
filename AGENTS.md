@@ -10,7 +10,9 @@ Instructions for AI agents working on this codebase. Rules are ranked by priorit
 | Modifying `test/` | Run `npx tsc --project test/tsconfig.json --noEmit` |
 | Running tests | Use `node test/run-test-config.js --pkc-config ${pkc-config} ${testPath}` |
 | Bug reported | Reproduce deterministically in a test case first |
+| Changing the version, marking a breaking change, debugging a release, or upgrading pkc-js downstream | Read `docs/versioning.md` first |
 | Publishing at scale (a board of 100k+ posts, memory or cycle-time questions) | Run the manual e2e, never in CI: `E2E_POSTS=<n> VITEST_TIMEOUT=<ms> node test/run-test-config.js --pkc-config local-kubo-rpc test/manual-e2e/large-board-publish.e2e.test.ts` (env knobs in the file header; issue #386). The stubbed-kubo benches under `test/benchmarks/` isolate one phase; the e2e is the whole `start()` to remote-load path on a real daemon |
+| Checking whether a seeder or community is reachable from browsers (WSS certificate, WebTransport on UDP 443, provider records on the HTTP routers) | Run the manual probe, never in CI: `E2E_TARGETS=<community publicKey> node test/run-test-config.js --pkc-config local-kubo-rpc test/manual-e2e/browser-reachability.e2e.test.ts` (or `E2E_PEERS=<multiaddrs with /p2p/>`). The contract it checks is `docs/reachability.md`, "What a seeder must announce" (issue #475) |
 | Debugging CI failures | Download the `per-test-logs-*` and `test-server-log-*` artifacts from the failed run; check per-test stderr logs first, then `test_server.log` for community-side errors |
 | CI hang/timeout that looks like Kubo (MFS `Timed out writing/removing MFS path`, `UND_ERR_HEADERS_TIMEOUT`, `ERR_TIMED_OUT_RM_MFS_FILE`) | Download the `kubo-logs-node-local-*` artifact: it has each daemon's `kubo_*_golog_*.log` (Go debug log) and the `kubo-debug/goroutine-*.txt` pprof dumps captured on failure. Grep the dumps for `boxo/mfs`/`Flush`/`Lock` to see where MFS is blocked — client-side `pkc-js` logs only show the timeout, not the daemon-side cause. Since kubo 0.43.0 an MFS timeout is normally *contention*, not a wedge: `repo gc` and in-flight MFS writes hold each other off, and a stuck write now errors instead of hanging forever. A genuinely wedged daemon (the old ipfs/kubo#10842 signature) should no longer occur — if one does, that is an upstream regression worth reporting |
 
@@ -95,6 +97,7 @@ Before working on certain areas, read the relevant protocol doc to avoid mistake
 
 ### Schema & Database
 
+- When writing a query in `db-handler.ts`, normalize database `null` values to `undefined`.
 - If you're editing schema, check for docs relevant to the local zod version by checking `package.json`.
 - When modifying a schema (e.g. adding, removing, or renaming fields), check if `README.md` references that schema and update it accordingly.
 - When adding a new JSON column to the database, add a test in `test/node/community/parsing.db.community.test.ts` for parsing it, and if it's on a comment, add an integration test for `dbHandler.queryComment` returning the proper JSON value (not a string).

@@ -43,13 +43,14 @@ Comment extends Publication /* (IPFS file) */ {
   quotedCids?: string[] // CIDs of comments being quoted/referenced in this reply
   crosspost?: {cid: string, comment: Comment} // this comment IS a repost of the embedded comment, which is stored verbatim so the crossposting community can moderate it independently
   gallery?: GalleryItem[] // several images, videos or audio files, shown after the link card if both are set. Never empty, absent when there is no gallery. A gallery alone counts as content
+  postCid?: string // required on replies, helps faster loading post info for reply direct linking, undefined for posts, a post can't know its own CID
   // below are added by community owner, not author
   previousCid?: string // each comment/post is a linked list of other comments/posts with same comment.depth and comment.parentCid, undefined if first comment in list
-  postCid?: string // helps faster loading post info for reply direct linking, undefined for posts, a post can't know its own CID
   depth: number // 0 = post, 1 = top level reply, 2+ = nested reply
   thumbnailUrl?: string // optionally fetched by community owner, some web pages have thumbnail urls in their meta tags https://moz.com/blog/meta-data-templates-123
   thumbnailUrlWidth?: number // community owner can optionally provide dimensions of thumbails which helps UI clients with infinite scrolling feeds
   thumbnailUrlHeight?: number
+  pseudonymityMode?: 'per-post' | 'per-reply' | 'per-author' // the community.features.pseudonymityMode this comment was pseudonymized under, undefined if the community had none when it was published
 }
 GalleryItem { // other props are kept as signed, since a later protocol version may add some
   url: string // 1-2000 chars. The community requires an https url whose path ends in an image, video or audio extension
@@ -86,7 +87,7 @@ CommentModeration extends Publication {
     reason?: string
     author?: {
       flairs?: Flair[]
-      banExpiresAt?: number
+      banExpiresAt?: number // a future timestamp bans the author and marks this comment, a past timestamp lifts the ban and keeps the mark, 0 removes the mark and leaves the ban as it is (see "Banning an author")
     }
   }
 }
@@ -112,6 +113,7 @@ CommentUpdate /* (IPFS file) */ {
   approved?: boolean // if comment was pending approval and it got approved or disapproved
   removed?: boolean // mod deleted a comment
   reason?: string // reason the mod took a mod action
+  authorBanExpiresAt?: number // present only on a comment a mod banned the author from. Rely on its presence only, the value can be a timestamp in the past; for whether the author is banned now read author.community.banExpiresAt (see "Banning an author")
   updatedAt: number // timestamp in seconds the CommentUpdate was updated
   protocolVersion: '1.0.0' // semantic version of the protocol https://semver.org/
   signature: Signature // signature of the CommentUpdate by the community owner to protect against malicious gateway
@@ -120,10 +122,13 @@ CommentUpdate /* (IPFS file) */ {
   }
   lastReplyTimestamp?: number // the timestamp of the most recent reply that replyCount counts, so removing a reply un-bumps its thread
   lastChildCid?: string // the CID of the most recent direct reply that childCount counts
+  pseudonymityAuthorTag?: string // base64, 16 bytes, only on comments the community aliased on a pseudonymityMode board; lets the author's own devices recognize the post, see docs/protocol/pseudonymity-author-tag.md
 }
 Author {
-  address: string
+  address: string // not part of IPFS files, added to `Author` instance as convenience: author.name if there is one, else author.publicKey
+  publicKey: string // not part of IPFS files, added to `Author` instance as convenience, derived from the publication's signature.publicKey
   shortAddress: string // not part of IPFS files, added to `Author` instance as convenience. Copy address, if address is a hash, remove hash prefix and trim to 12 first chars
+  nameResolved?: boolean // not part of IPFS files, whether author.name resolved to the signing key
   name?: string // author chosen username
   previousCommentCid?: string // linked list of the author's comments
   displayName?: string
@@ -133,7 +138,7 @@ Author {
   community?: CommunityAuthor // (added by CommentUpdate) up to date author properties specific to the community it's in
 }
 CommunityAuthor {
-  banExpiresAt?: number // (added by moderator only) timestamp in second, if defined the author was banned for this comment
+  banExpiresAt?: number // (added by moderator only) timestamp in seconds of the author's latest ban in the community. It is an author aggregate that appears on the author's comments, not a mark of which comment the ban was for (that is commentUpdate.authorBanExpiresAt). The author is banned while it is in the future
   flairs?: Flair[] // (added by moderator only) for when a mod wants to edit an author's flairs
   postScore: number // total post karma in the community
   replyScore: number // total reply karma in the community
@@ -168,7 +173,9 @@ Signer {
   ipfsKey?: IpfsKey // a Key object used for importing into IpfsHttpClient https://docs.ipfs.io/reference/cli/#ipfs-key-import
 }
 Community /* (IPNS record, identified by community's public key) */ {
-  address: string // instance-only convenience property, not part of the IPNS record. Validate community address in signature to prevent a crypto domain resolving to an impersonated community
+  address: string // instance-only convenience property, not part of the IPNS record: community.name if there is one, else community.publicKey. Validate community address in signature to prevent a crypto domain resolving to an impersonated community
+  publicKey: string // instance-only convenience property, not part of the IPNS record: the IPNS name derived from the record's signature.publicKey
+  name?: string // optional crypto domain name of the community (e.g. 'memes.bso')
   title?: string
   description?: string
   roles?: {[authorAddress: string]: CommunityRole} // each author address can be mapped to 1 CommunityRole
@@ -176,6 +183,11 @@ Community /* (IPNS record, identified by community's public key) */ {
   lastPostCid?: string // the most recent post in the linked list of posts
   lastCommentCid?: string // the most recent comment (posts and replies included), last comment is often displayed with a list of forums
   posts?: Pages // only preload page 1 sorted by 'hot', might preload more later, comments should include Comment + CommentUpdate data
+  modQueue?: Pages // pageCids only (e.g. community.modQueue.pageCids.pendingApproval), the comments waiting for a mod's approval
+  postUpdates?: {[bucket: string]: string} // CIDs of the folders that hold each post's CommentUpdate, posts are grouped into time-based buckets, see docs/protocol/comment-lifecycle.md
+  challenges: CommunityChallenge[] // public description of the challenges an author has to pass, without the private settings.challenges options
+  pageSorts?: CommunityPageSorts // present when settings.pages is set, the public config of each page sort, see docs/protocol/page-sorts.md
+  anchor?: {publicKey: string} // present exactly when the community is delegated, see docs/protocol/delegated-ipns.md
   statsCid?: string
   createdAt: number
   updatedAt: number
@@ -243,7 +255,7 @@ CommunityEncryption {
   publicKey: string // 32 bytes base64 string
 }
 CommunityRole {
-  role: 'owner' | 'admin' | 'moderator'
+  role: 'owner' | 'admin' | 'moderator' // any other non-empty string is accepted as a custom role, with no built-in permissions
   // TODO: custom roles with other props
 }
 Flair {
@@ -253,15 +265,15 @@ Flair {
   expiresAt?: number // timestamp in seconds, a flair assigned to an author by a mod will follow the author in future comments, unless it expires
 }
 Pages {
-  pages: {[key: PostsSortType | RepliesSortType]: Page} // e.g. community.posts.pages.hot.comments[0].cid = '12D3KooW...'
-  pageCids: {[key: PostsSortType | RepliesSortType]: pageCid} // e.g. community.posts.pageCids.topAll = '12D3KooW...'
+  pages: {[key: PostsSortType | RepliesSortType]: Page} // e.g. community.posts.pages.hot.comments[0].cid = 'Qm...'
+  pageCids?: {[key: PostsSortType | RepliesSortType]: pageCid} // e.g. community.posts.pageCids.topAll = 'Qm...', absent when everything fits in the preloaded page
 }
 Page {
-  nextCid: string // get next page (sorted by the same sort type)
+  nextCid?: string // get next page (sorted by the same sort type), undefined on the last page
   comments: Comment[] // Comments should include merged Comment and CommentUpdate
 }
 PageIpfs /* (IPFS file) */ {
-  nextCid: string // get next page (sorted by the same sort type)
+  nextCid?: string // get next page (sorted by the same sort type), undefined on the last page
   comments: PageIpfsComment[] // PageIpfs is fetched from IPFS, then Comments and CommentUpdates are merged to create the Page instance
 }
 PageIpfsComment {
@@ -327,7 +339,7 @@ PubsubMessage: {
   userAgent: `/pkc-js:${require('./package.json').version}/` // client name and version using this standard https://en.bitcoin.it/wiki/BIP_0014#Proposal
 }
 ChallengeRequestMessage extends PubsubMessage /* (sent by post author) */ {
-  acceptedChallengeTypes: string[] // list of challenge types the client can do, for example cli clients or old clients won't do all types
+  acceptedChallengeTypes?: string[] // list of challenge types the client can do, for example cli clients or old clients won't do all types
   encrypted: Encrypted
   /* ChallengeRequestMessage.encrypted.ciphertext decrypts to JSON {
     comment?: Comment
@@ -335,22 +347,22 @@ ChallengeRequestMessage extends PubsubMessage /* (sent by post author) */ {
     commentEdit?: CommentEdit
     commentModeration?: CommentModeration
     communityEdit?: CommunityEdit
-    challengeAnswers?: string[] // some challenges might be included in community.challenges and can be pre-answered
+    challengeAnswers?: {[challengeIndex: string]: string} // pre-answers to challenges in community.challenges, keyed by challenge index (the position in community.challenges, as a decimal string). A challenge with no key has no pre-answer. Non-empty when present
     challengeCommentCids?: string[] // some challenges could require including comment cids in other communities, like friendly community karma challenges
   }
-  pkc-js should decrypt the encrypted fields when possible, and add `ChallengeRequestMessage.publication` property for convenience (not part of the broadcasted pubsub message) */
+  pkc-js should decrypt the encrypted fields when possible, and add them to the message for convenience, e.g. `ChallengeRequestMessage.comment` or `ChallengeRequestMessage.vote` (not part of the broadcasted pubsub message) */
 }
 ChallengeMessage extends PubsubMessage /* (sent by community owner) */ {
   encrypted: Encrypted
   /* ChallengeMessage.encrypted.ciphertext decrypts to JSON {
-    challenges: Challenge[]
+    challenges: {[challengeIndex: string]: Challenge} // only the challenges that still need an answer, keyed by challenge index (a sparse subset of community.challenges). Never empty
   }
   pkc-js should decrypt the encrypted fields when possible, and add `ChallengeMessage.challenges` property for convenience (not part of the broadcasted pubsub message) */
 }
 ChallengeAnswerMessage extends PubsubMessage /* (sent by post author) */ {
   encrypted: Encrypted
   /* ChallengeAnswerMessage.encrypted.ciphertext decrypts to JSON {
-    challengeAnswers: string[] // for example ['2+2=4', '1+7=8']
+    challengeAnswers: {[challengeIndex: string]: string} // keyed by the challenge index of each ChallengeMessage.challenges entry, for example {'0': '2+2=4', '2': '1+7=8'}
   }
   pkc-js should decrypt the encrypted fields when possible, and add `ChallengeAnswerMessage.challengeAnswers` property for convenience (not part of the broadcasted pubsub message) */
 }
@@ -358,12 +370,12 @@ ChallengeVerificationMessage extends PubsubMessage /* (sent by community owner) 
   challengeSuccess: bool // true if the challenge was successfully completed by the requester
   challengeErrors?: {[challengeIndex: string]: string} // challenge index => challenge error, tell the user which challenge failed and why
   reason?: string // reason for failed verification, for example post content is too long. could also be used for successful verification that bypass the challenge, for example because an author has good history
-  encrypted: Encrypted
+  encrypted?: Encrypted // only when a comment was published successfully
   /* ChallengeVerificationMessage.encrypted.ciphertext decrypts to JSON {
-    comment?: Comment // must contain missing props from comment publication, like depth, postCid, etc
-    commentUpdate?: CommentUpdate // must contain commentUpdate.cid and commentUpdate.signature when publication is comment
+    comment: Comment // must contain missing props from comment publication, like depth, previousCid, etc
+    commentUpdate: CommentUpdate // only cid, signature, protocolVersion, author, number, postNumber and pendingApproval
   }
-  pkc-js should decrypt the encrypted fields when possible, and add `ChallengeVerificationMessage.publication` property for convenience (not part of the broadcasted pubsub message) */
+  pkc-js should decrypt the encrypted fields when possible, and add `ChallengeVerificationMessage.comment` and `ChallengeVerificationMessage.commentUpdate` properties for convenience (not part of the broadcasted pubsub message) */
 }
 Challenge {
   type: 'image/png' | 'text/plain' | 'chain/<chainTicker>' // tells the client how to display the challenge, start with implementing image and text only first
@@ -410,12 +422,15 @@ PubsubSignature {
   - `pkc.clients`
   - [`pkc.getDefaults()`](#pkcgetdefaults) *(not yet implemented)*
   - `pkc.fetchCid({cid})`
-  - `pkc.resolveAuthorAddress({address})`
-  - `PKC.getShortAddress({address})`
+  - `pkc.resolveAuthorName({name})`
+  - `pkc.destroy()`
+  - `PKC.getShortAddress({name})`
   - `PKC.getShortCid({cid})`
   - `PKC.setNativeFunctions(nativeFunctions)`
   - `PKC.nativeFunctions`
   - `PKC.challenges`
+  - `PKC.pageSorts`
+  - `PKC.createAnchorIpnsRecord({anchorSigner, minterIpnsName, sequence})`
 - [PKC Events](#pkc-events)
   - [`communitieschange`](#communitieschange)
   - `error`
@@ -489,7 +504,6 @@ PubsubSignature {
   - `comment.shortCid`
   - `(only available after first update event)`
   - `comment.edit`
-  - `comment.original`
   - `comment.upvoteCount`
   - `comment.downvoteCount`
   - `comment.updatedAt`
@@ -519,8 +533,8 @@ PubsubSignature {
   - `client.settings`
   - `client.setSettings(pkcRpcSettings)`
   - `client.rpcCall(method, params)`
-  - `client.getPeers()`
-  - `client.getStats()`
+  - `client.getPeers()` *(not yet implemented)*
+  - `client.getStats()` *(not yet implemented)*
 - [Client Events](#client-events)
   - [`statechange`](#statechange-2)
   - [`settingschange`](#settingschange)
@@ -549,8 +563,8 @@ An object which may have the following keys:
 | pubsubKuboRpcClientsOptions | `(string \| KuboRpcClientOptions)[]` or `undefined` | `[{url: 'https://pubsubprovider.xyz/api/v0'}, {url: 'https://plebpubsub.xyz/api/v0'}]` | Optional URLs or [KuboRpcClientOptions](https://www.npmjs.com/package/kubo-rpc-client#options) used for pubsub publishing when `kuboRpcClientsOptions` isn't available, like in the browser |
 | pkcRpcClientsOptions | `string[]` or `undefined` | `undefined` | Optional websocket URLs of PKC RPC servers, required to run a community from a browser/electron/webview |
 | httpRoutersOptions | `string[]` or `undefined` | `['https://peers.pleb.bot', 'https://routing.lol', 'https://peers.forumindex.com', 'https://peers.plebpubsub.xyz', 'https://routerofbitsocial.xyz', 'https://bsotracker.online']` | URLs of HTTP delegated-routing endpoints used by `libp2pJsClientsOptions` for content/peer routing and IPNS lookups. Each URL must start with `http://` or `https://`. |
-| libp2pJsClientsOptions | `Array<{key: string, libp2pOptions?: Partial<Libp2pOptions>, heliaOptions?: Partial<HeliaOptions>, blockstoreOptions?: {maxBytes?: number, lowWaterRatio?: number}}>` or `undefined` | `undefined` | Optional in-process libp2p/Helia client. When set, replaces `kuboRpcClientsOptions` and `pubsubKuboRpcClientsOptions` (which are then ignored). At most one entry; `key` is a unique identifier. `libp2pOptions` is forwarded to [Helia's libp2p](https://github.com/ipfs/helia) (e.g. `connectionGater`, `services`, transports), `heliaOptions` to [Helia](https://github.com/ipfs/helia) (e.g. `blockstore`, `blockBrokers`; a caller-supplied `blockBrokers` replaces the default bitswap broker, and `http` is not supported since the client is composed without Helia's HTTP components). Requires `httpRoutersOptions` to be set. By default WebRTC and WebTransport dials are rejected so nodes (notably in the browser) connect over WebSocket(/WSS); pass your own `libp2pOptions.connectionGater` to override this (it fully replaces the default gater). `blockstoreOptions` tunes the block cache described below. |
-| dataPath | `string` or `undefined` | `.pkc` folder in the current working directory | (Node only) Optional folder path to create/resume the user and community databases |
+| libp2pJsClientsOptions | `Array<{key: string, libp2pOptions?: Partial<Libp2pOptions>, heliaOptions?: Partial<HeliaOptions>, blockstoreOptions?: {maxBytes?: number, lowWaterRatio?: number}}>` or `undefined` | `undefined` | Optional in-process libp2p/Helia client. When set, replaces `kuboRpcClientsOptions` and `pubsubKuboRpcClientsOptions` (which are then ignored). At most one entry; `key` is a unique identifier. `libp2pOptions` is forwarded to [Helia's libp2p](https://github.com/ipfs/helia) (e.g. `connectionGater`, `services`, transports), `heliaOptions` to [Helia](https://github.com/ipfs/helia) (e.g. `blockstore`, `blockBrokers`; a caller-supplied `blockBrokers` replaces the default bitswap broker, and `http` is not supported since the client is composed without Helia's HTTP components). Requires `httpRoutersOptions` to be set. By default WebRTC dials are rejected, so browser nodes connect over WebSocket(/WSS) or WebTransport; pass your own `libp2pOptions.connectionGater` to override this (it fully replaces the default gater). Peer addresses are dialed WSS first, then WebTransport on UDP 443, then IPv6, then IPv4 on other UDP ports; `libp2pOptions.connectionManager` replaces that sorter. Providers reachable only on private or loopback addresses are dialed after the public ones. `blockstoreOptions` tunes the block cache described below. |
+| dataPath | `string` or `undefined` | `.pkc` folder in the current working directory | (Node only) Optional folder path to create/resume the user and community databases. Must be on a local filesystem, not a network one (NFS, SMB): the lock that keeps two processes from running the same community is a file lock |
 | resolveAuthorNames | `boolean` or `undefined` | `true` | Optionally disable resolving crypto domain author names, which can be done lazily later to save time |
 | nameResolvers | `NameResolver[]` or `undefined` | `undefined` | Custom resolvers for crypto domain names. Each resolver: `{key, resolve, canResolve, provider, destroy?}`. |
 | validatePages | `boolean` or `undefined` | `true` | If `false`, pages returned in `commentUpdate` / `Community` / `getPage` are not validated. Use only when you trust the source. |
@@ -567,13 +581,20 @@ An object which may have the following keys:
 #### Example
 
 ```js
-const PKC = require('@pkcprotocol/pkc-js')
+import PKC from '@pkcprotocol/pkc-js'
 const options = {
   kuboRpcClientsOptions: ['http://localhost:5001/api/v0'], // optional, must run an IPFS node to use localhost:5001/api/v0
-  dataPath: __dirname
+  dataPath: import.meta.dirname
 }
 const pkc = await PKC(options) // should be independent instance, not singleton
 pkc.on('error', console.log)
+```
+
+`pkc-js` is an ES module. From CommonJS, `require()` returns the module namespace, so the factory is on `.default` (calling the namespace itself throws `TypeError: PKC is not a function`):
+
+```js
+const PKC = require('@pkcprotocol/pkc-js').default
+const { getShortAddress, getShortCid } = require('@pkcprotocol/pkc-js') // the named exports are on the namespace
 ```
 
 ### Error handling
@@ -593,6 +614,8 @@ process.on('uncaughtException', (err) => console.error(err))
 ```
 
 Attaching an `'error'` listener directly on a `community`, `comment`, or other publication object stops the bubble-up: in that case the error stays on the child and is not re-emitted on the pkc instance.
+
+Failures that happen where nothing awaits the code (a pubsub or RPC callback, a timer, an event listener) are reported as `'error'` events too, never as an uncaught exception or an unhandled rejection. Examples: a frame the RPC server sent that is not valid JSON, or a notification the RPC client could not handle, arrives as `ERR_RPC_CLIENT_FAILED_TO_HANDLE_SERVER_MESSAGE` and the frame is dropped; failing to subscribe again to a pubsub topic after the provider reported an error arrives as `ERR_FAILED_TO_RESUBSCRIBE_TO_PUBSUB_TOPIC_AFTER_ERROR`; a DB fault that ends a local community's publish loop arrives on that community. The error carries the underlying one as `details.cause` (or as the error itself). With no `'error'` listener attached, those emits throw like any other `'error'` event, and so does a listener of yours that throws. The listener is therefore the only protection your process needs, and the UI clients and bitsocial-cli already attach one.
 
 ### `pkc.clients.libp2pJsClients[key].heliaNode`
 
@@ -672,7 +695,9 @@ console.log(communityList.communities.map(entry => entry.address))
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| address | `string` | The `Address` of the community |
+| address | `string` or `undefined` | The `Address` of the community. At least one of `address`, `name` or `publicKey` is required |
+| name | `string` or `undefined` | Domain name of the community, e.g. `'memes.bso'` |
+| publicKey | `string` or `undefined` | IPNS public key of the community. Passing it with `name` loads without waiting on a name resolver |
 | abortSignal | `AbortSignal` | Optional. Cancels the fetch instead of waiting out the `community-ipns` timeout. Rejects with `ERR_GET_COMMUNITY_ABORTED`. |
 
 #### Returns
@@ -829,7 +854,9 @@ An object which may have the following keys:
 
 | Name | Type | Default | Description |
 | ---- | ---- | ------- | ----------- |
-| address | `string` or `undefined` | `undefined` | `Address` of the community |
+| address | `string` or `undefined` | `undefined` | `Address` of an existing community, either its domain name or its public key |
+| name | `string` or `undefined` | `undefined` | Domain name of an existing community, e.g. `'memes.bso'`, or the name to give a new one |
+| publicKey | `string` or `undefined` | `undefined` | IPNS public key of an existing community |
 | signer | `Signer` or `undefined` | `undefined` | (Community owners only) Optional `Signer` of the community to create a community with a specific private key |
 | anchor | `{publicKey: string}` or `undefined` | `undefined` | (Community owners only) Create a **delegated** community: the community's identity is this anchor IPNS name, whose private key you keep, and the node generates its own signing (minter) key. Mutually exclusive with `signer`. Every record the community publishes advertises this anchor in a signed `anchor` field, so readers who reach the record through the minter recover the identity. See [docs/protocol/delegated-ipns.md](docs/protocol/delegated-ipns.md) |
 | ...community | `any` | `undefined` | `CreateCommunityOptions` can also initialize any property on the `Community` instance |
@@ -843,10 +870,10 @@ An object which may have the following keys:
 #### Example
 
 ```js
-const PKC = require('@pkcprotocol/pkc-js')
+import PKC from '@pkcprotocol/pkc-js'
 const pkcOptions = {
   kuboRpcClientsOptions: ['http://localhost:5001/api/v0'], // optional, must run an IPFS node to use localhost:5001/api/v0
-  dataPath: __dirname
+  dataPath: import.meta.dirname
 }
 const pkc = await PKC(pkcOptions)
 pkc.on('error', console.log)
@@ -886,7 +913,7 @@ await community.edit({
   pubsubTopic: '12D3KooW...'
 })
 
-// start publishing updates every 5 minutes
+// start publishing updates
 await community.start()
 
 // instantiate an already existing community instance and initialize any property on it
@@ -973,11 +1000,14 @@ An object which may have the following keys:
 | author | `Author` | Author of the comment |
 | signer | `Signer` | Signer of the comment |
 | parentCid | `string` or `undefined` | The parent comment CID, undefined if comment is a post, same as postCid if comment is top level |
+| postCid | `string` or `undefined` | The CID of the post the reply is under, required when `parentCid` is set, undefined if comment is a post |
 | content | `string` or `undefined` | Content of the comment, link posts have no content |
 | title | `string` or `undefined` | If comment is a post, it needs a title |
 | link | `string` or `undefined` | If comment is a post, it might be a link post |
 | spoiler | `boolean` or `undefined` | Hide the comment thumbnail behind spoiler warning |
+| nsfw | `boolean` or `undefined` | Mark the comment as not safe for work |
 | flairs | `Flair[]` or `undefined` | Author or mod chosen colored labels for the comment |
+| linkWidth, linkHeight, linkHtmlTagName, quotedCids, crosspost, gallery | | See `Comment` in the [schema](#schema) |
 | challengeRequest | `ChallengeRequest` or `undefined` | Optional properties to pass to `ChallengeRequestPubsubMessage` |
 | cid | `string` or `undefined` | (Not for publishing) Gives access to `Comment.on('update')` for a comment already fetched |
 | ...comment | `any` | `CreateCommentOptions` can also initialize any property on the `Comment` instance |
@@ -988,7 +1018,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| challengeAnswers | `string[]` or `undefined` | Optional pre-answers to community.challenges |
+| challengeAnswers | `{[challengeIndex: string]: string}` or `undefined` | Optional pre-answers to community.challenges, keyed by challenge index. A challenge with no key has no pre-answer |
 | challengeCommentCids | `string[]` or `undefined` | Optional comment cids for community.challenges related to author karma/age in other communities |
 
 #### Returns
@@ -1057,6 +1087,7 @@ An object which may have the following keys:
 | deleted | `boolean` or `undefined` | Edited deleted status of the comment |
 | flairs | `Flair[]` or `undefined` | Edited flairs of the comment |
 | spoiler | `boolean` or `undefined` | Edited spoiler of the comment |
+| nsfw | `boolean` or `undefined` | Edited nsfw status of the comment |
 | reason | `string` or `undefined` | Reason of the edit |
 | challengeRequest | `ChallengeRequest` or `undefined` | Optional properties to pass to `ChallengeRequestPubsubMessage` |
 
@@ -1066,7 +1097,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| challengeAnswers | `string[]` or `undefined` | Optional pre-answers to community.challenges |
+| challengeAnswers | `{[challengeIndex: string]: string}` or `undefined` | Optional pre-answers to community.challenges, keyed by challenge index. A challenge with no key has no pre-answer |
 | challengeCommentCids | `string[]` or `undefined` | Optional comment cids for community.challenges related to author karma/age in other communities |
 
 #### Returns
@@ -1137,7 +1168,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| banExpiresAt | `number` or `undefined` | Comment author was banned for this comment |
+| banExpiresAt | `number` or `undefined` | Bans the comment's author until this timestamp (seconds) and marks this comment as the one the ban was for. A timestamp in the past lifts the ban and keeps the mark, `0` removes the mark and leaves the ban as it is. See [Banning an author](#banning-an-author) |
 | flairs | `Flair[]` or `undefined` | Edited flairs of the comment author |
 
 #### Returns
@@ -1156,6 +1187,57 @@ commentModeration.on('challenge', async (challengeMessage) => {
 })
 commentModeration.on('challengeverification', console.log)
 await commentModeration.publish()
+```
+
+#### Banning an author
+
+A ban is published on one of the author's comments, through `commentModeration.author.banExpiresAt`. It has two effects, which are published as two separate fields of `CommentUpdate`:
+
+| Field | What it says | Where it appears |
+| ---- | ---- | ---- |
+| `author.community.banExpiresAt` | The author's latest ban in the community. The author cannot publish while it is in the future | On the author's comments (all of them unless the community uses a pseudonymity mode) |
+| `authorBanExpiresAt` | A mod banned the author from this comment | Only on the comment the ban was published on |
+
+`commentModeration.author.banExpiresAt` takes three kinds of value:
+
+| Value | The author's ban | `authorBanExpiresAt` on that comment |
+| ---- | ---- | ---- |
+| A timestamp in the future | Banned until then | Set to the timestamp |
+| A timestamp in the past | Lifted | Stays, and its value becomes the past timestamp |
+| `0` | Unchanged | Removed |
+
+The two fields are independent. `authorBanExpiresAt` follows the newest moderation on that one comment that carries a `banExpiresAt`, and a `0` there removes it. `author.community.banExpiresAt` follows the newest moderation across all of the author's comments that carries a timestamp, and skips every `0`. So `0` only ever removes a label, and only a timestamp changes the ban. `0` is an input only, neither published field is ever `0`.
+
+| To do this | Publish on | `author.banExpiresAt` |
+| ---- | ---- | ---- |
+| Ban the author and label the comment | The offending comment | A timestamp in the future |
+| Change the length of the ban | The labelled comment | The new timestamp |
+| Unban and keep the label | The labelled comment | A timestamp in the past |
+| Remove a label and keep the ban | The labelled comment | `0` |
+| Move the label to another comment | Both comments, in either order | A future timestamp on the right one, `0` on the wrong one |
+| Undo a mistaken ban | The labelled comment, twice | A timestamp in the past, then `0` |
+
+`author.community.banExpiresAt` is never removed. After an unban, or after a ban runs out, it keeps the past timestamp.
+
+What a client showing a "user was banned for this post" label should know:
+
+- Rely only on the presence of `authorBanExpiresAt`. It stays after the ban runs out, and an unban published on the same comment leaves a timestamp in the past in it.
+- For whether the author is banned right now, compare `author.community.banExpiresAt` with the current time. Its presence alone is not enough, because it keeps a past timestamp once the ban is over.
+- Send `author.banExpiresAt` only when the mod is banning from that comment. Every moderation that carries a timestamp marks its comment, so pre-filling the field from `author.community.banExpiresAt` when a mod removes or locks another comment of a banned author marks that comment too.
+- `0` removes the label only from the comment it is published on, and does nothing on a comment that has none. It is the way to clear a label that should not be there, with no effect on the ban.
+- An unban is a timestamp in the past, and it marks the comment it is published on like any other timestamp. Publish it on the comment that already carries the label. Published on another comment, it lifts the ban but gives that comment a label too, which a `0` on it then clears.
+- To undo a ban completely, publish the past timestamp first and the `0` second, on the same comment. In the other order the unban puts the label back, and one more `0` clears it. The author is unbanned either way.
+
+```js
+const banUntil = (days) => Math.round(Date.now() / 1000) + days * 24 * 60 * 60
+const moderateAuthor = async (commentCid, banExpiresAt) => {
+  const moderation = await pkc.createCommentModeration({ communityAddress, commentCid, signer, commentModeration: { author: { banExpiresAt } } })
+  await moderation.publish()
+}
+
+await moderateAuthor(offendingCommentCid, banUntil(7)) // ban for a week, the comment gets authorBanExpiresAt
+await moderateAuthor(offendingCommentCid, Math.round(Date.now() / 1000) - 1) // lift the ban, the comment keeps authorBanExpiresAt
+await moderateAuthor(offendingCommentCid, 0) // the comment loses authorBanExpiresAt, the ban is not touched
 ```
 
 ### `pkc.createVote(createVoteOptions)`
@@ -1190,7 +1272,7 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| challengeAnswers | `string[]` or `undefined` | Optional pre-answers to community.challenges |
+| challengeAnswers | `{[challengeIndex: string]: string}` or `undefined` | Optional pre-answers to community.challenges, keyed by challenge index. A challenge with no key has no pre-answer |
 | challengeCommentCids | `string[]` or `undefined` | Optional comment cids for community.challenges related to author karma/age in other communities |
 
 #### Returns
@@ -1252,7 +1334,7 @@ const signerFromPrivateKey = await pkc.createSigner({privateKey: 'AbCd...', type
 | `name` | `string` (optional) | The community's domain name, e.g. `memes.bso`. Absent for a community without a name |
 | `publicKey` | `string` | The community's IPNS public key, its identity |
 | `address` | `string` | Runtime-only, computed the same way as `community.address`: `name` when there is one, else `publicKey`. It is not sent over the RPC wire, each side computes it |
-| `started` | `boolean` | Whether the community is running, the same check as `community.started`: its start lock on the `dataPath` is held, by this process or another one |
+| `started` | `boolean` | Whether the community is running, the same check as `community.started`: a live PKC instance on the `dataPath` has it started, in this process or another one. A start or stop by another process shows up within about two seconds |
 
 The list updates when a community is created, deleted, renamed, started or stopped. Run one process with the RPC server and have other processes connect to it, rather than sharing a `dataPath` between processes.
 
@@ -1292,13 +1374,13 @@ The PKC events.
 
 ### `communitieschange`
 
-> `PKC.communities` property changed: a community was created, deleted, renamed, started or stopped.
+> `pkc.communities` property changed: a community was created, deleted, renamed, started or stopped.
 
 #### Emits
 
 | Type | Description |
 | -------- | -------- |
-| `{ communities: { name?: string, publicKey: string, address: string, started: boolean }[] }` | The new `PKC.communities` property |
+| `{ communities: { name?: string, publicKey: string, address: string, started: boolean }[] }` | The new `pkc.communities` property |
 
 ## Community API
 The community API for getting community updates, or creating, editing, running a community as an owner.
@@ -1343,21 +1425,19 @@ An object which may have the following keys:
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| name | `string` or `undefined` | Crypto domain of the community, e.g. `'memes.bso'`. Changing it renames the community (its address, DB and start lock move to the new name) and hides the comments signed with the old name; `undefined` drops the name and the address becomes the public key, see [Changing a community's name](docs/protocol/names-and-addresses.md#changing-a-communitys-name). Owner-only over pubsub, see [Community roles and permissions](#community-roles-and-permissions) |
+| name | `string` or `undefined` | Crypto domain of the community, e.g. `'memes.bso'`. Changing it renames the community (its address and DB move to the new name) and hides the comments signed with the old name; `undefined` drops the name and the address becomes the public key, see [Changing a community's name](docs/protocol/names-and-addresses.md#changing-a-communitys-name). Owner-only over pubsub, see [Community roles and permissions](#community-roles-and-permissions) |
 | address | `string` or `undefined` | Legacy alias of `name`, kept for backward compatibility: a domain passed here is applied as `name`, the community's public key drops the name. Passing both `name` and `address` with different values throws `ERR_COMMUNITY_EDIT_NAME_AND_ADDRESS_MISMATCH`, see [Changing a community's name](docs/protocol/names-and-addresses.md#changing-a-communitys-name) |
-| signer | `Signer` or `undefined` | Signer of the community, useful to change the private if the owner gets hacked, but still has his crypto domain
 | title | `string` or `undefined` | Title of the community |
 | description | `string` or `undefined` | Description of the community |
 | rules | `string[]` or `undefined` | Rules of the community |
 | roles | `{[authorAddress: string]: CommunityRole}` or `undefined` | Author identities assigned `owner`, `admin`, or `moderator`; see [Community roles and permissions](#community-roles-and-permissions) |
-| lastPostCid | `string` or `undefined` | The most recent post in the linked list of posts |
-| posts | `Pages` or `undefined` | Only preload page 1 sorted by 'hot', might preload more later, should include some child comments and vote counts for each post |
 | pubsubTopic | `string` or `undefined` | The string to publish to in the pubsub, a public key of the community owner's choice |
 | features | `CommunityFeatures` or `undefined` | The features of the community |
 | suggested | `CommunitySuggested` or `undefined` | The suggested client settings for the community |
 | flairs | `{[key: 'post' or 'author']: Flair[]}` or `undefined` | The list of flairs (colored labels for comments or authors) authors or mods can choose from |
 | settings | `CommunitySettings` or `undefined` | The private community.settings property of the community, not shared in the community IPNS |
-| pageSorts | `CommunityPageSorts` or `undefined` | What the community publishes about its configured page sorts (`settings.pages`), keyed by sort name per scope: `{ posts?: {[sortName]: { name?, description?, publicOptions? }}, replies?: ... }`. `publicOptions` is the full option set the sort runs with (reserved options included) minus `privateOptions`, so a client that installed the same package can re-sort a page locally with its `score` (see "Client side" in [docs/protocol/page-sorts.md](docs/protocol/page-sorts.md)). Absent when `settings.pages` is unset |
+
+`community.pageSorts` is read-only and cannot be passed to `community.edit()`: it is what the community publishes about its configured page sorts (`settings.pages`), keyed by sort name per scope: `{ posts?: {[sortName]: { name?, description?, publicOptions? }}, replies?: ... }`. `publicOptions` is the full option set the sort runs with (reserved options included) minus `privateOptions`, so a client that installed the same package can re-sort a page locally with its `score` (see "Client side" in [docs/protocol/page-sorts.md](docs/protocol/page-sorts.md)). Absent when `settings.pages` is unset.
 
 ##### CommunitySettings
 
@@ -1367,6 +1447,9 @@ An object which may have the following keys:
 | ---- | ---- | ----------- |
 | fetchThumbnailUrls | `boolean` or `undefined` | Fetch the thumbnail URLs of comments `comment.link` property, could reveal the IP address of the community node |
 | fetchThumbnailUrlsProxyUrl | `string` or `undefined` | The HTTP proxy URL used to fetch thumbnail URLs |
+| challenges | `CommunityChallengeSetting[]` or `undefined` | The challenges an author has to pass to publish, an empty array removes all challenges. See [docs/protocol/challenge-settings.md](docs/protocol/challenge-settings.md) |
+| maxPendingApprovalCount | `number` or `undefined` | Most comments kept waiting for a mod's approval, the oldest is dropped once the count is hit. Defaults to `500` |
+| purgeDisapprovedCommentsOlderThan | `number` or `undefined` | Seconds after which a disapproved comment is purged from the community |
 | disablePubsubChallengeExchange | `boolean` or `undefined` | Make the community read-only over the network. The node stops subscribing to the challenge/publication pubsub topic and the published record omits `pubsubTopic`, so clients know not to attempt a challenge exchange and fail fast with `ERR_COMMUNITY_CHALLENGE_EXCHANGE_DISABLED`. The owner can still publish through the local shortcut (same process or through the RPC server running the community). The configured `community.pubsubTopic` is kept while the setting is on, including across a restart, and is published again as-is when the setting is turned off |
 | pages | `CommunityPagesSettings` or `undefined` | Which page sorts to generate and which to embed in the record, per scope: `{ posts?: CommunityPageSortSetting[], replies?: CommunityPageSortSetting[] }`. Unset generates today's default sorts. Any change regenerates every CommentUpdate. See [docs/protocol/page-sorts.md](docs/protocol/page-sorts.md) |
 
@@ -1378,6 +1461,7 @@ One entry of `settings.pages.posts` / `settings.pages.replies`, mirroring `Commu
 | ---- | ---- | ----------- |
 | name | `string` or `undefined` | (only if path is undefined) The key in `PKC.pageSorts`: a built-in (`hot`, `new`, `old`, `best`, `top`, `topHour`, `topDay`, `topWeek`, `topMonth`, `topYear`, `topAll`, `active`, `controversial`, `newFlat`, `oldFlat`) or a registered package |
 | path | `string` or `undefined` | (only if name is undefined) The path to the page sort js file |
+| sortName | `string` or `undefined` | The key this entry publishes under (`posts.pages` / `posts.pageCids` / `community.pageSorts`, or `replies.*`), replacing the file's own `sortName`. Lets one file be listed more than once per scope, e.g. `{ name: "top", sortName: "topFortnight", options: { maxAge: "2w" } }`. Two entries of a scope resolving to the same key are rejected. Any non-empty string except `__proto__`, `constructor`, `prototype` and the other keys a plain object inherits (`toString`, `valueOf`, ...) |
 | options | `{[optionName: string]: string}` or `undefined` | Options passed to the file. `maxAge` (`"7d"`, `"2w"`), `pinnedFirst` (`"true"`/`"false"`) and the `exclude*` moderation flags are reserved options every sort accepts |
 | preloaded | `boolean` or `undefined` | Embed this sort's first page in the record (`posts.pages` / `commentUpdate.replies.pages`). Default `false`; the first preloaded entry is the client's default sort |
 | privateOptions | `string[]` or `undefined` | Option names withheld from the public `community.pageSorts`; everything else the sort runs with is published. Package options only: a reserved option (`maxAge`, `pinnedFirst`, `exclude*`) cannot be private |
@@ -1390,7 +1474,7 @@ One entry of `settings.pages.posts` / `settings.pages.replies`, mirroring `Commu
 
 ### `community.start()`
 
-> Start listening for new posts on the pubsub, and publishing them every 5 minutes. Only usable if the community database corresponding to `community.address` exists locally  (ie. you are the community owner).
+> Start listening for new posts on the pubsub, and publishing them in the community's IPNS record. Only usable if the community database corresponding to `community.address` exists locally  (ie. you are the community owner).
 
 #### Example
 
@@ -1411,7 +1495,7 @@ await community.start()
 
 ### `community.stop()`
 
-> Stop polling the network for new community updates started by community.update(). Also stop listening for new posts on the pubsub started by community.start(), and stop publishing them every 5 minutes.
+> Stop polling the network for new community updates started by community.update(). Also stop listening for new posts on the pubsub started by community.start(), and stop publishing them.
 
 ### `community.update()`
 
@@ -1502,7 +1586,7 @@ community.on('update', (updatedCommunity) => console.log(updatedCommunity))
 community.update()
 
 // stop updating in 10 minutes
-setTimeout(() => community.stop(), 60000)
+setTimeout(() => community.stop(), 600000)
 ```
 
 ### `challengerequest`
@@ -1529,7 +1613,7 @@ Object is of the form:
 
 ### `challengeanswer`
 
-> After receiving a `Challenge`, the user owner will send back a `challengeanswer`.
+> After receiving a `Challenge`, the user will send back a `challengeanswer`.
 
 #### Emits
 
@@ -1561,7 +1645,7 @@ Object is of the form:
 
 | Type | Description |
 | -------- | -------- |
-| `'stopped' \| 'resolving-address' \| 'fetching-ipns' \| 'fetching-ipfs' \| 'failed' \| 'succeeded'` | The `Community.updatingState` property |
+| `'stopped' \| 'resolving-name' \| 'fetching-ipns' \| 'fetching-ipfs' \| 'publishing-ipns' \| 'waiting-retry' \| 'failed' \| 'succeeded'` | The `Community.updatingState` property |
 
 ### `startedstatechange`
 
@@ -1571,14 +1655,20 @@ Object is of the form:
 
 | Type | Description |
 | -------- | -------- |
-| `'stopped' \| 'fetching-ipns' \| 'publishing-ipns' \| 'failed' \| 'succeeded'` | The `Community.startedState` property |
+| `'stopped' \| 'publishing-ipns' \| 'failed' \| 'succeeded'` | The `Community.startedState` property |
 
 ## Comment API
-The comment API for publishing a comment as an author, or getting comment updates. `Comment`, `Vote` and `CommentEdit` inherit `Publication` class and all have a similar API. A `Comment` updates itselfs on update events after `Comment.update()` is called if `Comment.cid` exists.
+The comment API for publishing a comment as an author, or getting comment updates. `Comment`, `Vote` and `CommentEdit` inherit `Publication` class and all have a similar API. A `Comment` updates itself on update events after `Comment.update()` is called if `Comment.cid` exists.
 
 ### `comment.publish()`
 
 > Publish the comment to the pubsub. You must then wait for the `'challenge'` event and answer with a `ChallengeAnswer`.
+
+A publication instance (`Comment`, `Vote`, `CommentEdit`, `CommentModeration`, `CommunityEdit`) runs one challenge exchange. Once `publish()` has got past its pre-flight (loading the community, then signing and validating the publication), or once `stop()` has ended a `publish()` that was called, a second `publish()` on the same instance rejects with `ERR_PUBLICATION_PUBLISH_ALREADY_CALLED`, whatever came of the first: still in progress, succeeded, failed, or stopped with `stop()`. The error's `details` carry `state`, `publishingState`, `receivedChallenge` and `receivedChallengeVerification`, so you can tell what happened to the first attempt.
+
+The one exception is a `publish()` that rejected during pre-flight, because the community could not be loaded or the publication could not be signed or validated. Nothing left the instance, so you can call `publish()` on it again. A `publish()` call made while another one is still running on the same instance rejects.
+
+To publish again after that point, create a new instance and call `publish()` on that one. Call `stop()` on the old instance first if it is still publishing.
 
 #### Example
 
@@ -1592,6 +1682,20 @@ comment.on('challengeverification', console.log)
 await comment.publish()
 ```
 
+#### Example: publishing again
+
+```js
+// a new publication, signed again with a new timestamp (for example after a wrong challenge answer)
+const retry = await pkc.createComment(commentObject)
+
+// or the same signed publication (for example when the verification never arrived).
+// A community that already stored it answers with the stored comment instead of rejecting a duplicate
+const sameSignedComment = await pkc.createComment(comment.raw.pubsubMessageToPublish)
+
+await comment.stop() // only needed while the old instance is still publishing
+await retry.publish()
+```
+
 ### `comment.publishChallengeAnswers({ challengeAnswers })`
 
 > Publish your answers to the challenges e.g. the captcha answers.
@@ -1600,7 +1704,7 @@ await comment.publish()
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| challengeAnswers | `string[]` | The challenge answers |
+| challengeAnswers | `{[challengeIndex: string]: string}` | The challenge answers, keyed by the challenge index of each entry in `challengeMessage.challenges`. A challenge you leave out fails as unanswered |
 
 #### Example
 
@@ -1616,7 +1720,7 @@ await comment.publish()
 
 ### `comment.update()`
 
-> Start polling the network for comment updates (replies, upvotes, edits, etc), update itself and emit the update event. Only usable if comment.cid or exists.
+> Start polling the network for comment updates (replies, upvotes, edits, etc), update itself and emit the update event. Only usable if comment.cid exists.
 
 #### Example
 
@@ -1673,7 +1777,7 @@ comment.on('update', (updatedComment) => {
 comment.update()
 
 // stop looking for updates after 10 minutes
-setTimeout(() => comment.stop(), 60000)
+setTimeout(() => comment.stop(), 600000)
 ```
 
 ### `challenge`
@@ -1730,7 +1834,7 @@ comment.on('challenge', async (challengeMessage) => {
   const challengeAnswers = await askUserForChallengeAnswers(challengeMessage.challenges)
   comment.publishChallengeAnswers({ challengeAnswers })
 })
-comment.on('challengeverification', (challengeVerification) => console.log('published post cid is', challengeVerification?.publication?.cid))
+comment.on('challengeverification', (challengeVerification) => console.log('published post cid is', challengeVerification.commentUpdate?.cid))
 await comment.publish()
 ```
 
@@ -1752,7 +1856,7 @@ await comment.publish()
 
 | Type | Description |
 | -------- | -------- |
-| `'stopped' \| 'resolving-author-address' \| 'fetching-ipfs' \| 'fetching-update-ipns' \| 'fetching-update-ipfs' \| 'failed' \| 'succeeded'` | The `Comment.updatingState` property |
+| `'stopped' \| 'resolving-author-name' \| 'fetching-ipfs' \| 'fetching-update-ipfs' \| 'resolving-community-name' \| 'fetching-community-ipns' \| 'fetching-community-ipfs' \| 'waiting-retry' \| 'failed' \| 'succeeded'` | The `Comment.updatingState` property |
 
 ### `publishingstatechange`
 
@@ -1762,7 +1866,7 @@ await comment.publish()
 
 | Type | Description |
 | -------- | -------- |
-| `'stopped' \| 'resolving-community-address' \| 'fetching-community-ipns' \| 'fetching-community-ipfs' \| 'publishing-challenge-request' \| 'waiting-challenge' \| 'waiting-challenge-answers' \| 'publishing-challenge-answer' \| 'waiting-challenge-verification' \| 'failed' \| 'succeeded'` | The `Comment.publishingState` property |
+| `'stopped' \| 'resolving-community-name' \| 'fetching-community-ipns' \| 'fetching-community-ipfs' \| 'publishing-challenge-request' \| 'waiting-challenge' \| 'waiting-challenge-answers' \| 'publishing-challenge-answer' \| 'waiting-challenge-verification' \| 'failed' \| 'succeeded'` | The `Comment.publishingState` property |
 
 ## Pages API
 The pages API for scrolling pages of a community or replies to a post/comment. `Community.posts` and `Comment.replies` are `Pages` instances. `Community.posts.pages.hot` is a `Page` instance.
@@ -1822,25 +1926,30 @@ The client events.
 
 | Type | Description |
 | -------- | -------- |
-| `'stopped' \| 'resolving-author-address' \| 'fetching-ipfs' \| 'fetching-update-ipns' \| 'fetching-update-ipfs' \| 'resolving-community-address' \| 'fetching-community-ipns' \| 'fetching-community-ipfs' \| 'subscribing-pubsub' \| 'publishing-challenge-request' \| 'waiting-challenge' \| 'waiting-challenge-answers' \| 'publishing-challenge-answer' \| 'waiting-challenge-verification' \| 'connecting' \| 'connected'` | The `Client.state` property |
+| `'stopped' \| 'resolving-author-name' \| 'fetching-ipfs' \| 'fetching-update-ipfs' \| 'resolving-community-name' \| 'fetching-community-ipns' \| 'fetching-community-ipfs' \| 'fetching-ipns' \| 'publishing-ipns' \| 'subscribing-pubsub' \| 'publishing-challenge-request' \| 'waiting-challenge' \| 'waiting-challenge-answers' \| 'publishing-challenge-answer' \| 'waiting-challenge-verification' \| 'waiting-challenge-requests' \| 'publishing-challenge' \| 'publishing-challenge-verification' \| 'connecting' \| 'connected' \| 'failed'` | The `Client.state` property. Which states a client goes through depends on its kind and on whether it belongs to a comment, a community or the pkc instance |
 
 #### Example
 
 ```js
 const onStateChange = (state) => console.log('client state changed:', state)
-for (const clientUrl in clients?.ipfsGateways) {
-  comment.clients?.ipfsGateways?.[clientUrl].on('statechange', onStateChange)
+const { clients } = comment
+for (const clientUrl in clients.ipfsGateways) {
+  clients.ipfsGateways[clientUrl].on('statechange', onStateChange)
 }
-for (const clientUrl in clients?.ipfsClients) {
-  comment.clients?.ipfsClients?.[clientUrl].on('statechange', onStateChange)
+for (const clientUrl in clients.kuboRpcClients) {
+  clients.kuboRpcClients[clientUrl].on('statechange', onStateChange)
 }
-for (const clientUrl in clients?.pubsubClients) {
-  comment.clients?.pubsubClients?.[clientUrl].on('statechange', onStateChange)
+for (const clientUrl in clients.pubsubKuboRpcClients) {
+  clients.pubsubKuboRpcClients[clientUrl].on('statechange', onStateChange)
 }
-for (const chainTicker in clients?.chainProviders) {
-  for (const clientUrl in clients?.chainProviders?.[chainTicker]) {
-    comment.clients?.chainProviders?.[chainTicker]?.[clientUrl].on('statechange', onStateChange)
-  }
+for (const clientKey in clients.libp2pJsClients) {
+  clients.libp2pJsClients[clientKey].on('statechange', onStateChange)
+}
+for (const clientUrl in clients.pkcRpcClients) {
+  clients.pkcRpcClients[clientUrl].on('statechange', onStateChange)
+}
+for (const resolverKey in clients.nameResolvers) {
+  clients.nameResolvers[resolverKey].on('statechange', onStateChange)
 }
 ```
 

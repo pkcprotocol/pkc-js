@@ -106,7 +106,9 @@ describe("createSchemaRowParser", () => {
         });
 
         expect(data.cid).to.equal("QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f");
-        expect(extras).to.deep.equal({ extraProps: '{"foo":"bar"}', legacy: "legacy" });
+        // extraProps is a column of the commentUpdates table (issue #572): it parses as JSON and is not left in extras
+        expect(data.extraProps).to.deep.equal({ foo: "bar" });
+        expect(extras).to.deep.equal({ legacy: "legacy" });
     });
 
     it("throws with helpful metadata when JSON parsing fails", () => {

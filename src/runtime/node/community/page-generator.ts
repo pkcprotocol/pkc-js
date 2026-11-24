@@ -111,6 +111,24 @@ function pageBytes(entrySizes: number[], hasNextCid: boolean): number {
 // What `ipfs add` reports for a page of these entries
 const pageDagSize = (entrySizes: number[], hasNextCid: boolean): number => calculateUnixFsDagSizeCidV0(pageBytes(entrySizes, hasNextCid));
 
+// The most UTF-8 bytes a page may hold for what `ipfs add` reports to stay at or under dagSizeLimit. The DAG size grows
+// with the bytes (a leaf per 256 KiB chunk plus the root's links, about 7,950 bytes at 32 MiB), so a binary search
+// finds the boundary; computed once per distinct limit (the first page size and the 1, 2, 4... MiB steps).
+const pageByteBudgets = new Map<number, number>();
+function pageByteBudget(dagSizeLimit: number): number {
+    const cached = pageByteBudgets.get(dagSizeLimit);
+    if (cached !== undefined) return cached;
+    let fits = 0;
+    let high = Math.max(dagSizeLimit, 0); // a DAG is never smaller than its bytes
+    while (fits < high) {
+        const middle = Math.ceil((fits + high) / 2);
+        if (calculateUnixFsDagSizeCidV0(middle) <= dagSizeLimit) fits = middle;
+        else high = middle - 1;
+    }
+    pageByteBudgets.set(dagSizeLimit, fits);
+    return fits;
+}
+
 const SERIALIZE_BATCH = 256; // entries resolved and serialized per database round trip
 
 // How many bytes of serialized entries a community keeps between generations: an eighth of the heap limit (so
@@ -401,9 +419,11 @@ export class PageGenerator {
 
     // Split comments into pages: the first under firstPageSizeBytes, then 1, 2, 4... MiB up to MAX_PAGE_SIZE_BYTES, each 1 KiB
     // under its limit.
-    // A comment counts as what `ipfs add` would report for its JSON alone, so the sum overestimates the page by a few
-    // bytes per comment; `sizeOf` gives an entry's UTF-8 JSON size when the caller already serialized it (the page
-    // generator does, once per entry for every sort), else each comment is stringified here.
+    // A page is measured as what `ipfs add` reports for it: its UTF-8 bytes (wrapper, entries, commas) against the
+    // byte budget of its limit (pageByteBudget). Summing each entry's own DAG size instead over-counted pages of many
+    // small entries and under-counted pages of few large ones by more than the margin (issue #504). `sizeOf` gives an
+    // entry's UTF-8 JSON size when the caller already serialized it (the page generator does, once per entry for
+    // every sort), else each comment is stringified here.
     _chunkComments<T extends PageIpfs["comments"] | ModQueuePageIpfs["comments"]>({
         comments,
         firstPageSizeBytes,
@@ -421,45 +441,46 @@ export class PageGenerator {
         // Quick check for small arrays - if everything fits in one page, no nextCid needed
         if (pageDagSize(entryBytes, false) <= FIRST_PAGE_SIZE) return [comments]; // Single page, no chunking needed
 
-        // The wrapper's cost with and without nextCid, minus the 2 bytes of the empty array
-        const OBJECT_WRAPPER_WITH_CID = pageDagSize([], true) - 2;
-        const OBJECT_WRAPPER_WITHOUT_CID = pageDagSize([], false) - 2;
+        // The wrapper's bytes with and without nextCid (the entries and their commas are added as they come)
+        const WRAPPER_WITH_CID_BYTES = pageBytes([], true);
+        const WRAPPER_WITHOUT_CID_BYTES = pageBytes([], false);
 
         const chunks: T[] = [];
         let currentChunk = [] as unknown as T;
         let chunkIndex = 0;
-        let accumulatedSize = OBJECT_WRAPPER_WITH_CID;
+        let accumulatedBytes = WRAPPER_WITH_CID_BYTES;
 
         // The first page is dynamic; the pages after it 1MB, 2MB, 4MB... up to MAX_PAGE_SIZE_BYTES
         const getCurrentMaxSize = (index: number): number =>
             index === 0 ? FIRST_PAGE_SIZE : Math.min(MB * Math.pow(2, index - 1), MAX_PAGE_SIZE_BYTES);
 
         for (let i = 0; i < comments.length; i++) {
-            const commentSize = calculateUnixFsDagSizeCidV0(entryBytes[i]);
+            const commentBytes = entryBytes[i];
             const maxSize = getCurrentMaxSize(chunkIndex);
+            const byteBudget = pageByteBudget(maxSize - SAFETY_MARGIN); // the bytes whose DAG stays a margin under the limit
             const isLastItem = i === comments.length - 1;
 
             // Add comma if needed
             const commaSize = currentChunk.length > 0 ? 1 : 0;
 
-            // Check if adding this comment would exceed the limit MINUS the safety margin
-            if (accumulatedSize + commaSize + commentSize > maxSize - SAFETY_MARGIN) {
+            // Check if adding this comment would take the page's DAG past the limit minus the safety margin
+            if (accumulatedBytes + commaSize + commentBytes > byteBudget) {
                 if (currentChunk.length > 0) {
                     chunks.push(currentChunk);
                     currentChunk = [] as unknown as T;
                     chunkIndex++;
-                    accumulatedSize = isLastItem ? OBJECT_WRAPPER_WITHOUT_CID : OBJECT_WRAPPER_WITH_CID;
-                } else if (commentSize > maxSize - SAFETY_MARGIN) {
+                    accumulatedBytes = isLastItem ? WRAPPER_WITHOUT_CID_BYTES : WRAPPER_WITH_CID_BYTES;
+                } else if (commentBytes > byteBudget) {
                     const log = Logger("pkc-js:page-generator:_chunkComments");
                     log.trace(
-                        `Single comment at index ${i} (size ${commentSize}) is large relative to page size limit (${maxSize}) for page ${chunkIndex}`
+                        `Single comment at index ${i} (${commentBytes} bytes) is large relative to page size limit (${maxSize}) for page ${chunkIndex}`
                     );
-                    accumulatedSize = isLastItem ? OBJECT_WRAPPER_WITHOUT_CID : OBJECT_WRAPPER_WITH_CID;
+                    accumulatedBytes = isLastItem ? WRAPPER_WITHOUT_CID_BYTES : WRAPPER_WITH_CID_BYTES;
                 }
             }
 
             (currentChunk as unknown[]).push(comments[i]);
-            accumulatedSize += commaSize + commentSize;
+            accumulatedBytes += commaSize + commentBytes;
         }
 
         if (currentChunk.length > 0) chunks.push(currentChunk);

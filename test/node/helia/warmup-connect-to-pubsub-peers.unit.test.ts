@@ -162,6 +162,151 @@ describeSkipIfRpc("connectToPubsubPeers warmup (issue #171 follow-up)", () => {
         expect(node._helia.libp2p.services.pubsub.getSubscribers(topic).map((p) => p.toString())).to.include(subscriber.ID);
     });
 
+    // Issue #475: a provider reachable only on private/loopback addrs (a NAT'd seeder in a VM announcing
+    // 127.0.0.1, 10.0.2.15, fec0::...) is dialed after the providers with a public addr, never ahead of
+    // them. The subscriber is announced as /dns4/localhost. (the trailing dot keeps isPrivate from matching
+    // "localhost", so it counts as public, yet it is local); the
+    // private-only provider is a loopback tarpit yielded first. Records the order dials start in.
+    it("dials providers reachable only on private/loopback addrs after public ones (issue #475)", async () => {
+        const SLOW_ROUTER_DELAY_MS = 800; // keeps the provider stream open, so nothing releases the private-only peer early
+        const topic = topicFor("private-last");
+        const cid = pubsubTopicToDhtKeyCid(topic).toString();
+        const subscriber = await startSubscriberNode(topic);
+        const publicAddrs = subscriber.Addrs.map((addr) => addr.replace(/^\/ip4\/127\.0\.0\.1\//, "/dns4/localhost./"));
+        const tarpitPeerId = await newPeerIdStr();
+        const router = new MockHttpRouter();
+        await router.start();
+        startedRouters.push(router);
+        // MockHttpRouter serves the newest record first, so the private-only tarpit is added last to be yielded first
+        router.addProviderForTesting(cid, { ID: subscriber.ID, Addrs: publicAddrs });
+        router.addProviderForTesting(cid, { ID: tarpitPeerId, Addrs: [await startTarpitWsAddr()] });
+        const slowRouter = new MockHttpRouter({ providerGetDelayMs: SLOW_ROUTER_DELAY_MS });
+        await slowRouter.start();
+        startedRouters.push(slowRouter);
+        slowRouter.addProviderForTesting(cid, { ID: subscriber.ID, Addrs: publicAddrs });
+        const node = await createNode({
+            routers: [router.url, slowRouter.url],
+            libp2pOptions: { connectionManager: { addressDialTimeout: 5_000 } }
+        });
+
+        const dials: { peer: string; atMs: number }[] = [];
+        const libp2p = node._helia.libp2p;
+        const originalDial = libp2p.dial.bind(libp2p);
+        const start = Date.now();
+        libp2p.dial = ((target: Parameters<typeof libp2p.dial>[0], options?: Parameters<typeof libp2p.dial>[1]) => {
+            dials.push({ peer: target.toString(), atMs: Date.now() - start });
+            return originalDial(target, options);
+        }) as typeof libp2p.dial;
+
+        const connections = await connectToPubsubPeers({ helia: node._helia, pubsubTopic: topic, maxPeers: 4, log });
+
+        expect(connections.length, "should have connected to the public subscriber").to.be.greaterThan(0);
+        const describeDials = JSON.stringify(dials);
+        expect(dials[0]?.peer, `dials: ${describeDials}`).to.equal(subscriber.ID);
+        const subscriberDialAt = dials.find((d) => d.peer === subscriber.ID)!.atMs;
+        const tarpitDial = dials.find((d) => d.peer === tarpitPeerId);
+        if (tarpitDial) expect(tarpitDial.atMs, `dials: ${describeDials}`).to.be.greaterThan(subscriberDialAt);
+    });
+
+    // Issue #475 (PR #492 review): the private-only release is "public dials settled OR the 2s timer,
+    // whichever comes first", and the timer must survive the provider stream ending normally. Here the
+    // stream ends at once, the only public provider is a tarpit whose dial hangs until addressDialTimeout,
+    // and the real subscriber is reachable only on loopback. The subscriber must be dialed at ~2s, not
+    // when the tarpit dial finally fails.
+    it("dials a private-only provider after the 2s cap even when a public dial still hangs (issue #475)", async () => {
+        const TARPIT_DIAL_SETTLE_MS = 8_000; // connectionManager.addressDialTimeout: when the public tarpit dial fails
+        const PRIVATE_DIAL_MAX_MS = 4_000; // between the 2s cap and the tarpit settling
+
+        const topic = topicFor("private-cap");
+        const cid = pubsubTopicToDhtKeyCid(topic).toString();
+        const subscriber = await startSubscriberNode(topic); // announced on 127.0.0.1 only, so private-only
+        const tarpitPeerId = await newPeerIdStr();
+        const tarpitPublicAddr = (await startTarpitWsAddr()).replace(/^\/ip4\/127\.0\.0\.1\//, "/dns4/localhost./");
+        const router = new MockHttpRouter();
+        await router.start();
+        startedRouters.push(router);
+        router.addProviderForTesting(cid, { ID: subscriber.ID, Addrs: subscriber.Addrs });
+        router.addProviderForTesting(cid, { ID: tarpitPeerId, Addrs: [tarpitPublicAddr] });
+        const node = await createNode({
+            routers: [router.url],
+            libp2pOptions: { connectionManager: { addressDialTimeout: TARPIT_DIAL_SETTLE_MS, dialTimeout: TARPIT_DIAL_SETTLE_MS + 2_000 } }
+        });
+
+        const dials: { peer: string; atMs: number }[] = [];
+        const libp2p = node._helia.libp2p;
+        const originalDial = libp2p.dial.bind(libp2p);
+        const start = Date.now();
+        libp2p.dial = ((target: Parameters<typeof libp2p.dial>[0], options?: Parameters<typeof libp2p.dial>[1]) => {
+            dials.push({ peer: target.toString(), atMs: Date.now() - start });
+            return originalDial(target, options);
+        }) as typeof libp2p.dial;
+
+        const connections = await connectToPubsubPeers({ helia: node._helia, pubsubTopic: topic, maxPeers: 4, log });
+        const elapsed = Date.now() - start;
+
+        const describeDials = JSON.stringify(dials);
+        expect(dials[0]?.peer, `the public tarpit is dialed first; dials: ${describeDials}`).to.equal(tarpitPeerId);
+        const subscriberDial = dials.find((d) => d.peer === subscriber.ID);
+        expect(subscriberDial, `the private-only subscriber was never dialed; dials: ${describeDials}`).to.not.equal(undefined);
+        expect(
+            subscriberDial!.atMs,
+            `private-only subscriber dialed at ${subscriberDial!.atMs}ms: the 2s cap was cancelled when the provider stream ended, ` +
+                `so it waited for the public tarpit dial (~${TARPIT_DIAL_SETTLE_MS}ms); dials: ${describeDials}`
+        ).to.be.lessThan(PRIVATE_DIAL_MAX_MS);
+        expect(elapsed, `warmup took ${elapsed}ms`).to.be.lessThan(PRIVATE_DIAL_MAX_MS + 3_000);
+        expect(connections.map((c) => c.remotePeer.toString())).to.include(subscriber.ID);
+    });
+
+    // Issue #475 (PR #492 review): a provider can still be mid-classification (the isDialable() await in
+    // providerIsReachableOnlyPrivately) when the 2s timer releases the private-only queue. It used to be
+    // queued after the queue was drained, and since a release happens only once it was never dialed.
+    // Here a loopback tarpit is queued first (starting the timer) and the real subscriber's classification
+    // is held until the tarpit has been dialed, i.e. until the release has happened.
+    it("dials a private-only provider whose classification finishes after the 2s release (issue #475)", async () => {
+        const topic = topicFor("private-late-classification");
+        const cid = pubsubTopicToDhtKeyCid(topic).toString();
+        const subscriber = await startSubscriberNode(topic); // announced on 127.0.0.1 only, so private-only
+        const tarpitPeerId = await newPeerIdStr();
+        const router = new MockHttpRouter();
+        await router.start();
+        startedRouters.push(router);
+        // MockHttpRouter serves the newest record first, so the tarpit is added last to be yielded first
+        router.addProviderForTesting(cid, { ID: subscriber.ID, Addrs: subscriber.Addrs });
+        router.addProviderForTesting(cid, { ID: tarpitPeerId, Addrs: [await startTarpitWsAddr()] });
+        const node = await createNode({
+            routers: [router.url],
+            libp2pOptions: { connectionManager: { addressDialTimeout: 3_000 } }
+        });
+
+        const libp2p = node._helia.libp2p;
+        const dials: { peer: string; atMs: number }[] = [];
+        let markTarpitDialed!: () => void;
+        const tarpitDialed = new Promise<void>((resolve) => (markTarpitDialed = resolve));
+        const originalDial = libp2p.dial.bind(libp2p);
+        const start = Date.now();
+        libp2p.dial = ((target: Parameters<typeof libp2p.dial>[0], options?: Parameters<typeof libp2p.dial>[1]) => {
+            dials.push({ peer: target.toString(), atMs: Date.now() - start });
+            if (target.toString() === tarpitPeerId) markTarpitDialed();
+            return originalDial(target, options);
+        }) as typeof libp2p.dial;
+        const originalIsDialable = libp2p.isDialable.bind(libp2p);
+        libp2p.isDialable = (async (addrs: Parameters<typeof libp2p.isDialable>[0], options?: Parameters<typeof libp2p.isDialable>[1]) => {
+            const asked = (Array.isArray(addrs) ? addrs : [addrs]).map((addr) => addr.toString());
+            if (asked.some((addr) => subscriber.Addrs.includes(addr))) await tarpitDialed;
+            return originalIsDialable(addrs, options);
+        }) as typeof libp2p.isDialable;
+
+        const connections = await connectToPubsubPeers({ helia: node._helia, pubsubTopic: topic, maxPeers: 4, log });
+
+        const describeDials = JSON.stringify(dials);
+        expect(dials[0]?.peer, `the tarpit is released by the timer first; dials: ${describeDials}`).to.equal(tarpitPeerId);
+        expect(
+            dials.find((d) => d.peer === subscriber.ID),
+            `the subscriber classified after the release was never dialed; dials: ${describeDials}`
+        ).to.not.equal(undefined);
+        expect(connections.map((c) => c.remotePeer.toString())).to.include(subscriber.ID);
+    });
+
     // Issue #213: libp2p's CompoundContentRouting.findProviders dedupes providers by peer id
     // across routers — the first router's record for a peer is the only one ever yielded. If a
     // fast router serves the subscriber's record with its WSS addr stripped (tcp-only), the one

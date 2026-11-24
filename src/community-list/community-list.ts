@@ -22,6 +22,7 @@ import type { CommunityListEntryJson, CommunityListEvents, CommunityListIpfsType
 import type { AuthorPubsubJsonType, AuthorPubsubType } from "../types.js";
 import type { JsonSignature } from "../signer/types.js";
 import { sha256 } from "js-sha256";
+import { withoutForbiddenKeys } from "../unknown-props.js";
 
 type UnsignedCommunityListProps = Omit<CommunityListIpfsType, "signature">;
 
@@ -76,14 +77,14 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
 
     private _buildRuntimeEntry(entry: CommunityListIpfsType["communities"][number]): CommunityListEntryJson {
         const address = entry.name || entry.publicKey;
-        return { ...entry, address, shortAddress: shortifyAddress(address) };
+        return { ...withoutForbiddenKeys(entry), address, shortAddress: shortifyAddress(address) };
     }
 
     private _buildRuntimeAuthor(
         wireAuthor: AuthorPubsubType | undefined,
         signaturePublicKey: string
     ): AuthorPubsubJsonType & { nameResolved?: boolean } {
-        const runtimeAuthor = buildRuntimeAuthor({ author: wireAuthor, signaturePublicKey });
+        const runtimeAuthor = buildRuntimeAuthor({ author: wireAuthor && withoutForbiddenKeys(wireAuthor), signaturePublicKey });
         return { ...runtimeAuthor, shortAddress: shortifyAddress(runtimeAuthor.address) };
     }
 

@@ -163,7 +163,7 @@ describe("getChallengeVerification", () => {
     const challengeRequestMessage = {
         comment: { author, signature: { publicKey: signers[2].publicKey } },
         // define mock challenge answers in challenge request
-        challengeAnswers: [undefined, undefined, undefined, undefined, undefined, "password"]
+        challengeAnswers: { "5": "password" }
     } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
     beforeAll(async () => {
@@ -173,7 +173,7 @@ describe("getChallengeVerification", () => {
     it("only 50% of challenges must succeed", async () => {
         // fail the first challenge answer, should still succeed
         const getChallengeAnswersFail1: GetChallengeAnswers = async (challenges) => {
-            return ["wrong", String(eval((challenges[1] as { challenge: string }).challenge))];
+            return { "1": "wrong", "3": String(eval((challenges["3"] as { challenge: string }).challenge)) };
         };
         let challengeVerification = (await getChallengeVerification({
             challengeRequestMessage,
@@ -184,7 +184,7 @@ describe("getChallengeVerification", () => {
 
         // fail only the second challenge, should still succeed
         const getChallengeAnswersFail2: GetChallengeAnswers = async (challenges) => {
-            return ["wrong", String(eval((challenges[1] as { challenge: string }).challenge))];
+            return { "1": "wrong", "3": String(eval((challenges["3"] as { challenge: string }).challenge)) };
         };
         challengeVerification = (await getChallengeVerification({
             challengeRequestMessage,
@@ -195,7 +195,7 @@ describe("getChallengeVerification", () => {
 
         // fail both challenge, should fail
         const getChallengeAnswersFailAll: GetChallengeAnswers = async (_challenges) => {
-            return ["wrong", "wrong"];
+            return { "1": "wrong", "3": "wrong" };
         };
         challengeVerification = (await getChallengeVerification({
             challengeRequestMessage,
@@ -208,10 +208,10 @@ describe("getChallengeVerification", () => {
 
         // succeed both challenge
         const getChallengeAnswersSucceedAll: GetChallengeAnswers = async (challenges) => {
-            return [
-                String(eval((challenges[0] as { challenge: string }).challenge)),
-                String(eval((challenges[1] as { challenge: string }).challenge))
-            ];
+            return {
+                "1": String(eval((challenges["1"] as { challenge: string }).challenge)),
+                "3": String(eval((challenges["3"] as { challenge: string }).challenge))
+            };
         };
         challengeVerification = (await getChallengeVerification({
             challengeRequestMessage,
@@ -240,7 +240,7 @@ describe("getChallengeVerification", () => {
         // correct preanswered
         let mockChallengeRequestMessage = {
             comment: { author },
-            challengeAnswers: ["password"]
+            challengeAnswers: { "0": "password" }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
         const shouldNotCall = async () => {
             throw Error("should not call");
@@ -255,7 +255,7 @@ describe("getChallengeVerification", () => {
         // wrong preanswered
         mockChallengeRequestMessage = {
             comment: { author },
-            challengeAnswers: ["wrong"]
+            challengeAnswers: { "0": "wrong" }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
         challengeVerification = (await getChallengeVerification({
             challengeRequestMessage: mockChallengeRequestMessage,
@@ -269,8 +269,8 @@ describe("getChallengeVerification", () => {
         mockChallengeRequestMessage = {
             comment: { author }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
-        const getChallengeAnswers = async (_challenges: unknown[]): Promise<string[]> => {
-            return ["password"];
+        const getChallengeAnswers: GetChallengeAnswers = async () => {
+            return { "0": "password" };
         };
         challengeVerification = (await getChallengeVerification({
             challengeRequestMessage: mockChallengeRequestMessage,
@@ -280,8 +280,8 @@ describe("getChallengeVerification", () => {
         expect(challengeVerification.challengeSuccess).to.equal(true);
 
         // wrong answered via challenge
-        const getChallengeAnswersWrong = async (_challenges: unknown[]): Promise<string[]> => {
-            return ["wrong"];
+        const getChallengeAnswersWrong: GetChallengeAnswers = async () => {
+            return { "0": "wrong" };
         };
         challengeVerification = (await getChallengeVerification({
             challengeRequestMessage: mockChallengeRequestMessage,
@@ -350,6 +350,37 @@ describe("getChallengeVerification", () => {
         });
     });
 
+    it("rate limits are counted per community", async () => {
+        // Two communities run by the same node with the same exclude rule. Publishing in one must not spend the other's rate limit.
+        const pkc = await PKC();
+        const createRateLimitedCommunity = (address: string) =>
+            ({
+                address,
+                settings: { challenges: [{ name: "fail", options: { error: "rate limited" }, exclude: [{ rateLimit: 1 }] }] },
+                _pkc: pkc
+            }) as unknown as LocalCommunity;
+        const communityA = createRateLimitedCommunity(`community-a-${getRandomAddress()}.bso`);
+        const communityB = createRateLimitedCommunity(`community-b-${getRandomAddress()}.bso`);
+        const challengeRequestMessage = {
+            comment: { author: { address: getRandomAddress() }, signature: DEFAULT_SIGNATURE }
+        } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
+        const shouldNotCall = async () => {
+            throw Error("should not call");
+        };
+        const verify = async (community: LocalCommunity) =>
+            (await getChallengeVerification({
+                challengeRequestMessage,
+                community,
+                getChallengeAnswers: shouldNotCall
+            })) as GetChallengeVerificationResult;
+
+        expect((await verify(communityA)).challengeSuccess).to.equal(true);
+        expect(await verify(communityA)).to.deep.equal({ challengeErrors: { 0: "rate limited" }, challengeSuccess: false });
+        // The author has published nothing in community B this hour
+        expect((await verify(communityB)).challengeSuccess).to.equal(true);
+        expect(await verify(communityB)).to.deep.equal({ challengeErrors: { 0: "rate limited" }, challengeSuccess: false });
+    });
+
     it("getChallenge function throws", async () => {
         const throwCommunity = {
             settings: {
@@ -408,7 +439,7 @@ describe("getChallengeVerification", () => {
         expect(pendingChallenges[1].index).to.equal(3);
 
         // fail only the first challenge, should still succeed
-        const challengeAnswersFail1 = ["wrong", String(eval(pendingChallenges[1].challenge))];
+        const challengeAnswersFail1 = { "1": "wrong", "3": String(eval(pendingChallenges[1].challenge)) };
         let challengeVerification = (await getChallengeVerificationFromChallengeAnswers({
             pendingChallenges: pendingChallenges as Parameters<typeof getChallengeVerificationFromChallengeAnswers>[0]["pendingChallenges"],
             challengeAnswers: challengeAnswersFail1,
@@ -420,7 +451,7 @@ describe("getChallengeVerification", () => {
         });
 
         // fail only the second challenge, should still succeed
-        const challengeAnswersFail2 = [String(eval(pendingChallenges[0].challenge)), "wrong"];
+        const challengeAnswersFail2 = { "1": String(eval(pendingChallenges[0].challenge)), "3": "wrong" };
         challengeVerification = (await getChallengeVerificationFromChallengeAnswers({
             pendingChallenges: pendingChallenges as Parameters<typeof getChallengeVerificationFromChallengeAnswers>[0]["pendingChallenges"],
             challengeAnswers: challengeAnswersFail2,
@@ -432,7 +463,7 @@ describe("getChallengeVerification", () => {
         });
 
         // fail both challenge, should fail
-        const challengeAnswersFailAll = ["wrong", "wrong"];
+        const challengeAnswersFailAll = { "1": "wrong", "3": "wrong" };
         challengeVerification = (await getChallengeVerificationFromChallengeAnswers({
             pendingChallenges: pendingChallenges as Parameters<typeof getChallengeVerificationFromChallengeAnswers>[0]["pendingChallenges"],
             challengeAnswers: challengeAnswersFailAll,
@@ -482,7 +513,7 @@ describe("excluded challenge should not have getChallenge() called", () => {
 
         const challengeRequestMessage = {
             comment: { author },
-            challengeAnswers: ["password"]
+            challengeAnswers: { "0": "password" }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
         const result = (await getPendingChallengesOrChallengeVerification({
@@ -988,7 +1019,8 @@ describe("deferred challenge resolution at verify time", () => {
             comment: { author: { address: getRandomAddress() }, signature: DEFAULT_SIGNATURE }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
-        const getChallengeAnswers: GetChallengeAnswers = async () => ["any-answer"];
+        const getChallengeAnswers: GetChallengeAnswers = async (challenges) =>
+            Object.fromEntries(Object.keys(challenges).map((index) => [index, "any-answer"]));
         const result = await getChallengeVerification({ challengeRequestMessage: request, community, getChallengeAnswers });
 
         const c = counts();
@@ -1014,7 +1046,8 @@ describe("deferred challenge resolution at verify time", () => {
             comment: { author: { address: getRandomAddress() }, signature: DEFAULT_SIGNATURE }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
-        const getChallengeAnswers: GetChallengeAnswers = async () => ["any-answer"];
+        const getChallengeAnswers: GetChallengeAnswers = async (challenges) =>
+            Object.fromEntries(Object.keys(challenges).map((index) => [index, "any-answer"]));
         const result = await getChallengeVerification({ challengeRequestMessage: request, community, getChallengeAnswers });
 
         const c = counts();
@@ -1550,7 +1583,8 @@ describe("real-world bitsocial config: production-faithful coverage", () => {
             aiReview: true
         }) as unknown as LocalCommunity;
         const request = buildRequest({ author: { address: getRandomAddress(), name: "no-bso-name" } });
-        const getChallengeAnswers: GetChallengeAnswers = async () => ["any-answer"];
+        const getChallengeAnswers: GetChallengeAnswers = async (challenges) =>
+            Object.fromEntries(Object.keys(challenges).map((index) => [index, "any-answer"]));
         const result = await getChallengeVerification({
             challengeRequestMessage: request,
             community,
@@ -1571,7 +1605,8 @@ describe("real-world bitsocial config: production-faithful coverage", () => {
             aiReview: true
         }) as unknown as LocalCommunity;
         const request = buildRequest({ author: { address: getRandomAddress(), name: "no-bso-name" } });
-        const getChallengeAnswers: GetChallengeAnswers = async () => ["any-answer"];
+        const getChallengeAnswers: GetChallengeAnswers = async (challenges) =>
+            Object.fromEntries(Object.keys(challenges).map((index) => [index, "any-answer"]));
         const result = await getChallengeVerification({
             challengeRequestMessage: request,
             community,

@@ -65,11 +65,11 @@ describeSkipIfRpc.concurrent(`community.settings.challenges with path`, async ()
             communityAddress: community.address,
             pkc: pkc,
             postProps: {
-                challengeRequest: { challengeAnswers: ["4"] }
+                challengeRequest: { challengeAnswers: { "0": "4" } }
             }
         });
 
-        expect(mockPost.challengeRequest!.challengeAnswers).to.deep.equal(["4"]);
+        expect(mockPost.challengeRequest!.challengeAnswers).to.deep.equal({ "0": "4" });
 
         let receivedChallenge = false;
         mockPost.once("challenge", () => {
@@ -109,7 +109,7 @@ describeSkipIfRpc.concurrent(`community.settings.challenges with path`, async ()
         mockPost.once("challenge", async (msg: DecryptedChallengeMessageType) => {
             challengeReceived = true;
             challengeData = msg;
-            await mockPost.publishChallengeAnswers({ challengeAnswers: ["London"] });
+            await mockPost.publishChallengeAnswers({ challengeAnswers: { "0": "London" } });
         });
 
         await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: false }); // Should fail due to wrong answer
@@ -156,7 +156,7 @@ describeSkipIfRpc.concurrent(`community.settings.challenges with path`, async ()
             communityAddress: community.address,
             pkc: pkc,
             postProps: {
-                challengeRequest: { challengeAnswers: ["6", "8"] }
+                challengeRequest: { challengeAnswers: { "0": "6", "1": "8" } }
             }
         });
 

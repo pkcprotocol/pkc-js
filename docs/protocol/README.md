@@ -15,6 +15,8 @@ Concise protocol reference for AI agents and contributors. Each doc covers one d
 | [page-sorts.md](page-sorts.md) | `settings.pages`: choosing and preloading sorts, reserved options, `community.pageSorts`, writing a page sort file or package |
 | [crossposts.md](crossposts.md) | `comment.crosspost`, the embedded record, tier-1 vs tier-2 verification, `features.noCrossposts` |
 | [author-communities.md](author-communities.md) | Profiles as a community configuration: identity-key address, owner-only posting via challenge excludes, crosspost feed |
+| [pseudonymity-author-tag.md](pseudonymity-author-tag.md) | `commentUpdate.pseudonymityAuthorTag` (issue #381): own-post recognition on `pseudonymityMode` boards, the X25519 + HKDF + HMAC derivation, test vectors, client (WebCrypto) snippet, security notes |
+| [author-wallet-proofs.md](author-wallet-proofs.md) | `author.wallets` proofs (BSIP-22, issue #566): valid / invalid / unknown, where pkc-js verifies, and where clients and challenges copy a verifier from |
 | [challenge-flow.md](challenge-flow.md) | 4-message encrypted challenge exchange |
 | [challenge-settings.md](challenge-settings.md) | Private (`settings.challenges`) vs public (`challenges`) boundary, sensitive options |
 | [challenge-authoring.md](challenge-authoring.md) | For challenge package authors: core `optionInputs` validation, the `validateChallengeSettings` hook, publication obligations |
@@ -22,7 +24,8 @@ Concise protocol reference for AI agents and contributors. Each doc covers one d
 | [db-community-address-migration.md](db-community-address-migration.md) | DB v37 migration: subplebbitAddress → communityPublicKey/communityName, CID preservation |
 | [data-path-migration.md](data-path-migration.md) | Directory layout migration for downstream apps: `.plebbit/` → `.pkc/`, `subplebbits/` → `communities/` |
 | [import-performance.md](import-performance.md) | Import/startup cost (issue #120): how to benchmark it, where the time goes, optimization checklist + history |
-| [../reachability.md](../reachability.md) | `ERR_COMMUNITY_UNREACHABLE_FROM_THIS_CLIENT` (issue #377): per-provider reachability verdicts, why NAT-hosted unseeded communities fail from libp2p-js clients, the fixes |
+| [../versioning.md](../versioning.md) | Release policy (every release is a `0.0.x` patch and why), when CI publishes, release notes from PR titles, marking breaking changes, upgrading downstream, leaving `0.0.x` |
+| [../reachability.md](../reachability.md) | `ERR_COMMUNITY_UNREACHABLE_FROM_THIS_CLIENT` (issue #377): per-provider reachability verdicts, why NAT-hosted unseeded communities fail from libp2p-js clients, the fixes; what a seeder must announce to be browser-dialable (`/tls/ws` on 443 behind a trusted certificate, WebTransport with certhashes on UDP 443 and 4001, issue #475) and the manual probe that verifies it |
 
 ## External specs
 
