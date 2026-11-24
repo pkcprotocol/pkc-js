@@ -268,19 +268,12 @@ export function refreshTrackedCommentAliases(pkc: PKC, comment: Comment): void {
 
 export function findUpdatingCommunity(pkc: PKC, lookup: CommunityLookup): TrackedCommunity | undefined {
     const found = findCommunityInRegistry(pkc._updatingCommunities, lookup);
-    // A caller that asked for a name follows the name. A by-key instance whose record claims that name while
-    // the name resolves to another key never migrates, so joining it through the key the caller passed
-    // alongside would pin the caller to that key. It opens an instance of its own instead, which resolves the
-    // name and migrates.
-    if (
-        found &&
-        lookup.preferName &&
-        lookup.name &&
-        !isStringDomain(found.address) &&
-        found.nameResolved === false &&
-        found.name &&
-        areEquivalentNames(found.name, lookup.name)
-    )
+    // A caller that asked for a name follows the name. A by-key instance whose record claims a name that
+    // resolves to another key never migrates, and resolves no name but the one its record claims. Joining it
+    // through the key the caller passed alongside would pin the caller to that key, whether the contradicted
+    // claim is the caller's name or another one. The caller opens an instance of its own instead, which
+    // resolves the name it asked for and migrates.
+    if (found && lookup.preferName && lookup.name && !isStringDomain(found.address) && found.nameResolved === false && found.name)
         return undefined;
     return found;
 }
