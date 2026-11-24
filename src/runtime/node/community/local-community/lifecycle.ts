@@ -33,6 +33,7 @@ import {
 } from "./db-state.js";
 import { calculateLatestUpdateTrigger, msUntilLastPublishIsTooOld, syncIpnsWithDb } from "./ipns-publishing.js";
 import { getPersistedAnchorRecordBytes, reprovideAnchorRecordIfDue, reprovideAnchorRecordIfNeeded } from "./anchor-publishing.js";
+import { cancelKuboIpnsPubsubSubscriptions } from "../../../../clients/kubo-ipns-pubsub.js";
 import type { CommunityState, CommunityUpdatingState } from "../../../../community/types.js";
 import type { DecryptedChallengeAnswer } from "../../../../pubsub-messages/types.js";
 import type { RemoteCommunity } from "../../../../community/remote-community.js";
@@ -70,7 +71,9 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
                 const passes = kind === "busy" || (kind === "maybe-transient" && ++consecutiveIoErrors <= MAX_CONSECUTIVE_IO_ERRORS);
                 if (!passes) throw error;
                 if (shouldStopPublishLoop()) return;
-                log(`The DB of community (${community.address}) could not be read (${kind}), reading again in ${MS_BETWEEN_DB_READ_RETRIES}ms`);
+                log(
+                    `The DB of community (${community.address}) could not be read (${kind}), reading again in ${MS_BETWEEN_DB_READ_RETRIES}ms`
+                );
                 await new Promise<void>((resolve) => setTimeout(resolve, MS_BETWEEN_DB_READ_RETRIES));
             }
         }
@@ -629,6 +632,14 @@ export async function stop(community: LocalCommunity) {
     }
 }
 
+// The names this community publishes through kubo: its own, and its anchor's when it is delegated.
+async function cancelIpnsPubsubSubscriptionsOfCommunity(community: LocalCommunity) {
+    await cancelKuboIpnsPubsubSubscriptions({
+        kuboRpcClient: community._clientsManager.getDefaultKuboRpcClient(),
+        ipnsNames: [community.signer?.address, community.anchor?.publicKey]
+    });
+}
+
 async function stopCommunity(community: LocalCommunity) {
     const log = Logger("pkc-js:local-community:stop");
     if (community._updateLoopAbortController) {
@@ -678,6 +689,11 @@ async function stopCommunity(community: LocalCommunity) {
             } catch (e) {
                 log.error("Failed to unpin stale cids and remove mfs paths before stopping", e);
             }
+
+            // Kubo subscribed to the record topic of every name this community published. Released now that nothing
+            // publishes them: a stopped community is not served by this node, and the next start() subscribes again
+            // with its first publish (issue #602).
+            await cancelIpnsPubsubSubscriptionsOfCommunity(community);
 
             try {
                 // built inside the write transaction, so it keeps an edit stored meanwhile (see updateDbInternalState)
@@ -772,6 +788,9 @@ async function deleteCommunityWhileMarked(community: LocalCommunity) {
         } catch (e) {
             log.error("Failed to delete ipns key", community.signer.ipnsKeyName, e);
         }
+    // Also for a community that was not started here: the stop() above cancels only what this instance published, and
+    // a resolve of the name since (a follower on this node) subscribes kubo to it again. key.rm does not unsubscribe.
+    await cancelIpnsPubsubSubscriptionsOfCommunity(community);
 
     try {
         await removeMfsFilesSafely({ kuboRpcClient: kuboClient, paths: ["/" + community.address], log });

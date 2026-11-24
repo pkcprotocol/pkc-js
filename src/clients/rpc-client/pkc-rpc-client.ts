@@ -272,9 +272,11 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                 if (!this._destroyRequested) log.error("connection with web socket has been closed", this._websocketServerUrl);
                 this._openConnectionPromise = undefined;
                 this.setState("stopped");
-                if (this._destroyRequested) return;
                 this._lastClose = { closeCode, closeReason: String(closeReason ?? "") };
+                // Also on a close destroy() asked for: a call still waiting then can never be answered, and would
+                // otherwise stay pending for the whole call timeout
                 this._rejectCallsLostWithConnection();
+                if (this._destroyRequested) return;
                 this._failPublicationsLostWithConnection();
                 if (!this._webSocketClient.willReconnect()) return;
                 if (closeCode === WEBSOCKET_CLOSE_NORMAL) this._scheduleReconnectAfterCleanClose();
@@ -470,7 +472,10 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                     this._dispatchNotification(subscriptionId, message);
                 },
                 onFailure: (cause) =>
-                    this.emit("error", new PKCError("ERR_RPC_CLIENT_FAILED_TO_HANDLE_SERVER_MESSAGE", { rpcUrl: this._websocketServerUrl, cause }))
+                    this.emit(
+                        "error",
+                        new PKCError("ERR_RPC_CLIENT_FAILED_TO_HANDLE_SERVER_MESSAGE", { rpcUrl: this._websocketServerUrl, cause })
+                    )
             })
         );
     }

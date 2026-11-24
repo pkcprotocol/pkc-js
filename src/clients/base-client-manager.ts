@@ -757,6 +757,11 @@ export class BaseClientsManager {
     // (anchor -> minter -> /ipfs/). Longer chains are rejected with ERR_IPNS_MAX_HOPS_EXCEEDED.
     static readonly MAX_IPNS_HOPS = 1;
 
+    // Called with every name resolveIpnsToCidP2P asks its client for, before the request, whether or not the
+    // resolve goes on to succeed, together with the name that walk started from. For subclasses that have to know
+    // which names a client was asked about.
+    protected _onIpnsNameAboutToBeResolvedP2P(_ipnsName: string, _firstNameOfWalk: string) {}
+
     // Resolves an IPNS name to its terminal /ipfs/ CID, following any /ipns/ -> /ipns/
     // delegation hops along the way. Returns the resolved CID together with the ordered
     // chain of IPNS names traversed: ipnsHops[0] is the anchor (the name we were asked to
@@ -786,6 +791,15 @@ export class BaseClientsManager {
             keys(this._pkc.clients.kuboRpcClients).length === 0 && keys(this._pkc.clients.libp2pJsClients).length > 0;
         const ipnsResolveOpts = { nocache: !resolvingViaLibp2pJsClient, recursive: false, ...loadOpts };
         const ipfsClient = this.getIpfsClientWithKuboRpcClientFunctions();
+        // Ends kubo's request once we stop waiting for it (stop(), timeout, or a failed hop). kubo-rpc-client reads
+        // `signal`, not loadOpts.abortSignal, so without this the resolve kept running inside kubo after a stop(),
+        // for up to a minute on a name with no record, and kubo refuses `name pubsub cancel` for a name with a
+        // resolve in progress (issue #602). Kubo only: the libp2p-js resolver hands its options to a pubsub warmup
+        // that is meant to outlive the resolve, and this signal is aborted on success too.
+        const kuboResolveAbortController = new AbortController();
+        const clientResolveOpts = resolvingViaLibp2pJsClient
+            ? ipnsResolveOpts
+            : { ...ipnsResolveOpts, signal: kuboResolveAbortController.signal };
 
         const performIpnsResolve = async () => {
             // We resolve ONE hop at a time (recursive: false) rather than letting the resolver
@@ -806,7 +820,8 @@ export class BaseClientsManager {
                 // both resolution paths report failures identically. See docs/protocol/delegated-ipns.md.
                 const hopIndex = ipnsHops.length - 1;
                 const hopRole = hopIndex === 0 ? "anchor" : "minter";
-                const yieldedValues: string[] = await all(ipfsClient.name.resolve(currentName, ipnsResolveOpts));
+                this._onIpnsNameAboutToBeResolvedP2P(currentName, ipnsName);
+                const yieldedValues: string[] = await all(ipfsClient.name.resolve(currentName, clientResolveOpts));
                 // The single-hop value (kubo may yield it more than once; helia yields it once).
                 const value: string | undefined = yieldedValues[yieldedValues.length - 1];
                 if (!value)
@@ -899,6 +914,8 @@ export class BaseClientsManager {
                 });
             }
             throw error;
+        } finally {
+            kuboResolveAbortController.abort();
         }
 
         throw Error("Should not reach this block in resolveIpnsToCidP2P");

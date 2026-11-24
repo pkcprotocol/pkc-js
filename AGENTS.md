@@ -10,6 +10,7 @@ Instructions for AI agents working on this codebase. Rules are ranked by priorit
 | Modifying `test/` | Run `npx tsc --project test/tsconfig.json --noEmit` |
 | Running tests | Use `node test/run-test-config.js --pkc-config ${pkc-config} ${testPath}` |
 | Bug reported | Reproduce deterministically in a test case first |
+| Changing the version, marking a breaking change, debugging a release, or upgrading pkc-js downstream | Read `docs/versioning.md` first |
 | Publishing at scale (a board of 100k+ posts, memory or cycle-time questions) | Run the manual e2e, never in CI: `E2E_POSTS=<n> VITEST_TIMEOUT=<ms> node test/run-test-config.js --pkc-config local-kubo-rpc test/manual-e2e/large-board-publish.e2e.test.ts` (env knobs in the file header; issue #386). The stubbed-kubo benches under `test/benchmarks/` isolate one phase; the e2e is the whole `start()` to remote-load path on a real daemon |
 | Checking whether a seeder or community is reachable from browsers (WSS certificate, WebTransport on UDP 443, provider records on the HTTP routers) | Run the manual probe, never in CI: `E2E_TARGETS=<community publicKey> node test/run-test-config.js --pkc-config local-kubo-rpc test/manual-e2e/browser-reachability.e2e.test.ts` (or `E2E_PEERS=<multiaddrs with /p2p/>`). The contract it checks is `docs/reachability.md`, "What a seeder must announce" (issue #475) |
 | Debugging CI failures | Download the `per-test-logs-*` and `test-server-log-*` artifacts from the failed run; check per-test stderr logs first, then `test_server.log` for community-side errors |
