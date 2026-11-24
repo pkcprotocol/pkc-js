@@ -71,9 +71,7 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
                 const passes = kind === "busy" || (kind === "maybe-transient" && ++consecutiveIoErrors <= MAX_CONSECUTIVE_IO_ERRORS);
                 if (!passes) throw error;
                 if (shouldStopPublishLoop()) return;
-                log(
-                    `The DB of community (${community.address}) could not be read (${kind}), reading again in ${MS_BETWEEN_DB_READ_RETRIES}ms`
-                );
+                log(`The DB of community (${community.address}) could not be read (${kind}), reading again in ${MS_BETWEEN_DB_READ_RETRIES}ms`);
                 await new Promise<void>((resolve) => setTimeout(resolve, MS_BETWEEN_DB_READ_RETRIES));
             }
         }
