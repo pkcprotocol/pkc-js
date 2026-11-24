@@ -339,6 +339,54 @@ getAvailablePKCConfigsToTestAgainst({
             }
         });
 
+        // The publishing cache entry under a name is what publications addressed to that name are sent to.
+        // A by-key community whose name was proven can publish a record claiming another community's name;
+        // the verdict it holds describes the previous name and must not vouch for the new one.
+        // Not for remote-pkc-rpc: the cache under test is written by the non-RPC fetch path, which under
+        // RPC runs on the server.
+        itSkipIfRpc(
+            `a by-key community renaming itself to another community's name does not become that name's publishing entry`,
+            async () => {
+                const staticCommunity = await publishStaticCommunityWithPostInPages({ withSelfResolvingName: true });
+                const victim = await publishStaticCommunityWithPostInPages({ withSelfResolvingName: true });
+                const victimName = victim.communityName!;
+                const key = staticCommunity.communityAddress;
+                const pkc = await config.pkcInstancePromise();
+                const publishingCache = pkc._memCaches.communityForPublishing;
+                try {
+                    const byKey = await pkc.createCommunity({ address: key });
+                    await byKey.update();
+                    await resolveWhenConditionIsTrue({
+                        toUpdate: byKey,
+                        predicate: async () => byKey.updatedAt === staticCommunity.communityRecord.updatedAt && byKey.nameResolved === true
+                    });
+                    expect(publishingCache.get(victimName, { allowStale: true })).to.be.undefined;
+
+                    const renamed = await publishNewerRecord({
+                        staticCommunity,
+                        previous: staticCommunity.communityRecord,
+                        name: victimName
+                    });
+                    await waitForUpdatedAt(byKey, renamed.updatedAt);
+                    expect(byKey.name).to.equal(victimName);
+                    expect(publishingCache.get(victimName, { allowStale: true })).to.be.undefined;
+                    expect(publishingCache.get(key, { allowStale: true })?.publicKey).to.equal(key);
+
+                    // Still not after the verdict for the new name arrives, and a further record is fetched
+                    await vi.waitFor(() => expect(byKey.nameResolved).to.equal(false), { timeout: 30_000, interval: 50 });
+                    const renamedAgain = await publishNewerRecord({ staticCommunity, previous: renamed, name: victimName });
+                    await waitForUpdatedAt(byKey, renamedAgain.updatedAt);
+                    expect(publishingCache.get(victimName, { allowStale: true })).to.be.undefined;
+
+                    await byKey.stop();
+                } finally {
+                    await pkc.destroy();
+                    await staticCommunity.ipnsObj.pkc.destroy();
+                    await victim.ipnsObj.pkc.destroy();
+                }
+            }
+        );
+
         for (const firstLoader of ["by key", "by name"] as const) {
             it(`with the ${firstLoader} loader attached first, the by-key loader follows a nameless record while the by-name loader refuses it`, async () => {
                 const staticCommunity = await publishStaticCommunityWithPostInPages({ withSelfResolvingName: true });
