@@ -95,10 +95,16 @@ Two things follow from the name of a by-key community being only a claim:
   name its record claims once `nameResolved` is `true`. A publication addressed to a name is therefore
   never sent to a key that merely claims it.
 
+- A caller that asked for `{ name, publicKey }` follows the name. It does not join a by-key instance of
+  that key whose record's name is contradicted, since that instance never migrates. It opens an updating
+  instance of its own, which resolves the name and migrates. Until that instance has proven its name, the
+  key it was given stays in the registry with the instance that was asked for by that key, so callers of
+  the key are not carried along by the migration.
+
 Sharing is not isolation. A caller that asked for a key still follows a key migration when it shares an
-updating instance with a caller that asked for the name, and a caller that asked for
-`{ name, publicKey }` joins a running by-key instance of that key and stays on it, with
-`nameResolved: false`, when the name resolves elsewhere. Both are tracked in issue #450.
+updating instance with a caller that asked for the name. A caller that asked for `{ name, publicKey }` and
+joined a by-key instance while its verdict was still pending stays on it if the verdict then turns `false`.
+Both are tracked in issue #450.
 
 `_resolveViaNameResolvers` is what makes the distinction possible. It returns `null` when the resolvers ran and
 found no record, and throws `ERR_ALL_NAME_RESOLVERS_FAILED` (with each resolver's error in `details`, keyed by

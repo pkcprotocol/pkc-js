@@ -203,8 +203,23 @@ function syncUpdatingCommunityRegistryEntry(pkc: PKC, community: TrackedCommunit
     }
     return pkc._updatingCommunities.track({
         value: community,
-        aliases: persistAliases(community, pkc._updatingCommunities, getCommunityRegistryAliases(provenIdentity))
+        aliases: persistAliases(
+            community,
+            pkc._updatingCommunities,
+            getCommunityRegistryAliases(withoutUnprovenKeyOfAnotherInstance(pkc, community, provenIdentity))
+        )
     });
+}
+
+// The mirror image of the rule above, for an instance asked for by name with a key passed alongside. Until
+// the name resolves, that key is a hint. When another updating instance was asked for by that very key, the
+// key stays with it: this instance may be about to migrate away, and taking the key would hand it every
+// later loader of the key and carry them along.
+function withoutUnprovenKeyOfAnotherInstance(pkc: PKC, community: TrackedCommunity, identity: CommunityWithAliases): CommunityWithAliases {
+    if (!isStringDomain(community.address) || community.nameResolved === true || !identity.publicKey || !identity.name) return identity;
+    const keyOwner = pkc._updatingCommunities.findByAlias(identity.publicKey);
+    if (!keyOwner || keyOwner === community || keyOwner.address !== identity.publicKey) return identity;
+    return { name: identity.name, publicKey: undefined, signer: undefined };
 }
 
 export function trackUpdatingCommunity(pkc: PKC, community: TrackedCommunity): TrackedCommunity {
@@ -252,7 +267,22 @@ export function refreshTrackedCommentAliases(pkc: PKC, comment: Comment): void {
 }
 
 export function findUpdatingCommunity(pkc: PKC, lookup: CommunityLookup): TrackedCommunity | undefined {
-    return findCommunityInRegistry(pkc._updatingCommunities, lookup);
+    const found = findCommunityInRegistry(pkc._updatingCommunities, lookup);
+    // A caller that asked for a name follows the name. A by-key instance whose record claims that name while
+    // the name resolves to another key never migrates, so joining it through the key the caller passed
+    // alongside would pin the caller to that key. It opens an instance of its own instead, which resolves the
+    // name and migrates.
+    if (
+        found &&
+        lookup.preferName &&
+        lookup.name &&
+        !isStringDomain(found.address) &&
+        found.nameResolved === false &&
+        found.name &&
+        areEquivalentNames(found.name, lookup.name)
+    )
+        return undefined;
+    return found;
 }
 
 export function findStartedCommunity(pkc: PKC, lookup: CommunityLookup): StartedCommunity | undefined {
