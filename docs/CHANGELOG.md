@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.163](https://github.com/pkcprotocol/pkc-js/compare/v0.0.162...v0.0.163) (2026-11-24)
+
+### Bug Fixes
+
+* **community:** a community loaded by key no longer key-migrates on a name its record claims ([#606](https://github.com/pkcprotocol/pkc-js/issues/606)) ([1855946](https://github.com/pkcprotocol/pkc-js/commit/18559462d4422e972abee9588983419c1314452c))
+
 ## [0.0.162](https://github.com/pkcprotocol/pkc-js/compare/v0.0.161...v0.0.162) (2026-11-24)
 
 ### Bug Fixes
