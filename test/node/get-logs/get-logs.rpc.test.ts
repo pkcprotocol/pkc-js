@@ -109,6 +109,20 @@ describeIfRpc("pkc.getLogs({ rpcUrl }) and the getLogs RPC method (#493)", () =>
         }
     });
 
+    it("a failed RPC call is logged without a private key its error carries in details", async () => {
+        const signer = await clientPKC.createSigner();
+        // The capital letter makes the call fail with an error whose details hold the options, signer included
+        const error = await rejectionOf(
+            clientPKC._pkcRpcClient!.rpcCall("createCommunity", [
+                { name: "CapitalLetter.bso", signer: { privateKey: signer.privateKey, type: signer.type } }
+            ])
+        );
+        expect(error.code).to.be.a("string");
+        expect(serverRoot.getLogs({ regex: { source: "createCommunity error" } }).entries.length).to.be.greaterThan(0);
+        const privateKeyAsRegex = signer.privateKey.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+        expect(serverRoot.getLogs({ regex: { source: privateKeyAsRegex } }).entries).to.deep.equal([]);
+    });
+
     it("a failed RPC call is logged without its params, which can carry a private key or challenge answers", async () => {
         const secretInParams = "secret-param-that-must-not-reach-the-log-buffer";
         const error = await rejectionOf(

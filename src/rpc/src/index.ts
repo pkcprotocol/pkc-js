@@ -155,6 +155,41 @@ const _isTransientKuboError = (error: unknown): boolean => {
 
 // TODO need to think how to update PKC instance of publication after setSettings?
 
+const REDACTED_PRIVATE_KEY = "[redacted]";
+const MAX_REDACTION_DEPTH = 10;
+
+// A copy of `value` for logging in which every property named privateKey is replaced. Only plain objects, arrays and
+// objects that hold a privateKey themselves (a Signer instance) are copied; anything else is kept by reference.
+function withoutPrivateKeys(value: unknown, depth = 0, seen = new WeakSet<object>()): unknown {
+    if (typeof value !== "object" || value === null || depth > MAX_REDACTION_DEPTH || seen.has(value)) return value;
+    seen.add(value);
+    if (Array.isArray(value)) return value.map((item) => withoutPrivateKeys(item, depth + 1, seen));
+    const prototype = Object.getPrototypeOf(value);
+    const isPlain = prototype === Object.prototype || prototype === null;
+    if (!isPlain && !Object.prototype.hasOwnProperty.call(value, "privateKey")) return value;
+    const copy: Record<string, unknown> = {};
+    for (const [key, propValue] of Object.entries(value))
+        copy[key] = key === "privateKey" ? REDACTED_PRIVATE_KEY : withoutPrivateKeys(propValue, depth + 1, seen);
+    return copy;
+}
+
+// What the server logs for an error thrown by an RPC method: the error's own fields, with any privateKey redacted.
+// PKCError prints its details into its stack as well, so only the first line and the call frames of the stack are kept.
+function errorWithoutPrivateKeys(error: PKCError | Error): unknown {
+    if (!(error instanceof PKCError)) return error;
+    const stackWithoutDetails = error.stack
+        ?.split("\n")
+        .filter((line, i) => i === 0 || /^\s+at /.test(line))
+        .join("\n");
+    return {
+        name: error.name,
+        code: error.code,
+        message: error.message,
+        details: withoutPrivateKeys(error.details),
+        stack: stackWithoutDetails
+    };
+}
+
 class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
     pkc!: PKC;
     rpcWebsockets: RpcWebsocketsServer;
@@ -604,8 +639,9 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             } catch (e: any) {
                 const typedError = <PKCError | Error>e;
                 // The params are never logged: they carry secrets (the signer.privateKey of createCommunity and
-                // editCommunity, challenge answers), and this buffer is served to every client by getLogs
-                this._log.error(`${callback.name} error (${invocationId})`, typedError);
+                // editCommunity, challenge answers), and this buffer is served to every client by getLogs. An error
+                // can carry the same options in its details, so a privateKey anywhere inside it is redacted too
+                this._log.error(`${callback.name} error (${invocationId})`, errorWithoutPrivateKeys(typedError));
                 // We need to stringify the error here because rpc-websocket will remove props from PKCError
                 if (typedError instanceof PKCError) {
                     const seen = new WeakSet();
