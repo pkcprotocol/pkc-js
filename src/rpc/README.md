@@ -71,13 +71,13 @@ class Subscription extends EventEmitter {
         this.emit('message', message)
       }
     }
-    this.on('newListener', (eventName, listener) => {
-      // deliver the subscription messages received before the listener started, in order. 'newListener' fires
-      // before the listener is registered, so they are handed to it directly, once it is: emitting here would
-      // reach nobody (and an initial snapshot sent before the subscription id would be lost)
-      if (eventName === 'message') {
+    this.on('newListener', (eventName) => {
+      // emit, in order, the subscription messages received before the first listener started. 'newListener'
+      // fires before the listener is registered, so they are emitted right after: emitting here would reach
+      // nobody (and an initial snapshot sent before the subscription id would be lost)
+      if (eventName === 'message' && this.listenerCount('message') === 0) {
         const receivedBefore = [...(subscriptionsMessages[subscriptionId] || [])]
-        queueMicrotask(() => receivedBefore.forEach((message) => listener.call(this, message)))
+        queueMicrotask(() => receivedBefore.forEach((message) => this.emit('message', message)))
       }
       // emit all new messages
       if (!emittingMessages) {

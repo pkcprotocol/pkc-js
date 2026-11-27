@@ -834,7 +834,7 @@ await loaded.update()
 const previous = await pkc.getCommunityList({cid})
 const {signature, timestamp, protocolVersion, ...previousProps} = previous.raw.communityList
 // createCommunityList() rejects fields it does not know: if the record carries any (written by a newer
-// version), drop them from previousProps too
+// version; at the top level, in `author` or in an entry of `communities`), drop them from previousProps too
 const revision = await pkc.createCommunityList({
   ...previousProps,
   signer,
