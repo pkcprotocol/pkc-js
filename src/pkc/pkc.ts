@@ -161,6 +161,14 @@ import {
     listUpdatingCommunities
 } from "./tracked-instance-registry-util.js";
 
+// For logging the options of createCommunity: a signer is reduced to what identifies it. Its privateKey (and the
+// key material a Signer instance derives from it) must never reach the log buffer, which getLogs serves to RPC clients.
+function withoutSignerSecrets<T extends object>(options: T): T | (Omit<T, "signer"> & { signer: Record<string, unknown> }) {
+    if (!("signer" in options) || typeof options.signer !== "object" || options.signer === null) return options;
+    const signer: Record<string, unknown> = { ...options.signer };
+    return { ...options, signer: pick(signer, ["type", "address", "publicKey"]) };
+}
+
 export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions {
     ipfsGatewayUrls: ParsedPKCOptions["ipfsGatewayUrls"];
     kuboRpcClientsOptions?: ParsedPKCOptions["kuboRpcClientsOptions"];
@@ -996,7 +1004,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         options: CreateNewLocalCommunityParsedOptions | CreateInstanceOfLocalOrRemoteCommunityOptions
     ): Promise<LocalCommunity> {
         const log = this._log;
-        log.trace("createLocalCommunity: Received community options to create a local community instance:", options);
+        log.trace("createLocalCommunity: Received community options to create a local community instance:", withoutSignerSecrets(options));
 
         const canCreateLocalCommunity = this._canCreateNewLocalCommunity();
         if (!canCreateLocalCommunity) throw new PKCError("ERR_CAN_NOT_CREATE_A_LOCAL_COMMUNITY", { pkcOptions: this._userPKCOptions });
@@ -1057,7 +1065,7 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         throwIfAbortSignalAborted(opts?.abortSignal);
         if ("clients" in options) return this._createCommunityInstanceFromJsonifiedCommunity(<CommunityJson>options);
         const parsedOptions = <z.infer<typeof CreateCommunityFunctionArgumentsSchema>>options;
-        log.trace("createCommunity: Received options: ", parsedOptions);
+        log.trace("createCommunity: Received options: ", withoutSignerSecrets(parsedOptions));
 
         const hasAddress = "address" in parsedOptions && typeof parsedOptions.address === "string";
         const hasName = "name" in parsedOptions && typeof parsedOptions.name === "string";

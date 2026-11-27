@@ -91,6 +91,22 @@ describeIfRpc("pkc.getLogs({ rpcUrl }) and the getLogs RPC method (#493)", () =>
         expect(error.code).to.equal("ERR_INVALID_LOG_QUERY");
     });
 
+    it("creating a community logs its options without the signer's private key", async () => {
+        const signer = await clientPKC.createSigner();
+        const community = <RpcLocalCommunity>(
+            await clientPKC.createCommunity({ signer: { privateKey: signer.privateKey, type: signer.type } })
+        );
+        try {
+            expect(community.address).to.equal(signer.address);
+            // The options are still logged
+            expect(serverRoot.getLogs({ regex: { source: "createCommunity: Received options" } }).entries.length).to.be.greaterThan(0);
+            const privateKeyAsRegex = signer.privateKey.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+            expect(serverRoot.getLogs({ regex: { source: privateKeyAsRegex } }).entries).to.deep.equal([]);
+        } finally {
+            await community.delete();
+        }
+    });
+
     it("a failed RPC call is logged without its params, which can carry a private key or challenge answers", async () => {
         const secretInParams = "secret-param-that-must-not-reach-the-log-buffer";
         const error = await rejectionOf(
