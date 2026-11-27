@@ -19,6 +19,9 @@ import {
 import validCommentUpdateFixture from "../../../fixtures/signatures/comment/commentUpdate/valid_comment_update.json" with { type: "json" };
 import validCommentFixture from "../../../fixtures/signatures/comment/commentUpdate/valid_comment_ipfs.json" with { type: "json" };
 import { HOSTILE_VALUE } from "../../../helpers/hostile-props.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:unknown-props-schema-gate" });
 
 const NAMES = ["__proto__", "constructor", "toString", "hasOwnProperty"];
 type Bag = Record<string, unknown>;
@@ -42,20 +45,24 @@ describe("hostile names inside author, through the parse gates", () => {
     it("CommentUpdate.author: the CommentUpdate parser does not let a prototype-member name through", () => {
         for (const name of NAMES) {
             const record = { ...validCommentUpdateFixture, author: authorWith({}, name) };
-            expect.soft(
-                survives(() => <Bag>(<unknown>parseCommentUpdateSchemaWithPKCErrorIfItFails(<never>record)), name),
-                `[${name}] survives the CommentUpdate parser`
-            ).toBe(false);
+            expect
+                .soft(
+                    survives(() => <Bag>(<unknown>parseCommentUpdateSchemaWithPKCErrorIfItFails(<never>record)), name),
+                    `[${name}] survives the CommentUpdate parser`
+                )
+                .toBe(false);
         }
     });
 
     it("CommentIpfs.author: the CommentIpfs parser does not let a prototype-member name through", () => {
         for (const name of NAMES) {
             const record = { ...validCommentFixture, author: authorWith(<Bag>validCommentFixture.author, name) };
-            expect.soft(
-                survives(() => <Bag>(<unknown>parseCommentIpfsSchemaWithPKCErrorIfItFails(<never>record)), name),
-                `[${name}] survives the CommentIpfs parser`
-            ).toBe(false);
+            expect
+                .soft(
+                    survives(() => <Bag>(<unknown>parseCommentIpfsSchemaWithPKCErrorIfItFails(<never>record)), name),
+                    `[${name}] survives the CommentIpfs parser`
+                )
+                .toBe(false);
         }
     });
 
@@ -77,7 +84,7 @@ describe("hostile names inside author, through the parse gates", () => {
             const community = { address: signer.address, signature: { publicKey: signer.publicKey }, pubsubTopic: signer.address };
             for (const name of NAMES) {
                 const update = <CommentUpdateType>(<unknown>{ ...validCommentUpdateFixture, author: authorWith({}, name) });
-                update.signature = await signCommentUpdate({ update, signer });
+                update.signature = await signCommentUpdate({ update, signer, log: testLog });
                 let valid: boolean;
                 try {
                     valid = (
@@ -86,9 +93,15 @@ describe("hostile names inside author, through the parse gates", () => {
                             resolveAuthorNames: false,
                             clientsManager: pkc._clientsManager,
                             community: <never>community,
-                            comment: { cid: update.cid, postCid: <string>(<unknown>undefined), depth: 0, signature: validCommentFixture.signature },
+                            comment: {
+                                cid: update.cid,
+                                postCid: <string>(<unknown>undefined),
+                                depth: 0,
+                                signature: validCommentFixture.signature
+                            },
                             validatePages: false,
-                            validateUpdateSignature: true
+                            validateUpdateSignature: true,
+                            log: testLog
                         })
                     ).valid;
                 } catch {

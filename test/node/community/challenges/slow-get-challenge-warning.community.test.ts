@@ -30,7 +30,10 @@ interface DebugModule {
 // @pkcprotocol/pkc-logger (and therefore dist/) logs through.
 const debugModule: DebugModule = createRequire(import.meta.url)("debug");
 
-const CAPTURED_NAMESPACES = "pkc-js:local-community:challenges:callGetChallenge*";
+// Issue #493: callGetChallenge() logs through the community's own logger, so its lines are told apart
+// from the rest of the community's output by the mechanical `callGetChallenge: ` prefix, not a namespace.
+const CAPTURED_NAMESPACES = "pkc-js:local-community*";
+const CAPTURED_PREFIX = "callGetChallenge: ";
 
 function captureDebugOutput(namespaces: string): { lines: string[]; restore: () => void } {
     const lines: string[] = [];
@@ -38,7 +41,8 @@ function captureDebugOutput(namespaces: string): { lines: string[]; restore: () 
     const previousNamespaces = debugModule.disable();
     debugModule.enable(namespaces);
     debugModule.log = (...args: unknown[]) => {
-        lines.push(args.map((arg) => (typeof arg === "string" ? arg : String(arg))).join(" "));
+        const line = args.map((arg) => (typeof arg === "string" ? arg : String(arg))).join(" ");
+        if (line.includes(CAPTURED_PREFIX)) lines.push(line);
     };
     return {
         lines,

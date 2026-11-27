@@ -326,7 +326,7 @@ describeSkipIfRpc.sequential("delegated LocalCommunity: identity is the anchor, 
     // --- helpers ---
 
     async function injectCommunityPublicKey(publication: PublicationWithSigner, communityPublicKey: string) {
-        const log = Logger("pkc-js:test:injectCommunityPublicKey");
+        const log = Logger({ namespace: "pkc-js:test:injectCommunityPublicKey" });
         if (!publication.signer) throw Error("Expected publication to have a signer");
         await ensurePublicationIsSigned(publication, community);
 

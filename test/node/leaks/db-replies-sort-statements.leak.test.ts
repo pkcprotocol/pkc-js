@@ -1,6 +1,10 @@
 // Leak suite (#496): queryAllRepliesForPageSort({ postCids }) prepares one statement per batch length.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:db-replies-sort-statements" });
 
 // it.fails: this is a known leak with no fix yet (#516). The body asserts the clean behaviour, so the test
 // starts failing once the leak is fixed: remove the .fails then.
@@ -13,7 +17,11 @@ describe("leak: DbHandler statements per postCids batch length", () => {
     let handler: DbHandler;
 
     beforeEach(async () => {
-        const fakeCommunity = { address: `leak-replies-${Date.now()}-${Math.random().toString(36).slice(2)}`, _pkc: { noData: true } };
+        const fakeCommunity = {
+            _log: testLog,
+            address: `leak-replies-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            _pkc: { noData: true }
+        };
         handler = new DbHandler(fakeCommunity as never);
         await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await handler.createOrMigrateTablesIfNeeded();

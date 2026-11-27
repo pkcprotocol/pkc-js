@@ -17,7 +17,7 @@ import { Agent as HttpAgent } from "http";
 import { Agent as HttpsAgent } from "https";
 // kubo-rpc-client (~371 modules) is dynamic-imported inside createKuboRpcClient (below) so it stays
 // off the eager import path; only a PKC that actually constructs a kubo client pays for it.
-import Logger from "../../logger.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import retry from "retry";
 import { difference, keys, pick, unique } from "remeda";
 import type { CommunityIpfsType } from "../../community/types.js";
@@ -94,7 +94,7 @@ export async function getThumbnailPropsOfLink(
     community: RemoteCommunity,
     proxyHttpUrl?: string
 ): Promise<{ thumbnailUrl: string; thumbnailUrlWidth?: number; thumbnailUrlHeight?: number } | undefined> {
-    const log = Logger(`pkc-js:community:getThumbnailUrlOfLink`);
+    const log = community._log;
 
     const agent = proxyHttpUrl
         ? {
@@ -116,7 +116,7 @@ export async function getThumbnailPropsOfLink(
         });
         //@ts-expect-error
         pkcError.stack = e.stack;
-        log.error(pkcError);
+        log.error("getThumbnailUrlOfLink:", pkcError);
         community.emit("error", pkcError);
         return undefined;
     }
@@ -143,7 +143,7 @@ export async function getThumbnailPropsOfLink(
         });
         //@ts-expect-error
         pkcError.stack = e.stack;
-        log.error(pkcError);
+        log.error("getThumbnailUrlOfLink:", pkcError);
         community.emit("error", pkcError);
         return undefined;
     }
@@ -175,7 +175,7 @@ export async function removeFileRetryingWhileBusy(
     const deadline = Date.now() + timeoutMs;
     for (let retryDelayMs = 50; ; retryDelayMs = Math.min(retryDelayMs * 2, 1000)) {
         if (keepIf?.()) {
-            log(`${filePath} is not to be removed any more, leaving it in place`);
+            log(`removeFileRetryingWhileBusy: ${filePath} is not to be removed any more, leaving it in place`);
             return;
         }
         try {
@@ -184,7 +184,7 @@ export async function removeFileRetryingWhileBusy(
         } catch (e) {
             const code = (e as NodeJS.ErrnoException).code;
             if (!code || !WINDOWS_FILE_BUSY_ERROR_CODES.includes(code) || Date.now() + retryDelayMs >= deadline) throw e;
-            log(`${filePath} is still busy (${code}), retrying its removal in ${retryDelayMs}ms`);
+            log(`removeFileRetryingWhileBusy: ${filePath} is still busy (${code}), retrying its removal in ${retryDelayMs}ms`);
             await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
         }
     }
@@ -194,14 +194,14 @@ export async function removeFileRetryingWhileBusy(
 // only while Windows reports the file busy, so nothing waits when the file is free (it used to sleep 10s every time)
 export const deleteOldCommunityInWindows = async (
     subPath: string,
-    pkc: Pick<PKC, "_storage">,
+    pkc: Pick<PKC, "_storage" | "_log">,
     { timeoutMs = 10000 }: { timeoutMs?: number } = {}
 ) => {
-    const log = Logger("pkc-js:community:deleteStaleCommunityInWindows");
+    const log = pkc._log;
     const communityAddress = path.basename(subPath);
     try {
         await removeFileRetryingWhileBusy(subPath, { timeoutMs, log });
-        log(`Succeeded in deleting old community (${communityAddress})`);
+        log(`deleteStaleCommunityInWindows: Succeeded in deleting old community (${communityAddress})`);
     } catch (e) {
         await recordCommunityThatFailedToBeDeleted({ communityAddress, pkc, error: e, log });
     }
@@ -219,7 +219,7 @@ async function recordCommunityThatFailedToBeDeleted({
     log: Logger;
 }) {
     log.error(
-        `Failed to delete old community (${communityAddress}). Restarting the node process or daemon should make this error disappear`,
+        `deleteStaleCommunityInWindows: Failed to delete old community (${communityAddress}). Restarting the node process or daemon should make this error disappear`,
         error
     );
     // Put communityAddress in storage, so tryToDeleteCommunitiesThatFailedToBeDeletedBefore removes it on a later run
@@ -227,7 +227,7 @@ async function recordCommunityThatFailedToBeDeleted({
     const communitiesThatWeFailedToDelete: string[] = (await pkc._storage.getItem(storageKey)) || [];
     if (!communitiesThatWeFailedToDelete.includes(communityAddress)) communitiesThatWeFailedToDelete.push(communityAddress);
     await pkc._storage.setItem(storageKey, communitiesThatWeFailedToDelete);
-    log(`Updated persistent deleted communities in storage`, communitiesThatWeFailedToDelete);
+    log(`deleteStaleCommunityInWindows: Updated persistent deleted communities in storage`, communitiesThatWeFailedToDelete);
 }
 
 // Called when a live community DB is written to communities/<communityAddress> (a rename onto it, a new community): the
@@ -235,19 +235,23 @@ async function recordCommunityThatFailedToBeDeleted({
 // delete the live DB on the next start
 export async function forgetCommunityThatFailedToBeDeleted({
     communityAddress,
-    pkc
+    pkc,
+    log
 }: {
     communityAddress: string;
     pkc: Pick<PKC, "_storage">;
+    log: Logger;
 }) {
-    const log = Logger("pkc-js:community:forgetCommunityThatFailedToBeDeleted");
     const storageKey = STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES];
     const communitiesThatWeFailedToDelete = <string[] | undefined>await pkc._storage.getItem(storageKey);
     if (!Array.isArray(communitiesThatWeFailedToDelete) || !communitiesThatWeFailedToDelete.includes(communityAddress)) return;
     const remaining = communitiesThatWeFailedToDelete.filter((address) => address !== communityAddress);
     if (remaining.length === 0) await pkc._storage.removeItem(storageKey);
     else await pkc._storage.setItem(storageKey, remaining);
-    log(`A live DB is being written to communities/${communityAddress}, removed it from the persistent deleted communities`, remaining);
+    log(
+        `forgetCommunityThatFailedToBeDeleted: A live DB is being written to communities/${communityAddress}, removed it from the persistent deleted communities`,
+        remaining
+    );
 }
 
 export async function tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc: PKC, log: Logger) {
@@ -258,7 +262,7 @@ export async function tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc: PKC
     if (Array.isArray(deletedPersistentCommunities)) {
         if (deletedPersistentCommunities.length === 0) {
             await pkc._storage.removeItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES]);
-            log("Removed persistent deleted communities from storage because there are none left");
+            log("deleteStaleCommunityInWindows: Removed persistent deleted communities from storage because there are none left");
             return undefined;
         }
         // Attempt to delete them
@@ -267,11 +271,11 @@ export async function tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc: PKC
             const communityPath = path.join(<string>pkc.dataPath, "communities", communityAddress);
             try {
                 await fsPromises.rm(communityPath, { force: true });
-                log(`Succeeded in deleting old db path (${communityAddress})`);
+                log(`deleteStaleCommunityInWindows: Succeeded in deleting old db path (${communityAddress})`);
                 communitiesThatWereDeletedSuccessfully.push(communityAddress);
             } catch (e) {
                 log.error(
-                    `Failed to delete stale db (${communityAddress}). This error should go away after restarting the daemon or process`,
+                    `deleteStaleCommunityInWindows: Failed to delete stale db (${communityAddress}). This error should go away after restarting the daemon or process`,
                     e
                 );
             }
@@ -281,11 +285,11 @@ export async function tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc: PKC
         const newPersistentDeletedCommunities = difference(unique(deletedPersistentCommunities), communitiesThatWereDeletedSuccessfully);
         if (newPersistentDeletedCommunities.length === 0) {
             await pkc._storage.removeItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES]);
-            log("Removed persistent deleted communities from storage because there are none left");
+            log("deleteStaleCommunityInWindows: Removed persistent deleted communities from storage because there are none left");
             return undefined;
         } else {
             await pkc._storage.setItem(STORAGE_KEYS[STORAGE_KEYS.PERSISTENT_DELETED_COMMUNITIES], newPersistentDeletedCommunities);
-            log(`Updated persistent deleted communities in storage`, newPersistentDeletedCommunities);
+            log(`deleteStaleCommunityInWindows: Updated persistent deleted communities in storage`, newPersistentDeletedCommunities);
             return newPersistentDeletedCommunities;
         }
     }
@@ -321,9 +325,9 @@ export function markLocalCommunityDbAsBeingWritten(pkc: PKC, communityAddress: s
 export async function importSignerIntoKuboNode(
     ipnsKeyName: string,
     ipfsKey: Uint8Array,
-    kuboRpcClientOptions: KuboRpcClient["_clientOptions"]
+    kuboRpcClientOptions: KuboRpcClient["_clientOptions"],
+    log: Logger
 ): Promise<{ id: string; name: string } | undefined> {
-    const log = Logger("pkc-js:local-community:importSignerIntoKuboNode");
     if (typeof ipnsKeyName !== "string") throw Error("ipnsKeyName needs to be defined before importing key into IPFS node");
     if (!ipfsKey || ipfsKey.constructor?.name !== "Uint8Array" || ipfsKey.byteLength <= 0)
         throw Error("ipfsKey needs to be defined before importing key into IPFS node");
@@ -343,7 +347,10 @@ export async function importSignerIntoKuboNode(
                 data.append("file", new Blob([normalizedKey.buffer]));
                 res = await fetch(url, { method: "POST", body: data, headers: kuboRpcClientOptions.headers });
             } catch (error) {
-                log.error(`Failed attempt ${currentAttempt}/${numOfRetries + 1} to import key into kubo node:`, error);
+                log.error(
+                    `importSignerIntoKuboNode: Failed attempt ${currentAttempt}/${numOfRetries + 1} to import key into kubo node:`,
+                    error
+                );
                 if (operation.retry(error as Error)) return;
                 reject(operation.mainError() || error);
                 return;
@@ -360,10 +367,13 @@ export async function importSignerIntoKuboNode(
 
             try {
                 const resJson = (await res.json()) as { Id: string; Name: string };
-                log("Imported IPNS' signer into kubo node", resJson, " Onto kubo rpc URL", kuboRpcUrl);
+                log("importSignerIntoKuboNode: Imported IPNS' signer into kubo node", resJson, " Onto kubo rpc URL", kuboRpcUrl);
                 resolve({ id: resJson.Id, name: resJson.Name });
             } catch (error) {
-                log.error(`Failed attempt ${currentAttempt}/${numOfRetries + 1} to parse kubo key/import response:`, error);
+                log.error(
+                    `importSignerIntoKuboNode: Failed attempt ${currentAttempt}/${numOfRetries + 1} to parse kubo key/import response:`,
+                    error
+                );
                 if (operation.retry(error as Error)) return;
                 reject(operation.mainError() || error);
             }
@@ -528,9 +538,11 @@ export async function moveCommunityDbToDeletedDirectory(communityAddress: string
     }
 }
 
-export async function createKuboRpcClient(kuboRpcClientOptions: KuboRpcClient["_clientOptions"]): Promise<KuboRpcClient["_client"]> {
-    const log = Logger("pkc-js:pkc:createKuboRpcClient");
-    log.trace("Creating a new kubo client on node with options", kuboRpcClientOptions);
+export async function createKuboRpcClient(
+    kuboRpcClientOptions: KuboRpcClient["_clientOptions"],
+    log: Logger
+): Promise<KuboRpcClient["_client"]> {
+    log.trace("createKuboRpcClient: Creating a new kubo client on node with options", kuboRpcClientOptions);
     const { create: CreateKuboRpcClient } = await import("kubo-rpc-client");
     const isHttpsAgent =
         (typeof kuboRpcClientOptions.url === "string" && kuboRpcClientOptions.url.startsWith("https")) ||

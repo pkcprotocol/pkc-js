@@ -1,7 +1,7 @@
 import { RemoteCommunity } from "../../community/remote-community.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import type { PageIpfs, PageTypeJson } from "../../pages/types.js";
 import type { CommentIpfsWithCidDefined, CommentUpdateType } from "./types.js";
-import Logger from "../../logger.js";
 
 export async function loadAllPagesUnderCommunityToFindComment(opts: {
     commentCidToFind: CommentIpfsWithCidDefined["cid"];
@@ -9,11 +9,10 @@ export async function loadAllPagesUnderCommunityToFindComment(opts: {
     postCid?: CommentIpfsWithCidDefined["cid"];
     parentCid?: CommentIpfsWithCidDefined["cid"];
     signal?: AbortSignal;
+    log: Logger;
 }): Promise<PageIpfs["comments"][number] | undefined> {
-    const { commentCidToFind, community, signal, postCid, parentCid } = opts;
+    const { commentCidToFind, community, signal, postCid, parentCid, log } = opts;
     if (!commentCidToFind) throw Error("commentCidToFind should be defined");
-
-    const log = Logger("pkc-js:comment:loadAllPagesUnderCommunityToFindComment");
 
     type PendingPageCid = { cid: string; source: "posts" | "replies"; parentCommentCid?: string };
     const queue: PendingPageCid[] = [];
@@ -73,7 +72,7 @@ export async function loadAllPagesUnderCommunityToFindComment(opts: {
             try {
                 return await community.posts.getPage({ cid: cid });
             } catch (err) {
-                log.trace("posts.getPage failed", { cid, err });
+                log.trace("loadAllPagesUnderCommunityToFindComment: posts.getPage failed", { cid, err });
                 return undefined;
             }
         } else {
@@ -82,7 +81,7 @@ export async function loadAllPagesUnderCommunityToFindComment(opts: {
                 const parentCommentInstance = await getParentCommentInstance(parentCommentCid);
                 return await parentCommentInstance.replies.getPage({ cid: cid });
             } catch (err) {
-                log.trace("replies.getPage failed", { cid, parentCommentCid, err });
+                log.trace("loadAllPagesUnderCommunityToFindComment: replies.getPage failed", { cid, parentCommentCid, err });
                 return undefined;
             }
         }
@@ -192,7 +191,7 @@ export async function loadAllPagesUnderCommunityToFindComment(opts: {
             const foundFromQueue = await drainQueue(processPage);
             if (foundFromQueue) return foundFromQueue;
         } catch (err) {
-            log.trace("searchUnderParent failed", { parentCommentCid, err });
+            log.trace("loadAllPagesUnderCommunityToFindComment: searchUnderParent failed", { parentCommentCid, err });
         }
         return undefined;
     };

@@ -23,6 +23,9 @@ import type { CommentWithinRepliesPostsPageJson } from "../../../dist/node/publi
 import type { PageIpfs } from "../../../dist/node/pages/types.js";
 import { parsePageIpfs } from "../../../dist/node/pages/util.js";
 import legacyPageIpfsFixture from "../../fixtures/valid_page_legacy_communityAddress.json" with { type: "json" };
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:validatecomment" });
 
 interface ValidateCommentTestEnvironment {
     communityAddress: string;
@@ -473,7 +476,7 @@ getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true }).map
         });
 
         it("should validate a page comment parsed from an old-format wire record", async () => {
-            const pageJson = parsePageIpfs(remedaClone(legacyPageIpfsFixture) as PageIpfs);
+            const pageJson = parsePageIpfs(remedaClone(legacyPageIpfsFixture) as PageIpfs, testLog);
             const firstComment = pageJson.comments[0];
             // The fixture uses an IPNS-key subplebbitAddress (not a domain), so the page parser
             // should derive communityPublicKey from it while communityName stays undefined

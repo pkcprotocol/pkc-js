@@ -3,6 +3,9 @@ import { multiaddr } from "@multiformats/multiaddr";
 import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/helia-for-pkc.js";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
 import { isRunningInBrowser } from "../../../dist/node/test/test-util.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:webtransport-abort-crash" });
 
 // pkc-js#495: Chromium kills the tab (renderer SIGSEGV) when a WebTransport stream has a write
 // pending, then writer.abort(), then WebTransport.close() run in one synchronous task.
@@ -53,7 +56,8 @@ describeIfBrowserWithWebTransport("stopping a client that holds a WebTransport c
                 key: `webtransport-abort-crash-test-${Date.now()}-${round}`,
                 httpRoutersOptions: ["http://localhost:1"], // never reached; required only so setup doesn't throw
                 libp2pOptions: {},
-                heliaOptions: {}
+                heliaOptions: {},
+                log: testLog
             })) as Libp2pJsClient;
             const libp2p = client.heliaNode.libp2p;
 

@@ -1,3 +1,4 @@
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import type {
     PageIpfs,
     PagesTypeIpfs,
@@ -151,7 +152,8 @@ export function oldScore(comment: CommentToSort) {
 }
 
 export function mapModqueuePageIpfsCommentToModQueuePageJsonComment(
-    pageComment: ModQueuePageIpfs["comments"][number]
+    pageComment: ModQueuePageIpfs["comments"][number],
+    log: Logger
 ): CommentWithinModQueuePageJson {
     const postCid = pageComment.comment.postCid ?? (pageComment.comment.depth === 0 ? pageComment.commentUpdate.cid : undefined);
     if (!postCid) throw Error("Failed to infer postCid from pageIpfs.comments.comment");
@@ -181,7 +183,7 @@ export function mapModqueuePageIpfsCommentToModQueuePageJsonComment(
         shortCommunityAddress: shortifyAddress(communityAddr),
         postCid,
         // See the note in mapPageIpfsCommentToPageJsonComment
-        ...(pageComment.comment.crosspost ? { crosspost: cloneCrosspostForRuntime(pageComment.comment.crosspost) } : {}),
+        ...(pageComment.comment.crosspost ? { crosspost: cloneCrosspostForRuntime(pageComment.comment.crosspost, log) } : {}),
         raw: {
             comment: pageComment.comment,
             commentUpdate: pageComment.commentUpdate
@@ -189,8 +191,8 @@ export function mapModqueuePageIpfsCommentToModQueuePageJsonComment(
     };
 }
 
-export function mapPageIpfsCommentToPageJsonComment(pageComment: PageIpfs["comments"][0]): CommentWithinRepliesPostsPageJson {
-    const parsedPages = pageComment.commentUpdate.replies ? parsePagesIpfs(pageComment.commentUpdate.replies) : undefined;
+export function mapPageIpfsCommentToPageJsonComment(pageComment: PageIpfs["comments"][0], log: Logger): CommentWithinRepliesPostsPageJson {
+    const parsedPages = pageComment.commentUpdate.replies ? parsePagesIpfs(pageComment.commentUpdate.replies, log) : undefined;
     const postCid = pageComment.comment.postCid ?? (pageComment.comment.depth === 0 ? pageComment.commentUpdate.cid : undefined);
     if (!postCid) throw Error("Failed to infer postCid from pageIpfs.comments.comment");
     const runtimeAuthor = buildRuntimeAuthor({
@@ -245,7 +247,7 @@ export function mapPageIpfsCommentToPageJsonComment(pageComment: PageIpfs["comme
         postCid,
         // A copy, so applying the runtime author.nameResolved below never touches raw.comment, whose
         // bytes crosspost.cid hashes. See src/publications/comment/crosspost-runtime.ts.
-        ...(pageComment.comment.crosspost ? { crosspost: cloneCrosspostForRuntime(pageComment.comment.crosspost) } : {}),
+        ...(pageComment.comment.crosspost ? { crosspost: cloneCrosspostForRuntime(pageComment.comment.crosspost, log) } : {}),
         raw: {
             comment: pageComment.comment,
             commentUpdate: pageComment.commentUpdate
@@ -253,20 +255,22 @@ export function mapPageIpfsCommentToPageJsonComment(pageComment: PageIpfs["comme
     };
 }
 
-export function parsePageIpfs(pageIpfs: PageIpfs): PageTypeJson {
-    const finalComments = pageIpfs.comments.map(mapPageIpfsCommentToPageJsonComment);
+export function parsePageIpfs(pageIpfs: PageIpfs, log: Logger): PageTypeJson {
+    const finalComments = pageIpfs.comments.map((pageComment) => mapPageIpfsCommentToPageJsonComment(pageComment, log));
 
     return { comments: finalComments, ...omit(pageIpfs, ["comments"]) };
 }
 
-export function parseModQueuePageIpfs(modqueuePageIpfs: ModQueuePageIpfs): ModQueuePageTypeJson {
-    const finalComments = modqueuePageIpfs.comments.map(mapModqueuePageIpfsCommentToModQueuePageJsonComment);
+export function parseModQueuePageIpfs(modqueuePageIpfs: ModQueuePageIpfs, log: Logger): ModQueuePageTypeJson {
+    const finalComments = modqueuePageIpfs.comments.map((pageComment) =>
+        mapModqueuePageIpfsCommentToModQueuePageJsonComment(pageComment, log)
+    );
     return { comments: finalComments, ...omit(modqueuePageIpfs, ["comments"]) };
 }
 
-export function parsePagesIpfs(pagesRaw: PagesTypeIpfs): Omit<PagesTypeJson, "clients"> {
+export function parsePagesIpfs(pagesRaw: PagesTypeIpfs, log: Logger): Omit<PagesTypeJson, "clients"> {
     const keys = remedaKeys(pagesRaw.pages);
-    const parsedPages = Object.values(pagesRaw.pages).map((pageIpfs) => parsePageIpfs(pageIpfs));
+    const parsedPages = Object.values(pagesRaw.pages).map((pageIpfs) => parsePageIpfs(pageIpfs, log));
     const pagesType = fromEntries(keys.map((key, i) => [key, parsedPages[i]]));
     return { pages: pagesType, pageCids: pagesRaw.pageCids || {} };
 }
@@ -284,7 +288,8 @@ export function processAllCommentsRecursively(comments: PageIpfs["comments"], pr
 // To use for both community.posts and comment.replies
 
 export function parseRawPages(
-    pages: PagesTypeIpfs | Omit<PagesTypeJson, "clients"> | RepliesPages | PostsPages | undefined
+    pages: PagesTypeIpfs | Omit<PagesTypeJson, "clients"> | RepliesPages | PostsPages | undefined,
+    log: Logger
 ): Pick<RepliesPages | PostsPages, "pages"> {
     if (!pages)
         return {
@@ -296,7 +301,7 @@ export function parseRawPages(
     if (isIpfs) {
         const pagesIpfs = <PagesTypeIpfs>pages;
         // pages is a PagesTypeIpfs
-        const parsedPages = parsePagesIpfs(pagesIpfs);
+        const parsedPages = parsePagesIpfs(pagesIpfs, log);
         return { pages: parsedPages.pages };
     } else if (pages instanceof BasePages)
         return { pages: pages.pages }; // already parsed

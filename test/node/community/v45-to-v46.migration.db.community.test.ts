@@ -6,6 +6,10 @@ import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { CommentUpdateType } from "../../../dist/node/publications/comment/types.js";
 import type Database from "better-sqlite3";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:v45-to-v46" });
 
 // v45 -> v46 adds the commentUpdates.extraProps JSON column (issue #572): the unknown keys of the signed CommentUpdate
 // (a challenge's `commentUpdate` extras), so a page entry rebuilt from the row is the record that was signed.
@@ -164,6 +168,7 @@ const signature = {
 
 interface FakeCommunity {
     address: string;
+    _log: typeof testLog;
     _pkc: { noData: boolean };
     _cidsToUnPin: Set<string>;
     _blocksToRm: string[];
@@ -177,6 +182,7 @@ interface FakeCommunity {
 function createFakeCommunity(address: string): FakeCommunity {
     return {
         address,
+        _log: testLog,
         _pkc: { noData: true },
         _cidsToUnPin: new Set<string>(),
         _blocksToRm: [],

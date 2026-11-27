@@ -1,4 +1,3 @@
-import Logger from "../logger.js";
 import { RemoteCommunity } from "./remote-community.js";
 import type { RpcRemoteCommunityType, CommunityEvents, CommunityRpcErrorToTransmit } from "./types.js";
 import { keys } from "remeda";
@@ -9,11 +8,16 @@ import { RpcLocalCommunity } from "./rpc-local-community.js";
 import {
     findStartedCommunity,
     findUpdatingCommunity,
+    refreshTrackedCommunityAliases,
     trackUpdatingCommunity,
     untrackUpdatingCommunity
 } from "../pkc/tracked-instance-registry-util.js";
 
 export class RpcRemoteCommunity extends RemoteCommunity {
+    protected override _logNamespace(): string {
+        return "pkc-js:rpc-remote-community";
+    }
+
     private _updateRpcSubscriptionId?: number = undefined;
     private _updatingRpcCommunityInstanceWithListeners?: { community: RpcRemoteCommunity | RpcLocalCommunity } & Pick<
         CommunityEvents,
@@ -70,12 +74,12 @@ export class RpcRemoteCommunity extends RemoteCommunity {
     protected _processUpdateEventFromRpcUpdate(args: any) {
         // This function is to handle "update" event emitted after calling rpcRemoteCommunity.update()
         // It's overidden in rpc-local-community
-        const log = Logger("pkc-js:rpc-remote-community:_processUpdateEventFromRpcUpdate");
+        const log = this._log;
         let updateRecord: RpcRemoteCommunityType;
         try {
             updateRecord = parseRpcRemoteCommunityUpdateEventWithPKCErrorIfItFails(args.params.result);
         } catch (e) {
-            log.error("Failed to parse the schema of remote community sent by rpc", e);
+            log.error("_processUpdateEventFromRpcUpdate: Failed to parse the schema of remote community sent by rpc", e);
             this.emit("error", <PKCError>e);
             throw e;
         }
@@ -84,6 +88,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         if (updateRecord.resetInstance && updateRecord.runtimeFields.newPublicKey) {
             this._clearDataForKeyMigration(updateRecord.runtimeFields.newPublicKey);
             if (typeof updateRecord.runtimeFields.nameResolved === "boolean") this.nameResolved = updateRecord.runtimeFields.nameResolved;
+            refreshTrackedCommunityAliases(this._pkc, this);
             this.emit("update", this);
             return;
         }
@@ -105,6 +110,9 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         // The merge skips undefined, and JSON drops it, so a server whose verdict was cleared (the record
         // dropped or changed its name) sends no nameResolved at all
         if (runtimeFieldsWithoutUpdatingState.nameResolved === undefined) this.nameResolved = undefined;
+        // The verdict arrives after the record, and a key-addressed updating instance is findable under its
+        // record's name only while that name is proven, so the registry follows the verdict
+        refreshTrackedCommunityAliases(this._pkc, this);
 
         // Emit "update" then updatingstatechange, in the order the non-RPC loop does
         this._changeStateEmitEventEmitStateChangeEvent({
@@ -236,6 +244,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
         if ("code" in error && error.code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY" && error.details?.newPublicKey) {
             this._clearDataForKeyMigration(error.details.newPublicKey);
             this.nameResolved = true;
+            refreshTrackedCommunityAliases(this._pkc, this);
             this.emit("update", this);
         }
         // Emit "error" then updatingstatechange, like the non-RPC loop; the server's notification for
@@ -247,7 +256,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
     }
 
     async _initRpcUpdateSubscription() {
-        const log = Logger("pkc-js:rpc-remote-community:_initRpcUpdateSubscription");
+        const log = this._log;
         this._setState("updating");
         let subscriptionId: number;
         try {
@@ -259,7 +268,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
             }));
             this._updateRpcSubscriptionId = subscriptionId;
         } catch (e) {
-            log.error("Failed to receive communityUpdate from RPC due to error", e);
+            log.error("_initRpcUpdateSubscription: Failed to receive communityUpdate from RPC due to error", e);
             this._setState("stopped");
             this._setUpdatingStateWithEventEmissionIfNewState("failed");
             throw e;
@@ -288,7 +297,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
     }
 
     async _createAndSubscribeToNewUpdatingCommunity(updatingCommunity?: RpcRemoteCommunity) {
-        const log = Logger("pkc-js:rpc-remote-community:_createNewUpdatingCommunity");
+        const log = this._log;
         const updatingSub =
             updatingCommunity ||
             ((await this._pkc.createCommunity({
@@ -296,7 +305,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
                 publicKey: this.publicKey
             })) as RpcRemoteCommunity);
         trackUpdatingCommunity(this._pkc, updatingSub);
-        log("Creating a new entry for this._pkc._updatingCommunities", this.address);
+        log("_createNewUpdatingCommunity: Creating a new entry for this._pkc._updatingCommunities", this.address);
 
         if (updatingSub !== this)
             // in pkc.createCommunity() this function is called with the community instance itself
@@ -312,15 +321,11 @@ export class RpcRemoteCommunity extends RemoteCommunity {
     }
 
     override async update() {
-        const log = Logger("pkc-js:rpc-remote-community:update");
-
         if (this.state === "started") throw new PKCError("ERR_COMMUNITY_ALREADY_STARTED", { address: this.address });
         if (this.state !== "stopped") return; // No need to do anything if community is already updating
         this._setState("updating");
         try {
-            const existingSub = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name }) as
-                | RpcRemoteCommunity
-                | undefined;
+            const existingSub = findUpdatingCommunity(this._pkc, this._registryLookup()) as RpcRemoteCommunity | undefined;
             if (existingSub) {
                 if (existingSub === this) await this._initRpcUpdateSubscription();
                 else if (this._sharesRequestedIdentityWith(existingSub)) await this._initMirroringUpdatingCommunity(existingSub);
@@ -330,7 +335,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
                 // instance on its own instead, untracked, since the entry already owns the registry aliases.
                 else await this._initRpcUpdateSubscription();
             } else {
-                const startedSub = findStartedCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
+                const startedSub = findStartedCommunity(this._pkc, this._registryLookup());
                 if (startedSub) await this._initMirroringUpdatingCommunity(startedSub as RpcLocalCommunity);
                 else {
                     // creating a new entry in pkc._updatingCommunities
@@ -394,8 +399,12 @@ export class RpcRemoteCommunity extends RemoteCommunity {
             this._updatingRpcCommunityInstanceWithListeners.community._numOfListenersForUpdatingInstance === 0 &&
             this._updatingRpcCommunityInstanceWithListeners.community.state === "updating"
         ) {
-            const log = Logger("pkc-js:rpc-remote-community:_cleanupMirroringUpdatingCommunity");
-            log("Cleaning up pkc._updatingCommunities", this.address, "There are no communities using it for updates");
+            const log = this._log;
+            log(
+                "_cleanupMirroringUpdatingCommunity: Cleaning up pkc._updatingCommunities",
+                this.address,
+                "There are no communities using it for updates"
+            );
             // Untrack before stop() to prevent findUpdatingCommunity from returning a dying entry
             // during the async stop window (stop() awaits RPC unsubscribe)
             untrackUpdatingCommunity(this._pkc, this._updatingRpcCommunityInstanceWithListeners.community);
@@ -405,7 +414,7 @@ export class RpcRemoteCommunity extends RemoteCommunity {
     }
 
     override async stop() {
-        const log = Logger("pkc-js:rpc-remote-community:stop");
+        const log = this._log;
         if (this.state === "stopped") return;
         // The next update() is a new run whose listeners have not been told about any refused record
         this._lastRefusedRecordUpdatedAt = undefined;
@@ -423,9 +432,9 @@ export class RpcRemoteCommunity extends RemoteCommunity {
                 try {
                     await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
                 } catch (e) {
-                    log.error("Failed to unsubscribe from communityUpdate", e);
+                    log.error("stop: Failed to unsubscribe from communityUpdate", e);
                 }
-                log.trace(`Stopped the update of remote community (${this.address}) via RPC`);
+                log.trace(`stop: Stopped the update of remote community (${this.address}) via RPC`);
             }
             // Untracked even without a subscription id. _createAndSubscribeToNewUpdatingCommunity
             // tracks the instance BEFORE _initRpcUpdateSubscription assigns that id, so a subscribe

@@ -23,7 +23,7 @@ import type { Comment } from "../../../../dist/node/publications/comment/comment
 import type { RemoteCommunity } from "../../../../dist/node/community/remote-community.js";
 import type { PKCError } from "../../../../dist/node/pkc-error.js";
 
-const log = Logger("pkc-js:test:backward-compatibility-commentupdate");
+const log = Logger({ namespace: "pkc-js:test:backward-compatibility-commentupdate" });
 
 type CommentWithExtraProp = Comment & { extraPropUpdate?: string };
 type AuthorWithExtraProp = { extraPropUpdate?: string };

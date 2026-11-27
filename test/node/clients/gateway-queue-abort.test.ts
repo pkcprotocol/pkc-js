@@ -2,7 +2,7 @@ import http, { Server } from "http";
 import type { AddressInfo } from "net";
 import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import { mockGatewayPKC } from "../../../dist/node/test/test-util.js";
-import Logger from "../../../dist/node/logger.js";
+import Logger from "@pkcprotocol/pkc-logger";
 
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 
@@ -56,7 +56,7 @@ describe("gateway fetches aborted while gateways are queued", () => {
             root: "QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f",
             recordPKCType: "comment",
             validateGatewayResponseFunc: async () => {},
-            log: Logger("pkc-js:test:gateway-queue-abort"),
+            log: Logger({ namespace: "pkc-js:test:gateway-queue-abort" }),
             maxFileSizeBytes: 1024,
             timeoutMs: 60_000,
             abortSignal: abortController.signal

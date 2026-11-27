@@ -1,5 +1,5 @@
-import Logger from "../../../../logger.js";
 import { clone, isDeepEqual, isEmpty, omit, pick } from "remeda";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { v4 as uuidV4 } from "uuid";
 import { timestamp } from "../../../../util.js";
 import { PKCError } from "../../../../pkc-error.js";
@@ -53,16 +53,21 @@ export async function importCommunitySignerIntoIpfsIfNeeded(community: LocalComm
     if (!community.signer.ipnsKeyName) throw Error("community.signer.ipnsKeyName is not defined");
     if (!community.signer.ipfsKey) throw Error("community.signer.ipfsKey is not defined");
 
-    await importSignerIntoKuboNode(community.signer.ipnsKeyName, community.signer.ipfsKey, {
-        url: community._pkc.kuboRpcClientsOptions![0].url!.toString(),
-        headers: community._pkc.kuboRpcClientsOptions![0].headers
-    });
+    await importSignerIntoKuboNode(
+        community.signer.ipnsKeyName,
+        community.signer.ipfsKey,
+        {
+            url: community._pkc.kuboRpcClientsOptions![0].url!.toString(),
+            headers: community._pkc.kuboRpcClientsOptions![0].headers
+        },
+        community._log
+    );
 }
 
 export function getDbInternalState(
     community: LocalCommunity
 ): InternalCommunityRecordAfterFirstUpdateType | InternalCommunityRecordBeforeFirstUpdateType {
-    const log = Logger("pkc-js:local-community:_getDbInternalState");
+    const log = community._log;
     if (!community._dbHandler.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]))
         throw new PKCError("ERR_COMMUNITY_HAS_NO_INTERNAL_STATE", { address: community.address, dataPath: community._pkc.dataPath });
     try {
@@ -71,7 +76,7 @@ export function getDbInternalState(
             throw new PKCError("ERR_COMMUNITY_HAS_NO_INTERNAL_STATE", { address: community.address, dataPath: community._pkc.dataPath });
         return internalState as InternalCommunityRecordAfterFirstUpdateType | InternalCommunityRecordBeforeFirstUpdateType;
     } catch (e) {
-        log.error("Failed to get community", community.address, "internal state from db", e);
+        log.error("_getDbInternalState: Failed to get community", community.address, "internal state from db", e);
         throw e;
     }
 }
@@ -89,7 +94,7 @@ export async function updateDbInternalState(
     community: LocalCommunity,
     propsOrBuildProps: InternalStateProps | (() => InternalStateProps)
 ): Promise<InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType> {
-    const log = Logger("pkc-js:local-community:_updateDbInternalState");
+    const log = community._log;
     if (typeof propsOrBuildProps !== "function" && isEmpty(propsOrBuildProps))
         throw Error("props to update DB internal state should not be empty");
     await community._dbHandler.initDbIfNeeded();
@@ -118,7 +123,12 @@ export async function updateDbInternalState(
             return merged;
         });
         community._internalStateUpdateId = internalStateUpdateId;
-        log.trace("Updated community", community.address, "internal state in db with new props", Object.keys(props));
+        log.trace(
+            "_updateDbInternalState: Updated community",
+            community.address,
+            "internal state in db with new props",
+            Object.keys(props)
+        );
         if (community.updateCid && community.raw.communityIpfs) {
             community.raw.localCommunity = community.toJSONInternalRpcAfterFirstUpdate();
         } else if (community.settings) {
@@ -126,7 +136,13 @@ export async function updateDbInternalState(
         }
         return mergedInternalState as InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType;
     } catch (e) {
-        log.error("Failed to update community", community.address, "internal state in db with new props", Object.keys(props), e);
+        log.error(
+            "_updateDbInternalState: Failed to update community",
+            community.address,
+            "internal state in db with new props",
+            Object.keys(props),
+            e
+        );
         throw e;
     }
 }
@@ -147,8 +163,8 @@ export async function updateInstanceStateWithDbState(community: LocalCommunity) 
                 // pkc.createCommunity({ address }), and with it the only way to the start() that finishes the migration
                 // and restores the table. So the community loads without its posts, and start() loads them again once
                 // the tables are back.
-                Logger("pkc-js:local-community:updateInstanceStateWithDbState").error(
-                    `The DB of community (${community.address}) is missing its comments or commentUpdates table, most likely after an interrupted migration. Loading it without posts, start() will restore them`
+                community._log.error(
+                    `updateInstanceStateWithDbState: The DB of community (${community.address}) is missing its comments or commentUpdates table, most likely after an interrupted migration. Loading it without posts, start() will restore them`
                 );
                 delete currentDbState.posts;
             }
@@ -170,13 +186,13 @@ export async function updateInstancePropsWithStartedCommunityOrDb(community: Loc
     // if it's started in another process, we will throw an error
     // if community is not started, load the InternalCommunity props from the local db
 
-    const log = Logger("pkc-js:local-community:_updateInstancePropsWithStartedCommunityOrDb");
+    const log = community._log;
     const startedCommunity = <LocalCommunity | undefined>(
         (findStartedCommunity(community._pkc, { publicKey: community.publicKey, name: community.name }) ||
             findProcessStartedCommunity(community))
     );
     if (startedCommunity) {
-        log("Loading local community", community.address, "from started community instance");
+        log("_updateInstancePropsWithStartedCommunityOrDb: Loading local community", community.address, "from started community instance");
         if (startedCommunity.updatedAt)
             await community.initInternalCommunityAfterFirstUpdateNoMerge(startedCommunity.toJSONInternalAfterFirstUpdate());
         else await community.initInternalCommunityBeforeFirstUpdateNoMerge(startedCommunity.toJSONInternalBeforeFirstUpdate());
@@ -213,7 +229,7 @@ export async function updateInstancePropsWithStartedCommunityOrDb(community: Loc
             // keyv slot publishAnchorRecord owns. Absent on a delegated community means no anchor
             // record has ever been accepted for it.
             await community._updateStartedValue();
-            log("Loaded local community", community.address, "from db");
+            log("_updateInstancePropsWithStartedCommunityOrDb: Loaded local community", community.address, "from db");
         } catch (e) {
             throw e;
         } finally {
@@ -228,7 +244,7 @@ export async function updateInstancePropsWithStartedCommunityOrDb(community: Loc
         } catch (e) {
             if (e instanceof Error) {
                 log(
-                    "Local community",
+                    "_updateInstancePropsWithStartedCommunityOrDb: Local community",
                     community.address,
                     "has an invalid communityIpfs schema from DB, clearing for re-generation after migration:",
                     e.message
@@ -259,7 +275,7 @@ export async function setChallengesToDefaultIfNotDefined(community: LocalCommuni
             // Re-assert true since we know this is still a default-driven upgrade.
             community._usingDefaultChallenge = true;
             log(
-                `Upgraded default challenge for community (${community.address})`,
+                `_updateInstancePropsWithStartedCommunityOrDb: Upgraded default challenge for community (${community.address})`,
                 community._defaultCommunityChallenges[0]?.options?.answer
                     ? `with answer: ${community._defaultCommunityChallenges[0].options!.answer}`
                     : `to ${community._defaultCommunityChallenges.length} challenge(s)`
@@ -288,7 +304,10 @@ function doesDbFileHoldInternalState({
     } catch (e) {
         const code = (e as { code?: unknown }).code;
         if (typeof code === "string" && ["SQLITE_NOTADB", "SQLITE_ERROR"].includes(code)) return false;
-        log.error(`Failed to tell whether ${dbFilePath} holds an internal state, leaving the file in place`, e);
+        log.error(
+            `doesDbFileHoldInternalState: Failed to tell whether ${dbFilePath} holds an internal state, leaving the file in place`,
+            e
+        );
         return undefined;
     } finally {
         db?.close();
@@ -298,7 +317,7 @@ function doesDbFileHoldInternalState({
 export async function createNewLocalCommunityDb(community: LocalCommunity) {
     // We're creating a totally new community here with a new db
     // This function should be called only once per community
-    const log = Logger("pkc-js:local-community:_createNewLocalCommunityDb");
+    const log = community._log;
     await initSignerProps(community, community.signer); // init this.encryption as well
 
     // A read-only community gets no backfilled topic: absence of pubsubTopic on the wire is what tells
@@ -313,7 +332,7 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
         community.settings = { ...community.settings, challenges: community._defaultCommunityChallenges };
         community._usingDefaultChallenge = true;
         log(
-            `Generated default challenge for community (${community.address}) with answer:`,
+            `_createNewLocalCommunityDb: Generated default challenge for community (${community.address}) with answer:`,
             community._defaultCommunityChallenges[0].options!.answer
         );
     }
@@ -346,7 +365,8 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
     community._pageSorts = await resolvePageSortsOrThrow({
         pagesSettings: community.settings.pages,
         pkc: community._pkc,
-        communityAddress: community.address
+        communityAddress: community.address,
+        log: community._log
     });
     community.pageSorts = derivePublicPageSorts({ pagesSettings: community.settings.pages, resolved: community._pageSorts });
 
@@ -358,7 +378,7 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
     // call created a moment ago, belongs to someone else and is left alone.
     await community.initDbHandlerIfNeeded();
     // A failed deletion of this address may still be queued for the next start, which would delete the new DB
-    await forgetCommunityThatFailedToBeDeleted({ communityAddress: community.address, pkc: community._pkc });
+    await forgetCommunityThatFailedToBeDeleted({ communityAddress: community.address, pkc: community._pkc, log: community._log });
     await community._dbHandler.initDbConfigIfNeeded();
     const dbFilePath = community._dbHandler.getDbConfig().filename;
     let createdDbFile = false;
@@ -381,7 +401,10 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
         try {
             community._dbHandler.destoryConnection();
         } catch (closeError) {
-            log.error(`Failed to close the DB of community (${community.address}) after its creation failed`, closeError);
+            log.error(
+                `_createNewLocalCommunityDb: Failed to close the DB of community (${community.address}) after its creation failed`,
+                closeError
+            );
         }
         // Another call may have written its internal state into the file this one created. Then it is a community and
         // stays. The file is read for that, not the connection, which a failed table creation has closed already. The
@@ -391,7 +414,10 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
         if (createdDbFile)
             for (const filePath of [dbFilePath, `${dbFilePath}-wal`, `${dbFilePath}-shm`])
                 await removeFileRetryingWhileBusy(filePath, { log, keepIf: isNotKnownToBeStateless }).catch((removeError) =>
-                    log.error(`Failed to remove ${filePath} after the creation of community (${community.address}) failed`, removeError)
+                    log.error(
+                        `_createNewLocalCommunityDb: Failed to remove ${filePath} after the creation of community (${community.address}) failed`,
+                        removeError
+                    )
                 );
         throw e;
     }

@@ -218,7 +218,7 @@ describeSkipIfRpc.sequential("LocalCommunity verifies author.wallets proofs (BSI
                 signedPropertyNames,
                 cleanUpBeforePublishing(withWallets),
                 communityEdit.signer!,
-                Logger("pkc-js:test:author-wallet-proof:communityEdit")
+                Logger({ namespace: "pkc-js:test:author-wallet-proof:communityEdit" })
             );
             communityEdit.raw.pubsubMessageToPublish = withWallets;
             communityEdit.signature = withWallets.signature;

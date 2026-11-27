@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.0.164](https://github.com/pkcprotocol/pkc-js/compare/v0.0.163...v0.0.164) (2026-11-27)
+
+### Features
+
+* **logger:** per-identifier logs via tagged loggers, pkc.getLogs and a getLogs RPC method ([#506](https://github.com/pkcprotocol/pkc-js/issues/506)) ([14af7b8](https://github.com/pkcprotocol/pkc-js/commit/14af7b80789af3d297a1750ce0ea23b9d9ff91c4)), closes [#493](https://github.com/pkcprotocol/pkc-js/issues/493) [#5f7600cef](https://github.com/pkcprotocol/pkc-js/issues/5f7600cef)
+
+### Build
+
+* **deps:** upgrade @pkcprotocol/pkc-logger 0.3.0 -> 0.3.1 ([#624](https://github.com/pkcprotocol/pkc-js/issues/624)) ([5dd8d0b](https://github.com/pkcprotocol/pkc-js/commit/5dd8d0be96574fc78232a8c01e73142185e09146))
+
+## [0.0.163](https://github.com/pkcprotocol/pkc-js/compare/v0.0.162...v0.0.163) (2026-11-24)
+
+### Bug Fixes
+
+* **community:** a community loaded by key no longer key-migrates on a name its record claims ([#606](https://github.com/pkcprotocol/pkc-js/issues/606)) ([1855946](https://github.com/pkcprotocol/pkc-js/commit/18559462d4422e972abee9588983419c1314452c))
+
+## [0.0.162](https://github.com/pkcprotocol/pkc-js/compare/v0.0.161...v0.0.162) (2026-11-24)
+
+### Bug Fixes
+
+* **gateways:** sort gateways and pubsub providers by their score ([#487](https://github.com/pkcprotocol/pkc-js/issues/487)) ([41eecf3](https://github.com/pkcprotocol/pkc-js/commit/41eecf3227623c7c785f5d88250906019dd1a847))
+
+## [0.0.161](https://github.com/pkcprotocol/pkc-js/compare/v0.0.160...v0.0.161) (2026-11-24)
+
+### Bug Fixes
+
+* raise the libp2p-js per-peer pubsub topic budget and release kubo IPNS subscriptions ([#604](https://github.com/pkcprotocol/pkc-js/issues/604)) ([c3dda5f](https://github.com/pkcprotocol/pkc-js/commit/c3dda5f90b3fbfe3a34051ddbe67535297ede037)), closes [#602](https://github.com/pkcprotocol/pkc-js/issues/602) [#602](https://github.com/pkcprotocol/pkc-js/issues/602)
+
 ## [0.0.160](https://github.com/pkcprotocol/pkc-js/compare/v0.0.159...v0.0.160) (2026-11-24)
 
 ### Bug Fixes

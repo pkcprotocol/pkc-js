@@ -7,12 +7,12 @@ import {
     timestamp,
     withSortedKeys
 } from "../../../util.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { PKCError } from "../../../pkc-error.js";
 import path from "path";
 import assert from "assert";
 import fs from "fs";
 import os from "os";
-import Logger from "../../../logger.js";
 import {
     deleteOldCommunityInWindows,
     deriveCommentIpfsFromCommentTableRow,
@@ -159,11 +159,13 @@ export class DbHandler {
     }
     private _readBackWithoutStoringDepth = 0;
     private _preparedStatements: Map<string, Statement>;
+    private _log: Logger;
     // The address this handler has claimed the start of, from lockCommunityStart until unlockCommunityStart
     private _startLockAddress: string | undefined = undefined;
 
     constructor(community: DbHandler["_community"]) {
         this._community = community;
+        this._log = community._log.child({ namespace: "db-handler" });
         this._transactionDepth = 0;
         this._createdTables = false;
         this._columnNamesByTable = {};
@@ -233,7 +235,7 @@ export class DbHandler {
     }
 
     async initDbIfNeeded(dbConfigOptions?: Partial<DbHandler["_dbConfig"]>) {
-        const log = Logger("pkc-js:local-community:db-handler:initDbIfNeeded");
+        const log = this._log;
         assert(
             typeof this._community.address === "string" && this._community.address.length > 0,
             `DbHandler needs to be an instantiated with a Community that has a valid address, (${this._community.address}) was provided`
@@ -247,7 +249,7 @@ export class DbHandler {
             if (!this._db.readonly) {
                 this._db.pragma("journal_mode = WAL");
             }
-            log("initialized a new connection to db", dbFilePath);
+            log("initDbIfNeeded: initialized a new connection to db", dbFilePath);
         }
         if (!this._keyv) {
             this._keyv = new KeyvBetterSqlite3(this._db, this._db.readonly ? { createTable: false } : undefined);
@@ -259,7 +261,7 @@ export class DbHandler {
     }
 
     async createOrMigrateTablesIfNeeded() {
-        const log = Logger("pkc-js:local-community:db-handler:createOrMigrateTablesIfNeeded");
+        const log = this._log;
         if (this._createdTables) return;
 
         try {
@@ -267,7 +269,7 @@ export class DbHandler {
         } catch (e) {
             await this.initDbIfNeeded();
             log.error(
-                `Community (${this._community.address}) failed to create/migrate tables. Current db version (${this.getDbVersion()}), latest db version (${env.DB_VERSION}). Error`,
+                `createOrMigrateTablesIfNeeded: Community (${this._community.address}) failed to create/migrate tables. Current db version (${this.getDbVersion()}), latest db version (${env.DB_VERSION}). Error`,
                 e
             );
             // A start() that fails here has claimed the community, and its stop() gives the claim back and closes the
@@ -305,7 +307,7 @@ export class DbHandler {
     }
 
     destoryConnection() {
-        const log = Logger("pkc-js:local-community:dbHandler:destroyConnection");
+        const log = this._log;
         // A handler that has claimed the community's start is running it, and a running community needs its connection.
         // stop() gives the claim back before it gets here, so anything else that does is a caller that took a starting
         // or started community for a stopped one. The connection stays open. Under vitest it throws, so a test that
@@ -326,7 +328,12 @@ export class DbHandler {
             } catch (e) {
                 // The checkpoint throws on a file that is not a database. The connection is closed all the same:
                 // an open handle keeps the file locked on Windows (issue #540)
-                log.error("Failed to checkpoint the WAL of community", this._community.address, "before closing its DB", e);
+                log.error(
+                    "destroyConnection: Failed to checkpoint the WAL of community",
+                    this._community.address,
+                    "before closing its DB",
+                    e
+                );
             } finally {
                 this._db.close();
             }
@@ -337,7 +344,7 @@ export class DbHandler {
         this._db = this._keyv = undefined;
         this._transactionDepth = 0;
 
-        log("Destroyed DB connection to community", this._community.address, "successfully");
+        log("destroyConnection: Destroyed DB connection to community", this._community.address, "successfully");
     }
 
     createTransaction(): void {
@@ -360,7 +367,7 @@ export class DbHandler {
             const error = new Error(
                 "A DB transaction was left open across an await. Transactions must open and close synchronously (issue #417)"
             );
-            Logger("pkc-js:local-community:db-handler:createTransaction").error(error);
+            this._log.error("createTransaction:", error);
             if (process.env["VITEST"]) throw error;
         });
     }
@@ -393,36 +400,38 @@ export class DbHandler {
     }
 
     rollbackTransaction(): void {
-        const log = Logger("pkc-js:local-community:db-handler:rollbackTransaction");
+        const log = this._log;
         if (this._transactionDepth > 0) {
             if (this._transactionDepth === 1) {
                 try {
                     this._db.exec("ROLLBACK");
                 } catch (e) {
-                    log.error(`Failed to rollback transaction due to error`, e);
+                    log.error(`rollbackTransaction: Failed to rollback transaction due to error`, e);
                 }
             }
             this._transactionDepth--;
         } else if (this._db && this._db.open && this._db.inTransaction) {
-            log(`Transaction depth was 0, but DB was in transaction. Attempting rollback.`);
+            log(`rollbackTransaction: Transaction depth was 0, but DB was in transaction. Attempting rollback.`);
             try {
                 this._db.exec("ROLLBACK");
             } catch (e) {
-                log.error(`Failed to rollback transaction (fallback) due to error`, e);
+                log.error(`rollbackTransaction: Failed to rollback transaction (fallback) due to error`, e);
             }
         }
         if (this._transactionDepth < 0) this._transactionDepth = 0;
-        log.trace(`Rolledback transaction, this._transactionDepth = ${this._transactionDepth}`);
+        log.trace(`rollbackTransaction: Rolledback transaction, this._transactionDepth = ${this._transactionDepth}`);
     }
 
     async rollbackAllTransactions() {
-        const log = Logger("pkc-js:local-community:db-handler:rollbackAllTransactions");
+        const log = this._log;
         let initialDepth = this._transactionDepth;
         while (this._transactionDepth > 0) {
             this.rollbackTransaction();
         }
         if (initialDepth > 0) {
-            log.trace(`Rolled back all transactions. Initial depth was ${initialDepth}, now ${this._transactionDepth}.`);
+            log.trace(
+                `rollbackAllTransactions: Rolled back all transactions. Initial depth was ${initialDepth}, now ${this._transactionDepth}.`
+            );
         }
     }
 
@@ -637,9 +646,9 @@ export class DbHandler {
     }
 
     async _createOrMigrateTablesIfNeeded() {
-        const log = Logger("pkc-js:local-community:db-handler:createOrMigrateTablesIfNeeded");
+        const log = this._log;
         const currentDbVersion = this.getDbVersion();
-        log.trace(`current db version: ${currentDbVersion}`);
+        log.trace(`createOrMigrateTablesIfNeeded: current db version: ${currentDbVersion}`);
 
         if (currentDbVersion > env.DB_VERSION)
             throw new Error(
@@ -658,7 +667,7 @@ export class DbHandler {
                     ".backup_before_migration",
                     `${path.basename(dbPath)}.${currentDbVersion}.${timestamp()}`
                 );
-                log(`Copying db ${path.basename(dbPath)} to ${backupDbPath} before migration`);
+                log(`createOrMigrateTablesIfNeeded: Copying db ${path.basename(dbPath)} to ${backupDbPath} before migration`);
                 if (!fs.existsSync(path.dirname(backupDbPath))) await fs.promises.mkdir(path.dirname(backupDbPath), { recursive: true });
                 // Through the open connection, which is not closed: start() migrates on the connection it runs on
                 await this._db.backup(backupDbPath);
@@ -689,13 +698,15 @@ export class DbHandler {
                 // An earlier run of this migration was killed between dropping the table and renaming its migrated copy,
                 // when the two were separate commits. The copy is complete (the drop only ran after it), so it becomes the
                 // table; creating an empty one here would lose every row
-                log(`Table ${tableName} is missing but its migrated copy ${tempTableName} exists. Will restore the table from it`);
+                log(
+                    `createOrMigrateTablesIfNeeded: Table ${tableName} is missing but its migrated copy ${tempTableName} exists. Will restore the table from it`
+                );
                 this._db.exec(`ALTER TABLE ${tempTableName} RENAME TO ${tableName}`);
             } else if (!tableExists) {
-                log(`Table ${tableName} does not exist. Will create schema`);
+                log(`createOrMigrateTablesIfNeeded: Table ${tableName} does not exist. Will create schema`);
                 createTableFunctions[i](tableName);
             } else if (tableExists && needToMigrate) {
-                log(`Migrating table ${tableName} to new schema`);
+                log(`createOrMigrateTablesIfNeeded: Migrating table ${tableName} to new schema`);
                 this._db.exec(`DROP TABLE IF EXISTS ${tempTableName}`);
                 createTableFunctions[i](tempTableName);
                 await this._copyTable(tableName, tempTableName, currentDbVersion);
@@ -775,14 +786,20 @@ export class DbHandler {
         this._columnNamesByTable = {}; // every table now carries the latest schema
         this._preparedStatements.clear();
         if (needToMigrate)
-            log(`Created/migrated the tables to the latest (${newDbVersion}) version and saved to path`, this._dbConfig.filename);
+            log(
+                `createOrMigrateTablesIfNeeded: Created/migrated the tables to the latest (${newDbVersion}) version and saved to path`,
+                this._dbConfig.filename
+            );
         if (backupDbPath) {
             // The migration is done, so a backup that can't be removed must not fail it: on Windows the file can be
             // busy for a moment, and a leftover backup is harmless while a community that won't start is not
             try {
                 await removeFileRetryingWhileBusy(backupDbPath, { log });
             } catch (e) {
-                log.error(`Failed to remove the pre-migration backup ${backupDbPath}. It is no longer needed and can be deleted`, e);
+                log.error(
+                    `createOrMigrateTablesIfNeeded: Failed to remove the pre-migration backup ${backupDbPath}. It is no longer needed and can be deleted`,
+                    e
+                );
             }
         }
     }
@@ -799,7 +816,7 @@ export class DbHandler {
     }
 
     private _backfillApprovedCommentNumbers() {
-        const log = Logger("pkc-js:local-community:db-handler:_backfillApprovedCommentNumbers");
+        const log = this._log;
         const comments = this._db
             .prepare(`SELECT cid, depth FROM ${TABLES.COMMENTS} WHERE pendingApproval IS NULL OR pendingApproval != 1 ORDER BY rowid ASC`)
             .all() as { cid: string; depth: number }[];
@@ -816,11 +833,11 @@ export class DbHandler {
             }
         });
         updateMany(comments);
-        log(`Backfilled number/postNumber for ${comments.length} non-pending comments`);
+        log(`_backfillApprovedCommentNumbers: Backfilled number/postNumber for ${comments.length} non-pending comments`);
     }
 
     private _backfillTargetAuthorSignerAddress() {
-        const log = Logger("pkc-js:local-community:db-handler:_backfillTargetAuthorSignerAddress");
+        const log = this._log;
 
         // Find comment moderations that have author-related edits (bans/flairs) but no targetAuthorSignerAddress
         const moderationsToUpdate = this._db
@@ -869,14 +886,16 @@ export class DbHandler {
         });
 
         updateMany(moderationsToUpdate);
-        log(`Backfilled targetAuthorSignerAddress for ${moderationsToUpdate.length} comment moderations`);
+        log(
+            `_backfillTargetAuthorSignerAddress: Backfilled targetAuthorSignerAddress for ${moderationsToUpdate.length} comment moderations`
+        );
     }
 
     // comments.challengeCommentUpdate is spread into every CommentUpdate the community signs, and a CommentUpdate with a
     // forbidden key (see isForbiddenRecordKey) no longer verifies, so a stored extra with such a key would stall the
     // update cycle. The comment stays, only the key goes
     private _stripForbiddenKeysFromChallengeCommentUpdates() {
-        const log = Logger("pkc-js:local-community:db-handler:_stripForbiddenKeysFromChallengeCommentUpdates");
+        const log = this._log;
         const rows = this._db
             .prepare(`SELECT cid, challengeCommentUpdate FROM ${TABLES.COMMENTS} WHERE challengeCommentUpdate IS NOT NULL`)
             .all() as { cid: string; challengeCommentUpdate: string }[];
@@ -893,7 +912,10 @@ export class DbHandler {
             const author = extras.author as Record<string, unknown> | undefined;
             const authorKeys = forbiddenKeysOf(author);
             if (topLevel.length === 0 && authorKeys.length === 0) continue;
-            log(`Comment ${row.cid} has challenge commentUpdate keys that are no longer allowed, dropping`, [...topLevel, ...authorKeys]);
+            log(
+                `_stripForbiddenKeysFromChallengeCommentUpdates: Comment ${row.cid} has challenge commentUpdate keys that are no longer allowed, dropping`,
+                [...topLevel, ...authorKeys]
+            );
             const cleaned: Record<string, unknown> = {};
             for (const [key, value] of Object.entries(extras)) if (!topLevel.includes(key)) cleaned[key] = value;
             if (author && authorKeys.length > 0) {
@@ -906,7 +928,7 @@ export class DbHandler {
     }
 
     private _backfillTargetAuthorDomain() {
-        const log = Logger("pkc-js:local-community:db-handler:_backfillTargetAuthorDomain");
+        const log = this._log;
 
         // Find comment moderations that have author-related edits (bans/flairs) but no targetAuthorDomain
         // and the comment author used a domain address
@@ -957,7 +979,7 @@ export class DbHandler {
         });
 
         updateMany(moderationsToUpdate);
-        log(`Backfilled targetAuthorDomain for ${updatedCount} comment moderations`);
+        log(`_backfillTargetAuthorDomain: Backfilled targetAuthorDomain for ${updatedCount} comment moderations`);
     }
 
     private _getColumnNames(tableName: string): string[] {
@@ -979,13 +1001,13 @@ export class DbHandler {
     }
 
     private async _copyTable(srcTable: string, dstTable: string, currentDbVersion: number) {
-        const log = Logger("pkc-js:local-community:db-handler:createTablesIfNeeded:copyTable");
+        const log = this._log;
         const dstTableColumns = this._getColumnNames(dstTable);
         // Include rowid in the SELECT to preserve it
         const srcRecordsRaw: any[] = this._db.prepare(`SELECT rowid, * FROM ${srcTable} ORDER BY rowid ASC`).all();
 
         if (srcRecordsRaw.length > 0) {
-            log(`Attempting to copy ${srcRecordsRaw.length} records from ${srcTable} to ${dstTable}`);
+            log(`copyTable: Attempting to copy ${srcRecordsRaw.length} records from ${srcTable} to ${dstTable}`);
 
             // Add rowid to the column list for insertion
             const columnsWithRowid = ["rowid", ...dstTableColumns];
@@ -1086,17 +1108,19 @@ export class DbHandler {
                 insertMany(recordsToInsert);
             }
         }
-        log(`copied table ${srcTable} to table ${dstTable}`);
+        log(`copyTable: copied table ${srcTable} to table ${dstTable}`);
     }
 
     private async _purgePublicationTablesWithDuplicateSignatures() {
-        const log = Logger("pkc-js:local-community:db-handler:_purgePublicationTablesWithDuplicateSignatures");
+        const log = this._log;
         const publicationTables = [TABLES.COMMENTS, TABLES.COMMENT_EDITS, TABLES.COMMENT_MODERATIONS, TABLES.COMMENT_UPDATES] as const;
 
         for (const tableName of publicationTables) {
             const columnNames = this._getColumnNames(tableName);
             if (!columnNames.includes("signature")) {
-                log.trace(`Skipping duplicate signature purge for ${tableName} because column signature is missing.`);
+                log.trace(
+                    `_purgePublicationTablesWithDuplicateSignatures: Skipping duplicate signature purge for ${tableName} because column signature is missing.`
+                );
                 continue;
             }
 
@@ -1145,7 +1169,9 @@ export class DbHandler {
                     const purgedRows = this.purgeComment(cid);
                     for (const row of purgedRows) addAllCidsUnderPurgedCommentToBeRemoved(this._community, row);
                 }
-                log(`Purged ${duplicateCids.length} duplicate comment row(s) based on signature.signature with higher rowid values.`);
+                log(
+                    `_purgePublicationTablesWithDuplicateSignatures: Purged ${duplicateCids.length} duplicate comment row(s) based on signature.signature with higher rowid values.`
+                );
                 continue;
             }
 
@@ -1155,12 +1181,14 @@ export class DbHandler {
             });
             deleteMany(duplicateRows);
 
-            log(`Purged ${duplicateRows.length} duplicate row(s) from ${tableName} based on signature.signature with higher rowid values.`);
+            log(
+                `_purgePublicationTablesWithDuplicateSignatures: Purged ${duplicateRows.length} duplicate row(s) from ${tableName} based on signature.signature with higher rowid values.`
+            );
         }
     }
 
     private async _purgeCommentEditsWithInvalidSchemaOrSignature() {
-        const log = Logger("pkc-js:local-community:db-handler:_purgeCommentEditsWithInvalidSchemaOrSignature");
+        const log = this._log;
 
         const commentEditsOrderedByASC = this._db
             .prepare(`SELECT rowid as rowid, * FROM ${TABLES.COMMENT_EDITS} ORDER BY rowid ASC`)
@@ -1173,7 +1201,7 @@ export class DbHandler {
             } catch (error) {
                 if (error instanceof ZodError) {
                     log.error(
-                        `Comment edit (${rawCommentEditRecord.commentCid}) row ${rawCommentEditRecord.rowid} in DB failed to parse and will be purged from comment edits table.`,
+                        `_purgeCommentEditsWithInvalidSchemaOrSignature: Comment edit (${rawCommentEditRecord.commentCid}) row ${rawCommentEditRecord.rowid} in DB failed to parse and will be purged from comment edits table.`,
                         error
                     );
                     this._deleteCommentEditRow(rawCommentEditRecord.rowid);
@@ -1186,7 +1214,7 @@ export class DbHandler {
                 CommentEditPubsubMessagePublicationWithFlexibleAuthorSchema.strip().parse(commentEditRecord);
             } catch (e) {
                 log.error(
-                    `Comment edit (${commentEditRecord.commentCid}) row ${rawCommentEditRecord.rowid} in DB has an invalid schema and will be purged from comment edits table.`,
+                    `_purgeCommentEditsWithInvalidSchemaOrSignature: Comment edit (${commentEditRecord.commentCid}) row ${rawCommentEditRecord.rowid} in DB has an invalid schema and will be purged from comment edits table.`,
                     e
                 );
                 this._deleteCommentEditRow(rawCommentEditRecord.rowid);
@@ -1205,7 +1233,7 @@ export class DbHandler {
             });
             if (!validRes.valid && validRes.reason === messages.ERR_SIGNATURE_IS_INVALID) {
                 log.error(
-                    `Comment edit (${commentEditRecord.commentCid}) row ${rawCommentEditRecord.rowid} in DB has invalid signature due to ${validRes.reason}. Removing comment edit entry.`
+                    `_purgeCommentEditsWithInvalidSchemaOrSignature: Comment edit (${commentEditRecord.commentCid}) row ${rawCommentEditRecord.rowid} in DB has invalid signature due to ${validRes.reason}. Removing comment edit entry.`
                 );
                 this._deleteCommentEditRow(rawCommentEditRecord.rowid);
             }
@@ -1213,7 +1241,7 @@ export class DbHandler {
     }
 
     private async _purgeCommentsWithInvalidSchemaOrSignature() {
-        const log = Logger("pkc-js:local-community:db-handler:_purgeCommentsWithInvalidSchema");
+        const log = this._log;
 
         const commentsOrderedByASC = this._db.prepare(`SELECT * FROM ${TABLES.COMMENTS} ORDER BY rowid ASC`).all() as CommentsTableRow[];
         const alreadyPurgedCids = new Set<string>();
@@ -1236,7 +1264,10 @@ export class DbHandler {
             try {
                 CommentIpfsSchema.strip().parse(commentRecord);
             } catch (e) {
-                log.error(`Comment (${commentRecord.cid}) in DB has an invalid schema, will be purged.`, e);
+                log.error(
+                    `_purgeCommentsWithInvalidSchema: Comment (${commentRecord.cid}) in DB has an invalid schema, will be purged.`,
+                    e
+                );
                 const purged = this.purgeComment(commentRecord.cid);
                 for (const p of purged) alreadyPurgedCids.add(p.commentTableRow.cid);
                 continue;
@@ -1248,7 +1279,9 @@ export class DbHandler {
                 clientsManager: this._community._clientsManager
             });
             if (!validRes.valid) {
-                log.error(`Comment ${commentRecord.cid} in DB has invalid signature due to ${validRes.reason}. Will be purged.`);
+                log.error(
+                    `_purgeCommentsWithInvalidSchema: Comment ${commentRecord.cid} in DB has invalid signature due to ${validRes.reason}. Will be purged.`
+                );
                 const purged = this.purgeComment(commentRecord.cid);
                 for (const p of purged) alreadyPurgedCids.add(p.commentTableRow.cid);
             }
@@ -2524,20 +2557,20 @@ export class DbHandler {
 
     removeCommentFromPendingApproval(comment: Pick<CommentsTableRow, "cid">): void {
         this._notePublicationWrite();
-        const log = Logger("pkc-js:local-community:db-handler:removeCommentFromPendingApproval");
+        const log = this._log;
         const stmt = this._db.prepare(`UPDATE ${TABLES.COMMENTS} SET pendingApproval = 0 WHERE cid = ?`);
         const res = stmt.run(comment.cid);
-        log.trace(`Removed pendingApproval for cid=${comment.cid}, changes=${res.changes}`);
+        log.trace(`removeCommentFromPendingApproval: Removed pendingApproval for cid=${comment.cid}, changes=${res.changes}`);
     }
 
     approvePendingComment(comment: Pick<CommentsTableRow, "cid">): { number?: number; postNumber?: number } {
-        const log = Logger("pkc-js:local-community:db-handler:approvePendingComment");
+        const log = this._log;
         const assignNumbers = this._db.transaction((commentCid: string) => {
             this._db.prepare(`UPDATE ${TABLES.COMMENTS} SET pendingApproval = 0 WHERE cid = ?`).run(commentCid);
             return this._assignNumbersForComment(commentCid);
         });
         const numbers = assignNumbers(comment.cid);
-        log.trace(`Approved pending comment cid=${comment.cid}`, numbers);
+        log.trace(`approvePendingComment: Approved pending comment cid=${comment.cid}`, numbers);
         return numbers;
     }
 
@@ -2601,7 +2634,7 @@ export class DbHandler {
 
     // Remove oldest comments pending approval when exceeding the configured limit
     removeOldestPendingCommentIfWeHitMaxPendingCount(maxPendingApprovalCount: number): void {
-        const log = Logger("pkc-js:local-community:db-handler:removeOldestPendingCommentIfWeHitMaxPendingCount");
+        const log = this._log;
 
         // Assume maxPendingApprovalCount is a valid integer > 0
         try {
@@ -2618,7 +2651,9 @@ export class DbHandler {
 
             if (oldest.length === 0) return;
 
-            log(`Evicting ${oldest.length} oldest pending comments (count=${cnt}, limit=${maxPendingApprovalCount})`);
+            log(
+                `removeOldestPendingCommentIfWeHitMaxPendingCount: Evicting ${oldest.length} oldest pending comments (count=${cnt}, limit=${maxPendingApprovalCount})`
+            );
 
             this.createTransaction();
             try {
@@ -2629,14 +2664,14 @@ export class DbHandler {
                 throw e;
             }
         } catch (e) {
-            log.error("Failed to enforce maxPendingApprovalCount", e);
+            log.error("removeOldestPendingCommentIfWeHitMaxPendingCount: Failed to enforce maxPendingApprovalCount", e);
         }
     }
 
     purgeDisapprovedCommentsOlderThan(
         retentionSeconds: number
     ): { cid: string; parentCid?: string | null; postUpdatesBucket?: number; purgedTableRows: PurgedCommentTableRows[] }[] | undefined {
-        const log = Logger("pkc-js:local-community:db-handler:purgeDisapprovedCommentsOlderThan");
+        const log = this._log;
         if (!Number.isFinite(retentionSeconds) || retentionSeconds <= 0) return;
 
         const now = timestamp();
@@ -2667,7 +2702,9 @@ export class DbHandler {
 
         if (rows.length === 0) return;
 
-        log(`Purging ${rows.length} disapproved comments older than ${retentionSeconds} seconds (cutoff ${cutoffTimestamp}).`);
+        log(
+            `purgeDisapprovedCommentsOlderThan: Purging ${rows.length} disapproved comments older than ${retentionSeconds} seconds (cutoff ${cutoffTimestamp}).`
+        );
 
         const purgedDetails: {
             cid: string;
@@ -3549,7 +3586,7 @@ export class DbHandler {
 
     purgeComment(cid: string, isNestedCall: boolean = false): PurgedCommentTableRows[] {
         this._notePublicationWrite();
-        const log = Logger("pkc-js:local-community:db-handler:purgeComment");
+        const log = this._log;
         const purgedRecords: PurgedCommentTableRows[] = [];
         const detachedPageCids: string[] = [];
         if (!isNestedCall) this.createTransaction();
@@ -3638,9 +3675,9 @@ export class DbHandler {
                     .get(JSON.stringify(allCidsToBeDeleted)) as { cid: string } | undefined;
                 if (randomComment) {
                     allCommentsToUpdate.push(randomComment.cid);
-                    log(`Forcing update on random comment ${randomComment.cid} to ensure IPNS update after purge`);
+                    log(`purgeComment: Forcing update on random comment ${randomComment.cid} to ensure IPNS update after purge`);
                 } else {
-                    log(`No comments left to force update after purge - IPNS will update to show empty community`);
+                    log(`purgeComment: No comments left to force update after purge - IPNS will update to show empty community`);
                 }
 
                 if (allCommentsToUpdate.length > 0) {
@@ -3652,14 +3689,14 @@ export class DbHandler {
             const uniquePurgedRecords = uniqueBy(purgedRecords, (record) => record.commentTableRow.cid);
             return uniquePurgedRecords;
         } catch (error) {
-            log.error(`Error during comment purge for ${cid}: ${error}`);
+            log.error(`purgeComment: Error during comment purge for ${cid}: ${error}`);
             if (!isNestedCall) this.rollbackTransaction();
             throw error;
         }
     }
 
     async changeDbFilename(oldDbName: string, newDbName: string) {
-        const log = Logger("pkc-js:local-community:db-handler:changeDbFilename");
+        const log = this._log;
         if (this._db || this._keyv) await this.destoryConnection();
 
         this._transactionDepth = 0;
@@ -3675,7 +3712,7 @@ export class DbHandler {
         try {
             // Check if oldDb exists before attempting to open for backup
             if (!fs.existsSync(oldPathString)) {
-                log(`Old DB file ${oldPathString} does not exist. Cannot backup/rename.`);
+                log(`changeDbFilename: Old DB file ${oldPathString} does not exist. Cannot backup/rename.`);
                 // If old doesn't exist, maybe we just want to set up the new path?
                 // For now, this will mean the operation can't proceed as intended.
             } else {
@@ -3683,25 +3720,25 @@ export class DbHandler {
                 await sourceDb.backup(newPathString); // backup is synchronous in better-sqlite3 v8+
                 sourceDb.close();
                 // The live DB is at the new path now. Before the old file is removed, so a failure here leaves it intact
-                await forgetCommunityThatFailedToBeDeleted({ communityAddress: newDbName, pkc: this._community._pkc });
+                await forgetCommunityThatFailedToBeDeleted({ communityAddress: newDbName, pkc: this._community._pkc, log: this._log });
                 if (os.type() === "Windows_NT") await deleteOldCommunityInWindows(oldPathString, this._community._pkc);
                 else await fs.promises.rm(oldPathString, { force: true });
             }
         } catch (error) {
-            log.error(`Failed to backup/rename database from ${oldPathString} to ${newPathString}: `, error);
+            log.error(`changeDbFilename: Failed to backup/rename database from ${oldPathString} to ${newPathString}: `, error);
             throw error;
         } finally {
             doneWritingNewDbFile();
         }
         this._dbConfig = { ...this._dbConfig, filename: newPathString };
-        log(`Changed db path from (${oldPathString}) to (${newPathString})`);
+        log(`changeDbFilename: Changed db path from (${oldPathString}) to (${newPathString})`);
     }
 
     // Claims the community for this PKC instance in the communities registry (see communities-registry.ts), which holds
     // it until unlockCommunityStart(). An instance that dies holds nothing: its lock is the kernel's, and a claim whose
     // instance is gone is taken over. Throws if a live instance has the community started.
     async lockCommunityStart() {
-        const log = Logger("pkc-js:local-community:db-handler:lock:start");
+        const log = this._log;
         const communityAddress = this._community.address;
         const dataPath = this._community._pkc.dataPath!;
         await this.initDbIfNeeded();
@@ -3717,7 +3754,7 @@ export class DbHandler {
             throw new PKCError("CAN_NOT_LOAD_LOCAL_COMMUNITY_IF_DB_DOES_NOT_EXIST", { communityAddress, dataPath });
         }
         this._startLockAddress = communityAddress;
-        log(`Locked the start of community (${communityAddress}) successfully`);
+        log(`start: Locked the start of community (${communityAddress}) successfully`);
     }
 
     // Whether this handler has claimed the community's start, i.e. this instance is starting or started
@@ -3726,12 +3763,12 @@ export class DbHandler {
     }
 
     async unlockCommunityStart() {
-        const log = Logger("pkc-js:local-community:db-handler:unlock:start");
+        const log = this._log;
         const communityAddress = this._startLockAddress;
         if (communityAddress === undefined) return;
         this._startLockAddress = undefined;
         getCommunitiesRegistry(this._community._pkc).releaseStart(communityAddress);
-        log(`Unlocked start of community (${communityAddress})`);
+        log(`start: Unlocked start of community (${communityAddress})`);
     }
 
     async isCommunityStartLocked(communityAddress = this._community.address): Promise<boolean> {
@@ -3820,7 +3857,7 @@ export class DbHandler {
     // held at a time, so deleting a board of a million comments costs a slice of memory, not the board
     // (issue #389: the all-at-once array and Set ran a 4 GB heap out at 1M).
     *iterateCommentCidsAndTheirPageCids(sliceSize: number): Generator<{ cid: string; allPageCids: string[] }[]> {
-        const log = Logger("pkc-js:local-community:db-handler:iterateCommentCidsAndTheirPageCids");
+        const log = this._log;
         const statement = this._db.prepare(
             `SELECT c.rowid AS rowid, c.cid AS cid, cu.replies AS replies
              FROM ${TABLES.COMMENTS} c
@@ -3843,7 +3880,10 @@ export class DbHandler {
                             if (sortEntry?.allPageCids) allPageCids.push(...sortEntry.allPageCids);
                         }
                     } catch (e) {
-                        log.error(`Failed to parse replies JSON for comment ${row.cid} when collecting cids`, e);
+                        log.error(
+                            `iterateCommentCidsAndTheirPageCids: Failed to parse replies JSON for comment ${row.cid} when collecting cids`,
+                            e
+                        );
                     }
                 }
                 return { cid: row.cid, allPageCids };

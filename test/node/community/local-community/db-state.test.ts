@@ -24,7 +24,10 @@ import {
     updateInstanceStateWithDbState
 } from "../../../../dist/node/runtime/node/community/local-community/db-state.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
-import Logger from "../../../../dist/node/logger.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:db-state" });
 
 describe("db-state: export shape", () => {
     it("exports all db-state helpers", () => {
@@ -47,6 +50,7 @@ describe("db-state: setChallengesToDefaultIfNotDefined", () => {
     it("does not call edit when _usingDefaultChallenge is explicitly false", async () => {
         const editSpy = vi.fn();
         const community = {
+            _log: testLog,
             address: "community.bso",
             _usingDefaultChallenge: false,
             settings: { challenges: [{ name: "text-math", options: {} }] },
@@ -54,7 +58,7 @@ describe("db-state: setChallengesToDefaultIfNotDefined", () => {
             edit: editSpy
         } as unknown as LocalCommunity;
 
-        await setChallengesToDefaultIfNotDefined(community, Logger("pkc-js-test:db-state"));
+        await setChallengesToDefaultIfNotDefined(community, Logger({ namespace: "pkc-js-test:db-state" }));
         expect(editSpy).not.toHaveBeenCalled();
     });
 
@@ -62,6 +66,7 @@ describe("db-state: setChallengesToDefaultIfNotDefined", () => {
         const editSpy = vi.fn();
         const defaultChallenges = [{ name: "question", options: { question: "x", answer: "y" } }];
         const community = {
+            _log: testLog,
             address: "community.bso",
             _usingDefaultChallenge: true,
             settings: { challenges: defaultChallenges },
@@ -72,7 +77,7 @@ describe("db-state: setChallengesToDefaultIfNotDefined", () => {
         // Settings.challenges is not the canonical default shape so isDefaultChallengeStructure returns
         // false and the upper-block guard means _usingDefaultChallenge stays true.
         // But it still passes `isDeepEqual` so edit() shouldn't fire.
-        await setChallengesToDefaultIfNotDefined(community, Logger("pkc-js-test:db-state"));
+        await setChallengesToDefaultIfNotDefined(community, Logger({ namespace: "pkc-js-test:db-state" }));
         expect(editSpy).not.toHaveBeenCalled();
     });
 });

@@ -7,6 +7,10 @@
 // process.memoryUsage().heapUsed) per pass, ~2.5 GB/day on a 75-community daemon.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:db-prepared-statements" });
 
 const POST_UPDATES_BUCKETS = [86400, 604800, 2592000, 3153600000];
 const CYCLES = 50;
@@ -14,7 +18,7 @@ const CYCLES = 50;
 async function createTestDbHandler(): Promise<DbHandler> {
     // No "." in it, so the community is addressed by key (isStringDomain), as in the other in-memory DbHandler tests
     const communityAddress = `leak-sub-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const fakeCommunity = { address: communityAddress, _pkc: { noData: true } };
+    const fakeCommunity = { _log: testLog, address: communityAddress, _pkc: { noData: true } };
     const handler = new DbHandler(fakeCommunity as DbHandler extends { _community: infer T } ? T : never);
     await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
     await handler.createOrMigrateTablesIfNeeded();

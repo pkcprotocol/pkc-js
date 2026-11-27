@@ -4,6 +4,9 @@ import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/h
 import { MockHttpRouter } from "../../../dist/node/runtime/node/test/mock-http-router.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:cat-no-providers-late-peer" });
 
 // Issue #562: cat() of a CID that no router lists and no connected peer has fails its bitswap
 // session with "no providers" and then sleeps 0.5s, 1s, 2s, 4s, 8s... between attempts. Each attempt
@@ -53,7 +56,8 @@ describeSkipIfRpc("cat() with no providers picks up a peer that connects mid-bac
             key: `cat-no-providers-late-peer-${Math.random()}`,
             httpRoutersOptions: [router.url],
             libp2pOptions: { connectionGater: { denyDialMultiaddr: async () => false } },
-            heliaOptions: {}
+            heliaOptions: {},
+            log: testLog
         })) as Libp2pJsClient;
         clients.push(client);
         expect(client._helia.libp2p.getConnections().length, "the client must start with no connections").to.equal(0);

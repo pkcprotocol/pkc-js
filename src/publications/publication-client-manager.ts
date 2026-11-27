@@ -36,7 +36,7 @@ export class PublicationClientsManager extends PKCClientsManager {
     } & Pick<CommunityEvents, "updatingstatechange" | "update" | "error"> = undefined;
 
     constructor(publication: Publication) {
-        super(publication._pkc);
+        super(publication._pkc, publication._log.child({ namespace: "clients-manager" }));
         this._publication = publication;
         this._initPKCRpcClients();
         this.handleErrorEventFromCommunity = this.handleErrorEventFromCommunity.bind(this);

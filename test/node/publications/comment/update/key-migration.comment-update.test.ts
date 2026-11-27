@@ -1,25 +1,27 @@
-import { describe, expect } from "vitest";
+import { describe, expect, vi } from "vitest";
 import {
     getAvailablePKCConfigsToTestAgainst,
     createMockedCommunityIpns,
     addStringToIpfs,
     resolveWhenConditionIsTrue,
-    mockPKCNoDataPathWithOnlyKuboClient
+    mockPKCNoDataPathWithOnlyKuboClient,
+    createMockNameResolver
 } from "../../../../../dist/node/test/test-util.js";
 import { itSkipIfRpc } from "../../../../helpers/conditional-tests.js";
+import signers from "../../../../fixtures/signers.js";
 import type { PKCError } from "../../../../../dist/node/pkc-error.js";
+import { findUpdatingCommunity } from "../../../../../dist/node/pkc/tracked-instance-registry-util.js";
 
 getAvailablePKCConfigsToTestAgainst().map((config) => {
     describe(`comment.update() during community key migration - ${config.name}`, () => {
         // Cannot run under RPC: test observes internal client-side event handling during key migration
         itSkipIfRpc(`comment.update() does not crash when community detects key migration`, async () => {
-            // 1. Create a community IPNS record signed by a random key (oldPublicKey),
-            //    with name: "migration-test.bso". The default mock resolver maps
-            //    "migration-test.bso" → signers[0].address (a different key),
-            //    which triggers key migration when the community resolves its name.
-            const { communityAddress: oldPublicKey } = await createMockedCommunityIpns({
-                name: "migration-test.bso"
-            });
+            // 1. Create a community IPNS record signed by a random key (oldPublicKey) that claims a
+            //    name of this test's own. The resolver below maps the name to signers[0] (a different
+            //    key), which is a key migration for a loader that asked for the name.
+            const communityName = `comment-update-migration-${Date.now()}.bso`;
+            const migratedKey = signers[0].address;
+            const { communityAddress: oldPublicKey } = await createMockedCommunityIpns({ name: communityName });
 
             // 2. Create a comment referencing this community and add it to IPFS.
             //    Since communityAddress is a raw public key (not a domain), createComment
@@ -40,11 +42,25 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 await commentPKC.destroy();
             }
 
-            // 3. Create a PKC with the default mock resolver for the update test
-            const testPKC = await config.pkcInstancePromise();
+            // 3. A PKC whose resolver answers for the name only once the test releases it, so the
+            //    comment is attached to the community's updating instance before the migration fires.
+            let releaseResolve!: () => void;
+            const resolveReleased = new Promise<void>((resolve) => (releaseResolve = resolve));
+            const testPKC = await config.pkcInstancePromise({
+                mockResolve: false,
+                pkcOptions: {
+                    nameResolvers: [
+                        createMockNameResolver({
+                            resolveFunction: async ({ name }) => {
+                                if (name !== communityName) return undefined;
+                                await resolveReleased;
+                                return { publicKey: migratedKey };
+                            }
+                        })
+                    ]
+                }
+            });
             try {
-                const comment = await testPKC.createComment({ cid: commentCid });
-
                 // Track unhandled rejections to detect the crash
                 let unhandledRejection: unknown = undefined;
                 const rejectionHandler = (reason: unknown) => {
@@ -52,13 +68,31 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 };
                 process.on("unhandledRejection", rejectionHandler);
 
-                // 4. Start the comment update — it will:
-                //    a) Load CommentIpfs from IPFS
-                //    b) Subscribe to community updates
-                //    c) Community fetches its IPNS record → name "migration-test.bso"
-                //    d) Background resolution: "migration-test.bso" → different key → key migration
-                //    e) Community emits update with communityIpfs=undefined
-                //    f) Comment's handleUpdateEventFromCommunity should NOT crash
+                // 4. The comment's own community loader is by key, and a loader by key never
+                //    key-migrates (#605). The migration reaches the comment through a loader that
+                //    asked for the name and shares the updating instance with it:
+                //    a) byName starts the shared updating instance, pinned to oldPublicKey
+                //    b) the comment loads its CommentIpfs and attaches to that instance
+                //    c) the name resolves to a different key → key migration
+                //    d) the instance emits update with communityIpfs=undefined
+                //    e) the comment's handleUpdateEventFromCommunity should NOT crash
+                const byName = await testPKC.createCommunity({ name: communityName, publicKey: oldPublicKey });
+                const migrationError = new Promise<PKCError>((resolve) => {
+                    byName.on("error", (err) => {
+                        if ((err as PKCError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") resolve(err as PKCError);
+                    });
+                });
+                await byName.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: byName,
+                    predicate: async () => typeof byName.updatedAt === "number"
+                });
+
+                const sharedInstance = findUpdatingCommunity(testPKC, { publicKey: oldPublicKey });
+                expect(sharedInstance).to.not.be.undefined;
+                const updateListenersBeforeComment = sharedInstance!.listenerCount("update");
+
+                const comment = await testPKC.createComment({ cid: commentCid });
                 await comment.update();
 
                 // Wait for CommentIpfs to load
@@ -67,8 +101,18 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     predicate: async () => !!comment.raw.comment
                 });
 
-                // Wait for the key migration to occur and propagate
-                await new Promise((resolve) => setTimeout(resolve, 5000));
+                // CommentIpfs loads before the comment subscribes to its community, so wait for the
+                // subscription itself: released any earlier, the migration's update would fire with no
+                // comment handler attached and the test would pass without exercising it
+                await vi.waitFor(() => expect(sharedInstance!.listenerCount("update")).to.be.greaterThan(updateListenersBeforeComment), {
+                    timeout: 60_000,
+                    interval: 50
+                });
+
+                releaseResolve();
+                expect((await migrationError).details.newPublicKey).to.equal(migratedKey);
+                // Let a rejection from the comment's handler, if any, surface
+                await new Promise((resolve) => setTimeout(resolve, 1000));
 
                 // 5. Assertions
                 // The comment should still be in "updating" state (not crashed)
@@ -84,7 +128,9 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 // Clean up
                 process.removeListener("unhandledRejection", rejectionHandler);
                 await comment.stop();
+                await byName.stop();
             } finally {
+                releaseResolve();
                 await testPKC.destroy();
             }
         });

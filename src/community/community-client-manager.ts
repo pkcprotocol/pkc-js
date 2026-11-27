@@ -11,11 +11,11 @@ import { ResultOfFetchingCommunity } from "../types.js";
 import { NameResolverClient } from "../clients/name-resolver-client.js";
 import type { NameResolveCacheOptions } from "../schema.js";
 import { RemoteCommunity } from "./remote-community.js";
+import { refreshTrackedCommunityAliases } from "../pkc/tracked-instance-registry-util.js";
 import { keys, mapValues } from "remeda";
 import type { CommunityIpfsType } from "./types.js";
 import { getCommunityNameFromWire } from "./community-wire.js";
 import { getPKCAddressFromPublicKeySync } from "../signer/util.js";
-import Logger from "../logger.js";
 
 import {
     areEquivalentCommunityAddresses,
@@ -132,7 +132,7 @@ export class CommunityClientsManager extends PKCClientsManager {
     private _wakeUpdateLoopForIpnsArrival?: () => void;
 
     constructor(community: CommunityClientsManager["_community"]) {
-        super(community._pkc);
+        super(community._pkc, community._log.child({ namespace: "clients-manager" }));
         this._community = community;
         this._initPKCRpcClients();
         hideClassPrivateProps(this);
@@ -245,11 +245,11 @@ export class CommunityClientsManager extends PKCClientsManager {
     private async _retryLoadingCommunityAddress(
         communityAddress: string
     ): Promise<ResultOfFetchingCommunity | { criticalError: Error | PKCError } | { aborted: true }> {
-        const log = Logger("pkc-js:remote-community:update:_retryLoadingCommunityIpns");
+        const log = this._log;
 
         return new Promise((resolve) => {
             this._ipnsLoadingOperation!.attempt(async (curAttempt) => {
-                log.trace(`Retrying to load community ${communityAddress} for the ${curAttempt}th time`);
+                log.trace(`_retryLoadingCommunityIpns: Retrying to load community ${communityAddress} for the ${curAttempt}th time`);
                 try {
                     const update = await this.fetchNewUpdateForCommunity(communityAddress);
 
@@ -275,7 +275,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                         if (error instanceof PKCError)
                             error.details = { ...error.details, countOfLoadAttempts: curAttempt, retriableError: true };
                         log.trace(
-                            `Failed to load Community ${this._community.address} record for the ${curAttempt}th attempt. We will retry`,
+                            `_retryLoadingCommunityIpns: Failed to load Community ${this._community.address} record for the ${curAttempt}th attempt. We will retry`,
                             error
                         );
 
@@ -287,7 +287,9 @@ export class CommunityClientsManager extends PKCClientsManager {
                                     gatewayError instanceof PKCError && gatewayError.code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID"
                             );
                         if (isGatewaySignatureError) {
-                            log(`Community ${this._community.address} gateway returned invalid signature, silently retrying`);
+                            log(
+                                `_retryLoadingCommunityIpns: Community ${this._community.address} gateway returned invalid signature, silently retrying`
+                            );
                             this._community._setUpdatingStateWithEventEmissionIfNewState("waiting-retry");
                         } else {
                             this._community._changeStateEmitEventEmitStateChangeEvent({
@@ -304,7 +306,7 @@ export class CommunityClientsManager extends PKCClientsManager {
     }
 
     async updateOnce() {
-        const log = Logger("pkc-js:remote-community:update");
+        const log = this._log;
 
         // Capture the identity and stop signal this fetch starts under. A key migration mid-fetch
         // (_resolveNameInBackground) switches publicKey and aborts the stop controller, but the
@@ -320,7 +322,7 @@ export class CommunityClientsManager extends PKCClientsManager {
 
         if (stopSignalAtFetchStart?.aborted || this._community.publicKey !== publicKeyAtFetchStart) {
             log(
-                `Community ${this._community.address} fetch result discarded: it was fetched under public key ${publicKeyAtFetchStart} but the community's operations were aborted or its public key changed to ${this._community.publicKey} mid-fetch (key migration)`
+                `update: Community ${this._community.address} fetch result discarded: it was fetched under public key ${publicKeyAtFetchStart} but the community's operations were aborted or its public key changed to ${this._community.publicKey} mid-fetch (key migration)`
             );
             return;
         }
@@ -331,11 +333,11 @@ export class CommunityClientsManager extends PKCClientsManager {
             // Log individual gateway errors separately to avoid Node.js [Object] truncation
             if (communityLoadingRes.criticalError instanceof FailedToFetchCommunityFromGatewaysError) {
                 for (const [gatewayUrl, gatewayError] of Object.entries(communityLoadingRes.criticalError.details.gatewayToError)) {
-                    log.error(`Community ${this._community.address} gateway ${gatewayUrl} non-retriable error:`, gatewayError);
+                    log.error(`update: Community ${this._community.address} gateway ${gatewayUrl} non-retriable error:`, gatewayError);
                 }
             }
             log.error(
-                `Community ${this._community.address} encountered a non retriable error while updating, will emit an error event and mark invalid cid to not be loaded again`,
+                `update: Community ${this._community.address} encountered a non retriable error while updating, will emit an error event and mark invalid cid to not be loaded again`,
                 communityLoadingRes.criticalError
             );
             this._community._changeStateEmitEventEmitStateChangeEvent({
@@ -355,6 +357,7 @@ export class CommunityClientsManager extends PKCClientsManager {
             // claimed one.
             if (publicKeyBeforeApply && this._community.publicKey !== publicKeyBeforeApply) {
                 this._community.nameResolved = undefined;
+                refreshTrackedCommunityAliases(this._pkc, this._community);
                 // The retry floors were earned against the previous identity and must not pace the first
                 // classification of the new one.
                 this._nameResolvedFalseAtMs = undefined;
@@ -379,7 +382,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                 this._resolveNameInBackground(this._community.address);
             }
             log(
-                `Remote Community`,
+                `update: Remote Community`,
                 this._community.address,
                 `received a new update. Will emit an update event with updatedAt`,
                 this._community.updatedAt,
@@ -402,7 +405,7 @@ export class CommunityClientsManager extends PKCClientsManager {
     }
 
     async startUpdatingLoop() {
-        const log = Logger("pkc-js:remote-community:update");
+        const log = this._log;
         this._community._createStopAbortController();
 
         const areWeConnectedToKuboOrHelia =
@@ -433,7 +436,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                 this._syncIpnsArrivalSubscriptions(defaultLibp2pJsClient);
             } catch (e) {
                 log.error(
-                    `Failed to arm IPNS record arrival subscriptions of community ${this._community.address} before its first update`,
+                    `update: Failed to arm IPNS record arrival subscriptions of community ${this._community.address} before its first update`,
                     e
                 );
             }
@@ -446,7 +449,7 @@ export class CommunityClientsManager extends PKCClientsManager {
             try {
                 await this.updateOnce();
             } catch (e) {
-                log.error(`Failed to update community ${this._community.address} for this iteration, will retry later`, e);
+                log.error(`update: Failed to update community ${this._community.address} for this iteration, will retry later`, e);
             } finally {
                 // Re-read the stop signal each iteration; both waits detach their listeners on
                 // every outcome so nothing leaks on the long-lived signal (see issue #145).
@@ -454,7 +457,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                     try {
                         this._syncIpnsArrivalSubscriptions(defaultLibp2pJsClient);
                     } catch (e) {
-                        log.error(`Failed to sync IPNS record arrival subscriptions of community ${this._community.address}`, e);
+                        log.error(`update: Failed to sync IPNS record arrival subscriptions of community ${this._community.address}`, e);
                     }
                     // Jittered per iteration so a directory of communities started together does
                     // not run its safety-net polls in lockstep (issue #307).
@@ -471,7 +474,7 @@ export class CommunityClientsManager extends PKCClientsManager {
 
         this._clearIpnsArrivalSubscriptions();
         this._community._clearStopAbortController();
-        log("Community", this._community.address, "is no longer updating");
+        log("update: Community", this._community.address, "is no longer updating");
     }
 
     async stopUpdatingLoop() {
@@ -496,7 +499,12 @@ export class CommunityClientsManager extends PKCClientsManager {
         // One walk at a time: a key kubo holds for the community a name moved away from says nothing about the one
         // it moved to
         for (const namesOfWalk of walks)
-            await cancelKuboIpnsPubsubSubscriptions({ kuboRpcClient, ipnsNames: [...namesOfWalk], unlessKuboHoldsAKey: true });
+            await cancelKuboIpnsPubsubSubscriptions({
+                kuboRpcClient,
+                ipnsNames: [...namesOfWalk],
+                unlessKuboHoldsAKey: true,
+                log: this._log
+            });
     }
 
     protected override _onIpnsNameAboutToBeResolvedP2P(ipnsName: string, firstNameOfWalk: string) {
@@ -637,8 +645,8 @@ export class CommunityClientsManager extends PKCClientsManager {
         try {
             this._syncIpnsArrivalSubscriptions(this._ipnsArrivalClient);
         } catch (e) {
-            Logger("pkc-js:remote-community:update").error(
-                `Failed to sync IPNS record arrival subscriptions of community ${this._community.address}`,
+            this._log.error(
+                `_resyncIpnsArrivalSubscriptionsIfArmed: Failed to sync IPNS record arrival subscriptions of community ${this._community.address}`,
                 e
             );
         }
@@ -740,8 +748,8 @@ export class CommunityClientsManager extends PKCClientsManager {
     // described the old key (it may be compromised), point the update loop's push channel at
     // the new key, and restart the in-flight fetch.
     private _applyKeyMigration({ communityName, newPublicKey }: { communityName: string; newPublicKey: string }) {
-        const log = Logger("pkc-js:community-client-manager:_applyKeyMigration");
-        log("Key migration detected for", communityName, "old:", this._community.publicKey, "new:", newPublicKey);
+        const log = this._log;
+        log("_applyKeyMigration: Key migration detected for", communityName, "old:", this._community.publicKey, "new:", newPublicKey);
         const previousPublicKey = this._community.publicKey;
         const error = new PKCError("ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY", {
             communityName,
@@ -790,7 +798,7 @@ export class CommunityClientsManager extends PKCClientsManager {
     private _nameResolveFailedAtMs?: number;
 
     private _resolveNameInBackground(name: string) {
-        const log = Logger("pkc-js:community-client-manager:_resolveNameInBackground");
+        const log = this._log;
         // Everything that bounds the retry lives here rather than at the gates, because every caller funnels
         // through here and the domain-addressed pinned-name path below calls this on every fetch cycle with no
         // gate of its own. That cycle is one second on the kubo-RPC path, and a negative resolve persists
@@ -827,6 +835,9 @@ export class CommunityClientsManager extends PKCClientsManager {
             this._nameResolveFailedAtMs = undefined;
             if (this._community.nameResolved === newNameResolved) return;
             this._community.nameResolved = newNameResolved;
+            // A key-addressed updating instance is findable under its record's name only while that name
+            // is proven, so the registry follows the verdict
+            refreshTrackedCommunityAliases(this._pkc, this._community);
             // Only emit update if the community has been loaded at least once —
             // otherwise we'd fire a premature "update" before the IPNS fetch completes.
             if (typeof this._community.updatedAt === "number") {
@@ -850,7 +861,9 @@ export class CommunityClientsManager extends PKCClientsManager {
         })
             .then((resolved) => {
                 if (!nameStillIdentifiesCommunity()) {
-                    log.trace(`Ignoring the resolve of ${name}: it no longer identifies community ${this._community.address}`);
+                    log.trace(
+                        `_resolveNameInBackground: Ignoring the resolve of ${name}: it no longer identifies community ${this._community.address}`
+                    );
                     return;
                 }
                 if (resolved && resolved !== this._community.publicKey) {
@@ -863,7 +876,19 @@ export class CommunityClientsManager extends PKCClientsManager {
                         // _assertDomainResolvesCorrectly. Migrating here would silently demote the
                         // community identity to the rotating minter key and wipe its loaded record (#257).
                         log(
-                            `Community name ${name} resolves to ${resolved}, a non-anchor hop of the community's own chain, instead of its identity ${this._community.publicKey}. Marking nameResolved false`
+                            `_resolveNameInBackground: Community name ${name} resolves to ${resolved}, a non-anchor hop of the community's own chain, instead of its identity ${this._community.publicKey}. Marking nameResolved false`
+                        );
+                        setNameResolvedAndEmitUpdate(false);
+                        return;
+                    }
+                    if (!isStringDomain(this._community.address)) {
+                        // This community was asked for by key, and the name is only what its record claims.
+                        // Anyone can publish a record claiming a name they do not hold, so a claim that
+                        // resolves to another key is contradicted, not a key migration: following it would
+                        // move a loader that asked for one key onto a key it never asked for, and register
+                        // it in pkc._updatingCommunities under that key for the next loader to share (#605).
+                        log(
+                            `_resolveNameInBackground: Community ${this._community.address} was loaded by key and its record claims the name ${name}, which resolves to ${resolved}. Marking nameResolved false and staying on the key`
                         );
                         setNameResolvedAndEmitUpdate(false);
                         return;
@@ -894,7 +919,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                     // The author side refuses to record an abort for the same reason. Issue #353.
                     return;
                 } else {
-                    log.trace("Background name resolution failed for", name, e);
+                    log.trace("_resolveNameInBackground: Background name resolution failed for", name, e);
                     // We never got an answer (every resolver errored, or the resolve timed out). nameResolved
                     // stays undefined: "we could not find out" is not "false". Stamped so the next fetch
                     // cycle does not immediately ask again, since undefined is also the retry marker (#353).
@@ -1071,7 +1096,27 @@ export class CommunityClientsManager extends PKCClientsManager {
                     (!communityForPublishing.name || !areEquivalentCommunityAddresses(previousForKey.name, communityForPublishing.name))
                 )
                     this._pkc._memCaches.communityForPublishing.delete(previousForKey.name);
-                this._pkc._memCaches.communityForPublishing.set(anchorIdentityAddress, communityForPublishing);
+                // The entry under the name answers publications addressed to the name, so it is written only
+                // for a name that leads to this key: the one this community was asked for by, or the one its
+                // record claims once that is proven. A community asked for by key may hold a record claiming
+                // a name it does not own, and must not become where publications to that name are sent (#605).
+                const recordName = communityForPublishing.name;
+                const nameLeadsToThisKey =
+                    !recordName ||
+                    (isStringDomain(this._community.address)
+                        ? areEquivalentCommunityAddresses(this._community.address, recordName)
+                        : // The verdict describes the name of the record applied so far, which this record may
+                          // have just changed: it vouches only for that name
+                          this._community.nameResolved === true &&
+                          Boolean(this._community.name) &&
+                          areEquivalentCommunityAddresses(this._community.name!, recordName));
+                if (nameLeadsToThisKey) this._pkc._memCaches.communityForPublishing.set(anchorIdentityAddress, communityForPublishing);
+                else if (
+                    recordName &&
+                    this._pkc._memCaches.communityForPublishing.get(recordName, { allowStale: true })?.publicKey === identityPublicKey
+                )
+                    // Written while the name was proven for this key, which it no longer is
+                    this._pkc._memCaches.communityForPublishing.delete(recordName);
                 if (anchorIdentityAddress !== identityPublicKey)
                     this._pkc._memCaches.communityForPublishing.set(identityPublicKey, communityForPublishing);
             }
@@ -1096,7 +1141,7 @@ export class CommunityClientsManager extends PKCClientsManager {
     }
 
     private async _fetchCommunityIpnsP2PAndVerify(ipnsName: string): Promise<ResultOfFetchingCommunity> {
-        const log = Logger("pkc-js:clients-manager:_fetchCommunityIpnsP2PAndVerify");
+        const log = this._log;
         const kuboRpcOrHelia = this.getDefaultKuboRpcClientOrHelia();
         if ("_helia" in kuboRpcOrHelia) {
             this.updateLibp2pJsClientState("fetching-ipns", kuboRpcOrHelia._libp2pJsClientsOptions.key);
@@ -1132,10 +1177,10 @@ export class CommunityClientsManager extends PKCClientsManager {
         // non-delegated community the chain has a single element so terminal === anchor.
         this._community.ipnsHops = ipnsHops;
         const terminalIpnsName = ipnsHops[ipnsHops.length - 1];
-        log.trace(`Resolved community IPNS`, ipnsName, `to CID`, latestCommunityCid, `via hops`, ipnsHops);
+        log.trace(`_fetchCommunityIpnsP2PAndVerify: Resolved community IPNS`, ipnsName, `to CID`, latestCommunityCid, `via hops`, ipnsHops);
         if (this._updateCidsAlreadyLoaded.has(latestCommunityCid)) {
             log.trace(
-                "Resolved community IPNS",
+                "_fetchCommunityIpnsP2PAndVerify: Resolved community IPNS",
                 ipnsName,
                 "to a cid that we already loaded before. No need to fetch its ipfs",
                 latestCommunityCid
@@ -1211,7 +1256,7 @@ export class CommunityClientsManager extends PKCClientsManager {
     }
 
     private async _fetchCommunityFromGateways(ipnsName: string): Promise<ResultOfFetchingCommunity> {
-        const log = Logger("pkc-js:community:fetchCommunityFromGateways");
+        const log = this._log;
         const concurrencyLimit = 3;
         const timeoutMs = this._pkc._timeouts["community-ipns"];
 
@@ -1339,10 +1384,10 @@ export class CommunityClientsManager extends PKCClientsManager {
                 if (errorWithinRecord) {
                     delete errorWithinRecord["stack"];
                     if (errorWithinRecord.code === "ERR_COMMUNITY_SIGNATURE_IS_INVALID") {
-                        const log = Logger("pkc-js:community-client-manager:throwIfGatewayRespondsWithInvalidCommunity");
+                        const log = this._log;
                         const etag = gatewayRes?.res?.headers?.get("etag");
                         log.error(
-                            `Gateway ${gatewayUrl} returned community record with invalid signature. ` +
+                            `throwIfGatewayRespondsWithInvalidCommunity: Gateway ${gatewayUrl} returned community record with invalid signature. ` +
                                 `Reason: ${errorWithinRecord.details?.signatureValidity?.reason}. ` +
                                 `Client-computed CID: ${calculatedCommunityCidFromBody}. ` +
                                 `Etag header (Kubo CID): ${etag}. ` +
@@ -1421,10 +1466,10 @@ export class CommunityClientsManager extends PKCClientsManager {
             const gatewayFetch = { abortController } as CommunityGatewayFetch[string];
             gatewayFetches[gatewayUrl] = gatewayFetch;
             const armTimeout = () =>
-                (gatewayFetch.timeoutId = setTimeout(
-                    () => abortController.abort("Aborting community IPNS request because it timed out after " + timeoutMs + "ms"),
-                    timeoutMs
-                ));
+                (gatewayFetch.timeoutId = setTimeout(() => {
+                    gatewayFetch.timedOut = true;
+                    abortController.abort("Aborting community IPNS request because it timed out after " + timeoutMs + "ms");
+                }, timeoutMs));
             // The timeout is this gateway's own, so it runs from when the gateway can send its request, as in
             // fetchFromMultipleGateways: armed now for the first `concurrencyLimit` gateways, which get a slot at once, and
             // when its request starts for a gateway that waits for a slot. Armed at enqueue, a queued gateway's timeout would
@@ -1441,6 +1486,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                     validateGatewayResponseFunc: throwIfGatewayRespondsWithInvalidCommunity,
                     abortRequestErrorBeforeLoadingBodyFunc: checkResponseHeadersIfOldCid,
                     abortController,
+                    gatewayTimedOut: () => gatewayFetch.timedOut === true,
                     maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS,
                     timeoutMs: this._pkc._timeouts["community-ipns"],
                     log,
@@ -1461,7 +1507,7 @@ export class CommunityClientsManager extends PKCClientsManager {
             if (!winner) return undefined;
 
             log(
-                `Gateway (${winner.bestGatewayUrl}) was able to find a very recent community (${this._deriveAddressFromWireRecord(winner.community)}) whose IPNS is (${ipnsName}).  The record has updatedAt (${winner.community.updatedAt}) that's ${winner.recordAgeSeconds}s old with a TTL of ${gatewayFetches[winner.bestGatewayUrl].ttl} seconds`
+                `throwIfGatewayRespondsWithInvalidCommunity: Gateway (${winner.bestGatewayUrl}) was able to find a very recent community (${this._deriveAddressFromWireRecord(winner.community)}) whose IPNS is (${ipnsName}).  The record has updatedAt (${winner.community.updatedAt}) that's ${winner.recordAgeSeconds}s old with a TTL of ${gatewayFetches[winner.bestGatewayUrl].ttl} seconds`
             );
             // Bind ipnsHops to the gateway result we're actually keeping.
             this._community.ipnsHops = winner.ipnsHops;
@@ -1568,7 +1614,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                                 this._community.ipnsHops = chain.ipnsHops;
                         } catch (chainWalkError) {
                             log.trace(
-                                `Failed to upgrade the delegated chain of ${ipnsName} after a confirmed consumed record, will retry next poll`,
+                                `throwIfGatewayRespondsWithInvalidCommunity: Failed to upgrade the delegated chain of ${ipnsName} after a confirmed consumed record, will retry next poll`,
                                 chainWalkError
                             );
                         } finally {
@@ -1687,7 +1733,7 @@ export class CommunityClientsManager extends PKCClientsManager {
         // its hops. Throwing here is a transport/validation failure, not a verdict on the claim.
         resolveChainOfClaimedAnchor: (claimedAnchor: string) => Promise<string[]>;
     }): Promise<string[]> {
-        const log = Logger("pkc-js:community-client-manager:_proveAnchorClaimIfUnwalked");
+        const log = this._log;
         // A walked chain already settles the claim: verifyCommunity accepts it only if it names the
         // chain's anchor. Re-proving a claim that contradicts a walked chain would let a record swap
         // the identity the reader asked for, so this path deliberately does nothing there.
@@ -1710,7 +1756,10 @@ export class CommunityClientsManager extends PKCClientsManager {
                 communityAddress: this._getCommunityAddressFromInstance(),
                 recordSignerAddress: getPKCAddressFromPublicKeySync(communityJson.signature.publicKey)
             });
-        log.trace(`Anchor claim of ${loadedName} proven: ${claimedAnchor} delegates to it. Adopting the chain`, provenHops);
+        log.trace(
+            `_proveAnchorClaimIfUnwalked: Anchor claim of ${loadedName} proven: ${claimedAnchor} delegates to it. Adopting the chain`,
+            provenHops
+        );
         return provenHops;
     }
 
@@ -1787,7 +1836,8 @@ export class CommunityClientsManager extends PKCClientsManager {
             resolveAuthorNames: this._pkc.resolveAuthorNames,
             clientsManager: this,
             validatePages: this._pkc.validatePages,
-            abortSignal: this._community._getStopAbortSignal()
+            abortSignal: this._community._getStopAbortSignal(),
+            log: this._log
         };
         const updateValidity = await verifyCommunity(verificationOpts);
         if (!updateValidity.valid) {

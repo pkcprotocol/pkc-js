@@ -10,6 +10,7 @@
 // embedded record whole, so writing into raw.comment.crosspost would stop it reproducing its own cid.
 // The raw assertions below are what pin that separation.
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { clone } from "remeda";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
@@ -33,6 +34,9 @@ import type {
     CommentOptionsToSign,
     CommentPubsubMessagePublication
 } from "../../../dist/node/publications/comment/types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:name-resolved" });
 
 const communityAddress = signers[0].address;
 
@@ -277,7 +281,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     signer: await pkc.createSigner(),
                     crosspost
                 };
-                const signature = await signComment({ comment: optionsToSign as unknown as CommentOptionsToSign, pkc });
+                const signature = await signComment({ comment: optionsToSign as unknown as CommentOptionsToSign, pkc, log: testLog });
                 const forged = {
                     ...Object.fromEntries(signature.signedPropertyNames.map((name) => [name, optionsToSign[name]])),
                     signature

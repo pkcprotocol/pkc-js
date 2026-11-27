@@ -1,6 +1,6 @@
 {
     "name": "@pkcprotocol/pkc-js",
-    "version": "0.0.160",
+    "version": "0.0.164",
     "type": "module",
     "scripts": {
         "prebuild": "node config/generate-version.js",
@@ -95,7 +95,7 @@
         "@multiformats/murmur3": "2.2.5",
         "@noble/curves": "2.4.0",
         "@noble/hashes": "2.4.0",
-        "@pkcprotocol/pkc-logger": "0.1.0",
+        "@pkcprotocol/pkc-logger": "0.3.1",
         "@types/better-sqlite3": "7.6.13",
         "assert": "2.1.0",
         "better-sqlite3": "12.9.0",

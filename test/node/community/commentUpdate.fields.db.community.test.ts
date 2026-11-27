@@ -1,4 +1,5 @@
 import { beforeEach, afterEach, describe, it } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import assert from "assert";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
@@ -9,6 +10,9 @@ import type {
     CommentUpdateType
 } from "../../../dist/node/publications/comment/types.js";
 import type { VotesTableRowInsert } from "../../../dist/node/publications/vote/types.js";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:commentUpdate" });
 
 const PROTOCOL_VERSION = "1.0.0";
 
@@ -43,7 +47,7 @@ describeSkipIfRpc("db-handler.queryCalculatedCommentUpdate", () => {
         // another community under the community identity rule (issue #401)
         communityAddress = `test-sub-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const fakePKC = { noData: true };
-        const fakeCommunity = { address: communityAddress, _pkc: fakePKC };
+        const fakeCommunity = { _log: testLog, address: communityAddress, _pkc: fakePKC };
         const handler = new DbHandler(fakeCommunity as never);
         await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await handler.createOrMigrateTablesIfNeeded();

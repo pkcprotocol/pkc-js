@@ -6,6 +6,10 @@ import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { CommentUpdateType } from "../../../dist/node/publications/comment/types.js";
 import type Database from "better-sqlite3";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:v48-to-v49" });
 
 // v48 -> v49 adds the commentUpdates.pseudonymityAuthorTag column (issue #381): the own-post recognition
 // tag on comments the community aliased. commentUpdates is dropped and rebuilt on every version bump, so
@@ -167,6 +171,7 @@ const signature = {
 
 interface FakeCommunity {
     address: string;
+    _log: typeof testLog;
     _pkc: { noData: boolean };
     _cidsToUnPin: Set<string>;
     _blocksToRm: string[];
@@ -180,6 +185,7 @@ interface FakeCommunity {
 function createFakeCommunity(address: string): FakeCommunity {
     return {
         address,
+        _log: testLog,
         _pkc: { noData: true },
         _cidsToUnPin: new Set<string>(),
         _blocksToRm: [],

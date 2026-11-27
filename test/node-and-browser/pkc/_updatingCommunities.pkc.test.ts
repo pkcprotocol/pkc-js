@@ -394,13 +394,14 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         it(`update() called during async stop window should not mirror a dying _updatingCommunities entry`, async () => {
             const nameCommunitySigner = signers[3];
 
-            // 1. Create a community by IPNS key — after update, its name becomes 'plebbit.bso',
-            //    so _updatingCommunities gets an entry aliased under both the key AND 'plebbit.bso'
+            // 1. Create a community by IPNS key — after update, its name becomes 'plebbit.bso', and once
+            //    that name is proven to resolve to the key, _updatingCommunities gets an entry aliased
+            //    under both the key AND 'plebbit.bso'
             const communityByKey = await pkc.createCommunity({ address: nameCommunitySigner.address });
             await communityByKey.update();
             await resolveWhenConditionIsTrue({
                 toUpdate: communityByKey,
-                predicate: async () => typeof communityByKey.updatedAt === "number"
+                predicate: async () => typeof communityByKey.updatedAt === "number" && communityByKey.nameResolved === true
             });
 
             // Verify _updatingCommunities has an entry reachable by both the key and domain alias
