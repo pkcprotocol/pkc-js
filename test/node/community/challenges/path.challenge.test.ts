@@ -82,6 +82,29 @@ describeSkipIfRpc.concurrent(`community.settings.challenges with path`, async ()
         await community.delete();
     });
 
+    // The schema accepts an empty name next to a path, and the challenge's logger is named after it (issue #493)
+    it(`A challenge set by path with an empty name still verifies publications`, async () => {
+        const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
+        const questionChallengePath = path.resolve(
+            process.cwd(),
+            "dist/node/runtime/node/community/challenges/pkc-js-challenges/question.js"
+        );
+        await community.edit({
+            settings: { challenges: [{ path: questionChallengePath, name: "", options: { question: "What is 2+2?", answer: "4" } }] }
+        });
+        await community.start();
+        await resolveWhenConditionIsTrue({ toUpdate: community, predicate: async () => typeof community.updatedAt === "number" });
+
+        const mockPost = await generateMockPost({
+            communityAddress: community.address,
+            pkc: pkc,
+            postProps: { challengeRequest: { challengeAnswers: { "0": "4" } } }
+        });
+        await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: true });
+
+        await community.delete();
+    });
+
     it(`Challenge via path sends challenge when answer is wrong`, async () => {
         const community = (await pkc.createCommunity({})) as LocalCommunity | RpcLocalCommunity;
 

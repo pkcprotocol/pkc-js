@@ -256,7 +256,7 @@ const loadChallengeFile = async ({
         challengeSettings: communityChallengeSettings,
         // the community's child under the challenge's own namespace (issue #493); optional in the schema so an older
         // package still loads
-        log: community._log.child({ namespace: `challenge:${communityChallengeSettings.name ?? "path"}` })
+        log: community._log.child({ namespace: `challenge:${communityChallengeSettings.name || "path"}` })
     });
     validateChallengeFile({ challengeFile, challengeIndex, community });
     return { challengeFile };
@@ -301,7 +301,7 @@ const callGetChallenge = async ({
             authorIdentityMatcher,
             // the exchange's child (publicKey + signature tags) under the challenge's own namespace (issue #493)
             log: challengeExchangeLog(community, challengeRequestMessage.challengeRequestId).child({
-                namespace: communityChallengeSettings.name ?? "path"
+                namespace: communityChallengeSettings.name || "path"
             })
         });
         const elapsedMs = Date.now() - startedAtMs;
