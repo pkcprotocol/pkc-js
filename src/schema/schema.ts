@@ -33,10 +33,13 @@ export const ProtocolVersionSchema = z.string().min(1);
 
 export const UserAgentSchema = z.string().min(1); // TODO should use regex to validate
 
+// Only the shape BSIP-22 gives every wallet entry, whatever its type: verifyAuthorWalletEntry decides the rest. A
+// stricter check here (a positive timestamp, non-empty strings) rejected the whole publication or comment record over
+// an entry of a type this version does not know, which BSIP-22 says is unproven, not invalid.
 const WalletSchema = z.object({
     address: z.string(),
-    timestamp: PKCTimestampSchema,
-    signature: z.object({ signature: z.string().min(1), type: z.string().min(1) })
+    timestamp: z.number().int(),
+    signature: z.object({ signature: z.string(), type: z.string() })
 });
 
 const isIpfsCid = (value: string) => {
