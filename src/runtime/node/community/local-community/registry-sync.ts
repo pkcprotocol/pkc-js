@@ -80,7 +80,8 @@ export async function syncChallengesWithRegistry(community: LocalCommunity): Pro
         challenges = await deriveCommunityChallengesOrThrow({
             challengeSettings,
             pkc: community._pkc,
-            communityAddress: community.address
+            communityAddress: community.address,
+            log: community._log
         });
     } catch (e) {
         log.error(

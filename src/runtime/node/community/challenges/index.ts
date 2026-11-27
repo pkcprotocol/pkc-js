@@ -29,6 +29,7 @@ import type {
     CommunityChallenge,
     CommunityChallengeSetting
 } from "../../../../community/types.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { LocalCommunity } from "../local-community.js";
 import { isEmpty, omit } from "remeda";
 import { ChallengeFileFactorySchema, ChallengeFileSchema, CommunityChallengeSettingSchema } from "../../../../community/schema.js";
@@ -222,6 +223,23 @@ const validateChallengeOrChallengeResult = ({
 };
 
 // load and validate a challenge factory + ChallengeFile for one challenge index
+// The logger handed to a challenge package's factory and validate hook (issues #493, #625): the caller's child under
+// the challenge's own namespace, tagged with the entry's index in settings.challenges so two entries of one challenge
+// can be told apart. A caller with no index (a registry listing) gets the namespace only.
+export const challengeFileLog = ({
+    log,
+    communityChallengeSettings,
+    challengeIndex
+}: {
+    log: Logger;
+    communityChallengeSettings: Pick<CommunityChallengeSetting, "name">;
+    challengeIndex?: number;
+}): Logger =>
+    log.child({
+        namespace: `challenge:${communityChallengeSettings.name || "path"}`,
+        ...(challengeIndex === undefined ? {} : { tags: { challengeIndex: String(challengeIndex) } })
+    });
+
 const loadChallengeFile = async ({
     communityChallengeSettings,
     challengeIndex,
@@ -254,9 +272,7 @@ const loadChallengeFile = async ({
     }
     const challengeFile = ChallengeFileFactory({
         challengeSettings: communityChallengeSettings,
-        // the community's child under the challenge's own namespace (issue #493); optional in the schema so an older
-        // package still loads
-        log: community._log.child({ namespace: `challenge:${communityChallengeSettings.name || "path"}` })
+        log: challengeFileLog({ log: community._log, communityChallengeSettings, challengeIndex })
     });
     validateChallengeFile({ challengeFile, challengeIndex, community });
     return { challengeFile };
@@ -299,9 +315,11 @@ const callGetChallenge = async ({
             challengeAnswer: challengeRequestMessage.challengeAnswers?.[String(challengeIndex)],
             community,
             authorIdentityMatcher,
-            // the exchange's child (publicKey + signature tags) under the challenge's own namespace (issue #493)
+            // the exchange's child (publicKey + signature tags) under the challenge's own namespace (issue #493),
+            // tagged with this challenge's index (issue #625)
             log: challengeExchangeLog(community, challengeRequestMessage.challengeRequestId).child({
-                namespace: communityChallengeSettings.name || "path"
+                namespace: communityChallengeSettings.name || "path",
+                tags: { challengeIndex: String(challengeIndex) }
             })
         });
         const elapsedMs = Date.now() - startedAtMs;
@@ -465,7 +483,8 @@ const getPendingChallengesOrChallengeVerification = async ({
                     await getCommunityChallengeFromCommunityChallengeSettings({
                         communityChallengeSettings: s,
                         challengeIndex,
-                        pkc: community._pkc
+                        pkc: community._pkc,
+                        log: community._log
                     })
                 ).communityChallenge
         )
@@ -725,11 +744,13 @@ const getChallengeVerificationFromChallengeAnswers = async ({
         communityChallenges ??
         (await Promise.all(
             community.settings.challenges.map(
-                async (s) =>
+                async (s, challengeIndex) =>
                     (
                         await getCommunityChallengeFromCommunityChallengeSettings({
                             communityChallengeSettings: s,
-                            pkc: community._pkc
+                            challengeIndex,
+                            pkc: community._pkc,
+                            log: community._log
                         })
                     ).communityChallenge
             )
@@ -1011,19 +1032,25 @@ const derivePublicOptions = (communityChallengeSettings: CommunityChallengeSetti
 const loadChallengeFileFromCommunityChallengeSettings = async ({
     communityChallengeSettings,
     challengeIndex,
-    pkc
+    pkc,
+    log
 }: {
     communityChallengeSettings: CommunityChallengeSetting;
     challengeIndex?: number;
     pkc?: PKCWithSettingsChallenges;
+    log: Logger; // the caller's logger; the factory gets a child of it (challengeFileLog)
 }): Promise<ChallengeFile> => {
+    const factoryArgs = {
+        challengeSettings: communityChallengeSettings,
+        log: challengeFileLog({ log, communityChallengeSettings, challengeIndex })
+    };
     // if the challenge is an external file, fetch it and override the communityChallengeSettings values
     let challengeFile: ChallengeFile | undefined = undefined;
     if (communityChallengeSettings.path) {
         try {
             const importedFile = await import(pathToFileURL(communityChallengeSettings.path).href);
             const ChallengeFileFactory = ChallengeFileFactorySchema.parse(importedFile.default);
-            challengeFile = ChallengeFileSchema.parse(ChallengeFileFactory({ challengeSettings: communityChallengeSettings }));
+            challengeFile = ChallengeFileSchema.parse(ChallengeFileFactory(factoryArgs));
         } catch (e) {
             throw new PKCError("ERR_FAILED_TO_IMPORT_CHALLENGE_FILE_FACTORY", {
                 path: communityChallengeSettings.path,
@@ -1038,7 +1065,7 @@ const loadChallengeFileFromCommunityChallengeSettings = async ({
         const ChallengeFileFactory = ChallengeFileFactorySchema.parse(
             resolveRegisteredChallengeFactory({ name: communityChallengeSettings.name, challengeIndex, pkc })
         );
-        challengeFile = ChallengeFileSchema.parse(ChallengeFileFactory({ challengeSettings: communityChallengeSettings }));
+        challengeFile = ChallengeFileSchema.parse(ChallengeFileFactory(factoryArgs));
     }
     if (!challengeFile) throw Error("Failed to load challenge file");
     return challengeFile;
@@ -1048,14 +1075,16 @@ const loadChallengeFileFromCommunityChallengeSettings = async ({
 const getCommunityChallengeFromCommunityChallengeSettings = async ({
     communityChallengeSettings,
     challengeIndex,
-    pkc
+    pkc,
+    log
 }: {
     communityChallengeSettings: CommunityChallengeSetting;
     challengeIndex?: number;
     pkc?: PKCWithSettingsChallenges;
+    log: Logger;
 }): Promise<{ communityChallenge: CommunityChallenge }> => {
     communityChallengeSettings = CommunityChallengeSettingSchema.parse(communityChallengeSettings);
-    const challengeFile = await loadChallengeFileFromCommunityChallengeSettings({ communityChallengeSettings, challengeIndex, pkc });
+    const challengeFile = await loadChallengeFileFromCommunityChallengeSettings({ communityChallengeSettings, challengeIndex, pkc, log });
     const { challenge, type } = challengeFile;
     return {
         communityChallenge: {
@@ -1084,15 +1113,17 @@ export interface ChallengeLoadFailure {
 const deriveCommunityChallengesOrThrow = async ({
     challengeSettings,
     pkc,
-    communityAddress
+    communityAddress,
+    log
 }: {
     challengeSettings: CommunityChallengeSetting[];
     pkc?: PKCWithSettingsChallenges;
     communityAddress?: string;
+    log: Logger;
 }): Promise<CommunityChallenge[]> => {
     const results = await Promise.allSettled(
         challengeSettings.map((communityChallengeSettings, challengeIndex) =>
-            getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings, challengeIndex, pkc })
+            getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings, challengeIndex, pkc, log })
         )
     );
     const failures: ChallengeLoadFailure[] = [];

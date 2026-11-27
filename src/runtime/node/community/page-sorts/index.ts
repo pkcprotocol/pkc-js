@@ -174,6 +174,11 @@ export type ResolvedPageSorts = {
     replies: ResolvedPageSort[];
 };
 
+// The logger handed to a page sort package's factory and validate hook (issues #493, #625)
+function pageSortLog({ log, pageSortSettings }: { log: Logger; pageSortSettings: CommunityPageSortSetting }): Logger {
+    return log.child({ namespace: `page-sort:${pageSortSettings.name || "path"}` });
+}
+
 export async function loadPageSortFile({
     pageSortSettings,
     pkc,
@@ -181,7 +186,7 @@ export async function loadPageSortFile({
 }: {
     pageSortSettings: CommunityPageSortSetting;
     pkc?: PKCWithSettingsPageSorts;
-    log?: Logger; // the community's logger; the factory gets a child of it under `page-sort:<name>` (issue #493)
+    log: Logger; // the community's logger; the factory gets a child of it under `page-sort:<name>` (issue #493)
 }): Promise<PageSortFile> {
     let factory: PageSortFileFactory;
     try {
@@ -201,7 +206,7 @@ export async function loadPageSortFile({
     }
     let file: PageSortFile;
     try {
-        file = validatePageSortFile(factory({ pageSortSettings, log: log?.child({ namespace: `page-sort:${pageSortSettings.name}` }) }));
+        file = validatePageSortFile(factory({ pageSortSettings, log: pageSortLog({ log, pageSortSettings }) }));
     } catch (e) {
         throw new PKCError("ERR_PAGE_SORT_FILE_INVALID", { pageSortSettings, error: e });
     }
@@ -303,7 +308,7 @@ function resolveOneEntry({
 
     if (file.validatePageSortSettings)
         try {
-            file.validatePageSortSettings({ pageSortSettings });
+            file.validatePageSortSettings({ pageSortSettings, log: pageSortLog({ log, pageSortSettings }) });
         } catch (e) {
             const wrapped = new PKCError("ERR_PAGE_SORT_SETTINGS_VALIDATION_FAILED", {
                 ...baseDetails,

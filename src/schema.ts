@@ -30,11 +30,12 @@ const DirectoryPathSchema = z.string(); // TODO add validation for path
 export interface NameResolverInterface {
     key: string;
     provider: string;
-    // `log` is the caller's child under `name-resolver:<key>` (issue #493); a resolver may ignore it
+    // `log` is the caller's child under `name-resolver:<key>`, tagged with the `name` being resolved (issues #493,
+    // #625). Always passed; a resolver may ignore it
     resolve: (opts: {
         name: string;
         abortSignal?: AbortSignal;
-        log?: Logger;
+        log: Logger;
     }) => Promise<{ publicKey: string; [key: string]: string } | undefined>;
     canResolve: (opts: { name: string }) => boolean;
     destroy?: () => Promise<void>;

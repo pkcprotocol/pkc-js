@@ -2983,15 +2983,9 @@ export async function getRandomPostCidFromSub(communityAddress: string, pkc: PKC
     return lastPostCid;
 }
 
-export function mockNameResolvers<T extends { name: string }>({
-    pkc,
-    resolveFunction
-}: {
-    pkc: PKC;
-    resolveFunction: (opts: T) => Promise<{ publicKey: string; [key: string]: string } | undefined>;
-}) {
+export function mockNameResolvers({ pkc, resolveFunction }: { pkc: PKC; resolveFunction: NameResolver["resolve"] }) {
     if (pkc._pkcRpcClient) throw Error("Can't mock name resolvers with pkc rpc clients");
-    pkc.nameResolvers = [createMockNameResolver({ resolveFunction: (opts) => resolveFunction(opts as T) })];
+    pkc.nameResolvers = [createMockNameResolver({ resolveFunction })];
 }
 
 export function processAllCommentsRecursively(

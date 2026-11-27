@@ -187,7 +187,8 @@ export class BaseClientsManager {
     // (a community learning its publicKey, a publication its cid) reaches every line this manager logs.
     _log: Logger;
     pubsubProviderSubscriptions: Record<string, string[]> = {}; // To keep track of subscriptions of each kubo pubsub provider/helia
-    // One child per resolver key (not per resolve call), handed to the resolver's resolve() (issue #493)
+    // One child per resolver key (not per resolve call); each resolve() gets a child of it tagged with the name
+    // being resolved (issues #493, #625)
     private _nameResolverLogs = new Map<string, Logger>();
 
     constructor(pkc: PKC, log: Logger) {
@@ -1219,7 +1220,7 @@ export class BaseClientsManager {
                 // interrupted. raceAgainstAbort detaches its abort listener once the race settles regardless
                 // of who wins, so it never leaks on the long-lived stop signal (see issue #144).
                 const result = await raceAgainstAbort(
-                    nameResolver.resolve({ name, abortSignal, log: this._nameResolverLog(nameResolver.key) }),
+                    nameResolver.resolve({ name, abortSignal, log: this._nameResolverLog(nameResolver.key).child({ tags: { name } }) }),
                     abortSignal
                 );
                 throwIfAbortSignalAborted(abortSignal);

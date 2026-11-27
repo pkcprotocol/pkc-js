@@ -80,7 +80,8 @@ export async function parseChallengesToEdit(
     await throwIfChallengeSettingsAreInvalid({
         challengeSettings: newChallengeSettings,
         pkc: community._pkc,
-        communityAddress: community.address
+        communityAddress: community.address,
+        log: community._log
     });
     return {
         challenges: await Promise.all(
@@ -90,7 +91,8 @@ export async function parseChallengesToEdit(
                         await getCommunityChallengeFromCommunityChallengeSettings({
                             communityChallengeSettings: cs,
                             challengeIndex,
-                            pkc: community._pkc
+                            pkc: community._pkc,
+                            log: community._log
                         })
                     ).communityChallenge
             )

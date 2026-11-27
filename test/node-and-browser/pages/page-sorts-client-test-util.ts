@@ -2,6 +2,9 @@ import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { PageIpfs, PageTypeJson } from "../../../dist/node/pages/types.js";
 import type { CommentWithinRepliesPostsPageJson } from "../../../dist/node/publications/comment/types.js";
 import type { CommunityPageSortSetting, PageSortFileFactory, PageSortFileFactoryInput } from "../../../dist/node/community/types.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:page-sorts-client-test-util" });
 
 // What a UI library does to re-sort a page it holds with a page-sort package it installed (docs/protocol/page-sorts.md,
 // "Client side"): pkc-js exports no sorter and no walker on purpose, the package's `score` is the whole contract and
@@ -32,7 +35,7 @@ export function resortPageLikeAUi<T extends SortablePageComment>({
     baseTimestamp: number;
     replies?: WireEntry[];
 }): T[] {
-    const file = (factory as PageSortFileFactory)({ pageSortSettings });
+    const file = (factory as PageSortFileFactory)({ pageSortSettings, log: testLog });
     const options = pageSortSettings.options ?? {};
     if (file.requireReplies && !replies) throw new Error(`${file.sortName} declares requireReplies: walk the reply pages first`);
     const childrenOf = new Map<string, WireEntry[]>();

@@ -242,7 +242,8 @@ async function emitChallengeSettingsValidationErrors(community: LocalCommunity, 
     try {
         failures = await collectChallengeSettingsValidationFailures({
             challengeSettings: community.settings?.challenges ?? [],
-            pkc: community._pkc
+            pkc: community._pkc,
+            log: community._log
         });
     } catch (e) {
         log.error("_publishLoop: Failed to validate settings.challenges on start", community.address, e);
@@ -335,7 +336,8 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
         await deriveCommunityChallengesOrThrow({
             challengeSettings: community.settings?.challenges ?? [],
             pkc: community._pkc,
-            communityAddress: community.address
+            communityAddress: community.address,
+            log: community._log
         });
         // Locked before entering the started state, so a start() that loses the race for the lock throws while still
         // "stopped" and the stop() below does nothing. From "started" it ran the running-community teardown, which unlocks
@@ -360,7 +362,8 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
         community.challenges = await deriveCommunityChallengesOrThrow({
             challengeSettings: community.settings.challenges!,
             pkc: community._pkc,
-            communityAddress: community.address
+            communityAddress: community.address,
+            log: community._log
         });
         // Import community keys onto ipfs node
         await importCommunitySignerIntoIpfsIfNeeded(community);

@@ -39,7 +39,7 @@ you want core to catch typos for your challenge, declare your options.
 ### Layer 2: `validateChallengeSettings`
 
 ```ts
-validateChallengeSettings?: (args: { challengeSettings: CommunityChallengeSetting }) => void
+validateChallengeSettings?: (args: { challengeSettings: CommunityChallengeSetting; log: Logger }) => void
 ```
 
 Add it to what your `ChallengeFileFactory` returns. Four rules:
@@ -133,13 +133,24 @@ is answered with the stored result and its cid instead of a duplicate error, onc
 
 `challengeAnswer` is this challenge's own pre-answer: the string the author put under key `String(challengeIndex)` in `challengeRequestMessage.challengeAnswers`, or `undefined` when they sent none for it. Read it instead of indexing `challengeAnswers` yourself. An author who pre-answers only some challenges sends no key for the others, so `undefined` means "ask the author" (return a `challenge`), not "wrong".
 
-Both the factory and `getChallenge` also receive an optional `log` (issue #493): a child of the community's
-logger from `@pkcprotocol/pkc-logger`, under the challenge's own namespace
-(`pkc-js:local-community:challenge:<name>` for the factory, `pkc-js:local-community:challenge-exchange:<name>`
-for `getChallenge`, the latter tagged with the publication's `signature` on top of the community's `publicKey`).
-Log through it (`log("...")`, `log.error(...)`, `log.child({ tags: { ... } })`) so the package's lines land in the
-instance's buffer and are found by `pkc.getLogs({ tags: { publicKey } })`. It is optional so a package written
-against an older core still loads: fall back to your own logger when it is absent.
+The factory, `getChallenge` and `validateChallengeSettings` all receive a `log` (issues #493, #625): a child of
+the community's logger from `@pkcprotocol/pkc-logger`, under the challenge's own namespace
+(`pkc-js:local-community:challenge:<name>` for the factory and `validateChallengeSettings`,
+`pkc-js:local-community:challenge-exchange:<name>` for `getChallenge`). It carries the community's `publicKey`
+and this entry's `challengeIndex` (its position in `settings.challenges`, as a string), and for `getChallenge`
+also the publication's `signature`. Log through it (`log("...")`, `log.error(...)`, `log.child({ tags: { ... } })`)
+so the package's lines land in the instance's buffer and are found by `pkc.getLogs({ tags: { publicKey } })`.
+
+`log` is always passed, so a package needs no logger of its own and no `@pkcprotocol/pkc-logger` dependency. A
+package that relies on it requires the pkc-js release that made it required: declare that as a `peerDependencies`
+range, because an older core passes no `log` to `validateChallengeSettings` and may pass none at all. Two
+callers have no community: the RPC server, when it lists the registered challenges, and an installer calling
+`validateChallengeFileFactory(factory, { name, log })`. Both pass a `log` without the `publicKey` and
+`challengeIndex` tags. Anything that calls these functions directly, a package's own tests included, must pass
+one too.
+
+That buffer is readable by every client of the node's RPC server through `getLogs`, not only by the community's
+owner, so do not log secrets from `challengeSettings.options` (API keys, RPC URLs that embed one).
 
 If your challenge decides anything from **who** is publishing (an allow list, a deny list, a role check),
 use `authorIdentityMatcher` rather than comparing strings against `author.address`. That field is

@@ -1283,7 +1283,8 @@ describe("await getCommunityChallengeFromCommunityChallengeSettings", () => {
     it("has challenge prop", async () => {
         const community = communities.filter((community) => community.title === "password challenge community")[0];
         const { communityChallenge } = await getCommunityChallengeFromCommunityChallengeSettings({
-            communityChallengeSettings: community.settings.challenges[0]
+            communityChallengeSettings: community.settings.challenges[0],
+            log: testLog
         });
         expect(typeof communityChallenge.challenge).to.equal("string");
         expect(communityChallenge.challenge).to.equal(community.settings.challenges[0].options.question);
@@ -1292,7 +1293,8 @@ describe("await getCommunityChallengeFromCommunityChallengeSettings", () => {
     it("has description prop", async () => {
         const community = communities.filter((community) => community.title === "text-math challenge community")[0];
         const { communityChallenge } = await getCommunityChallengeFromCommunityChallengeSettings({
-            communityChallengeSettings: community.settings.challenges[0]
+            communityChallengeSettings: community.settings.challenges[0],
+            log: testLog
         });
         expect(typeof communityChallenge.description).to.equal("string");
         expect(communityChallenge.description).to.equal(community.settings.challenges[0].description);
@@ -1301,7 +1303,8 @@ describe("await getCommunityChallengeFromCommunityChallengeSettings", () => {
     it("has exclude prop", async () => {
         const community = communities.filter((community) => community.title === "exclude high karma challenge community")[0];
         const { communityChallenge } = await getCommunityChallengeFromCommunityChallengeSettings({
-            communityChallengeSettings: community.settings.challenges[0]
+            communityChallengeSettings: community.settings.challenges[0],
+            log: testLog
         });
         expect(communityChallenge.exclude).to.not.equal(undefined);
         expect(communityChallenge.exclude).to.deep.equal(community.settings.challenges[0].exclude);
@@ -1674,13 +1677,17 @@ describe("whitelist/blacklist match a listed name across .bso/.eth spellings and
         signer?: (typeof signers)[number];
     }) => {
         const challengeSettings = { name, options: { addresses: listed } };
-        const challengeFile = pkcJsChallenges[name]({ challengeSettings });
+        const challengeFile = pkcJsChallenges[name]({ challengeSettings, log: testLog });
         const challengeRequestMessage = {
             comment: { author: { address: authorName }, signature: { publicKey: signer.publicKey } }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
-        return challengeFile.getChallenge({ challengeSettings, challengeRequestMessage, community, challengeIndex: 0 } as Parameters<
-            typeof challengeFile.getChallenge
-        >[0]);
+        return challengeFile.getChallenge({
+            challengeSettings,
+            challengeRequestMessage,
+            community,
+            challengeIndex: 0,
+            log: testLog
+        } as Parameters<typeof challengeFile.getChallenge>[0]);
     };
 
     const spellings = [

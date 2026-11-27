@@ -345,7 +345,8 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
     await throwIfChallengeSettingsAreInvalid({
         challengeSettings: community.settings.challenges!,
         pkc: community._pkc,
-        communityAddress: community.address
+        communityAddress: community.address,
+        log: community._log
     });
 
     community.challenges = await Promise.all(
@@ -355,7 +356,8 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
                     await getCommunityChallengeFromCommunityChallengeSettings({
                         communityChallengeSettings: cs,
                         challengeIndex,
-                        pkc: community._pkc
+                        pkc: community._pkc,
+                        log: community._log
                     })
                 ).communityChallenge
         )

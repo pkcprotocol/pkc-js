@@ -44,7 +44,8 @@ describe("challenge answers keyed by challenge index (issue #567)", () => {
         community.challenges = await Promise.all(
             challengeSettings.map(
                 async (communityChallengeSettings) =>
-                    (await getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings })).communityChallenge
+                    (await getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings, log: testLog }))
+                        .communityChallenge
             )
         );
     });
