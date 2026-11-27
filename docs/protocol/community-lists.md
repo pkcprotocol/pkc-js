@@ -144,9 +144,12 @@ schema verbatim, wire and runtime:
   with the previous record's props and publishing a new CID. Two ways to get those props
   from a loaded instance:
   - From `raw.communityList`, the signed record exactly as fetched. It has no runtime
-    fields, so remove only `signature` (refused on create) and `timestamp` (so the revision
-    gets a new one), then change what you need:
-    `const { signature, timestamp, ...props } = loaded.raw.communityList`.
+    fields, so remove only `signature` (refused on create), and `timestamp` and
+    `protocolVersion` (so the revision gets the current ones; a `protocolVersion` passed on
+    create is kept as given), then change what you need:
+    `const { signature, timestamp, protocolVersion, ...props } = loaded.raw.communityList`.
+    A loaded record can carry fields this version does not know, at the top level or in
+    `author`, because loading is loose. Create is strict, so drop those as well.
   - From the instance's own props (`title`, `description`, `author`, `communities`). The
     runtime fields they carry (`address`/`shortAddress` on entries, the derived author
     fields) are dropped on create.

@@ -133,8 +133,11 @@ const profile = await pkc.createCommunity({
 })
 ```
 
-How it resolves, given that an `exclude` array matches if **any** item matches, and an item matches
-only if **all** of its conditions hold:
+How it resolves, given that an `exclude` array matches if **any** item matches. The conditions about
+the author and the publication inside one item (`roles`, `publicationType`, `postScore`, ...) must
+**all** hold. An item's `challenges` and `community` conditions are checked separately from those: an
+item that sets both kinds excuses a publisher who satisfies either one. The items below use only the
+first kind:
 
 | publisher and type | challenge 0 (`fail`) | challenge 1 (`question`) | result |
 |---|---|---|---|

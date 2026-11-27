@@ -828,10 +828,13 @@ const loaded = await pkc.createCommunityList({cid})
 loaded.on('update', () => console.log(loaded.title, loaded.author?.nameResolved))
 await loaded.update()
 
-// publish a revision: start from the signed record as fetched, without its signature and old timestamp.
+// publish a revision: start from the signed record as fetched, without its signature, old timestamp and
+// old protocolVersion (the revision gets the current ones).
 // getCommunityList() resolves once the record is loaded; update() above returns before it is
 const previous = await pkc.getCommunityList({cid})
-const {signature, timestamp, ...previousProps} = previous.raw.communityList
+const {signature, timestamp, protocolVersion, ...previousProps} = previous.raw.communityList
+// createCommunityList() rejects fields it does not know: if the record carries any (written by a newer
+// version), drop them from previousProps too
 const revision = await pkc.createCommunityList({
   ...previousProps,
   signer,

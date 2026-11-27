@@ -167,9 +167,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             expect(revision.raw.communityList?.author).to.deep.equal({ displayName: "Curator" });
         });
 
-        it("publishes a revision from raw.communityList once signature and timestamp are removed", async () => {
+        it("publishes a revision from raw.communityList once signature, timestamp and protocolVersion are removed", async () => {
             // The recipe in docs/protocol/community-lists.md: raw.communityList is the signed record as fetched, so
-            // it has no runtime fields to strip, only the signature (refused on create) and the old timestamp
+            // it has no runtime fields to strip, only the signature (refused on create), the old timestamp and the
+            // old protocolVersion (kept as given when passed, so a revision would be signed with the old version)
             const signer = await pkc.createSigner();
             const original = await pkc.createCommunityList({
                 signer,
@@ -180,8 +181,9 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             });
             const cid = await original.publish();
             const loaded = await pkc.getCommunityList({ cid });
-            const { signature, timestamp, ...previousProps } = loaded.raw.communityList!;
+            const { signature, timestamp, protocolVersion, ...previousProps } = loaded.raw.communityList!;
             expect(signature.publicKey).to.equal(signer.publicKey);
+            expect(protocolVersion).to.be.a("string");
 
             const revision = await pkc.createCommunityList({
                 ...previousProps,
