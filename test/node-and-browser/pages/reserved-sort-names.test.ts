@@ -151,5 +151,24 @@ getAvailablePKCConfigsToTestAgainst({
             );
             expect(Object.getPrototypeOf(clients[clientField])).to.equal(Object.prototype);
         });
+
+        // The forbidden list is fixed, so a name some code adds to Object.prototype later is an ordinary sort name. Its
+        // client state must be a map this instance owns, never the inherited value (shared by every instance)
+        it("a sort name that Object.prototype gained at runtime gets client state of its own", async () => {
+            const community = (await pkc.createCommunity({ address: signers[0].address })) as RemoteCommunity;
+            const addedByAPolyfill = () => 1;
+            Object.defineProperty(Object.prototype, "addedByAPolyfill", { value: addedByAPolyfill, configurable: true, enumerable: false });
+            try {
+                community.posts._clientsManager.updatePageCidsToSortTypes({ addedByAPolyfill: CID });
+                const clients = community.posts.clients as unknown as Record<
+                    ClientsField,
+                    Record<string, Record<string, { state: string }>>
+                >;
+                expect(Object.prototype.hasOwnProperty.call(clients[clientField], "addedByAPolyfill")).to.be.true;
+                expect(Object.getOwnPropertyNames(addedByAPolyfill)).to.have.members(["length", "name"]);
+            } finally {
+                Reflect.deleteProperty(Object.prototype, "addedByAPolyfill");
+            }
+        });
     });
 });
