@@ -6,6 +6,7 @@
 // covered by the challenges integration suite.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     checkPublicationValidity,
     isFlairInAllowedList,
@@ -17,6 +18,9 @@ import type { LocalCommunity } from "../../../../dist/node/runtime/node/communit
 import type { Flair } from "../../../../dist/node/community/types.js";
 import signers from "../../../fixtures/signers.js";
 import { messages } from "../../../../dist/node/errors.js";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:publication-validation" });
 
 describe("publication-validation: export shape", () => {
     it("exports all publication-validation helpers", () => {
@@ -69,6 +73,7 @@ describe("publication-validation: matchPublicationAuthorAgainstRoles", () => {
 
     it("does not match when the community has no roles configured", async () => {
         const community = {
+            _log: testLog,
             roles: undefined,
             _clientsManager: { resolveAuthorNameIfNeeded: vi.fn() },
             _pkc: { resolveAuthorNames: false, _timeouts: { "resolve-author-name": 1000 } }
@@ -86,6 +91,7 @@ describe("publication-validation: matchPublicationAuthorAgainstRoles", () => {
 
     it("does not match when the author's signer address has no role match", async () => {
         const community = {
+            _log: testLog,
             roles: { "12D3KoooSomeOtherAddress": { role: "moderator" } },
             _clientsManager: { resolveAuthorNameIfNeeded: vi.fn() },
             _pkc: { resolveAuthorNames: false, _timeouts: { "resolve-author-name": 1000 } }
@@ -119,6 +125,7 @@ describe("publication-validation: role keys match across .bso/.eth spellings and
         signer?: (typeof signers)[number];
     }) => {
         const community = {
+            _log: testLog,
             roles: { [roleKey]: { role: "moderator" } },
             _clientsManager: {
                 resolveAuthorNameIfNeeded: async ({ authorName: name }: { authorName: string }) => ({
@@ -160,6 +167,7 @@ describe("publication-validation: publication timestamp window", () => {
     const now = 1_800_000_000; // seconds
     const communityKey = signers[0].address;
     const community = {
+        _log: testLog,
         address: communityKey,
         signer: { address: communityKey },
         anchor: undefined,

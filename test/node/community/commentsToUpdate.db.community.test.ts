@@ -1,4 +1,5 @@
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import assert from "assert";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type Database from "better-sqlite3";
@@ -6,6 +7,9 @@ import type { CommentsTableRowInsert, CommentUpdatesTableRowInsert } from "../..
 import type { VotesTableRowInsert } from "../../../dist/node/publications/vote/types.js";
 import type { CommentEditsTableRowInsert } from "../../../dist/node/publications/comment-edit/types.js";
 import type { CommentModerationsTableRowInsert } from "../../../dist/node/publications/comment-moderation/types.js";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:commentsToUpdate" });
 
 type InsertCommentResult = Pick<CommentsTableRowInsert, "cid" | "timestamp" | "depth" | "parentCid" | "postCid">;
 type InsertCommentUpdateResult = Pick<CommentUpdatesTableRowInsert, "updatedAt">;
@@ -64,7 +68,7 @@ describeSkipIfRpc("db-handler.queryCommentsToBeUpdated", function () {
         // another community under the community identity rule (issue #401)
         communityAddress = `test-sub-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const fakePKC = { noData: true };
-        const fakeCommunity = { address: communityAddress, _pkc: fakePKC };
+        const fakeCommunity = { _log: testLog, address: communityAddress, _pkc: fakePKC };
         const handler = new DbHandler(fakeCommunity as DbHandler["_community"]);
         await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await handler.createOrMigrateTablesIfNeeded();

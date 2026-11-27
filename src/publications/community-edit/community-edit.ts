@@ -20,6 +20,10 @@ class CommunityEdit extends Publication implements CommunityEditPubsubMessagePub
     override raw: { pubsubMessageToPublish?: CommunityEditPubsubMessagePublication } = {};
     override challengeRequest?: CreateCommunityEditPublicationOptions["challengeRequest"];
 
+    protected override _logNamespace(): string {
+        return "pkc-js:community-edit";
+    }
+
     constructor(pkc: PKC) {
         super(pkc);
 
@@ -58,7 +62,8 @@ class CommunityEdit extends Publication implements CommunityEditPubsubMessagePub
     ): Promise<CommunityEditPubsubMessagePublication["signature"]> {
         return signCommunityEdit({
             communityEdit: cleanedPublication as CommunityEditPublicationOptionsToSign,
-            pkc: this._pkc
+            pkc: this._pkc,
+            log: this._log
         });
     }
 

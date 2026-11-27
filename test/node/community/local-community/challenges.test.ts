@@ -11,6 +11,7 @@
 // really signed messages.
 
 import { describe, it, expect, vi } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { LRUCache } from "lru-cache";
 import {
     buildRuntimeChallengeRequest,
@@ -41,6 +42,9 @@ import type {
 } from "../../../../dist/node/pubsub-messages/types.js";
 import type { SignerType } from "../../../../dist/node/signer/types.js";
 
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:challenges" });
+
 describe("challenges: export shape", () => {
     it("exports all challenge helpers", () => {
         expect(typeof buildRuntimeChallengeRequest).to.equal("function");
@@ -70,6 +74,7 @@ describe("challenges: cleanUpChallengeAnswerPromise", () => {
         const exchangesFromLocalPublishers: Record<string, boolean> = { [id]: true };
 
         const community = {
+            _log: testLog,
             _challengeAnswerPromises: promiseCache,
             _challengeAnswerResolveReject: resolveRejectCache,
             _challengeExchangesFromLocalPublishers: exchangesFromLocalPublishers
@@ -88,6 +93,7 @@ describe("challenges: cleanUpChallengeAnswerPromise", () => {
         const exchangesFromLocalPublishers: Record<string, boolean> = {};
 
         const community = {
+            _log: testLog,
             _challengeAnswerPromises: promiseCache,
             _challengeAnswerResolveReject: resolveRejectCache,
             _challengeExchangesFromLocalPublishers: exchangesFromLocalPublishers
@@ -168,6 +174,7 @@ type AnswerResolveReject = { resolve: (answers: string[]) => void; reject: (erro
 
 const createExchangeCommunity = () => {
     const community = {
+        _log: testLog,
         signer: communitySigner,
         settings: {},
         _pkc: { userAgent: "test-user-agent" },
@@ -207,7 +214,7 @@ const createChallengeAnswer = async ({
         protocolVersion: "1.0.0",
         timestamp: Math.round(Date.now() / 1000)
     });
-    return { ...toSign, signature: await signChallengeAnswer({ challengeAnswer: toSign, signer }) };
+    return { ...toSign, signature: await signChallengeAnswer({ challengeAnswer: toSign, signer, log: testLog }) };
 };
 
 const createChallengeRequest = async ({
@@ -227,7 +234,7 @@ const createChallengeRequest = async ({
         protocolVersion: "1.0.0",
         timestamp: Math.round(Date.now() / 1000)
     });
-    return { ...toSign, signature: await signChallengeRequest({ request: toSign, signer }) };
+    return { ...toSign, signature: await signChallengeRequest({ request: toSign, signer, log: testLog }) };
 };
 
 describe("challenges: handleChallengeAnswer with an answer that fails verification", () => {

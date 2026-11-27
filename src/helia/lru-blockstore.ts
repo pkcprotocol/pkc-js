@@ -6,9 +6,7 @@ import type { AbortOptions } from "@libp2p/interface";
 
 // interface-store 8 no longer exports AwaitIterable; it is the same shape it always was
 type AwaitIterable<T> = Iterable<T> | AsyncIterable<T>;
-import Logger from "../logger.js";
-
-const log = Logger("pkc-js:libp2p-js:blockstore");
+import type { Logger } from "@pkcprotocol/pkc-logger";
 
 /**
  * The dependency tree has historically carried more than one copy of multiformats (helia 6's
@@ -42,6 +40,8 @@ export interface LruBlockstoreOptions {
     // when maxBytes is reached, evict down to this fraction of it, so we do not run an eviction on
     // every subsequent put at the boundary
     lowWaterRatio?: number;
+    // the owner's child logger (issue #493)
+    log: Logger;
 }
 
 // Sum an incoming block value, which the streaming blockstore API allows to be either a single
@@ -91,7 +91,10 @@ export class LruBlockstore {
     // serializes eviction runs so two concurrent puts cannot both evict down to the low water mark
     private _evicting?: Promise<void>;
 
+    private readonly _log: Logger;
+
     constructor(child: ChildBlockstore, options: LruBlockstoreOptions) {
+        this._log = options.log;
         if (!(options.maxBytes > 0)) throw Error("LruBlockstore requires a positive maxBytes");
         const lowWaterRatio = options.lowWaterRatio ?? 0.75;
         if (!(lowWaterRatio > 0 && lowWaterRatio <= 1)) throw Error("LruBlockstore requires lowWaterRatio in (0, 1]");
@@ -235,10 +238,10 @@ export class LruBlockstore {
             try {
                 await this._child.delete(cidFromIndexKey(key));
             } catch (e) {
-                log.error("Failed to evict block from blockstore", key, e);
+                this._log.error("Failed to evict block from blockstore", key, e);
             }
         }
-        log(
+        this._log(
             `Evicted ${evicted} blocks from blockstore, ${startBytes} bytes => ${this._totalBytes} bytes (max ${this._maxBytes}, low water ${this._lowWaterBytes})`
         );
     }
@@ -266,9 +269,9 @@ export class LruBlockstore {
                 scanned++;
             }
         } catch (e) {
-            log.error("Failed to fully rebuild blockstore index, continuing with a partial index", e);
+            this._log.error("Failed to fully rebuild blockstore index, continuing with a partial index", e);
         }
-        log(`Rebuilt blockstore index from ${scanned} existing blocks, ${this._totalBytes} bytes`);
+        this._log(`Rebuilt blockstore index from ${scanned} existing blocks, ${this._totalBytes} bytes`);
         await this._evictIfNeeded();
         return { blocks: scanned, bytes: this._totalBytes };
     }

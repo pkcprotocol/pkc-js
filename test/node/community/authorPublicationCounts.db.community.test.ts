@@ -1,7 +1,11 @@
 import assert from "assert";
+import Logger from "@pkcprotocol/pkc-logger";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { CommentsTableRowInsert } from "../../../dist/node/publications/comment/types.js";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:authorPublicationCounts" });
 
 interface InsertCommentOptions
     extends Partial<
@@ -22,7 +26,7 @@ describeSkipIfRpc("db-handler.queryAuthorPublicationCounts", () => {
     async function createTestDbHandler(): Promise<DbHandler> {
         communityAddress = `test-sub-${Date.now()}-${Math.random()}`;
         const fakePKC = { noData: true };
-        const fakeCommunity = { address: communityAddress, _pkc: fakePKC };
+        const fakeCommunity = { _log: testLog, address: communityAddress, _pkc: fakePKC };
         const handler = new DbHandler(fakeCommunity as never);
         await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await handler.createOrMigrateTablesIfNeeded();

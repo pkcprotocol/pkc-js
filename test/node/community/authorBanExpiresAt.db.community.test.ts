@@ -8,6 +8,10 @@ import { ModeratorOptionsSchema } from "../../../dist/node/publications/comment-
 
 import type { CommentsTableRow, CommentsTableRowInsert } from "../../../dist/node/publications/comment/types.js";
 import type { CommentModerationsTableRowInsert } from "../../../dist/node/publications/comment-moderation/types.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:authorBanExpiresAt" });
 
 const PROTOCOL_VERSION = "1.0.0";
 const COMMENT_CID = "QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f";
@@ -30,7 +34,7 @@ describeSkipIfRpc("db-handler: commentUpdate.authorBanExpiresAt marks the commen
 
     beforeEach(async () => {
         communityAddress = `12D3KooBanMarkCommunity${Date.now()}`;
-        dbHandler = new DbHandler({ address: communityAddress, _pkc: { noData: true } } as never);
+        dbHandler = new DbHandler({ _log: testLog, address: communityAddress, _pkc: { noData: true } } as never);
         await dbHandler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await dbHandler.createOrMigrateTablesIfNeeded();
     });

@@ -1,4 +1,5 @@
 import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import { beforeEach, it } from "vitest";
 import { PageGenerator } from "../../../../dist/node/runtime/node/community/page-generator.js";
 import { MAX_PAGE_SIZE_BYTES } from "../../../../dist/node/pages/page-size.js";
@@ -7,6 +8,9 @@ import { readFileSync } from "node:fs";
 
 import type { PageIpfs } from "../../../../dist/node/pages/types.js";
 import type { CommentIpfsType, CommentUpdateType } from "../../../../dist/node/publications/comment/types.js";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:chunking" });
 
 interface CommentEntry {
     comment: CommentIpfsType;
@@ -64,6 +68,7 @@ describeSkipIfRpc("page-generator _chunkComments", () => {
     beforeEach(() => {
         pageGenerator = new PageGenerator({
             address: "chunking-test",
+            _log: testLog,
             _clientsManager: {
                 getDefaultKuboRpcClient: () => ({ _client: {} })
             }
@@ -223,9 +228,10 @@ describeSkipIfRpc("page-generator _chunkComments", () => {
         for (let index = 0; index < chunks.length; index++) {
             const hasNextCid = index < chunks.length - 1;
             const pageSize = measurePageBytes(chunks[index].length, ENTRY_BYTES, hasNextCid);
-            expect(pageSize, `page ${index} with ${chunks[index].length} entries must fit its ${pageLimit(index)} byte limit`).to.be.at.most(
-                pageLimit(index)
-            );
+            expect(
+                pageSize,
+                `page ${index} with ${chunks[index].length} entries must fit its ${pageLimit(index)} byte limit`
+            ).to.be.at.most(pageLimit(index));
             // and not end early either: one more entry would not have fit under the limit
             if (hasNextCid)
                 expect(

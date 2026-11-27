@@ -1,9 +1,13 @@
 import { existsSync, promises as fsPromises } from "node:fs";
+import Logger from "@pkcprotocol/pkc-logger";
 import path from "node:path";
 import { v4 as uuidV4 } from "uuid";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { deleteOldCommunityInWindows } from "../../../dist/node/runtime/node/util.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:delete-old-community-in-windows" });
 
 type PkcWithStorage = Parameters<typeof deleteOldCommunityInWindows>[1];
 
@@ -18,6 +22,7 @@ const STORAGE_KEY = "PERSISTENT_DELETED_COMMUNITIES";
 function createPkcWithStorage(): { pkc: PkcWithStorage; storage: Map<string, unknown> } {
     const storage = new Map<string, unknown>();
     const pkc = {
+        _log: testLog,
         _storage: {
             getItem: async (key: string): Promise<unknown> => storage.get(key),
             setItem: async (key: string, value: unknown): Promise<void> => void storage.set(key, value)

@@ -294,7 +294,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 signedPropertyNames,
                 record,
                 publishedSub.ipnsObj.signer,
-                Logger("pkc-js:test:community-nameResolved-reserved")
+                Logger({ namespace: "pkc-js:test:community-nameResolved-reserved" })
             );
             await publishedSub.ipnsObj.publishToIpns(JSON.stringify(record));
         });

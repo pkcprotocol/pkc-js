@@ -15,6 +15,9 @@ import { timestamp } from "../../../dist/node/util.js";
 
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:updatingstate" });
 
 // The exact-state cases below attach to a STATIC community under its own fresh key, not to the shared live signers[0] or
 // plebbit.eth: every concurrent suite publishes there, and each arrival starts a fetch cycle at a random moment. One
@@ -71,7 +74,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 // The community publishes a newer record, to the fixture's own key, for the update loop to load
                 const newerRecord = JSON.parse(JSON.stringify(staticCommunity.communityRecord)) as typeof staticCommunity.communityRecord;
                 newerRecord.updatedAt = Math.max(staticCommunity.communityRecord.updatedAt + 1, timestamp());
-                newerRecord.signature = await signCommunity({ community: newerRecord, signer: staticCommunity.ipnsObj.signer });
+                newerRecord.signature = await signCommunity({
+                    community: newerRecord,
+                    signer: staticCommunity.ipnsObj.signer,
+                    log: testLog
+                });
                 await staticCommunity.ipnsObj.publishToIpns(JSON.stringify(newerRecord));
 
                 await community.update();

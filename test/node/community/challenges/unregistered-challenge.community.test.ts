@@ -9,6 +9,9 @@ import type { LocalCommunity } from "../../../../dist/node/runtime/node/communit
 import type { ChallengeFileFactoryInput, CommunityChallengeSetting } from "../../../../dist/node/community/types.js";
 import type { ChallengeVerificationMessageType } from "../../../../dist/node/pubsub-messages/types.js";
 import type { PKCError } from "../../../../dist/node/pkc-error.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:unregistered-challenge" });
 
 // Issue #428: a challenge package uninstalled from the registry (bitsocial-cli's `challenge uninstall` deletes its
 // entry from PKC.challenges) while settings.challenges still names it. The owner and the publisher must be told which
@@ -48,7 +51,8 @@ describeSkipIfRpc("unregistered challenge in settings.challenges (issue #428)", 
         try {
             await getCommunityChallengeFromCommunityChallengeSettings({
                 communityChallengeSettings: { name: "not-installed" },
-                pkc
+                pkc,
+                log: testLog
             });
         } catch (e) {
             thrown = e;

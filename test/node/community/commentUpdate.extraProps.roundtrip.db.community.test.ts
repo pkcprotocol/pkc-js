@@ -15,6 +15,10 @@ import { CommentUpdateSchema } from "../../../dist/node/publications/comment/sch
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { CommentsTableRowInsert, CommentUpdateType } from "../../../dist/node/publications/comment/types.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:commentUpdate" });
 
 const now = Math.floor(Date.now() / 1000);
 const CID = "QmExtraPropsRoundTrip0001";
@@ -184,7 +188,7 @@ describeSkipIfRpc("comment_updates.extraProps through the DB and the page mapper
     };
 
     beforeEach(async () => {
-        const handler = new DbHandler({ address: communityAddress, _pkc: { noData: true } } as never);
+        const handler = new DbHandler({ _log: testLog, address: communityAddress, _pkc: { noData: true } } as never);
         await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await handler.createOrMigrateTablesIfNeeded();
         dbHandler = handler;

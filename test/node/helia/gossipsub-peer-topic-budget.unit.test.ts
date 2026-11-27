@@ -6,8 +6,11 @@ import {
     GOSSIPSUB_MAX_SUBSCRIPTIONS_PER_MESSAGE,
     GOSSIPSUB_MAX_TOPIC_BYTES_PER_PEER
 } from "../../../dist/node/helia/helia-for-pkc.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
+
+const testLog = Logger({ namespace: "pkc-js:test:gossipsub-peer-topic-budget" });
 
 type Libp2pOptions = Parameters<typeof createLibp2pJsClientOrUseExistingOne>[0]["libp2pOptions"];
 
@@ -36,7 +39,8 @@ describeSkipIfRpc("gossipsub limits on a peer's topic subscriptions (issue #602)
             key: `topic-budget-${Date.now()}-${keyCounter++}`,
             httpRoutersOptions: ["http://localhost:1"],
             libp2pOptions,
-            heliaOptions: {}
+            heliaOptions: {},
+            log: testLog
         })) as Libp2pJsClient;
         clientsToStop.push(client);
         return client;

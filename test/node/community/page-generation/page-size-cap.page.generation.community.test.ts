@@ -1,8 +1,12 @@
 import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import { it } from "vitest";
 import { PageGenerator } from "../../../../dist/node/runtime/node/community/page-generator.js";
 
 import type { PageIpfs } from "../../../../dist/node/pages/types.js";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:page-size-cap" });
 
 // Issue #360: page n of a sort was capped at 2^(n-1) MiB with no upper bound, and each page is built as one string,
 // so a sort holding more than ~1.5 GiB of entries needed a page longer than V8's string limit and generation threw
@@ -36,6 +40,7 @@ describeSkipIfRpc("page-generator page size cap (#360)", () => {
         const addedPageSizes: number[] = [];
         const pageGenerator = new PageGenerator({
             address: "page-size-cap-test",
+            _log: testLog,
             _clientsManager: {
                 getDefaultKuboRpcClient: () => ({
                     _client: {

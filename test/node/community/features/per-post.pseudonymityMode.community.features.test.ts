@@ -1,4 +1,5 @@
 import { describe, it, beforeAll, afterAll } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     fetchCidWithTransientRetry,
     createSubWithNoChallenge,
@@ -31,6 +32,9 @@ import type {
     CommentUpdatesRow
 } from "../../../../dist/node/publications/comment/types.js";
 import type { PseudonymityAliasRow } from "../../../../dist/node/runtime/node/community/db-handler-types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:per-post" });
 
 const remotePKCConfigs = getAvailablePKCConfigsToTestAgainst({ includeAllPossibleConfigOnEnv: true });
 
@@ -2121,7 +2125,7 @@ async function buildSignedReplyPublication({
         postCid,
         parentCid
     };
-    const signature = await signComment({ comment: base, pkc: {} as PKC });
+    const signature = await signComment({ comment: base, pkc: {} as PKC, log: testLog });
     const publication = { ...base, signature } as CommentPubsubMessagePublication & { signer?: SignerWithPublicKeyAddress };
     delete publication.signer;
     return publication;
@@ -2145,7 +2149,7 @@ async function buildSignedPostPublication({
         title: `transition-post-${Date.now()}`,
         content: `transition-post-content-${Date.now()}`
     };
-    const signature = await signComment({ comment: base, pkc: {} as PKC });
+    const signature = await signComment({ comment: base, pkc: {} as PKC, log: testLog });
     const publication = { ...base, signature } as CommentPubsubMessagePublication & { signer?: SignerWithPublicKeyAddress };
     delete publication.signer;
     return publication;

@@ -3,13 +3,16 @@ import path from "node:path";
 import { v4 as uuidV4 } from "uuid";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import Logger from "../../../dist/node/logger.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import { deleteOldCommunityInWindows, tryToDeleteCommunitiesThatFailedToBeDeletedBefore } from "../../../dist/node/runtime/node/util.js";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { mockPKC } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:failed-deletion-path-reuse" });
 
 // On Windows a community DB that is still held when a delete() or a rename tries to remove it is recorded in storage
 // (PERSISTENT_DELETED_COMMUNITIES) and removed on the next PKC start. Nothing took the address off that list when a live
@@ -23,6 +26,7 @@ function createPkcWithStorage(dataPath: string): { pkc: PKC; storage: Map<string
     const storage = new Map<string, unknown>();
     const pkc = {
         dataPath,
+        _log: testLog,
         _storage: {
             getItem: async (key: string): Promise<unknown> => storage.get(key),
             setItem: async (key: string, value: unknown): Promise<void> => void storage.set(key, value),
@@ -94,13 +98,13 @@ describeSkipIfRpc("a community DB written to a path that is waiting for a failed
         const db = new Database(newPath);
         db.prepare("INSERT INTO posts (cid) VALUES (?)").run("QmPostAfterRename");
         db.close();
-        const fakeCommunity = { address: newAddress, _pkc: pkc };
+        const fakeCommunity = { _log: testLog, address: newAddress, _pkc: pkc };
         const dbHandler = new DbHandler(fakeCommunity as unknown as LocalCommunity);
         await dbHandler.changeDbFilename(newAddress, oldAddress);
         expect(readCommunityDbRows(oldPath)).to.deep.equal(["QmPostAfterRename", "QmPostBeforeRename"]);
 
         // The next PKC start runs the deferred deletes
-        await tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc, Logger("pkc-js:test:failed-deletion-path-reuse"));
+        await tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc, Logger({ namespace: "pkc-js:test:failed-deletion-path-reuse" }));
 
         expect(existsSync(oldPath)).to.be.true;
         expect(readCommunityDbRows(oldPath)).to.deep.equal(["QmPostAfterRename", "QmPostBeforeRename"]);
@@ -118,7 +122,7 @@ describeSkipIfRpc("a community DB written to a path that is waiting for a failed
             const dbPath = path.join(dataPath, "communities", community.address);
             expect(existsSync(dbPath)).to.be.true;
 
-            await tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc, Logger("pkc-js:test:failed-deletion-path-reuse"));
+            await tryToDeleteCommunitiesThatFailedToBeDeletedBefore(pkc, Logger({ namespace: "pkc-js:test:failed-deletion-path-reuse" }));
 
             expect(existsSync(dbPath)).to.be.true;
             expect(await pkc._storage.getItem(STORAGE_KEY)).to.be.undefined;

@@ -12,7 +12,10 @@ import type { CommunityListEntryType, CommunityListIpfsType } from "../../../dis
 import type { AuthorPubsubType } from "../../../dist/node/types.js";
 import type { JsonSignature } from "../../../dist/node/signer/types.js";
 
-const log = Logger("pkc-js:test:community-list");
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:communitylist-test-util" });
+
+const log = Logger({ namespace: "pkc-js:test:community-list" });
 
 export const mockCommunityListEntries: CommunityListEntryType[] = [
     { publicKey: signers[0].address, title: "Test community 0", tags: ["test", "mock"], languages: ["en"] },
@@ -49,7 +52,7 @@ export async function buildSignedCommunityListRecord({
     });
     const signature = skipAuthorValidation
         ? await _signJson(<JsonSignature["signedPropertyNames"]>CommunityListSignedPropertyNames, props, finalSigner, log)
-        : await signCommunityList({ communityList: props, signer: finalSigner, pkc });
+        : await signCommunityList({ communityList: props, signer: finalSigner, pkc, log: testLog });
     return { record: <CommunityListIpfsType>{ ...props, signature }, signer: finalSigner };
 }
 

@@ -1,5 +1,5 @@
-import Logger from "../../../../logger.js";
 import { clone, keys } from "remeda";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { LRUCache } from "lru-cache";
 import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
@@ -42,7 +42,7 @@ const MIN_MS_BETWEEN_PUBLISH_CYCLES = 100;
 const MS_BETWEEN_DB_READ_RETRIES = 100;
 
 export async function publishLoop(community: LocalCommunity, syncIntervalMs: number) {
-    const log = Logger("pkc-js:local-community:_publishLoop");
+    const log = community._log;
     // After stop() the loop runs on while an edit is pending so the record carrying it goes out before the community
     // goes down. Pending edits drain only on a successful publish, so a cycle that fails after stop() ends the loop
     // instead of retrying forever (the edit is in the DB and ships on the next start): otherwise an all-throwing page
@@ -71,7 +71,9 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
                 const passes = kind === "busy" || (kind === "maybe-transient" && ++consecutiveIoErrors <= MAX_CONSECUTIVE_IO_ERRORS);
                 if (!passes) throw error;
                 if (shouldStopPublishLoop()) return;
-                log(`The DB of community (${community.address}) could not be read (${kind}), reading again in ${MS_BETWEEN_DB_READ_RETRIES}ms`);
+                log(
+                    `readUpdateTriggerRidingOutDbFaults: The DB of community (${community.address}) could not be read (${kind}), reading again in ${MS_BETWEEN_DB_READ_RETRIES}ms`
+                );
                 await new Promise<void>((resolve) => setTimeout(resolve, MS_BETWEEN_DB_READ_RETRIES));
             }
         }
@@ -124,13 +126,13 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
     };
 
     // reports when the main thread is held up, for as long as any community of this process is running
-    const releaseEventLoopWatch = holdEventLoopWatch();
+    const releaseEventLoopWatch = holdEventLoopWatch({ log: community._pkc._log });
     try {
         await runCyclesUntilStopped();
     } finally {
         releaseEventLoopWatch();
     }
-    log("Stopping the publishing loop of community", community.address);
+    log("_publishLoop: Stopping the publishing loop of community", community.address);
 
     async function runCyclesUntilStopped() {
         while (!shouldStopPublishLoop()) {
@@ -150,10 +152,12 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
                     community.emit("error", error);
                 } catch (e) {
                     // nobody listens for errors, or a listener threw. The community goes down all the same
-                    log.error(`A listener of the error of community (${community.address}) threw, or there is none`, e);
+                    log.error(`_publishLoop: A listener of the error of community (${community.address}) threw, or there is none`, e);
                 }
                 // not awaited: stop() waits for this loop to end
-                community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after its start was taken`, e));
+                community
+                    .stop()
+                    .catch((e) => log.error(`_publishLoop: Failed to stop community (${community.address}) after its start was taken`, e));
                 break;
             }
             let lastSyncFailed = false;
@@ -163,12 +167,14 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
                 // don't hit NoValidAddressesError against stale addresses. Throttled internally; runs inside the
                 // publish loop so it's torn down with the loop on stop(). Its own failures must not break publishing.
                 await reprovideOnAddressChangeIfDue(community).catch((e) =>
-                    log.error("Failed to re-provide connection CIDs on address change", e)
+                    log.error("_publishLoop: Failed to re-provide connection CIDs on address change", e)
                 );
                 // Keep the anchor -> minter binding alive: its routers expire it, and this node is the only
                 // party online that can put it (the owner holds As and is offline by design). Its failures
                 // must not break publishing either.
-                await reprovideAnchorRecordIfDue(community).catch((e) => log.error("Failed to re-provide the anchor record", e));
+                await reprovideAnchorRecordIfDue(community).catch((e) =>
+                    log.error("_publishLoop: Failed to re-provide the anchor record", e)
+                );
             } catch (e) {
                 lastSyncFailed = true;
                 if (community._stopHasBeenCalled) syncFailedSinceStop = true;
@@ -185,7 +191,10 @@ function isCommunityStartTakenByAnotherInstance(community: LocalCommunity, log: 
     try {
         return community._dbHandler.confirmCommunityStartIsStillOurs() === "taken";
     } catch (e) {
-        log.error(`Failed to confirm that community (${community.address}) is still started by this PKC instance`, e);
+        log.error(
+            `isCommunityStartTakenByAnotherInstance: Failed to confirm that community (${community.address}) is still started by this PKC instance`,
+            e
+        );
         return false;
     }
 }
@@ -211,6 +220,11 @@ export async function initBeforeStarting(community: LocalCommunity) {
             max: 1000,
             ttl: community._challengeExchangeTtlMs
         });
+    if (!community._challengeExchangeLogs)
+        community._challengeExchangeLogs = new LRUCache<string, Logger>({
+            max: 1000,
+            ttl: community._challengeExchangeTtlMs
+        });
     if (!community._duplicatePublicationAttempts)
         community._duplicatePublicationAttempts = new LRUCache<string, number>({
             max: 1000,
@@ -228,16 +242,17 @@ async function emitChallengeSettingsValidationErrors(community: LocalCommunity, 
     try {
         failures = await collectChallengeSettingsValidationFailures({
             challengeSettings: community.settings?.challenges ?? [],
-            pkc: community._pkc
+            pkc: community._pkc,
+            log: community._log
         });
     } catch (e) {
-        log.error("Failed to validate settings.challenges on start", community.address, e);
+        log.error("_publishLoop: Failed to validate settings.challenges on start", community.address, e);
         community.emit("error", e as PKCError);
         return;
     }
     for (const { error, challengeIndex, challengeName } of failures) {
         error.details = { ...error.details, challengeIndex, challengeName, communityAddress: community.address };
-        log.error("Invalid challenge settings on start", community.address, error);
+        log.error("_publishLoop: Invalid challenge settings on start", community.address, error);
         community.emit("error", error);
     }
 }
@@ -283,7 +298,7 @@ export async function start(community: LocalCommunity) {
 }
 
 async function startCommunity({ community, releaseMark }: { community: LocalCommunity; releaseMark: () => void }) {
-    const log = Logger("pkc-js:local-community:start");
+    const log = community._log;
     // An edit of this instance as a stopped community is still running: it may be closing the DB connection and
     // renaming the DB (see editPropsOnNotStartedCommunity). Waited for under this start's own mark, so nothing else
     // starts or edits meanwhile; the start then runs on what the edit left, under the new address after a rename.
@@ -321,7 +336,8 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
         await deriveCommunityChallengesOrThrow({
             challengeSettings: community.settings?.challenges ?? [],
             pkc: community._pkc,
-            communityAddress: community.address
+            communityAddress: community.address,
+            log: community._log
         });
         // Locked before entering the started state, so a start() that loses the race for the lock throws while still
         // "stopped" and the stop() below does nothing. From "started" it ran the running-community teardown, which unlocks
@@ -346,7 +362,8 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
         community.challenges = await deriveCommunityChallengesOrThrow({
             challengeSettings: community.settings.challenges!,
             pkc: community._pkc,
-            communityAddress: community.address
+            communityAddress: community.address,
+            log: community._log
         });
         // Import community keys onto ipfs node
         await importCommunitySignerIntoIpfsIfNeeded(community);
@@ -356,7 +373,9 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
         // A restarted kubo still has the anchor record in its datastore but is no longer subscribed to
         // the anchor's ipns-over-pubsub topic, so it silently stops answering for the anchor. Putting
         // once at start is what re-subscribes it. See anchor-publishing.ts.
-        await reprovideAnchorRecordIfNeeded(community).catch((e) => log.error("Failed to re-provide the anchor record on start", e));
+        await reprovideAnchorRecordIfNeeded(community).catch((e) =>
+            log.error("start: start: Failed to re-provide the anchor record on start", e)
+        );
 
         community._communityUpdateTrigger = true;
         community._setStartedStateWithEmission("publishing-ipns");
@@ -390,7 +409,7 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
     }
 
     community._publishLoopPromise = publishLoop(community, community._pkc.publishInterval).catch((err) => {
-        log.error(err);
+        log.error("start: start:", err);
         // A loop that ended with an error (a DB fault that reading again does not fix, see db-fault.ts) leaves nothing that
         // publishes: the community goes down too, instead of staying "started". Not awaited: stop() waits for this very
         // promise, which settles when this handler returns. The error is emitted first, and even when that throws (nobody
@@ -398,7 +417,9 @@ async function startCommunity({ community, releaseMark }: { community: LocalComm
         try {
             community.emit("error", err);
         } finally {
-            community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after its publish loop ended`, e));
+            community
+                .stop()
+                .catch((e) => log.error(`start: Failed to stop community (${community.address}) after its publish loop ended`, e));
         }
     });
 }
@@ -527,7 +548,7 @@ export async function cleanUpMirroredStartedOrUpdatingCommunity(community: Local
 }
 
 export async function updateOnce(community: LocalCommunity) {
-    const log = Logger("pkc-js:local-community:_updateOnce");
+    const log = community._log;
     await community.initDbHandlerIfNeeded();
     await community._updateStartedValue();
     const startedCommunity = <LocalCommunity | undefined>(
@@ -554,7 +575,7 @@ export async function updateOnce(community: LocalCommunity) {
         await updateInstancePropsWithStartedCommunityOrDb(community); // will update this instance props with DB
         if (community._internalStateUpdateId !== oldUpdateId) {
             log(
-                `Local Community (${community.address}) received a new update from db with updatedAt (${community.updatedAt}). Will emit an update event`
+                `_updateOnce: Local Community (${community.address}) received a new update from db with updatedAt (${community.updatedAt}). Will emit an update event`
             );
 
             community._changeStateEmitEventEmitStateChangeEvent({
@@ -566,12 +587,12 @@ export async function updateOnce(community: LocalCommunity) {
 }
 
 export async function updateLoop(community: LocalCommunity) {
-    const log = Logger("pkc-js:local-community:update:_updateLoop");
+    const log = community._log;
     while (community.state === "updating" && !community._stopHasBeenCalled) {
         try {
             await updateOnce(community);
         } catch (e) {
-            log.error("Error in update loop", e);
+            log.error("_updateLoop: Error in update loop", e);
             community.emit("error", e as PKCError | Error);
         } finally {
             // Re-read the update-loop signal each iteration; sleepUntilTimeoutOrAbort detaches its abort
@@ -634,19 +655,20 @@ export async function stop(community: LocalCommunity) {
 async function cancelIpnsPubsubSubscriptionsOfCommunity(community: LocalCommunity) {
     await cancelKuboIpnsPubsubSubscriptions({
         kuboRpcClient: community._clientsManager.getDefaultKuboRpcClient(),
-        ipnsNames: [community.signer?.address, community.anchor?.publicKey]
+        ipnsNames: [community.signer?.address, community.anchor?.publicKey],
+        log: community._log
     });
 }
 
 async function stopCommunity(community: LocalCommunity) {
-    const log = Logger("pkc-js:local-community:stop");
+    const log = community._log;
     if (community._updateLoopAbortController) {
         community._updateLoopAbortController.abort();
     }
     community.posts._stop();
 
     if (community.state === "started") {
-        log("Stopping running community", community.address);
+        log("stop: Stopping running community", community.address);
         try {
             // Unsubscribe regardless of settings.disablePubsubChallengeExchange — the setting may have
             // been toggled on after we subscribed, and unsubscribing a topic we never joined is a no-op.
@@ -661,13 +683,13 @@ async function stopCommunity(community: LocalCommunity) {
                 await community._clientsManager.pubsubUnsubscribe(challengeTopic, community.handleChallengeExchange);
             community._subscribedChallengePubsubTopic = undefined;
         } catch (e) {
-            log.error("Failed to unsubscribe from challenge exchange pubsub when stopping community", e);
+            log.error("stop: Failed to unsubscribe from challenge exchange pubsub when stopping community", e);
         }
         if (community._publishLoopPromise) {
             try {
                 await community._publishLoopPromise;
             } catch (e) {
-                log.error(`Failed to stop community publish loop`, e);
+                log.error(`stop: Failed to stop community publish loop`, e);
             }
             community._publishLoopPromise = undefined;
         }
@@ -685,7 +707,7 @@ async function stopCommunity(community: LocalCommunity) {
                 // community that never starts again would otherwise leak its queued pins forever.
                 await unpinStaleCids(community, { bypassGracePeriod: true });
             } catch (e) {
-                log.error("Failed to unpin stale cids and remove mfs paths before stopping", e);
+                log.error("stop: Failed to unpin stale cids and remove mfs paths before stopping", e);
             }
 
             // Kubo subscribed to the record topic of every name this community published. Released now that nothing
@@ -699,14 +721,14 @@ async function stopCommunity(community: LocalCommunity) {
                     community.updateCid ? community.toJSONInternalAfterFirstUpdate() : community.toJSONInternalBeforeFirstUpdate()
                 );
             } catch (e) {
-                log.error("Failed to update db internal state before stopping", e);
+                log.error("stop: Failed to update db internal state before stopping", e);
             }
         }
 
         try {
             await community._dbHandler.unlockCommunityStart();
         } catch (e) {
-            log.error(`Failed to unlock start lock on community (${community.address})`, e);
+            log.error(`stop: Failed to unlock start lock on community (${community.address})`, e);
         }
         const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
 
@@ -720,7 +742,7 @@ async function stopCommunity(community: LocalCommunity) {
         community._clientsManager.updateKuboRpcState("stopped", kuboRpcClient.url);
         community._clientsManager.updateKuboRpcPubsubStateIfProviderExists("stopped");
         if (community._dbHandler) community._dbHandler.destoryConnection();
-        log(`Stopped the running of local community (${community.address})`);
+        log(`stop: Stopped the running of local community (${community.address})`);
         community._setState("stopped");
     } else if (community.state === "updating") {
         if (community._updateLoopPromise) {
@@ -733,7 +755,7 @@ async function stopCommunity(community: LocalCommunity) {
         if (findUpdatingCommunity(community._pkc, { publicKey: community.publicKey, name: community.name }) === community)
             untrackUpdatingCommunity(community._pkc, community);
         community._setUpdatingStateWithEventEmissionIfNewState("stopped");
-        log(`Stopped the updating of local community (${community.address})`);
+        log(`stop: Stopped the updating of local community (${community.address})`);
         community._setState("stopped");
     }
 }
@@ -758,11 +780,11 @@ export async function deleteCommunity(community: LocalCommunity) {
 }
 
 async function deleteCommunityWhileMarked(community: LocalCommunity) {
-    const log = Logger("pkc-js:local-community:delete");
+    const log = community._log;
     // A start() or update() still setting this instance up: its state is "stopped" until it is done, so the stop below
     // would be skipped and the delete would run next to it. Waited for, as stop() and edit() do, then stopped below.
     while (community._startOrUpdateInFlight) await community._startOrUpdateInFlight;
-    log.trace(`Attempting to stop the community (${community.address}) before deleting, if needed`);
+    log.trace(`delete: Attempting to stop the community (${community.address}) before deleting, if needed`);
 
     const startedCommunity = <LocalCommunity | undefined>(
         (findStartedCommunity(community._pkc, { publicKey: community.publicKey, name: community.name }) ||
@@ -784,7 +806,7 @@ async function deleteCommunityWhileMarked(community: LocalCommunity) {
         try {
             await kuboClient._client.key.rm(community.signer.ipnsKeyName);
         } catch (e) {
-            log.error("Failed to delete ipns key", community.signer.ipnsKeyName, e);
+            log.error("delete: Failed to delete ipns key", community.signer.ipnsKeyName, e);
         }
     // Also for a community that was not started here: the stop() above cancels only what this instance published, and
     // a resolve of the name since (a follower on this node) subscribes kubo to it again. key.rm does not unsubscribe.
@@ -793,7 +815,7 @@ async function deleteCommunityWhileMarked(community: LocalCommunity) {
     try {
         await removeMfsFilesSafely({ kuboRpcClient: kuboClient, paths: ["/" + community.address], log });
     } catch (e) {
-        log.error("Failed to delete community mfs folder", "/" + community.address, e);
+        log.error("delete: Failed to delete community mfs folder", "/" + community.address, e);
     }
     // sceneario 1: we call delete() on a community that is not started or updating
     // scenario 2: we call delete() on a community that is updating
@@ -814,7 +836,7 @@ async function deleteCommunityWhileMarked(community: LocalCommunity) {
         try {
             await community._addOldPageCidsToCidsToUnpin(lastPosts, undefined);
         } catch (e) {
-            log.error("Failed to add old page cids from community.posts to be unpinned", e);
+            log.error("delete: Failed to add old page cids from community.posts to be unpinned", e);
         }
     }
     if (community.ipnsPubsubTopicRoutingCid) community._cidsToUnPin.add(community.ipnsPubsubTopicRoutingCid);
@@ -843,12 +865,12 @@ async function deleteCommunityWhileMarked(community: LocalCommunity) {
             await unpinStaleCids(community, { bypassGracePeriod: true });
         }
     } catch (e) {
-        log.error("Failed to unpin the comments of this community before deleting it", e);
+        log.error("delete: Failed to unpin the comments of this community before deleting it", e);
     }
     try {
         await unpinStaleCids(community, { bypassGracePeriod: true });
     } catch (e) {
-        log.error("Failed to unpin stale cids before deleting", e);
+        log.error("delete: Failed to unpin stale cids before deleting", e);
     }
 
     try {
@@ -859,7 +881,7 @@ async function deleteCommunityWhileMarked(community: LocalCommunity) {
                 : community.toJSONInternalBeforeFirstUpdate()
         );
     } catch (e) {
-        log.error("Failed to update db internal state before deleting", e);
+        log.error("delete: Failed to update db internal state before deleting", e);
     } finally {
         community._dbHandler.destoryConnection();
     }
@@ -870,8 +892,8 @@ async function deleteCommunityWhileMarked(community: LocalCommunity) {
     } catch (e) {
         // The community is deleted: its DB has moved. A row that could not be removed (storage.db locked for too long)
         // goes with the filesystem event of the move, or with the next lookup of the address
-        log.error(`Failed to remove deleted community (${community.address}) from the communities registry`, e);
+        log.error(`delete: Failed to remove deleted community (${community.address}) from the communities registry`, e);
     }
 
-    log(`Deleted community (${community.address}) successfully`);
+    log(`delete: Deleted community (${community.address}) successfully`);
 }

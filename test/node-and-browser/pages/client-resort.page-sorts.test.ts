@@ -15,6 +15,9 @@ import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { PageTypeJson } from "../../../dist/node/pages/types.js";
 import type { PageSortFileFactory, PageSortFileFactoryInput } from "../../../dist/node/community/types.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:client-resort" });
 
 const communityAddress = signers[12].address; // subForPageSorts on the test server
 
@@ -72,7 +75,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(factory, "the package must be installed on the client under the published name").to.exist;
             const pageSortSettings = { name: published.name, options: published.publicOptions };
             expect(
-                (factory as PageSortFileFactory)({ pageSortSettings }).requireReplies,
+                (factory as PageSortFileFactory)({ pageSortSettings, log: testLog }).requireReplies,
                 "the no-bump sort declares it needs the reply set"
             ).to.be.true;
 
@@ -108,8 +111,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             expect(titlesOf(byNew)).to.deep.equal(["page-sorts c", "page-sorts b", "page-sorts a"]);
 
             // The plain built-in `active` needs no reply set: it reads commentUpdate.lastReplyTimestamp, so the sage reply bumps b
-            expect((builtInPageSorts.active as PageSortFileFactory)({ pageSortSettings: { name: "active" } }).requireReplies).to.not.be
-                .true;
+            expect((builtInPageSorts.active as PageSortFileFactory)({ pageSortSettings: { name: "active" }, log: testLog }).requireReplies)
+                .to.not.be.true;
             const byActive = resortPageLikeAUi({
                 comments: shuffled(page.comments),
                 factory: builtInPageSorts.active,

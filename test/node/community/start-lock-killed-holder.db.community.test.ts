@@ -13,6 +13,10 @@ import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { holdStartLockInAnotherProcess } from "../../helpers/start-lock-holder.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:start-lock-killed-holder" });
 
 // The start lock decides which process runs a community. A process that is killed (SIGKILL, an OOM kill, power loss)
 // cannot release it. The lock used to be a file its holder refreshed from a timer, held for as long as its mtime was
@@ -24,7 +28,7 @@ import type { PKCError } from "../../../dist/node/pkc-error.js";
 const instances: { dataPath: string }[] = [];
 
 function createDbHandler({ dataPath, address }: { dataPath: string; address: string }): DbHandler {
-    const fakeCommunity = { address, _pkc: { dataPath } };
+    const fakeCommunity = { _log: testLog, address, _pkc: { dataPath, _log: testLog } };
     instances.push(fakeCommunity._pkc);
     return new DbHandler(fakeCommunity as unknown as LocalCommunity);
 }

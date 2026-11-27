@@ -1,4 +1,5 @@
 import { beforeAll } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { fileURLToPath } from "node:url";
 import {
     getPendingChallengesOrChallengeVerification,
@@ -31,6 +32,9 @@ type ChallengeVerificationResult = Awaited<ReturnType<typeof getPendingChallenge
 
 import validChallengeRequestFixture from "../fixtures/signatures/challenges/valid_challenge_request.json" with { type: "json" };
 import validCommentIpfsFixture from "../fixtures/signatures/comment/commentUpdate/valid_comment_ipfs.json" with { type: "json" };
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:challenges" });
 
 const parsePubsubMsgFixture = (json: Record<string, unknown>): Record<string, unknown> => {
     // Convert stringified pubsub msg with buffers to regular pubsub msg with uint8Array for buffers
@@ -139,7 +143,8 @@ type GetChallengeVerificationResult = Awaited<ReturnType<typeof getChallengeVeri
 
 describe("getChallengeVerification", () => {
     const author = { address: signers[2].address };
-    const community: { settings: { challenges: Array<Record<string, unknown>> }; _pkc?: ReturnType<typeof PKC> } = {
+    const community: { _log: typeof testLog; settings: { challenges: Array<Record<string, unknown>> }; _pkc?: ReturnType<typeof PKC> } = {
+        _log: testLog,
         settings: {
             challenges: [
                 // add random exlcuded challenges to tests
@@ -223,6 +228,7 @@ describe("getChallengeVerification", () => {
 
     it("password preanswer and no preanswer", async () => {
         const localCommunity = {
+            _log: testLog,
             settings: {
                 challenges: [
                     {
@@ -294,6 +300,7 @@ describe("getChallengeVerification", () => {
 
     it("rate limited", async () => {
         const rateLimitCommunity = {
+            _log: testLog,
             settings: {
                 challenges: [
                     {
@@ -356,6 +363,7 @@ describe("getChallengeVerification", () => {
         const createRateLimitedCommunity = (address: string) =>
             ({
                 address,
+                _log: testLog,
                 settings: { challenges: [{ name: "fail", options: { error: "rate limited" }, exclude: [{ rateLimit: 1 }] }] },
                 _pkc: pkc
             }) as unknown as LocalCommunity;
@@ -383,6 +391,7 @@ describe("getChallengeVerification", () => {
 
     it("getChallenge function throws", async () => {
         const throwCommunity = {
+            _log: testLog,
             settings: {
                 challenges: [
                     {
@@ -490,6 +499,7 @@ describe("excluded challenge should not have getChallenge() called", () => {
 
         const author = { address: getRandomAddress() };
         const localCommunity = {
+            _log: testLog,
             settings: {
                 challenges: [
                     // Challenge 0: question challenge — auto-succeeds via preanswer
@@ -604,6 +614,7 @@ describe("real-world config: AI moderation getChallenge() fires even when exclud
             }
         };
         return {
+            _log: testLog,
             settings: {
                 challenges: [
                     // C0: publication-match — succeeds if author.name ends with .bso
@@ -730,6 +741,7 @@ describe("real-world config: AI moderation getChallenge() fires even when exclud
             }
         };
         return {
+            _log: testLog,
             settings: {
                 challenges: [
                     {
@@ -806,6 +818,7 @@ describe("request-only excludes fire before getChallenge()", () => {
         pkc.settings = { challenges: { "tracking-role-exclude": trackingFactory } };
 
         const community = {
+            _log: testLog,
             settings: {
                 challenges: [
                     {
@@ -845,6 +858,7 @@ describe("request-only excludes fire before getChallenge()", () => {
         pkc.settings = { challenges: { "tracking-karma-exclude": trackingFactory } };
 
         const community = {
+            _log: testLog,
             settings: {
                 challenges: [
                     {
@@ -896,6 +910,7 @@ describe("incremental cycle-break", () => {
         pkc.settings = { challenges: { "cycle-c0": c0Factory, "cycle-c1": c1Factory } };
 
         const community = {
+            _log: testLog,
             settings: {
                 challenges: [
                     { name: "cycle-c0", exclude: [{ challenges: [1] }] },
@@ -941,6 +956,7 @@ describe("incremental cycle-break", () => {
         pkc.settings = { challenges: { "cycle-fail-c0": c0Factory, "cycle-fail-c1": c1Factory } };
 
         const community = {
+            _log: testLog,
             settings: {
                 challenges: [
                     { name: "cycle-fail-c0", exclude: [{ challenges: [1] }] },
@@ -1009,6 +1025,7 @@ describe("deferred challenge resolution at verify time", () => {
         pkc.settings = { challenges: { "iframe-defer": iframeFactory, "deferred-target": deferredFactory } };
 
         const community = {
+            _log: testLog,
             settings: {
                 challenges: [{ name: "iframe-defer" }, { name: "deferred-target", exclude: [{ challenges: [0] }] }]
             },
@@ -1036,6 +1053,7 @@ describe("deferred challenge resolution at verify time", () => {
         pkc.settings = { challenges: { "iframe-fail": iframeFactory, "deferred-after-fail": deferredFactory } };
 
         const community = {
+            _log: testLog,
             settings: {
                 challenges: [{ name: "iframe-fail" }, { name: "deferred-after-fail", exclude: [{ challenges: [0] }] }]
             },
@@ -1067,6 +1085,7 @@ describe("deferred challenge resolution at verify time", () => {
         pkc.settings = { challenges: { "iframe-shape": iframeFactory, "deferred-shape": deferredFactory } };
 
         const community = {
+            _log: testLog,
             settings: {
                 challenges: [{ name: "iframe-shape" }, { name: "deferred-shape", exclude: [{ challenges: [0] }] }]
             },
@@ -1164,6 +1183,7 @@ describe.skip("cascading challenge fallthrough (whitelist → mintpass → spam-
             }
         };
         return {
+            _log: testLog,
             settings: {
                 challenges: [
                     // C0: whitelist — excluded if C1 or C2 passes/pending
@@ -1263,7 +1283,8 @@ describe("await getCommunityChallengeFromCommunityChallengeSettings", () => {
     it("has challenge prop", async () => {
         const community = communities.filter((community) => community.title === "password challenge community")[0];
         const { communityChallenge } = await getCommunityChallengeFromCommunityChallengeSettings({
-            communityChallengeSettings: community.settings.challenges[0]
+            communityChallengeSettings: community.settings.challenges[0],
+            log: testLog
         });
         expect(typeof communityChallenge.challenge).to.equal("string");
         expect(communityChallenge.challenge).to.equal(community.settings.challenges[0].options.question);
@@ -1272,7 +1293,8 @@ describe("await getCommunityChallengeFromCommunityChallengeSettings", () => {
     it("has description prop", async () => {
         const community = communities.filter((community) => community.title === "text-math challenge community")[0];
         const { communityChallenge } = await getCommunityChallengeFromCommunityChallengeSettings({
-            communityChallengeSettings: community.settings.challenges[0]
+            communityChallengeSettings: community.settings.challenges[0],
+            log: testLog
         });
         expect(typeof communityChallenge.description).to.equal("string");
         expect(communityChallenge.description).to.equal(community.settings.challenges[0].description);
@@ -1281,7 +1303,8 @@ describe("await getCommunityChallengeFromCommunityChallengeSettings", () => {
     it("has exclude prop", async () => {
         const community = communities.filter((community) => community.title === "exclude high karma challenge community")[0];
         const { communityChallenge } = await getCommunityChallengeFromCommunityChallengeSettings({
-            communityChallengeSettings: community.settings.challenges[0]
+            communityChallengeSettings: community.settings.challenges[0],
+            log: testLog
         });
         expect(communityChallenge.exclude).to.not.equal(undefined);
         expect(communityChallenge.exclude).to.deep.equal(community.settings.challenges[0].exclude);
@@ -1362,6 +1385,7 @@ describe("real-world bitsocial config: production-faithful coverage", () => {
             }
         };
         return {
+            _log: testLog,
             settings: {
                 challenges: [
                     {
@@ -1632,6 +1656,7 @@ describe("whitelist/blacklist match a listed name across .bso/.eth spellings and
     const impostor = signers[7];
     // Answers like the production resolver: one record, reachable through every spelling.
     const community = {
+        _log: testLog,
         _clientsManager: {
             resolveAuthorNameIfNeeded: async ({ authorName }: { authorName: string }) => ({
                 resolvedAuthorName: authorName.toLowerCase().replace(/\.bso$/, ".eth") === "listed-424.eth" ? owner.address : null
@@ -1652,13 +1677,17 @@ describe("whitelist/blacklist match a listed name across .bso/.eth spellings and
         signer?: (typeof signers)[number];
     }) => {
         const challengeSettings = { name, options: { addresses: listed } };
-        const challengeFile = pkcJsChallenges[name]({ challengeSettings });
+        const challengeFile = pkcJsChallenges[name]({ challengeSettings, log: testLog });
         const challengeRequestMessage = {
             comment: { author: { address: authorName }, signature: { publicKey: signer.publicKey } }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
-        return challengeFile.getChallenge({ challengeSettings, challengeRequestMessage, community, challengeIndex: 0 } as Parameters<
-            typeof challengeFile.getChallenge
-        >[0]);
+        return challengeFile.getChallenge({
+            challengeSettings,
+            challengeRequestMessage,
+            community,
+            challengeIndex: 0,
+            log: testLog
+        } as Parameters<typeof challengeFile.getChallenge>[0]);
     };
 
     const spellings = [

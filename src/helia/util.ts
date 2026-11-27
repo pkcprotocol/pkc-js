@@ -1,4 +1,5 @@
 import type { HeliaWithLibp2pPubsub } from "./types.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import type { PeerId, PeerInfo, PeerUpdate } from "@libp2p/interface";
 import type { Multiaddr } from "@multiformats/multiaddr";
 import { CID } from "multiformats/cid";
@@ -7,7 +8,6 @@ import { ipnsValidator } from "ipns/validator";
 import { unmarshalIPNSRecord } from "ipns";
 import type { IPNSRecord } from "ipns";
 import { equals as uint8ArrayEquals } from "uint8arrays/equals";
-import Logger from "../logger.js";
 import { PKCError } from "../pkc-error.js";
 import { linkAbortSignals, pubsubTopicToDhtKeyCid } from "../util.js";
 import { isLoopback, isPrivate } from "@libp2p/utils";
@@ -416,7 +416,7 @@ async function connectToPubsubPeersUntilSubscriber({
                 const conn = await helia.libp2p.dial(peer.id, dialOptions); // no-op if already connected
                 connectedPeersWithContent.push(conn);
                 if (connectedPeersWithContent.length >= maxPeers && !findProvidersAbort.signal.aborted) {
-                    log.trace("Aborting findProviders after reaching maxPeers", maxPeers);
+                    log.trace("startDial: Aborting findProviders after reaching maxPeers", maxPeers);
                     findProvidersAbort.abort();
                 }
             } catch (e) {
@@ -428,7 +428,7 @@ async function connectToPubsubPeersUntilSubscriber({
                     errorMessage: err.message,
                     errorStack: err.stack
                 };
-                log.trace("Failed to dial IPNS-Over-Pubsub peer", peer.id.toString(), "Due to error", e);
+                log.trace("startDial: Failed to dial IPNS-Over-Pubsub peer", peer.id.toString(), "Due to error", e);
             }
         })();
         inflightDialPromises.push(dialPromise);
@@ -447,7 +447,12 @@ async function connectToPubsubPeersUntilSubscriber({
             ) {
                 privateOnlyPeers.push(peer as PeerInfo);
                 privateOnlyTimer ??= setTimeout(releasePrivateOnlyPeers, PRIVATE_ONLY_PROVIDER_DIAL_DELAY_MS);
-                log.trace("Deferring dial to private-only provider", peer.id.toString(), "for topic", pubsubTopic);
+                log.trace(
+                    "connectToPubsubPeersUntilSubscriber: Deferring dial to private-only provider",
+                    peer.id.toString(),
+                    "for topic",
+                    pubsubTopic
+                );
                 continue;
             }
             startDial(peer as PeerInfo);
@@ -990,7 +995,12 @@ export async function directFetchIpnsRecordFromProviders({
                 ) {
                     privateOnlyProviders.push(peer as PeerInfo);
                     privateOnlyTimer ??= setTimeout(releasePrivateOnlyProviders, PRIVATE_ONLY_PROVIDER_DIAL_DELAY_MS);
-                    log.trace("Deferring dial to private-only provider", peer.id.toString(), "for topic", pubsubTopic);
+                    log.trace(
+                        "directFetchIpnsRecordFromProviders: Deferring dial to private-only provider",
+                        peer.id.toString(),
+                        "for topic",
+                        pubsubTopic
+                    );
                     continue;
                 }
                 dialFetchTasks.push(dialAndFetch(peer as PeerInfo));

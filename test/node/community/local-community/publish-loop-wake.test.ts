@@ -27,6 +27,10 @@ import { publishLoop } from "../../../../dist/node/runtime/node/community/local-
 import { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import { DbHandler } from "../../../../dist/node/runtime/node/community/db-handler.js";
 import { isEventLoopWatchRunning } from "../../../../dist/node/runtime/node/event-loop-watch.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// Community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:publish-loop-wake" });
 
 const SYNC_INTERVAL_MS = 20_000;
 
@@ -47,6 +51,8 @@ function createIdleStartedCommunity() {
         _updateTriggerGeneration: 0,
         _wakePublishLoop: undefined,
         _log: Object.assign(vi.fn(), { error: vi.fn(), trace: vi.fn() }),
+        // the event loop watch reports through a child of the pkc logger (issue #493)
+        _pkc: { _log: testLog },
         _dbHandler: { queryLatestPostCid, queryLatestCommentCid },
         emit: (event: string, error: Error) => (event === "error" ? errorListener(error) : undefined)
     });
@@ -248,6 +254,7 @@ describe("publish loop: every publication write asks for a record", () => {
     async function createDbHandlerOfCommunity() {
         const community = {
             address: `publish-loop-wake-${Date.now()}-${Math.random()}`,
+            _log: testLog,
             _pkc: { noData: true },
             _communityUpdateTrigger: false
         };

@@ -11,6 +11,10 @@ import { ChallengeAnswersByIndexSchema, CreatePublicationUserOptionsSchema } fro
 import { DecryptedChallengeAnswerSchema, DecryptedChallengeSchema } from "../../dist/node/pubsub-messages/schema.js";
 import { RpcPublishChallengeAnswersParamSchema } from "../../dist/node/clients/rpc-client/schema.js";
 import { PKC } from "./fixtures/fixtures.ts";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// Community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:challenge-answers-by-index" });
 
 // Issue #567: challenge answers travel as records keyed by challenge index, so a client can answer only the challenges it chooses to
 
@@ -19,7 +23,12 @@ const question = (q: string, answer: string) => ({ name: "question", options: { 
 // question challenges at indexes 0, 1 and 2, so a pre-answer for index 2 must not disturb the challenge at index 0
 const challengeSettings = [question("First?", "a"), question("Second?", "b"), question("Third?", "c")];
 
-type MockCommunity = { settings: { challenges: typeof challengeSettings }; _pkc: ReturnType<typeof PKC>; challenges?: unknown[] };
+type MockCommunity = {
+    _log: typeof testLog;
+    settings: { challenges: typeof challengeSettings };
+    _pkc: ReturnType<typeof PKC>;
+    challenges?: unknown[];
+};
 
 const requestWith = (challengeAnswers?: Record<string, string>) =>
     ({
@@ -31,11 +40,12 @@ describe("challenge answers keyed by challenge index (issue #567)", () => {
     let community: MockCommunity;
 
     beforeAll(async () => {
-        community = { settings: { challenges: challengeSettings }, _pkc: await PKC() };
+        community = { _log: testLog, settings: { challenges: challengeSettings }, _pkc: await PKC() };
         community.challenges = await Promise.all(
             challengeSettings.map(
                 async (communityChallengeSettings) =>
-                    (await getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings })).communityChallenge
+                    (await getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings, log: testLog }))
+                        .communityChallenge
             )
         );
     });

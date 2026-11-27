@@ -9,6 +9,9 @@ import { holdStartLockInAnotherProcess } from "../../helpers/start-lock-holder.j
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:start-lock-takeover" });
 
 // Another process on the same dataPath used to be able to take a started community's start lock over (it found the lock
 // stale because this process's event loop was blocked past 10s, by a VACUUM of a large DB say), and this process then
@@ -71,7 +74,7 @@ describeSkipIfRpc("a started community whose start lock another process asks for
 
             // Another live instance on the dataPath, written into the registry as the one that has the community started.
             // start() never lets that happen, so it is written by hand
-            const otherInstance = { dataPath: pkc.dataPath! };
+            const otherInstance = { dataPath: pkc.dataPath!, _log: testLog };
             const otherRegistry = getCommunitiesRegistry(otherInstance);
             try {
                 const storage = new Database(path.join(pkc.dataPath!, "storage.db"));

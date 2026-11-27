@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/helia-for-pkc.js";
 import { MockHttpRouter } from "../../../dist/node/runtime/node/test/mock-http-router.js";
 import { pubsubTopicToDhtKeyCid } from "../../../dist/node/util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:delegated-routing-concurrency" });
 
 // Regression coverage for issue #218 part 1: @helia/delegated-routing-v1-http-api-client defaults to
 // concurrentRequests: 4 per router, so when many boards/communities resolve in parallel their
@@ -59,6 +63,7 @@ describeSkipIfRpc("Delegated-routing provider lookup concurrency (issue #218)", 
 
     const createHeliaWithRouters = async (httpRoutersOptions: string[]): Promise<Libp2pJsClient> => {
         const client = (await createLibp2pJsClientOrUseExistingOne({
+            log: testLog,
             key: `delegated-routing-concurrency-${keyCounter++}`,
             httpRoutersOptions,
             libp2pOptions: {},

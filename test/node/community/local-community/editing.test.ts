@@ -18,7 +18,10 @@ import {
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type { CommunityEditOptions } from "../../../../dist/node/community/types.js";
 import { PKCError } from "../../../../dist/node/pkc-error.js";
-import Logger from "../../../../dist/node/logger.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:editing" });
 
 describe("editing: export shape", () => {
     it("exports all editing helpers", () => {
@@ -35,6 +38,7 @@ describe("editing: export shape", () => {
 describe("editing: parseRolesToEdit", () => {
     it("omits roleAddresses whose value is undefined/null (i.e. role removals)", async () => {
         const community = {
+            _log: testLog,
             _clientsManager: { resolveAuthorNameIfNeeded: vi.fn() },
             _pkc: { _timeouts: { "resolve-author-name": 1000 } }
         } as unknown as LocalCommunity;
@@ -51,6 +55,7 @@ describe("editing: parseRolesToEdit", () => {
 
     it("throws ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED when a domain role address can't resolve", async () => {
         const community = {
+            _log: testLog,
             _clientsManager: {
                 resolveAuthorNameIfNeeded: vi.fn().mockResolvedValue({ resolvedAuthorName: null })
             },
@@ -67,6 +72,7 @@ describe("editing: parseRolesToEdit", () => {
     it("does not call the resolver for non-domain role addresses", async () => {
         const resolveAuthorNameIfNeeded = vi.fn();
         const community = {
+            _log: testLog,
             _clientsManager: { resolveAuthorNameIfNeeded },
             _pkc: { _timeouts: { "resolve-author-name": 1000 } }
         } as unknown as LocalCommunity;
@@ -82,6 +88,7 @@ describe("editing: parseRolesToEdit", () => {
 describe("editing: parseChallengesToEdit", () => {
     it("returns _usingDefaultChallenge=false for non-default challenge settings", async () => {
         const community = {
+            _log: testLog,
             _pkc: { plugins: undefined }
         } as unknown as LocalCommunity;
 
@@ -94,8 +101,9 @@ describe("editing: parseChallengesToEdit", () => {
 
 describe("editing: validateNewAddressBeforeEditing", () => {
     it("rejects domain addresses that contain capital letters", async () => {
-        const log = Logger("pkc-js-test:editing");
+        const log = Logger({ namespace: "pkc-js-test:editing" });
         const community = {
+            _log: testLog,
             address: "old.bso",
             _pkc: { communities: [] },
             _assertDomainResolvesCorrectly: vi.fn().mockResolvedValue(undefined)
@@ -105,8 +113,9 @@ describe("editing: validateNewAddressBeforeEditing", () => {
     });
 
     it("rejects when an equivalent address already exists in pkc.communities", async () => {
-        const log = Logger("pkc-js-test:editing");
+        const log = Logger({ namespace: "pkc-js-test:editing" });
         const community = {
+            _log: testLog,
             address: "old.bso",
             signer: { address: "12D3KooWOldCommunityKey" },
             _pkc: { communities: [{ name: "new.bso", publicKey: "12D3KooWExistingCommunityKey", address: "new.bso", started: false }] },
@@ -117,8 +126,9 @@ describe("editing: validateNewAddressBeforeEditing", () => {
     });
 
     it("rejects when the new address is another listed community's key", async () => {
-        const log = Logger("pkc-js-test:editing");
+        const log = Logger({ namespace: "pkc-js-test:editing" });
         const community = {
+            _log: testLog,
             address: "old.bso",
             signer: { address: "12D3KooWOldCommunityKey" },
             _pkc: { communities: [{ name: "new.bso", publicKey: "12D3KooWExistingCommunityKey", address: "new.bso", started: false }] },
@@ -131,8 +141,9 @@ describe("editing: validateNewAddressBeforeEditing", () => {
     // No publicKey: a domain-addressed community has none until it publishes its first record, so the key to skip its own
     // entry by is the signer's
     it("does not count the community's own entry, matched by key, when moving to an alias of its own name", async () => {
-        const log = Logger("pkc-js-test:editing");
+        const log = Logger({ namespace: "pkc-js-test:editing" });
         const community = {
+            _log: testLog,
             address: "old.bso",
             publicKey: undefined,
             signer: { address: "12D3KooWOldCommunityKey" },
@@ -144,9 +155,10 @@ describe("editing: validateNewAddressBeforeEditing", () => {
     });
 
     it("passes through for a fresh lowercase address", async () => {
-        const log = Logger("pkc-js-test:editing");
+        const log = Logger({ namespace: "pkc-js-test:editing" });
         const assertSpy = vi.fn().mockResolvedValue(undefined);
         const community = {
+            _log: testLog,
             address: "old.bso",
             signer: { address: "12D3KooWOldCommunityKey" },
             _pkc: { communities: [{ name: "old.bso", publicKey: "12D3KooWOldCommunityKey", address: "old.bso", started: false }] },
@@ -164,6 +176,7 @@ describe("editing: movePostUpdatesFolderToNewAddress", () => {
     it("calls files.mv with old and new MFS paths", async () => {
         const mv = vi.fn().mockResolvedValue(undefined);
         const community = {
+            _log: testLog,
             address: "community.bso",
             _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { files: { mv } } }) }
         } as unknown as LocalCommunity;
@@ -175,6 +188,7 @@ describe("editing: movePostUpdatesFolderToNewAddress", () => {
     it("swallows a 'file does not exist' error (folder may not have been created yet)", async () => {
         const mv = vi.fn().mockRejectedValue(new Error("file does not exist"));
         const community = {
+            _log: testLog,
             address: "community.bso",
             _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { files: { mv } } }) }
         } as unknown as LocalCommunity;
@@ -186,6 +200,7 @@ describe("editing: movePostUpdatesFolderToNewAddress", () => {
     it("rethrows non-'file does not exist' kubo errors", async () => {
         const mv = vi.fn().mockRejectedValue(new Error("kubo: permission denied"));
         const community = {
+            _log: testLog,
             address: "community.bso",
             _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { files: { mv } } }) }
         } as unknown as LocalCommunity;

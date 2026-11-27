@@ -1,4 +1,5 @@
 import { beforeAll, afterAll, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { generateMockPost, publishWithExpectedResult, getAvailablePKCConfigsToTestAgainst } from "../../../dist/node/test/test-util.js";
 import {
     verifyChallengeRequest,
@@ -34,6 +35,9 @@ import type {
     ChallengeVerificationMessageType
 } from "../../../dist/node/pubsub-messages/types.js";
 import type { PubsubSubscriptionHandler } from "../../../dist/node/types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:pubsub" });
 
 // Helper to access private _handleChallengeExchange for testing
 type PublicationWithPrivateHandler = { _handleChallengeExchange: PubsubSubscriptionHandler };
@@ -100,7 +104,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             const challengeRequestToEdit = omit(clone(challengeRequest), ["comment", "challengeAnswers", "challengeCommentCids"]);
             challengeRequestToEdit.timestamp = timestamp() - 6 * 60; // Should be invalidated now
             const signer = Object.values(comment._challengeExchanges)[0].signer!;
-            challengeRequestToEdit.signature = await signChallengeRequest({ request: challengeRequestToEdit, signer });
+            challengeRequestToEdit.signature = await signChallengeRequest({ request: challengeRequestToEdit, signer, log: testLog });
             const verificaiton = await verifyChallengeRequest({ request: challengeRequestToEdit, validateTimestampRange: true });
             expect(verificaiton).to.deep.equal({ valid: false, reason: messages.ERR_PUBSUB_MSG_TIMESTAMP_IS_OUTDATED });
         });
@@ -146,7 +150,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 signers[5].publicKey // Use a public key that cannot be decrypted for the community
             );
 
-            challengeRequestToModify.signature = await signChallengeRequest({ request: challengeRequestToModify, signer: pubsubSigner });
+            challengeRequestToModify.signature = await signChallengeRequest({
+                request: challengeRequestToModify,
+                signer: pubsubSigner,
+                log: testLog
+            });
 
             try {
                 await originalPublish(
@@ -192,7 +200,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             tamperedTag[0] ^= 1;
             challengeRequestToModify.encrypted = { ...challengeRequestToModify.encrypted, tag: tamperedTag };
 
-            challengeRequestToModify.signature = await signChallengeRequest({ request: challengeRequestToModify, signer: pubsubSigner });
+            challengeRequestToModify.signature = await signChallengeRequest({
+                request: challengeRequestToModify,
+                signer: pubsubSigner,
+                log: testLog
+            });
 
             const responsePromise = new Promise<
                 { type: "challenge" } | { type: "challengeverification"; msg: DecryptedChallengeVerificationMessageType }
@@ -265,7 +277,11 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 comment._community!.encryption!.publicKey
             );
 
-            challengeRequestToModify.signature = await signChallengeRequest({ request: challengeRequestToModify, signer: pubsubSigner });
+            challengeRequestToModify.signature = await signChallengeRequest({
+                request: challengeRequestToModify,
+                signer: pubsubSigner,
+                log: testLog
+            });
 
             await comment._clientsManager.pubsubPublish(comment._community!.pubsubTopic!, challengeRequestToModify);
 
@@ -462,7 +478,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             const pubsubSigner = Object.values(comment._challengeExchanges)[0].signer!;
             const challengeAnswer = {
                 ...toSignAnswer,
-                signature: await signChallengeAnswer({ challengeAnswer: toSignAnswer, signer: pubsubSigner })
+                signature: await signChallengeAnswer({ challengeAnswer: toSignAnswer, signer: pubsubSigner, log: testLog })
             } as unknown as ChallengeAnswerMessageType;
             expect(await verifyChallengeAnswer({ answer: challengeAnswer, validateTimestampRange: false })).to.deep.equal({ valid: true });
 
@@ -513,7 +529,8 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 );
                 challengeAnswerToModify.signature = await signChallengeAnswer({
                     challengeAnswer: challengeAnswerToModify,
-                    signer: pubsubSigner
+                    signer: pubsubSigner,
+                    log: testLog
                 });
                 await originalPublish(
                     comment._community!.pubsubTopic!,
@@ -563,7 +580,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             } as unknown as Omit<ChallengeAnswerMessageType, "signature">;
             const challengeAnswer = {
                 ...toSignAnswer,
-                signature: await signChallengeAnswer({ challengeAnswer: toSignAnswer, signer: pubsubSigner })
+                signature: await signChallengeAnswer({ challengeAnswer: toSignAnswer, signer: pubsubSigner, log: testLog })
             } as unknown as ChallengeAnswerMessageType;
             expect(await verifyChallengeAnswer({ answer: challengeAnswer, validateTimestampRange: false })).to.deep.equal({ valid: true });
 

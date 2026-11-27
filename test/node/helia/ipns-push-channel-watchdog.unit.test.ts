@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/helia-for-pkc.js";
 import { MockHttpRouter } from "../../../dist/node/runtime/node/test/mock-http-router.js";
 import { ipnsNameToIpnsOverPubsubTopic, pubsubTopicToDhtKeyCid } from "../../../dist/node/util.js";
@@ -12,6 +13,9 @@ import { equals as uint8ArrayEquals } from "uint8arrays/equals";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
 import type { IpnsPubsubLocalStore } from "../../../dist/node/helia/util.js";
 import type { PeerId } from "@libp2p/interface";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:ipns-push-channel-watchdog" });
 
 // Push-channel watchdog suite for issue #330: the ipns-pubsub-router spec's model is
 // fetch-on-join plus gossip (kubo's go-libp2p-pubsub-router rebroadcasts its best record on the
@@ -59,6 +63,7 @@ describeSkipIfRpc("IPNS push-channel watchdog (issue #330)", () => {
 
     const createNode = async (opts: { listen?: boolean; routers?: string[] } = {}): Promise<Libp2pJsClient> => {
         const client = (await createLibp2pJsClientOrUseExistingOne({
+            log: testLog,
             key: `push-watchdog-${keyCounter++}`,
             httpRoutersOptions: opts.routers ?? ["http://localhost:1"],
             libp2pOptions: {

@@ -1,10 +1,14 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { getChallengeVerification, pkcJsChallenges } from "../../dist/node/runtime/node/community/challenges/index.js";
 import { validateChallengeResultExtras } from "../../dist/node/runtime/node/community/challenges/validate-challenge-result.js";
 import type { GetChallengeAnswers } from "../../dist/node/runtime/node/community/challenges/index.js";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../../dist/node/pubsub-messages/types.js";
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
 import { PKC } from "./fixtures/fixtures.ts";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:result-extras" });
 
 // Helper that builds a synthetic challenge factory returning a fixed challenge-result shape so we
 // can exercise the aggregation and override-guard paths from the user's seat (the challenge author)
@@ -31,6 +35,7 @@ describe("ChallengeResult extras: aggregation across successful challenges", () 
             "extras-b": makeExtrasChallenge({ success: true, comment: { b: 2, c: 3 } })
         };
         const community = {
+            _log: testLog,
             settings: { challenges: [{ name: "extras-a" }, { name: "extras-b" }] },
             _pkc: mockPkc
         } as unknown as LocalCommunity;
@@ -51,6 +56,7 @@ describe("ChallengeResult extras: aggregation across successful challenges", () 
             "cu-b": makeExtrasChallenge({ success: true, commentUpdate: { reason: "second" } })
         };
         const community = {
+            _log: testLog,
             settings: { challenges: [{ name: "cu-a" }, { name: "cu-b" }] },
             _pkc: mockPkc
         } as unknown as LocalCommunity;
@@ -70,6 +76,7 @@ describe("ChallengeResult extras: aggregation across successful challenges", () 
             "f-1": makeExtrasChallenge({ success: false, error: "denied", reason: "kyc missing" })
         };
         const community = {
+            _log: testLog,
             settings: { challenges: [{ name: "f-1" }] },
             _pkc: mockPkc
         } as unknown as LocalCommunity;
@@ -96,6 +103,7 @@ describe("ChallengeResult extras: aggregation across successful challenges", () 
             })
         };
         const community = {
+            _log: testLog,
             settings: { challenges: [{ name: "low-confidence", pendingApproval: true }] },
             _pkc: mockPkc
         } as unknown as LocalCommunity;
@@ -137,6 +145,7 @@ describe("ChallengeResult extras: override-guard", () => {
             "bad-comment": makeExtrasChallenge({ success: true, comment: { content: "spoofed by challenge" } })
         };
         const community = {
+            _log: testLog,
             settings: { challenges: [{ name: "bad-comment" }] },
             _pkc: mockPkc
         } as unknown as LocalCommunity;
@@ -163,6 +172,7 @@ describe("ChallengeResult extras: override-guard", () => {
             "bad-cu": makeExtrasChallenge({ success: true, commentUpdate: { upvoteCount: 999 } })
         };
         const community = {
+            _log: testLog,
             settings: { challenges: [{ name: "bad-cu" }] },
             _pkc: mockPkc
         } as unknown as LocalCommunity;
@@ -190,6 +200,7 @@ describe("ChallengeResult extras: override-guard", () => {
                 "bad-runtime": makeExtrasChallenge({ success: true, commentUpdate })
             };
             const community = {
+                _log: testLog,
                 settings: { challenges: [{ name: "bad-runtime" }] },
                 _pkc: mockPkc
             } as unknown as LocalCommunity;
@@ -228,6 +239,7 @@ describe("ChallengeResult extras: override-guard", () => {
             country: makeExtrasChallenge({ success: true, comment: { countryCode: "FR" } })
         };
         const community = {
+            _log: testLog,
             settings: { challenges: [{ name: "country" }] },
             _pkc: mockPkc
         } as unknown as LocalCommunity;
@@ -250,6 +262,7 @@ describe("ChallengeResult extras: override-guard", () => {
             })
         };
         const community = {
+            _log: testLog,
             settings: { challenges: [{ name: "author-country" }] },
             _pkc: mockPkc
         } as unknown as LocalCommunity;
@@ -272,6 +285,7 @@ describe("ChallengeResult extras: override-guard", () => {
             })
         };
         const community = {
+            _log: testLog,
             settings: { challenges: [{ name: "bad-author" }] },
             _pkc: mockPkc
         } as unknown as LocalCommunity;
@@ -301,6 +315,7 @@ describe("ChallengeResult extras: override-guard", () => {
             })
         };
         const community = {
+            _log: testLog,
             settings: { challenges: [{ name: "country-flair" }] },
             _pkc: mockPkc
         } as unknown as LocalCommunity;
@@ -328,6 +343,7 @@ describe("ChallengeResult extras: override-guard", () => {
             })
         };
         const community = {
+            _log: testLog,
             settings: { challenges: [{ name: "bad-ban" }] },
             _pkc: mockPkc
         } as unknown as LocalCommunity;
@@ -354,6 +370,7 @@ describe("ChallengeResult extras: override-guard", () => {
             })
         };
         const community = {
+            _log: testLog,
             settings: { challenges: [{ name: "bad-score" }] },
             _pkc: mockPkc
         } as unknown as LocalCommunity;

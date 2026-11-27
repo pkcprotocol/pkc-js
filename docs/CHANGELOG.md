@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.0.165](https://github.com/pkcprotocol/pkc-js/compare/v0.0.164...v0.0.165) (2026-11-27)
+
+### ⚠ BREAKING CHANGES
+
+* **logger:** `log` is required wherever pkc-js types a challenge factory, `getChallenge`, a
+page sort factory or a name resolver's `resolve()`, and `validateChallengeSettings` /
+`validatePageSortSettings` now receive `{ ..., log }`. A name resolver's `destroy()` now receives
+`{ log }`, so code that calls it directly must pass one. Implementations that ignore `log` are
+unaffected. Code that calls these functions directly (a package's own tests, a client re-sorting
+pages with a page sort factory) must pass a `log`.
+`validateChallengeFileFactory(factory, { name, log })` and
+`validatePageSortFileFactory(factory, { name, log })` now require the caller's `log`.
+
+### Features
+
+* **logger:** require the log passed to challenges, page sorts and name resolvers ([#626](https://github.com/pkcprotocol/pkc-js/issues/626)) ([a910aa4](https://github.com/pkcprotocol/pkc-js/commit/a910aa477ed29bc600d10d6ba4e81dca985588c9)), closes [#625](https://github.com/pkcprotocol/pkc-js/issues/625)
+
+## [0.0.164](https://github.com/pkcprotocol/pkc-js/compare/v0.0.163...v0.0.164) (2026-11-27)
+
+### Features
+
+* **logger:** per-identifier logs via tagged loggers, pkc.getLogs and a getLogs RPC method ([#506](https://github.com/pkcprotocol/pkc-js/issues/506)) ([14af7b8](https://github.com/pkcprotocol/pkc-js/commit/14af7b80789af3d297a1750ce0ea23b9d9ff91c4)), closes [#493](https://github.com/pkcprotocol/pkc-js/issues/493) [#5f7600cef](https://github.com/pkcprotocol/pkc-js/issues/5f7600cef)
+
+### Build
+
+* **deps:** upgrade @pkcprotocol/pkc-logger 0.3.0 -> 0.3.1 ([#624](https://github.com/pkcprotocol/pkc-js/issues/624)) ([5dd8d0b](https://github.com/pkcprotocol/pkc-js/commit/5dd8d0be96574fc78232a8c01e73142185e09146))
+
 ## [0.0.163](https://github.com/pkcprotocol/pkc-js/compare/v0.0.162...v0.0.163) (2026-11-24)
 
 ### Bug Fixes

@@ -16,6 +16,10 @@ export class CommentModeration extends Publication implements CommentModerationP
     override raw: { pubsubMessageToPublish?: CommentModerationPubsubMessagePublication } = {};
     override challengeRequest?: CreateCommentModerationOptions["challengeRequest"];
 
+    protected override _logNamespace(): string {
+        return "pkc-js:comment-moderation";
+    }
+
     constructor(pkc: PKC) {
         super(pkc);
 
@@ -53,7 +57,7 @@ export class CommentModeration extends Publication implements CommentModerationP
     protected override async _signPublicationOptionsToPublish(
         cleanedPublication: unknown
     ): Promise<CommentModerationPubsubMessagePublication["signature"]> {
-        return signCommentModeration({ commentMod: cleanedPublication as CommentModerationOptionsToSign, pkc: this._pkc });
+        return signCommentModeration({ commentMod: cleanedPublication as CommentModerationOptionsToSign, pkc: this._pkc, log: this._log });
     }
 
     _initPubsubPublication(pubsubMsgPub: CommentModerationPubsubMessagePublication) {

@@ -1,5 +1,5 @@
 import { peerIdFromString } from "@libp2p/peer-id";
-import Logger from "../logger.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import type { KuboRpcClient } from "../types.js";
 
 // Kubo answers these from memory; the bound is for a daemon that is down or wedged, so a stop() never hangs on it.
@@ -31,13 +31,14 @@ function ipnsNameToPeerIdString(ipnsName: string): string | undefined {
 export async function cancelKuboIpnsPubsubSubscriptions({
     kuboRpcClient,
     ipnsNames,
-    unlessKuboHoldsAKey
+    unlessKuboHoldsAKey,
+    log
 }: {
     kuboRpcClient: Pick<KuboRpcClient, "_client" | "url">;
     ipnsNames: (string | undefined)[];
     unlessKuboHoldsAKey?: boolean;
+    log: Logger;
 }): Promise<void> {
-    const log = Logger("pkc-js:kubo-ipns-pubsub:cancel");
     const namesToCancel = [...new Set(ipnsNames.map((name) => (name ? ipnsNameToPeerIdString(name) : undefined)))].filter(
         (name): name is string => typeof name === "string"
     );
@@ -49,7 +50,12 @@ export async function cancelKuboIpnsPubsubSubscriptions({
             const namesWithKey = new Set(keys.map((key) => ipnsNameToPeerIdString(key.id)));
             if (namesToCancel.some((name) => namesWithKey.has(name))) return;
         } catch (e) {
-            log.error("Failed to list the keys of kubo", kuboRpcClient.url, "so no IPNS pubsub subscription is cancelled", e);
+            log.error(
+                "cancelKuboIpnsPubsubSubscriptions: Failed to list the keys of kubo",
+                kuboRpcClient.url,
+                "so no IPNS pubsub subscription is cancelled",
+                e
+            );
             return;
         }
     }
@@ -60,6 +66,12 @@ export async function cancelKuboIpnsPubsubSubscriptions({
         } catch (e) {
             // Expected on a daemon started without --enable-namesys-pubsub, which has no such subscriptions. Kubo
             // also refuses while it has a resolve of the name in progress, which then is another process following it.
-            log.trace("Failed to cancel the IPNS pubsub subscription of", name, "on kubo", kuboRpcClient.url, e);
+            log.trace(
+                "cancelKuboIpnsPubsubSubscriptions: Failed to cancel the IPNS pubsub subscription of",
+                name,
+                "on kubo",
+                kuboRpcClient.url,
+                e
+            );
         }
 }

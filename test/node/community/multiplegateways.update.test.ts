@@ -1,4 +1,5 @@
 import http, { IncomingMessage, ServerResponse, Server } from "http";
+import Logger from "@pkcprotocol/pkc-logger";
 import { describe, it, beforeAll, afterAll } from "vitest";
 import { mockGatewayPKC, mockPKC, resolveWhenConditionIsTrue } from "../../../dist/node/test/test-util.js";
 import { signCommunity } from "../../../dist/node/signer/signatures.js";
@@ -9,6 +10,9 @@ import { convertBase58IpnsNameToBase36Cid } from "../../../dist/node/signer/util
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { SignerWithPublicKeyAddress } from "../../../dist/node/signer/index.js";
 import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:multiplegateways" });
 
 describe("Test fetching community record from multiple gateways (isolated)", async () => {
     // Mock gateway ports (chosen to avoid conflicts with test-server.js ports)
@@ -92,7 +96,7 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
 
     // Sign a community record
     const signRecord = async (record: Omit<CommunityIpfsType, "signature">): Promise<CommunityIpfsType> => {
-        const signature = await signCommunity({ community: record, signer: testSigner });
+        const signature = await signCommunity({ community: record, signer: testSigner, log: testLog });
         return { ...record, signature };
     };
 

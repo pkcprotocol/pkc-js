@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import {
     AuthorAddressSchema,
     ChallengeAnswerStringSchema,
@@ -223,6 +224,11 @@ export const CommunityChallengeSettingSchema = z
     .strict()
     .refine((challengeData) => challengeData.path || challengeData.name, "Path or name of challenge has to be defined");
 
+// A logger handed to an extension point (issue #493): a child of the community's logger, so a package's lines carry the
+// community's tags and land in the pkc instance's buffer. Required everywhere, the validate hooks included (issue #625):
+// core always passes one, so a package logs through it without keeping a logger of its own as a fallback.
+const LoggerArgSchema = z.custom<Logger>((value) => typeof value === "function", { message: "log must be a pkc-logger Logger" });
+
 export const GetChallengeArgsSchema = z.object({
     challengeSettings: CommunityChallengeSettingSchema,
     challengeRequestMessage: z.custom<DecryptedChallengeRequestMessageTypeWithCommunityAuthor>(), // no need to validate because extra props may be there
@@ -236,7 +242,10 @@ export const GetChallengeArgsSchema = z.object({
     // across the whole challenge request so the author's domain is resolved at most once. Optional so a
     // challenge package written against an older core still type-checks; built-in challenges always receive
     // it. See docs/protocol/challenge-authoring.md and issues #267, #353, #354.
-    authorIdentityMatcher: z.custom<AuthorIdentityMatcher>().optional()
+    authorIdentityMatcher: z.custom<AuthorIdentityMatcher>().optional(),
+    // The exchange's logger (issue #493): the community's child tagged with its publicKey and the publication's
+    // signature and this challenge's challengeIndex, under the challenge's own namespace. Required (issue #625).
+    log: LoggerArgSchema
 });
 
 // Loose, not strict: an unknown key here would be a parse error, and a parse error takes community
@@ -262,7 +271,7 @@ export const ChallengeFileSchema = z.looseObject({
     // so a package needs no pkc-js import; core wraps it in a PKCError with code
     // ERR_CHALLENGE_SETTINGS_VALIDATION_FAILED. See docs/protocol/challenge-authoring.md.
     validateChallengeSettings: z
-        .function({ input: [z.object({ challengeSettings: CommunityChallengeSettingSchema })], output: z.void() })
+        .function({ input: [z.object({ challengeSettings: CommunityChallengeSettingSchema, log: LoggerArgSchema })], output: z.void() })
         .optional()
 });
 
@@ -278,7 +287,8 @@ export const CommunityChallengeSchema = z.looseObject({
     publicOptions: z.record(z.string(), z.string()).optional()
 });
 export const ChallengeFileFactoryArgsSchema = z.object({
-    challengeSettings: CommunityChallengeSettingSchema
+    challengeSettings: CommunityChallengeSettingSchema,
+    log: LoggerArgSchema // the caller's child under `challenge:<name>`, tagged with challengeIndex (issues #493, #625)
 });
 
 export const ChallengeFileFactorySchema = z.function({ input: [ChallengeFileFactoryArgsSchema], output: ChallengeFileSchema });
@@ -311,7 +321,8 @@ export const CommunityPagesSettingsSchema = z
     .strict();
 
 export const PageSortFileFactoryArgsSchema = z.object({
-    pageSortSettings: CommunityPageSortSettingSchema
+    pageSortSettings: CommunityPageSortSettingSchema,
+    log: LoggerArgSchema // the caller's child under `page-sort:<name>` (issues #493, #625)
 });
 
 export const PageSortScopeSchema = z.enum(["posts", "replies"]);
@@ -350,7 +361,7 @@ export const PageSortFileSchema = z.looseObject({
     }),
     // Sync semantic validation of the entry, same contract as ChallengeFile.validateChallengeSettings
     validatePageSortSettings: z
-        .function({ input: [z.object({ pageSortSettings: CommunityPageSortSettingSchema })], output: z.void() })
+        .function({ input: [z.object({ pageSortSettings: CommunityPageSortSettingSchema, log: LoggerArgSchema })], output: z.void() })
         .optional()
 });
 

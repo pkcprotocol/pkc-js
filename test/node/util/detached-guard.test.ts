@@ -2,12 +2,15 @@ import { describe, it, expect, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { guardDetached } from "../../../dist/node/detached-guard.js";
 import { captureProcessFatalErrors, letDetachedWorkSettle } from "../../helpers/process-fatal.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:detached-guard" });
 
 describe("guardDetached", () => {
     it("passes the arguments through and does not call onFailure when the handler succeeds", async () => {
         const handler = vi.fn(async (a: number, b: number) => a + b);
         const onFailure = vi.fn();
-        await guardDetached({ entryPoint: "ok", handler, onFailure })(1, 2);
+        await guardDetached({ entryPoint: "ok", handler, onFailure, log: testLog })(1, 2);
         expect(handler).toHaveBeenCalledWith(1, 2);
         expect(onFailure).not.toHaveBeenCalled();
     });
@@ -20,7 +23,8 @@ describe("guardDetached", () => {
             handler: () => {
                 throw boom;
             },
-            onFailure
+            onFailure,
+            log: testLog
         });
         expect(() => guarded()).not.toThrow();
         expect(onFailure).toHaveBeenCalledExactlyOnceWith(boom);
@@ -29,14 +33,14 @@ describe("guardDetached", () => {
     it("catches an async rejection and hands it to onFailure", async () => {
         const boom = new Error("async boom");
         const onFailure = vi.fn();
-        const guarded = guardDetached({ entryPoint: "async", handler: async () => Promise.reject(boom), onFailure });
+        const guarded = guardDetached({ entryPoint: "async", handler: async () => Promise.reject(boom), onFailure, log: testLog });
         await expect(guarded()).resolves.toBeUndefined();
         expect(onFailure).toHaveBeenCalledExactlyOnceWith(boom);
     });
 
     it("returns undefined for a sync handler and a promise for an async one", async () => {
-        const syncGuarded = guardDetached({ entryPoint: "s", handler: () => 1, onFailure: () => {} });
-        const asyncGuarded = guardDetached({ entryPoint: "a", handler: async () => 1, onFailure: () => {} });
+        const syncGuarded = guardDetached({ entryPoint: "s", handler: () => 1, onFailure: () => {}, log: testLog });
+        const asyncGuarded = guardDetached({ entryPoint: "a", handler: async () => 1, onFailure: () => {}, log: testLog });
         expect(syncGuarded()).toBeUndefined();
         expect(asyncGuarded()).toBeInstanceOf(Promise);
     });
@@ -49,7 +53,8 @@ describe("guardDetached", () => {
             },
             onFailure: () => {
                 throw new Error("from onFailure");
-            }
+            },
+            log: testLog
         });
         expect(() => guarded()).toThrow("from onFailure");
     });
@@ -62,7 +67,8 @@ describe("guardDetached", () => {
             },
             onFailure: () => {
                 throw new Error("from onFailure");
-            }
+            },
+            log: testLog
         });
         await expect(guarded()).rejects.toThrow("from onFailure");
     });
@@ -77,7 +83,8 @@ describe("guardDetached", () => {
             onFailure: async () => {
                 await letDetachedWorkSettle(20);
                 order.push("onFailure done");
-            }
+            },
+            log: testLog
         });
         await guarded();
         order.push("guard settled");
@@ -94,7 +101,8 @@ describe("guardDetached", () => {
                 handler: async () => {
                     throw new Error("in listener");
                 },
-                onFailure: (error) => emitter.emit("error", error)
+                onFailure: (error) => emitter.emit("error", error),
+                log: testLog
             })
         );
         const capture = captureProcessFatalErrors();
@@ -113,7 +121,8 @@ describe("guardDetached", () => {
                 handler: async () => {
                     throw new Error("in listener");
                 },
-                onFailure: (error) => emitter.emit("error", error)
+                onFailure: (error) => emitter.emit("error", error),
+                log: testLog
             })
         );
         const capture = captureProcessFatalErrors();
@@ -125,15 +134,14 @@ describe("guardDetached", () => {
 
     it("logs the entry point name and the cause chain", async () => {
         const logged: unknown[][] = [];
-        const { default: Logger } = await import("../../../dist/node/logger.js");
-        const logger = Logger("pkc-js:detached-guard");
-        const spy = vi.spyOn(logger, "error").mockImplementation((...args: unknown[]) => void logged.push(args));
+        const spy = vi.spyOn(testLog, "error").mockImplementation((...args: unknown[]) => void logged.push(args));
         const guarded = guardDetached({
             entryPoint: "myEntryPoint",
             handler: () => {
                 throw Object.assign(new Error("outer"), { cause: new Error("inner") });
             },
-            onFailure: () => {}
+            onFailure: () => {},
+            log: testLog
         });
         guarded();
         spy.mockRestore();

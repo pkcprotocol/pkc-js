@@ -6,6 +6,10 @@ import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { CommentUpdateType } from "../../../dist/node/publications/comment/types.js";
 import type Database from "better-sqlite3";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:v48-to-v49" });
 
 // v48 -> v49 adds the commentUpdates.pseudonymityAuthorTag column (issue #381): the own-post recognition
 // tag on comments the community aliased. commentUpdates is dropped and rebuilt on every version bump, so
@@ -167,6 +171,7 @@ const signature = {
 
 interface FakeCommunity {
     address: string;
+    _log: typeof testLog;
     _pkc: { noData: boolean };
     _cidsToUnPin: Set<string>;
     _blocksToRm: string[];
@@ -180,6 +185,7 @@ interface FakeCommunity {
 function createFakeCommunity(address: string): FakeCommunity {
     return {
         address,
+        _log: testLog,
         _pkc: { noData: true },
         _cidsToUnPin: new Set<string>(),
         _blocksToRm: [],
@@ -231,8 +237,30 @@ describeSkipIfRpc("v48 → v49 DB migration (commentUpdates.pseudonymityAuthorTa
                 depth, protocolVersion, insertedAt)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '1.0.0', ?)`
         );
-        insertPost.run(ALIASED_POST_CID, author.address, JSON.stringify(author), ALIASED_POST_CID, COMMUNITY_ADDRESS, "content", "title", now - 300, JSON.stringify(signature), now - 300);
-        insertPost.run(PLAIN_POST_CID, author.address, JSON.stringify(author), PLAIN_POST_CID, COMMUNITY_ADDRESS, "content", "title", now - 200, JSON.stringify({ ...signature, signature: "sig2" }), now - 200);
+        insertPost.run(
+            ALIASED_POST_CID,
+            author.address,
+            JSON.stringify(author),
+            ALIASED_POST_CID,
+            COMMUNITY_ADDRESS,
+            "content",
+            "title",
+            now - 300,
+            JSON.stringify(signature),
+            now - 300
+        );
+        insertPost.run(
+            PLAIN_POST_CID,
+            author.address,
+            JSON.stringify(author),
+            PLAIN_POST_CID,
+            COMMUNITY_ADDRESS,
+            "content",
+            "title",
+            now - 200,
+            JSON.stringify({ ...signature, signature: "sig2" }),
+            now - 200
+        );
 
         // The aliased post has an alias row; the plain post does not.
         db.prepare(
@@ -259,7 +287,9 @@ describeSkipIfRpc("v48 → v49 DB migration (commentUpdates.pseudonymityAuthorTa
     });
 
     it("the commentUpdates table has a pseudonymityAuthorTag column", () => {
-        const columns = (getPrivate(dbHandler!)._db.prepare("PRAGMA table_info(commentUpdates)").all() as { name: string }[]).map((c) => c.name);
+        const columns = (getPrivate(dbHandler!)._db.prepare("PRAGMA table_info(commentUpdates)").all() as { name: string }[]).map(
+            (c) => c.name
+        );
         expect(columns).to.include("pseudonymityAuthorTag");
     });
 

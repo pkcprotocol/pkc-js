@@ -6,6 +6,9 @@ import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/h
 import { MockHttpRouter } from "../../../dist/node/runtime/node/test/mock-http-router.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:two-multiformats-copies" });
 
 // PR #580: a consumer's install can hold two copies of multiformats 14, ours (pinned exactly) and the
 // one the helia tree resolves from its `^14` range. Yarn 4, pnpm and Bun produce that as soon as a
@@ -75,7 +78,8 @@ describeSkipIfRpc("libp2p-js fetches work when the install has two multiformats 
             key: `two-multiformats-copies-${Math.random()}`,
             httpRoutersOptions: [router.url],
             libp2pOptions: { connectionGater: { denyDialMultiaddr: async () => false } },
-            heliaOptions: {}
+            heliaOptions: {},
+            log: testLog
         })) as Libp2pJsClient;
         clients.push(client);
         await client._helia.libp2p.dial(multiaddr(kuboWsAddress!));
