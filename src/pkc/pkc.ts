@@ -1552,7 +1552,12 @@ export class PKC extends PKCTypedEmitter<PKCEvents> implements ParsedPKCOptions 
         await Promise.all(Object.values(this.clients.pkcRpcClients).map((client) => client.destroy()));
 
         if (this.nameResolvers) {
-            await Promise.all(this.nameResolvers.map((resolver) => resolver.destroy?.()));
+            // a resolver logs its teardown through the instance's child under its own namespace (issue #625)
+            await Promise.all(
+                this.nameResolvers.map((resolver) =>
+                    resolver.destroy?.({ log: this.logger.child({ namespace: `pkc-js:name-resolver:${resolver.key}` }) })
+                )
+            );
         }
 
         // Get all methods on the instance and override them to throw errors if used after destruction

@@ -38,7 +38,8 @@ export interface NameResolverInterface {
         log: Logger;
     }) => Promise<{ publicKey: string; [key: string]: string } | undefined>;
     canResolve: (opts: { name: string }) => boolean;
-    destroy?: () => Promise<void>;
+    // `log` is the instance's child under `name-resolver:<key>`, with no `name` tag (issue #625)
+    destroy?: (opts: { log: Logger }) => Promise<void>;
 }
 
 // Per-call cache freshness control. Modeled on HTTP Cache-Control: max-age request directive (RFC 9111 §5.2.1.1).

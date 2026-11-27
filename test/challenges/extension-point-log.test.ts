@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { createLogger } from "@pkcprotocol/pkc-logger";
 import type { Logger } from "@pkcprotocol/pkc-logger";
 import PKC from "../../dist/node/index.js";
@@ -147,13 +147,18 @@ describe("the log handed to a name resolver (#625)", () => {
                         seenLogs.push(seen("resolve", log));
                         return { publicKey: communityPublicKey };
                     }
-                })
+                }),
+                {
+                    key: "destroy-resolver",
+                    provider: "mock",
+                    canResolve: () => false,
+                    resolve: async () => undefined,
+                    destroy: async ({ log }) => {
+                        seenLogs.push(seen("destroy", log));
+                    }
+                }
             ]
         });
-    });
-
-    afterAll(async () => {
-        await pkc.destroy();
     });
 
     it("resolve() receives a log under name-resolver:<key> tagged with the name being resolved", async () => {
@@ -165,5 +170,11 @@ describe("the log handed to a name resolver (#625)", () => {
         expect(seenLogs).to.have.length(1);
         expect(seenLogs[0].tags.name).to.equal(communityName);
         expect(seenLogs[0].namespace.endsWith(":name-resolver:capture-resolver")).to.equal(true);
+    });
+
+    it("destroy() receives the instance's log under name-resolver:<key>, with no name tag", async () => {
+        seenLogs.length = 0;
+        await pkc.destroy();
+        expect(seenLogs).to.deep.equal([{ where: "destroy", namespace: "pkc-js:name-resolver:destroy-resolver", tags: {} }]);
     });
 });

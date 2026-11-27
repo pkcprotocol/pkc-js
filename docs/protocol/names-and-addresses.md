@@ -28,6 +28,7 @@ Domains are resolved via the `nameResolvers` plugin system configured on the PKC
 {
     key: string; // resolver identifier
     resolve: Function; // ({ name, abortSignal, log }) → publicKey
+    destroy?: Function; // ({ log }) → void, called by pkc.destroy()
     canResolve: Function; // domain → boolean (can this resolver handle it?)
     provider: string; // provider URL
 }
