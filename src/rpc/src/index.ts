@@ -603,7 +603,9 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
                 return res;
             } catch (e: any) {
                 const typedError = <PKCError | Error>e;
-                this._log.error(`${callback.name} error (${invocationId})`, { params, error: typedError });
+                // The params are never logged: they carry secrets (the signer.privateKey of createCommunity and
+                // editCommunity, challenge answers), and this buffer is served to every client by getLogs
+                this._log.error(`${callback.name} error (${invocationId})`, typedError);
                 // We need to stringify the error here because rpc-websocket will remove props from PKCError
                 if (typedError instanceof PKCError) {
                     const seen = new WeakSet();

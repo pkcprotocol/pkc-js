@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import PKC from "../../../dist/node/index.js";
 import { mockRpcServerPKC } from "../../../dist/node/test/test-util.js";
 import { createInProcessRpcServer, uniqueTmpDataPath, type PKCWsServerType } from "../../helpers/rpc-server-harness.js";
+import signers from "../../fixtures/signers.js";
 import { describeIfRpc } from "../../helpers/conditional-tests.js";
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
@@ -88,6 +89,20 @@ describeIfRpc("pkc.getLogs({ rpcUrl }) and the getLogs RPC method (#493)", () =>
     it("the server rejects an rpcUrl in its params, so a call is never chained to a third daemon", async () => {
         const error = await rejectionOf(clientPKC._pkcRpcClient!.rpcCall("getLogs", [{ rpcUrl: "ws://127.0.0.1:1/third" }]));
         expect(error.code).to.equal("ERR_INVALID_LOG_QUERY");
+    });
+
+    it("a failed RPC call is logged without its params, which can carry a private key or challenge answers", async () => {
+        const secretInParams = "secret-param-that-must-not-reach-the-log-buffer";
+        const error = await rejectionOf(
+            clientPKC._pkcRpcClient!.rpcCall("editCommunity", [
+                { publicKey: signers[5].address, editOptions: { description: secretInParams } }
+            ])
+        );
+        expect(error.code).to.equal("ERR_RPC_CLIENT_TRYING_TO_EDIT_REMOTE_COMMUNITY");
+
+        // The failure itself is still logged
+        expect(serverRoot.getLogs({ regex: { source: "editCommunity error" } }).entries.length).to.be.greaterThan(0);
+        expect(serverRoot.getLogs({ regex: { source: secretInParams } }).entries).to.deep.equal([]);
     });
 
     it("throws ERR_PKC_NOT_CONNECTED_TO_RPC for an rpcUrl this instance is not configured with", async () => {
