@@ -1082,6 +1082,31 @@ describe("shouldExcludePublication", () => {
     });
 });
 
+// An exclude item is evaluated as three independent groups, not as one "all conditions hold" test: the author
+// conditions (shouldExcludePublication), `challenges` (shouldExcludeChallengeSuccess) and `community`
+// (shouldExcludeChallengeCommentCids). Each evaluator reads only its own fields, so an item that sets fields from
+// two groups excuses an author who satisfies either group. Pinned as the specified behaviour (BSIP-3, issue #485).
+describe("an exclude item that mixes roles and challenges excuses on either one", () => {
+    const communityChallenge = { exclude: [{ roles: ["moderator"], challenges: [1] }] };
+    const modSigner = signers[0];
+    const community = { roles: { [modSigner.address]: { role: "moderator" } } };
+
+    const postOfMod = clone(validCommentFixture);
+    postOfMod.author = { address: modSigner.address, displayName: "Mod User" };
+    postOfMod.signature = { ...postOfMod.signature, publicKey: modSigner.publicKey };
+    const postOfNonMod = clone(validCommentFixture);
+
+    it("a moderator is excused without passing challenge 1", async () => {
+        expect(await testShouldExcludePublication(communityChallenge, { comment: postOfMod }, community)).to.equal(true);
+        expect(testShouldExcludeChallengeSuccess(communityChallenge, 0, [{ success: false }, { success: false }])).to.equal(false);
+    });
+
+    it("a non-moderator is excused once challenge 1 succeeds", async () => {
+        expect(await testShouldExcludePublication(communityChallenge, { comment: postOfNonMod }, community)).to.equal(false);
+        expect(testShouldExcludeChallengeSuccess(communityChallenge, 0, [{ success: false }, { success: true }])).to.equal(true);
+    });
+});
+
 describe("shouldExcludeChallengeSuccess", () => {
     it("exclude 0, 1", () => {
         const communityChallenge = {
