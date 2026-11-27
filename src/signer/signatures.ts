@@ -484,8 +484,14 @@ export async function signChallengeVerification({
 
 // Verify functions
 
+const SIGNATURE_TYPE_ED25519 = "ed25519";
+
 // DO NOT MODIFY THIS FUNCTION, OTHERWISE YOU RISK BREAKING BACKWARD COMPATIBILITY
 const _verifyJsonSignature = async (publicationToBeVerified: PKCRecordToVerify): Promise<boolean> => {
+    // The only scheme there is. Checked, not assumed: bytes verified as Ed25519 under any `type` would make the field
+    // meaningless, and a second scheme could then never be told apart by it (BSIP-2, issue #614). This does not change
+    // what is signed or how, so it does not touch backward compatibility of existing signatures.
+    if (publicationToBeVerified.signature.type !== SIGNATURE_TYPE_ED25519) return false;
     const propsToSign = {};
     for (const propertyName of publicationToBeVerified.signature.signedPropertyNames) {
         //@ts-expect-error
@@ -507,6 +513,7 @@ const _verifyJsonSignature = async (publicationToBeVerified: PKCRecordToVerify):
 };
 // DO NOT MODIFY THIS FUNCTION, OTHERWISE YOU RISK BREAKING BACKWARD COMPATIBILITY
 const _verifyPubsubSignature = async (msg: PubsubMessage): Promise<boolean> => {
+    if (msg.signature.type !== SIGNATURE_TYPE_ED25519) return false; // see _verifyJsonSignature
     const propsToSign = {};
     for (const propertyName of msg.signature.signedPropertyNames) {
         //@ts-expect-error

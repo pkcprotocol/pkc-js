@@ -66,6 +66,13 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             await pkc.destroy();
         });
 
+        it(`a challenge request whose signature.type is not ed25519 is invalid, even over a valid signature (issue #614)`, async () => {
+            const request = parsePubsubMsgFixture(clone(validChallengeRequestFixture)) as unknown as ChallengeRequestMessageType;
+            request.signature = { ...request.signature, type: "secp256k1" };
+            const verificaiton = await verifyChallengeRequest({ request, validateTimestampRange: false });
+            expect(verificaiton).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
+        });
+
         it(`valid challengerequest fixture from previous version can be validated`, async () => {
             const request = parsePubsubMsgFixture(clone(validChallengeRequestFixture)) as unknown as ChallengeRequestMessageType;
             const verificaiton = await verifyChallengeRequest({ request, validateTimestampRange: false });

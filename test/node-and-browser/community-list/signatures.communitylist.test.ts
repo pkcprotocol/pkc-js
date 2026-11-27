@@ -40,6 +40,12 @@ describeSkipIfRpc("verifyCommunityList", () => {
         );
     });
 
+    it("rejects a record whose signature.type is not ed25519, even over a valid signature (issue #614)", async () => {
+        const otherType = clone(validRecord);
+        otherType.signature.type = "secp256k1";
+        expect((await verifyCommunityList({ communityList: otherType })).valid).to.equal(false);
+    });
+
     it("rejects a record whose signature bytes are tampered", async () => {
         const tampered = clone(validRecord);
         tampered.signature.signature = tampered.signature.signature.slice(0, -4) + "AAAA";
