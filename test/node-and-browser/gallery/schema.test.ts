@@ -26,12 +26,12 @@ const commentIpfs = (gallery: unknown) => ({
     depth: 0,
     timestamp: 1700000000,
     protocolVersion: "1.0.0",
-    communityPublicKey: "somePublicKey"
+    communityPublicKey: "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z"
 });
 
 const createOptions = (gallery?: unknown) => ({
     signer: { privateKey: signers[0].privateKey, type: "ed25519" },
-    communityPublicKey: signers[1].publicKey,
+    communityPublicKey: signers[1].address,
     ...(gallery ? { gallery } : {})
 });
 

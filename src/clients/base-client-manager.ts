@@ -37,6 +37,7 @@ import all from "it-all";
 import { keys } from "remeda";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { CidPathSchema } from "../schema/schema.js";
+import { isKeyAddress } from "../key-address.js";
 import { CID } from "multiformats/cid"; // re-sourced from kubo-rpc-client (identical class) to keep kubo off the eager import path
 import { convertBase58IpnsNameToBase36Cid } from "../signer/util.js";
 import pTimeout from "p-timeout";
@@ -1260,7 +1261,7 @@ export class BaseClientsManager {
         assert(typeof communityName === "string", "communityName needs to be a string to be resolved");
         if (!isStringDomain(communityName)) return communityName;
         const result = await this._resolveViaNameResolvers({ name: communityName, resolveType: "community", abortSignal, cache });
-        if (typeof result === "string" && !isIpns(result))
+        if (typeof result === "string" && !isKeyAddress(result))
             throw new PKCError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: communityName });
         return result;
     }
@@ -1276,7 +1277,7 @@ export class BaseClientsManager {
     }): Promise<{ resolvedAuthorName: string | null }> {
         if (!isStringDomain(authorName)) throw new PKCError("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58", { authorAddress: authorName });
         const result = await this._resolveViaNameResolvers({ name: authorName, resolveType: "author", abortSignal, cache });
-        if (typeof result === "string" && !isIpns(result))
+        if (typeof result === "string" && !isKeyAddress(result))
             throw new PKCError("ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS", { resolvedTextRecord: result, address: authorName });
         return { resolvedAuthorName: result };
     }

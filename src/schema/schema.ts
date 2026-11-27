@@ -3,6 +3,7 @@ import { CID } from "multiformats/cid"; // re-sourced from kubo-rpc-client (iden
 import { peerIdFromString } from "@libp2p/peer-id";
 import { messages } from "../errors.js";
 import { difference, keys } from "remeda";
+import { isKeyAddress } from "../key-address.js";
 
 export const nonNegativeIntStringSchema = z
     .string()
@@ -26,6 +27,9 @@ export const SignerWithAddressPublicKeyShortAddressSchema = SignerWithAddressPub
 export const CommunityAddressSchema = z.string().min(1); // TODO add a regex for checking if it's a domain or IPNS address
 
 export const AuthorAddressSchema = z.string().min(1);
+
+// A key address, in the one form the protocol gives it (BSIP-10): see src/key-address.ts
+export const KeyAddressSchema = z.string().refine((value) => isKeyAddress(value), messages.ERR_KEY_ADDRESS_IS_NOT_BASE58BTC);
 
 export const PKCTimestampSchema = z.number().positive().int(); // Math.round(Date.now() / 1000)
 
@@ -111,7 +115,7 @@ export const CreatePublicationUserOptionsSchema = z.object({
     signer: CreateSignerSchema,
     author: AuthorPubsubSchema.partial().loose().optional(),
     communityAddress: CommunityAddressSchema.optional(), // derived as communityName || communityPublicKey if not provided
-    communityPublicKey: z.string().min(1).optional(), // IPNS key of the community; optional in schema for backward compat with old CommentIpfs, but communities mandate it on new incoming publications
+    communityPublicKey: KeyAddressSchema.optional(), // IPNS key of the community; optional in schema for backward compat with old CommentIpfs, but communities mandate it on new incoming publications
     communityName: z.string().min(1).optional(), // domain name of the community, if any
     protocolVersion: ProtocolVersionSchema.optional(),
     timestamp: PKCTimestampSchema.optional(),

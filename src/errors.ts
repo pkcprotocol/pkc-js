@@ -403,6 +403,8 @@ export enum messages {
     ERR_ALL_NAME_RESOLVERS_FAILED = "Every name resolver that can handle this address failed, so the name could not be resolved",
     ERR_DOMAIN_TXT_RECORD_NOT_FOUND = "Domain resolver did not find the text record",
     ERR_DOMAIN_COMMUNITY_ADDRESS_TXT_RECORD_POINT_TO_DIFFERENT_ADDRESS = "community-address text record of domain is pointing to a different address than community.signer.address",
+    ERR_KEY_ADDRESS_IS_NOT_BASE58BTC = "The value is not a key address: the base58btc form of an Ed25519 key, 52 characters starting with 12D3KooW. Other encodings of a key (k51..., bafz...) are not accepted",
+    ERR_ROLE_KEY_IS_NOT_A_NAME_OR_KEY_ADDRESS = "A key of community.roles must be a domain name or a key address (the base58btc form of an Ed25519 key, starting with 12D3KooW)",
     ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS = "Resolved the text record value to a string that is non IPNS",
     ERR_COMMUNITY_DOMAIN_HAS_NO_TEXT_RECORD = "Domain resolver did not find the text record community-address",
 

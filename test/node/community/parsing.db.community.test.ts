@@ -258,7 +258,7 @@ describe("createSchemaRowParser", () => {
                 depth: 0,
                 timestamp: 1699999000,
                 protocolVersion: "1",
-                communityPublicKey: "otherCommunityPublicKey",
+                communityPublicKey: "12D3KooWP4XfbLzE6RJZKGE17P2LzHNmWBWnJBhQz718uxwrXBFV",
                 author: { address: "originalAuthorAddress" },
                 signature: buildSignature({ signedPropertyNames: ["content", "author", "protocolVersion", "timestamp"] })
             }
@@ -295,7 +295,7 @@ describe("createSchemaRowParser", () => {
                 depth: 0,
                 timestamp: 1699999000,
                 protocolVersion: "1",
-                communityPublicKey: "otherCommunityPublicKey",
+                communityPublicKey: "12D3KooWP4XfbLzE6RJZKGE17P2LzHNmWBWnJBhQz718uxwrXBFV",
                 author: { address: "originalAuthorAddress" },
                 signature: buildSignature({ signedPropertyNames: ["content", "author", "protocolVersion", "timestamp"] }),
                 someAuthorSignedExtraProp: { nested: ["value"] }
