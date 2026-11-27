@@ -7,6 +7,7 @@
 // Full coverage lives in the integration suite (test/node/community/garbage.collection.community.test.ts etc.).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     _describeReclaimedSpace,
     _resetRepoGcSchedulingState,
@@ -25,6 +26,9 @@ import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { StorageInterface } from "../../../../dist/node/types.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type { PurgedCommentTableRows } from "../../../../dist/node/runtime/node/community/db-handler-types.js";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:cleanup" });
 
 describe("cleanup: export shape", () => {
     it("exports all the expected helpers", () => {
@@ -45,6 +49,7 @@ describe("cleanup: addAllCidsUnderPurgedCommentToBeRemoved", () => {
         const blocksToRm: string[] = [];
         const mfsPathsToRemove = new Set<string>();
         const community = {
+            _log: testLog,
             address: "community.bso",
             _cidsToUnPin: cidsToUnPin,
             _blocksToRm: blocksToRm,
@@ -68,6 +73,7 @@ describe("cleanup: addAllCidsUnderPurgedCommentToBeRemoved", () => {
         const blocksToRm: string[] = [];
         const mfsPathsToRemove = new Set<string>();
         const community = {
+            _log: testLog,
             address: "community.bso",
             _cidsToUnPin: cidsToUnPin,
             _blocksToRm: blocksToRm,
@@ -91,6 +97,7 @@ describe("cleanup: addAllCidsUnderPurgedCommentToBeRemoved", () => {
         const cidsToUnPin = new Set<string>();
         const blocksToRm: string[] = [];
         const community = {
+            _log: testLog,
             address: "community.bso",
             _cidsToUnPin: cidsToUnPin,
             _blocksToRm: blocksToRm,
@@ -124,6 +131,7 @@ describe("cleanup: purgeDisapprovedCommentsOlderThan", () => {
     it("is a no-op when settings.purgeDisapprovedCommentsOlderThan is not a number", async () => {
         const purgeDisapprovedCommentsOlderThanSpy = vi.fn();
         const community = {
+            _log: testLog,
             address: "community.bso",
             settings: { purgeDisapprovedCommentsOlderThan: undefined },
             _dbHandler: { purgeDisapprovedCommentsOlderThan: purgeDisapprovedCommentsOlderThanSpy }
@@ -138,6 +146,7 @@ describe("cleanup: purgeDisapprovedCommentsOlderThan", () => {
         const purgeSpy = vi.fn().mockReturnValue([]);
         const rmUnneededMfsPathsSpy = vi.fn();
         const community = {
+            _log: testLog,
             address: "community.bso",
             settings: { purgeDisapprovedCommentsOlderThan: 60 },
             _mfsPathsToRemove: new Set<string>(),
@@ -173,6 +182,7 @@ describe("cleanup: repinCommentsIPFSIfNeeded", () => {
             });
         const iterateAllCommentsOrderedByIdAsc = vi.fn();
         const community = {
+            _log: testLog,
             address: "community.bso",
             _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { pin: { ls: pinLsSpy } } }) },
             _dbHandler: { queryLatestCommentCid: () => ({ cid: "QmLatestComment" }), iterateAllCommentsOrderedByIdAsc }
@@ -199,6 +209,7 @@ describe("cleanup: repinCommentsIPFSIfNeeded", () => {
         });
         const forceUpdateOnAllComments = vi.fn();
         const community = {
+            _log: testLog,
             address: "community.bso",
             _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { pin: { ls: pinLsSpy } } }) },
             _dbHandler: {
@@ -231,6 +242,7 @@ describe("cleanup: repinCommentsIPFSIfNeeded", () => {
         const batches = [[{ cid: "QmA" }, { cid: "QmB" }], [{ cid: "QmC" }, { cid: "QmD" }], [{ cid: "QmLatestComment" }]];
         const forceUpdateOnAllComments = vi.fn();
         const community = {
+            _log: testLog,
             address: "community.bso",
             _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { pin: { ls: pinLsSaysNotPinned() } } }) },
             _dbHandler: {
@@ -258,6 +270,7 @@ describe("cleanup: repinCommentsIPFSIfNeeded", () => {
     it("does not pin comments waiting for approval", async () => {
         const pinnedCids: string[] = [];
         const community = {
+            _log: testLog,
             address: "community.bso",
             _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { pin: { ls: pinLsSaysNotPinned() } } }) },
             _dbHandler: {
@@ -284,6 +297,7 @@ describe("cleanup: repinCommentsIPFSIfNeeded", () => {
         const batchesRead: number[] = [];
         const forceUpdateOnAllComments = vi.fn();
         const community = {
+            _log: testLog,
             address: "community.bso",
             _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { pin: { ls: pinLsSaysNotPinned() } } }) },
             _dbHandler: {
@@ -319,6 +333,7 @@ describe("cleanup: repinCommentUpdateIfNeeded", () => {
         const statSpy = vi.fn().mockRejectedValueOnce(connectionErr).mockResolvedValueOnce({ cid: "QmCommunityDir", blocks: 1 });
         const forceUpdateOnAllComments = vi.fn();
         const community = {
+            _log: testLog,
             address: "community.bso",
             lastCommentCid: "QmLastComment",
             _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { files: { stat: statSpy } } }) },
@@ -344,6 +359,7 @@ describe("cleanup: repinCommentUpdateIfNeeded", () => {
         const statSpy = vi.fn().mockRejectedValue(notExistErr);
         const forceUpdateOnAllComments = vi.fn();
         const community = {
+            _log: testLog,
             address: "community.bso",
             lastCommentCid: undefined, // no comment updates -> early return without forcing republish
             _clientsManager: { getDefaultKuboRpcClient: () => ({ _client: { files: { stat: statSpy } } }) },
@@ -406,6 +422,7 @@ describe("cleanup: cleanUpIpfsRepoIfDue", () => {
             _storage = dueStorage;
         }
         const community = {
+            _log: testLog,
             _pkc: { _storage },
             _clientsManager: { getDefaultKuboRpcClient: () => kuboRpcClient }
         } as unknown as LocalCommunity;
@@ -654,6 +671,7 @@ describe("cleanup: unpinStaleCids", () => {
     it("is a no-op when _cidsToUnPin is empty", async () => {
         const getDefaultKuboRpcClient = vi.fn();
         const community = {
+            _log: testLog,
             address: "community.bso",
             _cidsToUnPin: new Set<string>(),
             _clientsManager: { getDefaultKuboRpcClient }
@@ -668,6 +686,7 @@ describe("cleanup: unpinStaleCids", () => {
 describe("cleanup: rmUnneededMfsPaths", () => {
     it("returns an empty array when _mfsPathsToRemove is empty", async () => {
         const community = {
+            _log: testLog,
             address: "community.bso",
             _mfsPathsToRemove: new Set<string>(),
             _mfsPathRemovalWatchers: new Set<Set<string>>(),

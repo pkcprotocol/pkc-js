@@ -1,4 +1,5 @@
 import { it, beforeEach, afterEach } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { JsonSignature } from "../../../dist/node/signer/types.js";
@@ -8,12 +9,16 @@ import type { CommentModerationsTableRowInsert } from "../../../dist/node/public
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { PurgedCommentTableRows } from "../../../dist/node/runtime/node/community/db-handler-types.js";
 
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:unique" });
+
 interface FakeCommunity {
     address: string;
     _pkc: { noData: boolean };
     _cidsToUnPin: Set<string>;
     _blocksToRm: string[];
     _mfsPathsToRemove: Set<string>;
+    _log: typeof testLog;
     _clientsManager: object;
     _calculateLocalMfsPathForCommentUpdate: () => string;
     _addOldPageCidsToCidsToUnpin: () => Promise<void>;
@@ -65,6 +70,7 @@ describeSkipIfRpc("db-handler duplicate signature purge during migration", funct
             _cidsToUnPin: new Set<string>(),
             _blocksToRm: [],
             _mfsPathsToRemove: new Set<string>(),
+            _log: testLog,
             _clientsManager: {},
             _calculateLocalMfsPathForCommentUpdate: () => "",
             async _addOldPageCidsToCidsToUnpin() {},

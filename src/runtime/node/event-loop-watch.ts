@@ -1,6 +1,6 @@
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import type { IntervalHistogram } from "node:perf_hooks";
-import Logger from "../../logger.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 
 // Reports when the process's main thread was held up (issue #576).
 //
@@ -18,7 +18,9 @@ export const EVENT_LOOP_BLOCKED_REPORT_MS = 200;
 export const EVENT_LOOP_CHECK_PERIOD_MS = 10_000;
 const EVENT_LOOP_DELAY_RESOLUTION_MS = 20;
 
-type EventLoopWatch = { histogram: IntervalHistogram; checkTimer: ReturnType<typeof setInterval>; holders: number };
+// holders: how many holds each logger has. The watch is one per process while a PKC instance has its own log buffer, so
+// a report goes to every logger that currently holds the watch, once each (issue #493).
+type EventLoopWatch = { histogram: IntervalHistogram; checkTimer: ReturnType<typeof setInterval>; holders: Map<Logger, number> };
 
 let watch: EventLoopWatch | undefined;
 
@@ -40,30 +42,39 @@ export function eventLoopDelayToReport({
     return { maxLateMs, p99LateMs: Math.max(0, Math.round(p99Ns / 1e6 - resolutionMs)) };
 }
 
-// Starts the watch if nobody holds it yet. The function it returns gives the hold back, once.
-export function holdEventLoopWatch(): () => void {
+// Reports to every logger that holds the watch. Exported for tests.
+export function reportToEventLoopWatchHolders(message: string): void {
+    if (!watch) return;
+    for (const log of watch.holders.keys()) log.error(message);
+}
+
+// Starts the watch if nobody holds it yet. The function it returns gives the hold back, once. Pass the same logger for
+// every hold of one PKC instance, so the instance gets each report once however many of its communities are running.
+export function holdEventLoopWatch({ log }: { log: Logger }): () => void {
     if (!watch) {
-        const log = Logger("pkc-js:event-loop-watch");
         const histogram = monitorEventLoopDelay({ resolution: EVENT_LOOP_DELAY_RESOLUTION_MS });
         histogram.enable();
         const checkTimer = setInterval(() => {
             const report = eventLoopDelayToReport({ maxNs: histogram.max, p99Ns: histogram.percentile(99) });
             histogram.reset();
             if (report)
-                log.error(
-                    `The main thread was blocked for up to ${report.maxLateMs}ms in the last ${EVENT_LOOP_CHECK_PERIOD_MS / 1000}s` +
+                reportToEventLoopWatchHolders(
+                    `holdEventLoopWatch: The main thread was blocked for up to ${report.maxLateMs}ms in the last ${EVENT_LOOP_CHECK_PERIOD_MS / 1000}s` +
                         ` (99% of timers were at most ${report.p99LateMs}ms late). Everything this process does waited that long.`
                 );
         }, EVENT_LOOP_CHECK_PERIOD_MS);
         checkTimer.unref();
-        watch = { histogram, checkTimer, holders: 0 };
+        watch = { histogram, checkTimer, holders: new Map() };
     }
-    watch.holders++;
+    watch.holders.set(log, (watch.holders.get(log) ?? 0) + 1);
     let released = false;
     return () => {
         if (released || !watch) return;
         released = true;
-        if (--watch.holders > 0) return;
+        const holdsLeft = (watch.holders.get(log) ?? 1) - 1;
+        if (holdsLeft > 0) watch.holders.set(log, holdsLeft);
+        else watch.holders.delete(log);
+        if (watch.holders.size > 0) return;
         clearInterval(watch.checkTimer);
         watch.histogram.disable();
         watch = undefined;

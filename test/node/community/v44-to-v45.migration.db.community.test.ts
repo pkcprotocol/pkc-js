@@ -1,10 +1,14 @@
 import { it, describe, beforeAll, afterAll, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import env from "../../../dist/node/version.js";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { deriveCommentIpfsFromCommentTableRow } from "../../../dist/node/runtime/node/util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type Database from "better-sqlite3";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:v44-to-v45" });
 
 // v44 tables are the v43 ones. v44 -> v45 adds the comments.gallery JSON column (issue #436). Old rows are not
 // rewritten: a link post keeps rebuilding into the CommentIpfs it was signed as, with no gallery key, and a row an
@@ -182,6 +186,7 @@ interface FakeCommunity {
     _cidsToUnPin: Set<string>;
     _blocksToRm: string[];
     _mfsPathsToRemove: Set<string>;
+    _log: typeof testLog;
     _clientsManager: object;
     _calculateLocalMfsPathForCommentUpdate: () => string;
     _addOldPageCidsToCidsToUnpin: () => Promise<void>;
@@ -195,6 +200,7 @@ function createFakeCommunity(address: string): FakeCommunity {
         _cidsToUnPin: new Set<string>(),
         _blocksToRm: [],
         _mfsPathsToRemove: new Set<string>(),
+        _log: testLog,
         _clientsManager: {},
         _calculateLocalMfsPathForCommentUpdate: () => "",
         _addOldPageCidsToCidsToUnpin: async () => {},

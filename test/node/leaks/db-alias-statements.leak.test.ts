@@ -5,6 +5,10 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import signers from "../../fixtures/signers.js";
 import type { CommentsTableRowInsert } from "../../../dist/node/publications/comment/types.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:db-alias-statements" });
 
 // it.fails: this is a known leak with no fix yet (#516). The body asserts the clean behaviour, so the test
 // starts failing once the leak is fixed: remove the .fails then.
@@ -23,7 +27,7 @@ describe("leak: DbHandler statements per author alias count", () => {
 
     beforeEach(async () => {
         communityAddress = `leak-alias-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        const fakeCommunity = { address: communityAddress, _pkc: { noData: true } };
+        const fakeCommunity = { _log: testLog, address: communityAddress, _pkc: { noData: true } };
         handler = new DbHandler(fakeCommunity as never);
         await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await handler.createOrMigrateTablesIfNeeded();

@@ -18,6 +18,9 @@ import validCommentFixture from "../../fixtures/signatures/comment/commentUpdate
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { CommentPubsubMessagePublication } from "../../../dist/node/publications/comment/types.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:author-forbidden-keys" });
 
 const COMMUNITY = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
 const NAMES = ["toString", "constructor", "hasOwnProperty", "valueOf", "__proto__", "_private"];
@@ -131,7 +134,7 @@ describe("forbidden author keys in crossposts and in every publication type", ()
         it(`the runtime copy of a crosspost chain does not take ${name} as a member of the author`, () => {
             const hostile = withAuthorKey(validCommentFixture, name);
             const chain = { cid: "a", comment: { ...hostile, crosspost: { cid: "b", comment: withAuthorKey(validCommentFixture, name) } } };
-            const copy = cloneCrosspostForRuntime(<never>chain);
+            const copy = cloneCrosspostForRuntime(<never>chain, testLog);
             for (const level of [copy, copy.comment.crosspost!]) {
                 const author = <Bag>(<unknown>level.comment.author);
                 expect(author[name] === HOSTILE_VALUE, `${name} became a member of the copied author`).toBe(false);

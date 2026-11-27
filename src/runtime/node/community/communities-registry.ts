@@ -14,7 +14,7 @@ import {
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import Database, { type Database as BetterSqlite3Database, type Statement } from "better-sqlite3";
-import Logger from "../../../logger.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { STORAGE_KEYS } from "../../../constants.js";
 import { areEquivalentNames, isEthAliasDomain, isStringDomain, normalizeEthAliasDomain } from "../../../domain-util.js";
 import { doesCommunitiesEntryMatch, toCommunitiesEntry } from "../../../community/communities-entry-util.js";
@@ -172,7 +172,7 @@ function getFileId(filePath: string): string | undefined {
 }
 
 // "could-not-read" when the file is there and its header could not be read (the process is out of file descriptors)
-function isSqliteFile(filePath: string): boolean | "could-not-read" {
+function isSqliteFile(filePath: string, log: Logger): boolean | "could-not-read" {
     try {
         // Look for the SQLite file header "SQLite format 3\0"
         const fd = openSync(filePath, "r");
@@ -186,7 +186,7 @@ function isSqliteFile(filePath: string): boolean | "could-not-read" {
     } catch (e) {
         // ENOENT is expected: the file can be removed between the event and the read (community delete)
         if (e instanceof Error && "code" in e && e.code === "ENOENT") return false;
-        Logger("pkc-js:communities-registry").error(`Failed to check whether ${filePath} is a SQLite file, skipping it for now`, e);
+        log.error(`isSqliteFile: Failed to check whether ${filePath} is a SQLite file, skipping it for now`, e);
         return "could-not-read";
     }
 }
@@ -196,8 +196,7 @@ function isSqliteFile(filePath: string): boolean | "could-not-read" {
 // i.e. its name when it has one (issue #430): a rename moves the file before it writes the new name into the DB.
 // No publicKey if the DB can't be read yet (mid-creation, mid-migration, corrupt). `failureMayPass` when the read failed
 // for a reason that has nothing to do with what is in the file: it is locked, the process is out of file descriptors
-function readCommunityPublicKeyFromDb(dbPath: string): { publicKey?: string; failureMayPass: boolean } {
-    const log = Logger("pkc-js:communities-registry:readCommunityPublicKeyFromDb");
+function readCommunityPublicKeyFromDb(dbPath: string, log: Logger): { publicKey?: string; failureMayPass: boolean } {
     let db: BetterSqlite3Database | undefined;
     try {
         db = new Database(dbPath, { readonly: true, fileMustExist: true });
@@ -207,12 +206,17 @@ function readCommunityPublicKeyFromDb(dbPath: string): { publicKey?: string; fai
         const internalState = row ? JSON.parse(row.value)?.value : undefined;
         const publicKey = internalState?.anchor?.publicKey ?? internalState?.signer?.address;
         if (typeof publicKey !== "string") {
-            log(`Community DB (${dbPath}) has no internal state yet, leaving it out of pkc.communities for now`);
+            log(
+                `readCommunityPublicKeyFromDb: Community DB (${dbPath}) has no internal state yet, leaving it out of pkc.communities for now`
+            );
             return { failureMayPass: false };
         }
         return { publicKey, failureMayPass: false };
     } catch (e) {
-        log.error(`Failed to read the identity of community DB (${dbPath}), leaving it out of pkc.communities for now`, e);
+        log.error(
+            `readCommunityPublicKeyFromDb: Failed to read the identity of community DB (${dbPath}), leaving it out of pkc.communities for now`,
+            e
+        );
         const code = e instanceof Error && "code" in e && typeof e.code === "string" ? e.code : "";
         return { failureMayPass: ERROR_CODES_OF_A_READ_THAT_MAY_PASS.some((passing) => code.startsWith(passing)) };
     } finally {
@@ -235,7 +239,7 @@ export class CommunitiesRegistry {
     readonly dataPath: string;
     private _db: BetterSqlite3Database;
     private _closed = false;
-    private _log = Logger("pkc-js:communities-registry");
+    private _log: Logger;
 
     private _selectRow: Statement<[string], RegistryRow>;
     private _selectAllRows: Statement<[], RegistryRow>;
@@ -270,8 +274,9 @@ export class CommunitiesRegistry {
     private _watcher: FSWatcher | undefined;
     private _timer: ReturnType<typeof setInterval> | undefined;
 
-    constructor({ dataPath }: { dataPath: string }) {
+    constructor({ dataPath, log }: { dataPath: string; log: Logger }) {
         this.dataPath = dataPath;
+        this._log = log;
         mkdirSync(dataPath, { recursive: true });
         this._db = new Database(path.join(dataPath, "storage.db"));
         // Readers and the one writer do not block each other in WAL mode, and several instances read and write here.
@@ -354,15 +359,15 @@ export class CommunitiesRegistry {
                 else this._onFileEvent(eventType, filename);
                 this._emitListIfOutdated();
             } catch (error) {
-                this._log.error("Failed to follow a change in", communitiesPath, eventType, filename, error);
+                this._log.error("startMonitoring: Failed to follow a change in", communitiesPath, eventType, filename, error);
             }
         });
-        this._watcher.on("error", (error) => this._log.error("The watcher of", communitiesPath, "failed", error));
+        this._watcher.on("error", (error) => this._log.error("startMonitoring: The watcher of", communitiesPath, "failed", error));
         this._timer = setInterval(() => {
             try {
                 this.readChangesOfOtherInstances();
             } catch (error) {
-                this._log.error("Failed to read what other PKC instances changed in the communities registry", error);
+                this._log.error("startMonitoring: Failed to read what other PKC instances changed in the communities registry", error);
             }
         }, COMMUNITIES_REGISTRY_TICK_MS);
         this._timer.unref();
@@ -444,9 +449,9 @@ export class CommunitiesRegistry {
         const dbFilePath = getDbFilePath(this.dataPath, communityAddress);
         if (!existsSync(dbFilePath)) return false;
         // Still answered after close(), from the file: something of a destroyed PKC may run a moment longer
-        if (this._closed) return isSqliteFile(dbFilePath) === true;
+        if (this._closed) return isSqliteFile(dbFilePath, this._log) === true;
         if (this._selectRow.get(communityAddress)) return true;
-        if (isSqliteFile(dbFilePath) !== true || filenameAsStored(dbFilePath) !== communityAddress) return false;
+        if (isSqliteFile(dbFilePath, this._log) !== true || filenameAsStored(dbFilePath) !== communityAddress) return false;
         // A DB without a row, e.g. of a creation whose registration failed: registered now. The DB is there whether
         // or not that works
         if (!filesBeingWrittenByThisProcess.has(path.resolve(dbFilePath))) {
@@ -454,7 +459,7 @@ export class CommunitiesRegistry {
                 this._registerFile(communityAddress);
                 this._emitListIfOutdated();
             } catch (error) {
-                this._log.error("Failed to register the community DB found without a row", communityAddress, error);
+                this._log.error("hasCommunityDb: Failed to register the community DB found without a row", communityAddress, error);
             }
         }
         return true;
@@ -525,7 +530,7 @@ export class CommunitiesRegistry {
         } catch (error) {
             this._releasesToWriteAgain.add(communityAddress);
             this._mirrorStartedAgain(communityAddress);
-            this._log.error("Failed to write that community", communityAddress, "is stopped, will try again", error);
+            this._log.error("releaseStart: Failed to write that community", communityAddress, "is stopped, will try again", error);
         }
         this._emitListIfOutdated();
     }
@@ -581,12 +586,12 @@ export class CommunitiesRegistry {
             }
         } catch (error) {
             if (this._db.inTransaction) this._db.exec("ROLLBACK");
-            this._log.error("Failed to release the communities of a closing PKC instance", error);
+            this._log.error("close: Failed to release the communities of a closing PKC instance", error);
         }
         try {
             releaseInstanceLock({ db: this._db, lockPath });
         } catch (error) {
-            this._log.error("Failed to release the lock of a closing PKC instance", error);
+            this._log.error("close: Failed to release the lock of a closing PKC instance", error);
         }
         if (this._db.open) this._db.close();
     }
@@ -647,7 +652,7 @@ export class CommunitiesRegistry {
         const dbFilePath = getDbFilePath(this.dataPath, communityAddress);
         return this._write(() => {
             const fileId = getFileId(dbFilePath) ?? null;
-            const header = fileId !== null ? isSqliteFile(dbFilePath) : false;
+            const header = fileId !== null ? isSqliteFile(dbFilePath, this._log) : false;
             const isCommunityDb = header === true;
             const existing = this._selectRow.get(communityAddress);
             if (!isCommunityDb && !evenIfNotACommunityDb) {
@@ -659,7 +664,7 @@ export class CommunitiesRegistry {
                 return undefined;
             }
             const identityRead: { publicKey?: string; failureMayPass: boolean } = isCommunityDb
-                ? readCommunityPublicKeyFromDb(dbFilePath)
+                ? readCommunityPublicKeyFromDb(dbFilePath, this._log)
                 : { failureMayPass: header === "could-not-read" };
             let publicKey = identityRead.publicKey ?? null;
             // a read that failed says nothing about a file whose identity is known
@@ -725,7 +730,7 @@ export class CommunitiesRegistry {
                 try {
                     rmSync(path.join(communitiesPath, dirent.name), { recursive: true, force: true });
                 } catch (error) {
-                    this._log.error("Failed to remove the start lock of an older version", dirent.name, error);
+                    this._log.error("_reconcileWithDirectory: Failed to remove the start lock of an older version", dirent.name, error);
                 }
                 continue;
             }
@@ -762,7 +767,11 @@ export class CommunitiesRegistry {
             try {
                 this._registerFile(address);
             } catch (error) {
-                this._log.error("Failed to read again the identity of community DB", address, error);
+                this._log.error(
+                    "_readAgainIdentitiesThatFailedToBeRead: Failed to read again the identity of community DB",
+                    address,
+                    error
+                );
             }
             if (!this._identityReadsToRetry.has(address)) continue; // read, or not a community DB any more
             if (retriesLeft <= 1) this._identityReadsToRetry.delete(address);
@@ -787,7 +796,11 @@ export class CommunitiesRegistry {
                 if (Date.now() - statSync(lockPath).mtimeMs < INSTANCE_LOCK_MIN_AGE_TO_SWEEP_MS) continue;
                 if (!isInstanceLockHeldSync(lockPath)) rmSync(lockPath, { force: true });
             } catch (error) {
-                this._log.error("Failed to check the lock file of another PKC instance", lockPath, error);
+                this._log.error(
+                    "_sweepInstanceLocksOfDeadInstances: Failed to check the lock file of another PKC instance",
+                    lockPath,
+                    error
+                );
             }
         }
     }
@@ -915,7 +928,7 @@ export class CommunitiesRegistry {
         } catch (error) {
             // A `communitieschange` listener of the user threw. Whatever changed the list (a start, a stop, a creation)
             // has been written, and must not fail on it: a start that threw here kept a claim nothing released
-            this._log.error("A listener of the list of local communities threw", error);
+            this._log.error("_emitListIfOutdated: A listener of the list of local communities threw", error);
         }
     }
 }
@@ -949,14 +962,14 @@ export async function isCommunityStartLocked(args: { dataPath: string; community
 }
 
 // One registry per PKC instance, made when it is first asked for. Keyed by the object, so that a test may stand in for
-// a PKC with any object that has a dataPath
+// a PKC with any object that has a dataPath and a logger to derive the registry's own from
 const registries = new WeakMap<object, CommunitiesRegistry>();
 
-export function getCommunitiesRegistry(pkc: { dataPath?: string }): CommunitiesRegistry {
+export function getCommunitiesRegistry(pkc: { dataPath?: string; _log: Logger }): CommunitiesRegistry {
     let registry = registries.get(pkc);
     if (!registry) {
         if (typeof pkc.dataPath !== "string") throw Error("pkc.dataPath needs to be defined to keep local communities");
-        registry = new CommunitiesRegistry({ dataPath: pkc.dataPath });
+        registry = new CommunitiesRegistry({ dataPath: pkc.dataPath, log: pkc._log.child({ namespace: "communities-registry" }) });
         registries.set(pkc, registry);
     }
     return registry;

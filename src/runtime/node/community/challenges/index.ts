@@ -4,6 +4,7 @@ import {
     shouldExcludeChallengeSuccess,
     addToRateLimiter
 } from "./exclude/index.js";
+import { challengeExchangeLog } from "../local-community/exchange-log.js";
 import { NO_OP_AUTHOR_IDENTITY_MATCHER, authorIdentityMatcherForRequest } from "../local-community/author-identity.js";
 import type { AuthorIdentityMatcher, NameIdentityFailure } from "../local-community/author-identity.js";
 
@@ -34,7 +35,6 @@ import { ChallengeFileFactorySchema, ChallengeFileSchema, CommunityChallengeSett
 import { PKCError } from "../../../../pkc-error.js";
 import { pathToFileURL } from "node:url";
 import { validateChallengeResultExtras } from "./validate-challenge-result.js";
-import Logger from "../../../../logger.js";
 
 type PendingChallenge = Challenge & { index: number };
 
@@ -252,7 +252,12 @@ const loadChallengeFile = async ({
             challengeIndex
         });
     }
-    const challengeFile = ChallengeFileFactory({ challengeSettings: communityChallengeSettings });
+    const challengeFile = ChallengeFileFactory({
+        challengeSettings: communityChallengeSettings,
+        // the community's child under the challenge's own namespace (issue #493); optional in the schema so an older
+        // package still loads
+        log: community._log.child({ namespace: `challenge:${communityChallengeSettings.name || "path"}` })
+    });
     validateChallengeFile({ challengeFile, challengeIndex, community });
     return { challengeFile };
 };
@@ -278,8 +283,8 @@ const callGetChallenge = async ({
     const startedAtMs = Date.now();
     // Warn while the call is still running, so a challenge that never returns is reported too.
     const slowWarningTimer = setTimeout(() => {
-        Logger("pkc-js:local-community:challenges:callGetChallenge").error(
-            `getChallenge() of challenge ${challengeIndex + 1} (${challengeName}) in community ${community.address} is still running after ${community._slowGetChallengeWarningMs / 1000}s.`,
+        community._log.error(
+            `callGetChallenge: getChallenge() of challenge ${challengeIndex + 1} (${challengeName}) in community ${community.address} is still running after ${community._slowGetChallengeWarningMs / 1000}s.`,
             "A publisher that receives no challenge or verification gives up after about two minutes and the publication looks failed to its author.",
             "Slow work belongs behind pendingApproval. challengeRequestId:",
             challengeRequestMessage.challengeRequestId.toString()
@@ -293,12 +298,16 @@ const callGetChallenge = async ({
             challengeIndex,
             challengeAnswer: challengeRequestMessage.challengeAnswers?.[String(challengeIndex)],
             community,
-            authorIdentityMatcher
+            authorIdentityMatcher,
+            // the exchange's child (publicKey + signature tags) under the challenge's own namespace (issue #493)
+            log: challengeExchangeLog(community, challengeRequestMessage.challengeRequestId).child({
+                namespace: communityChallengeSettings.name || "path"
+            })
         });
         const elapsedMs = Date.now() - startedAtMs;
         if (elapsedMs >= community._slowGetChallengeWarningMs)
-            Logger("pkc-js:local-community:challenges:callGetChallenge").error(
-                `getChallenge() of challenge ${challengeIndex + 1} (${challengeName}) in community ${community.address} took ${Math.round(elapsedMs / 1000)}s`
+            community._log.error(
+                `callGetChallenge: getChallenge() of challenge ${challengeIndex + 1} (${challengeName}) in community ${community.address} took ${Math.round(elapsedMs / 1000)}s`
             );
         validateChallengeOrChallengeResult({ challengeOrChallengeResult, challengeIndex, community });
     } catch (e) {

@@ -80,6 +80,9 @@ import { STORAGE_KEYS } from "../../../dist/node/constants.js";
 import { holdStartLockInAnotherProcess } from "../../helpers/start-lock-holder.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { PKCCommunitiesEntry } from "../../../dist/node/clients/rpc-client/types.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:communities-registry" });
 
 // Node-only: real community DB files, a real filesystem watcher and the real registry in dataPath/storage.db. It needs
 // no PKC instance, only what the registry reads from one (its dataPath) and gives it (communitieschange), so it runs
@@ -121,6 +124,7 @@ describe("communities registry", () => {
         const emitted: PKCCommunitiesEntry[][] = [];
         const pkc = {
             dataPath,
+            _log: testLog,
             communities: undefined as PKCCommunitiesEntry[] | undefined,
             listenerThrows: false, // as a `communitieschange` listener of the user that throws
             emit: (_eventName: string, { communities }: { communities: PKCCommunitiesEntry[] }) => {

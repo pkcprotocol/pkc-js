@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import "../../../dist/node/test/test-util.js"; // must import first to avoid circular dep issues
 import { mapPageIpfsCommentToPageJsonComment, mapModqueuePageIpfsCommentToModQueuePageJsonComment } from "../../../dist/node/pages/util.js";
 import type { PageIpfs, ModQueuePageIpfs } from "../../../dist/node/pages/types.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:author-community-in-pages" });
 
 // Minimal page comment fixture with author.community in commentUpdate
 function makePageIpfsComment(extraCommentUpdateAuthorFields?: Record<string, unknown>): PageIpfs["comments"][0] {
@@ -50,7 +53,7 @@ function makePageIpfsComment(extraCommentUpdateAuthorFields?: Record<string, unk
 describe("commentUpdate.author fields are preserved in page mapping", () => {
     it("mapPageIpfsCommentToPageJsonComment preserves author.community from commentUpdate", () => {
         const pageComment = makePageIpfsComment();
-        const result = mapPageIpfsCommentToPageJsonComment(pageComment);
+        const result = mapPageIpfsCommentToPageJsonComment(pageComment, testLog);
 
         expect(result.author.community).to.be.an("object");
         expect(result.author.community.postScore).to.equal(5);
@@ -61,7 +64,7 @@ describe("commentUpdate.author fields are preserved in page mapping", () => {
 
     it("mapPageIpfsCommentToPageJsonComment preserves arbitrary commentUpdate.author fields", () => {
         const pageComment = makePageIpfsComment({ someFutureField: { score: 42 } });
-        const result = mapPageIpfsCommentToPageJsonComment(pageComment);
+        const result = mapPageIpfsCommentToPageJsonComment(pageComment, testLog);
 
         expect((result.author as any).someFutureField).to.deep.equal({ score: 42 });
         // community should still be present too
@@ -79,7 +82,7 @@ describe("commentUpdate.author fields are preserved in page mapping", () => {
             }
         } as ModQueuePageIpfs["comments"][0];
 
-        const result = mapModqueuePageIpfsCommentToModQueuePageJsonComment(modqueueComment);
+        const result = mapModqueuePageIpfsCommentToModQueuePageJsonComment(modqueueComment, testLog);
 
         expect(result.author.community).to.be.an("object");
         expect(result.author.community.postScore).to.equal(5);
@@ -98,7 +101,7 @@ describe("commentUpdate.author fields are preserved in page mapping", () => {
             }
         } as ModQueuePageIpfs["comments"][0];
 
-        const result = mapModqueuePageIpfsCommentToModQueuePageJsonComment(modqueueComment);
+        const result = mapModqueuePageIpfsCommentToModQueuePageJsonComment(modqueueComment, testLog);
 
         expect((result.author as any).someFutureField).to.deep.equal({ score: 42 });
         expect(result.author.community).to.be.an("object");

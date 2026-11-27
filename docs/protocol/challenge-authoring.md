@@ -133,6 +133,14 @@ is answered with the stored result and its cid instead of a duplicate error, onc
 
 `challengeAnswer` is this challenge's own pre-answer: the string the author put under key `String(challengeIndex)` in `challengeRequestMessage.challengeAnswers`, or `undefined` when they sent none for it. Read it instead of indexing `challengeAnswers` yourself. An author who pre-answers only some challenges sends no key for the others, so `undefined` means "ask the author" (return a `challenge`), not "wrong".
 
+Both the factory and `getChallenge` also receive an optional `log` (issue #493): a child of the community's
+logger from `@pkcprotocol/pkc-logger`, under the challenge's own namespace
+(`pkc-js:local-community:challenge:<name>` for the factory, `pkc-js:local-community:challenge-exchange:<name>`
+for `getChallenge`, the latter tagged with the publication's `signature` on top of the community's `publicKey`).
+Log through it (`log("...")`, `log.error(...)`, `log.child({ tags: { ... } })`) so the package's lines land in the
+instance's buffer and are found by `pkc.getLogs({ tags: { publicKey } })`. It is optional so a package written
+against an older core still loads: fall back to your own logger when it is absent.
+
 If your challenge decides anything from **who** is publishing (an allow list, a deny list, a role check),
 use `authorIdentityMatcher` rather than comparing strings against `author.address`. That field is
 `name || signerAddress` built from the unresolved wire name, so it is publisher-controlled: without the

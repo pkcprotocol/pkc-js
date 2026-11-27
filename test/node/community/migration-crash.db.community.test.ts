@@ -15,6 +15,10 @@ import {
 } from "../../../dist/node/test/test-util.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:migration-crash" });
 
 // A migration rebuilds each table as <table>_<DB_VERSION>_new, copies the rows over, drops the old table and renames
 // the new one in its place. user_version is only bumped once every table is done. When the process died between the
@@ -79,7 +83,8 @@ const POST_CIDS = ["QmMigrationCrashPost1", "QmMigrationCrashPost2", "QmMigratio
 
 interface FakeCommunity {
     address: string;
-    _pkc: { dataPath: string; noData: boolean };
+    _log: typeof testLog;
+    _pkc: { dataPath: string; noData: boolean; _log: typeof testLog };
     _cidsToUnPin: Set<string>;
     _blocksToRm: string[];
     _mfsPathsToRemove: Set<string>;
@@ -98,7 +103,8 @@ interface DbHandlerPrivate {
 function createDbHandler({ dataPath, address }: { dataPath: string; address: string }): DbHandler {
     const fakeCommunity: FakeCommunity = {
         address,
-        _pkc: { dataPath, noData: false },
+        _log: testLog,
+        _pkc: { dataPath, noData: false, _log: testLog },
         _cidsToUnPin: new Set<string>(),
         _blocksToRm: [],
         _mfsPathsToRemove: new Set<string>(),

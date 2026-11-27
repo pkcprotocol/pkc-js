@@ -5,6 +5,7 @@
 // test/node/community/.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 
 // Stub out the block-put/pin/provide stack so the tests below can assert WHICH topics get provided
 // without faking the whole kubo API. Every other test in this file early-returns or throws before
@@ -25,6 +26,9 @@ import { SHARED_KUBO_READ_TIMEOUT_MS } from "../../../../dist/node/clients/share
 import { invalidateSharedPubsubTopicList } from "../../../../dist/node/clients/shared-pubsub-topic-list.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:pubsub" });
+
 describe("pubsub: listenToIncomingRequests", () => {
     it("subscribes to the community pubsub topic when not already subscribed", async () => {
         const ls = vi.fn().mockResolvedValue([]);
@@ -34,6 +38,7 @@ describe("pubsub: listenToIncomingRequests", () => {
         const handleChallengeExchange = (): undefined => undefined;
 
         const community = {
+            _log: testLog,
             address: "community.bso",
             pubsubTopic: "pubsub-topic",
             handleChallengeExchange,
@@ -57,6 +62,7 @@ describe("pubsub: listenToIncomingRequests", () => {
         const pubsubUnsubscribe = vi.fn();
         const pubsubSubscribe = vi.fn();
         const community = {
+            _log: testLog,
             address: "community.bso",
             pubsubTopic: "pubsub-topic",
             handleChallengeExchange: (): undefined => undefined,
@@ -83,6 +89,7 @@ describe("pubsub: listenToIncomingRequests", () => {
     it("falls back to the signer address when pubsubTopic is unset", async () => {
         const pubsubSubscribe = vi.fn();
         const community = {
+            _log: testLog,
             address: "fallback.bso",
             pubsubTopic: undefined,
             signer: { address: "signer-address" },
@@ -108,6 +115,7 @@ describe("pubsub: listenToIncomingRequests", () => {
         const pubsubSubscribe = vi.fn();
         const pubsubUnsubscribe = vi.fn();
         const community = {
+            _log: testLog,
             address: "readonly.bso",
             pubsubTopic: "pubsub-topic",
             signer: { address: "signer-address" },
@@ -137,6 +145,7 @@ describe("pubsub: listenToIncomingRequests", () => {
         const pubsubSubscribe = vi.fn();
         const pubsubUnsubscribe = vi.fn();
         const community = {
+            _log: testLog,
             address: "readonly.bso",
             pubsubTopic: "pubsub-topic",
             signer: { address: "signer-address" },
@@ -167,6 +176,7 @@ describe("pubsub: listenToIncomingRequests", () => {
         const pubsubUnsubscribe = vi.fn();
         const handleChallengeExchange = (): undefined => undefined;
         const community = {
+            _log: testLog,
             address: "changed.bso",
             pubsubTopic: "new-topic",
             signer: { address: "signer-address" },
@@ -197,6 +207,7 @@ describe("pubsub: listenToIncomingRequests", () => {
         const pubsubUnsubscribe = vi.fn();
         const handleChallengeExchange = (): undefined => undefined;
         const community = {
+            _log: testLog,
             address: "readonly.bso",
             pubsubTopic: "pubsub-topic",
             signer: { address: "signer-address" },
@@ -338,6 +349,7 @@ describe("pubsub: providePubsubTopicRoutingCidsIfNeeded", () => {
     it("early-returns when the last provide happened within the reprovide interval", async () => {
         const getDefaultKuboRpcClient = vi.fn();
         const community = {
+            _log: testLog,
             address: "community.bso",
             pubsubTopic: "topic",
             ipnsPubsubTopic: "ipns-topic",
@@ -356,6 +368,7 @@ describe("pubsub: providePubsubTopicRoutingCidsIfNeeded", () => {
         // challengeExchangePubsubTopic returns `pubsubTopic || signer.address`, so both must be falsy
         // (and ipnsPubsubTopic undefined) for topics.length to be 0.
         const community = {
+            _log: testLog,
             address: undefined,
             pubsubTopic: undefined,
             signer: undefined,
@@ -374,6 +387,7 @@ describe("pubsub: providePubsubTopicRoutingCidsIfNeeded", () => {
     it("provides only the IPNS topic when the challenge exchange is disabled", async () => {
         provideMock.mockClear();
         const community = {
+            _log: testLog,
             address: "readonly.bso",
             pubsubTopic: "custom-topic",
             signer: { address: "signer-address" },
@@ -391,6 +405,7 @@ describe("pubsub: providePubsubTopicRoutingCidsIfNeeded", () => {
     it("provides both the challenge topic and the IPNS topic when the exchange is enabled", async () => {
         provideMock.mockClear();
         const community = {
+            _log: testLog,
             address: "enabled.bso",
             pubsubTopic: "custom-topic",
             signer: { address: "signer-address" },
@@ -413,6 +428,7 @@ describe("pubsub: providePubsubTopicRoutingCidsIfNeeded", () => {
             throw new Error("reached kubo client");
         });
         const community = {
+            _log: testLog,
             address: "force.bso",
             pubsubTopic: "force-topic",
             ipnsPubsubTopic: undefined,

@@ -3,7 +3,7 @@ import type { AddressInfo } from "net";
 import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import { mockGatewayPKC } from "../../../dist/node/test/test-util.js";
 import { calculateIpfsCidV0 } from "../../../dist/node/util.js";
-import Logger from "../../../dist/node/logger.js";
+import Logger from "@pkcprotocol/pkc-logger";
 
 import validPageFixture from "../../fixtures/valid_page.json" with { type: "json" };
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
@@ -51,7 +51,7 @@ describe("gateway timeouts start when the gateway's request does, not while it w
             root: await calculateIpfsCidV0(body),
             recordPKCType: "generic-ipfs",
             validateGatewayResponseFunc: async () => {},
-            log: Logger("pkc-js:test:gateway-queue-timeout"),
+            log: Logger({ namespace: "pkc-js:test:gateway-queue-timeout" }),
             maxFileSizeBytes: 1024,
             timeoutMs
         });

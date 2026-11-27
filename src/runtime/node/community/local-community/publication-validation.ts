@@ -1,5 +1,5 @@
-import Logger from "../../../../logger.js";
 import { difference, intersection, isDeepEqual, keys } from "remeda";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import {
     contentContainsMarkdownAudio,
     contentContainsMarkdownImages,
@@ -183,7 +183,7 @@ async function checkAuthorWalletProofs(publication: PublicationFromDecryptedChal
     for (const [chainTicker, entry] of Object.entries(wallets)) {
         const result = verifyAuthorWalletEntry({ entry, authorPublicKey, nowSeconds: pkcTimestamp() });
         if (result.outcome === "invalid") {
-            log("Rejecting publication: invalid author.wallets proof", chainTicker, result.reason);
+            log("checkAuthorWalletProofs: Rejecting publication: invalid author.wallets proof", chainTicker, result.reason);
             return `${messages.ERR_AUTHOR_WALLET_PROOF_IS_INVALID}. Chain ticker: ${chainTicker}. ${result.reason}`;
         }
     }
@@ -741,7 +741,7 @@ export async function checkPublicationValidity({
     authorIdentityMatcher?: AuthorIdentityMatcher;
 }): Promise<string | undefined> {
     const authorIdentityMatcher = sharedAuthorIdentityMatcher ?? authorIdentityMatcherForRequest({ community, request });
-    const log = Logger("pkc-js:local-community:handleChallengeRequest:checkPublicationValidity");
+    const log = community._log;
 
     const wireResult = await checkWireFormatAndCommunityAuthor(community, publication, log, authorCommunity);
     if (wireResult) return wireResult;

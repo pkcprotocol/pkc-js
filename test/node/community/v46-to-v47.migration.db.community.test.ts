@@ -13,6 +13,10 @@ import type { Comment } from "../../../dist/node/publications/comment/comment.js
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { CommentsTableRowInsert } from "../../../dist/node/publications/comment/types.js";
 import type Database from "better-sqlite3";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:v46-to-v47" });
 
 // v46 -> v47 has no schema change. The version bump makes the open-time sweeps run again, and those now apply the
 // rule that a record with a key named like an object member (toString, constructor, __proto__) or starting with an
@@ -94,6 +98,7 @@ describeSkipIfRpc("v46 → v47 DB migration (records with forbidden keys stored 
         const anyComment = <Comment>await generateMockPost({ communityAddress: COMMUNITY, pkc });
         const fakeCommunity = {
             address: COMMUNITY,
+            _log: testLog,
             _pkc: { noData: true },
             _cidsToUnPin: new Set<string>(),
             _blocksToRm: <string[]>[],

@@ -1,5 +1,5 @@
-import Logger from "../../../../logger.js";
 import { flat, isDeepEqual, unique } from "remeda";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { CID } from "multiformats/cid";
 import { SHARED_KUBO_READ_TIMEOUT_MS } from "../../../../clients/shared-pubsub-topic-list.js";
 
@@ -40,6 +40,7 @@ export type AddressChangeReprovidable = {
     _lastProvidedBrowserDialableSelfAddrs?: string[];
     _lastAddressReprovideCheckAt?: number;
     _clientsManager: { getDefaultKuboRpcClient: () => { _client: ReprovideKuboRpcClient } };
+    _log: Logger;
 };
 
 // Transports a browser can actually dial. These are exactly the addresses that rotate/expire frequently
@@ -128,7 +129,7 @@ export async function reprovideConnectionCidsIfBrowserAddrsChanged(
     // How old a read of the node's addresses another community made may be. 0 always asks kubo.
     { selfAddrsMaxAgeMs = 0 }: { selfAddrsMaxAgeMs?: number } = {}
 ): Promise<{ reprovided: boolean; providedCids: string[]; browserAddrs: string[]; browserAddrsReadAtMs: number }> {
-    const log = Logger("pkc-js:local-community:_reprovideConnectionCidsIfBrowserAddrsChanged");
+    const log = community._log;
     const client = community._clientsManager.getDefaultKuboRpcClient()._client;
     const { addrs: current, readAtMs: browserAddrsReadAtMs } =
         selfAddrsMaxAgeMs > 0
@@ -154,20 +155,27 @@ export async function reprovideConnectionCidsIfBrowserAddrsChanged(
         try {
             cid = CID.parse(cidString);
         } catch (e) {
-            log.error(`Failed to parse connection-critical CID (${cidString}) for community (${community.address})`, e);
+            log.error(
+                `_reprovideConnectionCidsIfBrowserAddrsChanged: Failed to parse connection-critical CID (${cidString}) for community (${community.address})`,
+                e
+            );
             continue;
         }
         try {
             const provideEvents = client.routing.provide(cid, { recursive: true });
-            for await (const event of provideEvents) log.trace(`Provide event for ${cidString}:`, event);
+            for await (const event of provideEvents)
+                log.trace(`_reprovideConnectionCidsIfBrowserAddrsChanged: Provide event for ${cidString}:`, event);
             providedCids.push(cidString);
         } catch (e) {
-            log.error(`Failed to re-provide connection-critical CID (${cidString}) for community (${community.address})`, e);
+            log.error(
+                `_reprovideConnectionCidsIfBrowserAddrsChanged: Failed to re-provide connection-critical CID (${cidString}) for community (${community.address})`,
+                e
+            );
         }
     }
 
     log(
-        `Browser-dialable addresses of community (${community.address}) changed; re-provided ${providedCids.length}/${cidStrings.length} connection-critical CIDs`,
+        `_reprovideConnectionCidsIfBrowserAddrsChanged: Browser-dialable addresses of community (${community.address}) changed; re-provided ${providedCids.length}/${cidStrings.length} connection-critical CIDs`,
         { browserAddrs: current }
     );
 

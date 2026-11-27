@@ -1,4 +1,5 @@
 import { describeSkipIfRpc } from "../../../helpers/conditional-tests.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import { it, expect, beforeAll, afterAll } from "vitest";
 import {
     mockPKC,
@@ -28,6 +29,9 @@ import type { LocalCommunity } from "../../../../dist/node/runtime/node/communit
 import type { RemoteCommunity } from "../../../../dist/node/community/remote-community.js";
 import type { CommunitySettings } from "../../../../dist/node/community/types.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
+
+// Free helpers take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:settings" });
 
 type PagesSettings = NonNullable<CommunitySettings["pages"]>;
 
@@ -401,7 +405,12 @@ describeSkipIfRpc.concurrent("settings.pages: published record", () => {
         const pages: PagesSettings = {
             posts: [{ path: STRICT_OPTIONS_SORT_PATH, options: { excludeCommentsWithDifferentCommunityAddress: "false" } }]
         };
-        const { resolved, failures } = await resolvePageSortsAndCollectFailures({ pagesSettings: pages, pkc, tolerateLoadErrors: true });
+        const { resolved, failures } = await resolvePageSortsAndCollectFailures({
+            pagesSettings: pages,
+            pkc,
+            tolerateLoadErrors: true,
+            log: testLog
+        });
         expect(failures.map((failure) => failure.error.code)).to.deep.equal([]);
         expect(resolved.posts.map((sort) => sort.sortName)).to.deep.equal(["strict"]);
         expect(resolved.posts[0].settings.options).to.not.have.property("excludeCommentsWithDifferentCommunityAddress");

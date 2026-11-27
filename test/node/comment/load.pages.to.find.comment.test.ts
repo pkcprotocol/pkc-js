@@ -1,9 +1,13 @@
 import { describe, it } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { addStringToIpfs } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { loadAllPagesUnderCommunityToFindComment } from "../../../dist/node/publications/comment/comment-util.js";
 import type { PageIpfs } from "../../../dist/node/pages/types.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:load" });
 
 const REPLY_DEPTHS = [1, 2, 3, 5, 10, 15];
 
@@ -230,6 +234,7 @@ async function createTestContext({
     };
 
     const community = {
+        _log: testLog,
         address: "s/test",
         _pkc: pkcMock,
         posts: {
@@ -260,7 +265,8 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
             const { community, targetCid } = await createTestContext({ depth: 0, postsStorage: "pages" });
             const found = await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: targetCid,
-                community: community as never
+                community: community as never,
+                log: testLog
             });
             expect(found?.commentUpdate.cid).to.equal(targetCid);
         });
@@ -269,7 +275,8 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
             const { community, targetCid } = await createTestContext({ depth: 0, postsStorage: "pages", targetOnSecondPostPage: true });
             const found = await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: targetCid,
-                community: community as never
+                community: community as never,
+                log: testLog
             });
             expect(found?.commentUpdate.cid).to.equal(targetCid);
         });
@@ -280,7 +287,8 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
             const { community, targetCid } = await createTestContext({ depth: 0, postsStorage: "pageCids" });
             const found = await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: targetCid,
-                community: community as never
+                community: community as never,
+                log: testLog
             });
             expect(found?.commentUpdate.cid).to.equal(targetCid);
         });
@@ -293,7 +301,8 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
             });
             const found = await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: targetCid,
-                community: community as never
+                community: community as never,
+                log: testLog
             });
             expect(found?.commentUpdate.cid).to.equal(targetCid);
         });
@@ -310,7 +319,8 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
                 });
                 const found = await loadAllPagesUnderCommunityToFindComment({
                     commentCidToFind: targetCid,
-                    community: community as never
+                    community: community as never,
+                    log: testLog
                 });
                 expect(found?.commentUpdate.cid).to.equal(targetCid);
             });
@@ -324,7 +334,8 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
                 });
                 const found = await loadAllPagesUnderCommunityToFindComment({
                     commentCidToFind: targetCid,
-                    community: community as never
+                    community: community as never,
+                    log: testLog
                 });
                 expect(found?.commentUpdate.cid).to.equal(targetCid);
             });
@@ -342,7 +353,8 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
                 });
                 const found = await loadAllPagesUnderCommunityToFindComment({
                     commentCidToFind: targetCid,
-                    community: community as never
+                    community: community as never,
+                    log: testLog
                 });
                 expect(found?.commentUpdate.cid).to.equal(targetCid);
             });
@@ -356,7 +368,8 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
                 });
                 const found = await loadAllPagesUnderCommunityToFindComment({
                     commentCidToFind: targetCid,
-                    community: community as never
+                    community: community as never,
+                    log: testLog
                 });
                 expect(found?.commentUpdate.cid).to.equal(targetCid);
             });
@@ -374,7 +387,8 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
             const found = await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: targetCid,
                 community: community as never,
-                parentCid
+                parentCid,
+                log: testLog
             });
             expect(found?.commentUpdate.cid).to.equal(targetCid);
         });
@@ -390,7 +404,8 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
             const found = await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: targetCid,
                 community: community as never,
-                postCid
+                postCid,
+                log: testLog
             });
             expect(found?.commentUpdate.cid).to.equal(targetCid);
         });
@@ -406,7 +421,8 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
             });
             await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: ctxWithoutHint.targetCid,
-                community: ctxWithoutHint.community as never
+                community: ctxWithoutHint.community as never,
+                log: testLog
             });
 
             const ctxWithParentHint = await createTestContext({
@@ -420,7 +436,8 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
             await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: ctxWithParentHint.targetCid,
                 community: ctxWithParentHint.community as never,
-                parentCid: ctxWithParentHint.parentCid
+                parentCid: ctxWithParentHint.parentCid,
+                log: testLog
             });
 
             expect(ctxWithoutHint.counters.postPageCalls).to.be.greaterThan(0);
@@ -441,7 +458,8 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
             const ctxWithoutPostHint = await createTestContext(baseOpts);
             const foundWithoutHint = await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: ctxWithoutPostHint.targetCid,
-                community: ctxWithoutPostHint.community as never
+                community: ctxWithoutPostHint.community as never,
+                log: testLog
             });
             expect(foundWithoutHint?.commentUpdate.cid).to.equal(ctxWithoutPostHint.targetCid);
 
@@ -449,7 +467,8 @@ describeSkipIfRpc.sequential("loadAllPagesUnderCommunityToFindComment", () => {
             const foundWithPostHint = await loadAllPagesUnderCommunityToFindComment({
                 commentCidToFind: ctxWithPostHint.targetCid,
                 community: ctxWithPostHint.community as never,
-                postCid: ctxWithPostHint.postCid
+                postCid: ctxWithPostHint.postCid,
+                log: testLog
             });
             expect(foundWithPostHint?.commentUpdate.cid).to.equal(ctxWithPostHint.targetCid);
 

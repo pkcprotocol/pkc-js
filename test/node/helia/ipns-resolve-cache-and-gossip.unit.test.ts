@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/helia-for-pkc.js";
 import { MockHttpRouter } from "../../../dist/node/runtime/node/test/mock-http-router.js";
 import { ipnsNameToIpnsOverPubsubTopic, pubsubTopicToDhtKeyCid } from "../../../dist/node/util.js";
@@ -11,6 +12,9 @@ import { CID } from "multiformats/cid";
 import { equals as uint8ArrayEquals } from "uint8arrays/equals";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
 import type { IpnsPubsubLocalStore } from "../../../dist/node/helia/util.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:ipns-resolve-cache-and-gossip" });
 
 // Repro suite for issue #301: the community update loop re-resolves IPNS over the network every
 // second per community, while records pushed over the IPNS gossipsub topic never reach the local
@@ -57,6 +61,7 @@ describeSkipIfRpc("IPNS resolve cache and gossipsub push (issue #301)", () => {
 
     const createNode = async (opts: { listen?: boolean; routers?: string[] } = {}): Promise<Libp2pJsClient> => {
         const client = (await createLibp2pJsClientOrUseExistingOne({
+            log: testLog,
             key: `resolve-cache-${keyCounter++}`,
             httpRoutersOptions: opts.routers ?? ["http://localhost:1"],
             libp2pOptions: {

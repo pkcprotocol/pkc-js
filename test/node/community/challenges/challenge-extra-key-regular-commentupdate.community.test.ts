@@ -21,6 +21,9 @@ import type { RpcLocalCommunity } from "../../../../dist/node/community/rpc-loca
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { ChallengeResult } from "../../../../dist/node/community/types.js";
 import type { CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:challenge-extra-key-regular-commentupdate" });
 
 const EXTRA_KEY_VALUE = { chainId: 1, note: "hello" };
 
@@ -111,7 +114,8 @@ describeSkipIfRpc("challenge-supplied commentUpdate extra key on a regular comme
             community: remoteCommunity,
             comment: { signature: entry.comment.signature, cid: post.cid!, depth: 0, postCid: post.cid! },
             validatePages: false,
-            validateUpdateSignature: true
+            validateUpdateSignature: true,
+            log: testLog
         });
         expect(verification).to.deep.equal({ valid: true });
 

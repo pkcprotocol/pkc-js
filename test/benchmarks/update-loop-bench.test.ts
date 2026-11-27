@@ -1,4 +1,5 @@
 import { describe, it, beforeAll, afterAll, expect, onTestFinished, vi } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     getAvailablePKCConfigsToTestAgainst,
     publishCommunityRecordWithExtraProp,
@@ -11,6 +12,9 @@ import path from "node:path";
 
 import type { PKC as PKCType } from "../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../dist/node/community/remote-community.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:update-loop-bench" });
 
 // Before/after benchmark for issues #308 (1s update-loop churn on the libp2p-js path) and #307
 // (once-per-ttl thundering herd when a directory of names expires in lockstep). NOT part of any
@@ -178,7 +182,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 const target = staticRecords[0];
                 const newerRecord = JSON.parse(JSON.stringify(target.communityRecord)) as typeof target.communityRecord;
                 newerRecord.updatedAt = Math.max(newerRecord.updatedAt + 1, timestamp());
-                newerRecord.signature = await signCommunity({ community: newerRecord, signer: target.ipnsObj.signer });
+                newerRecord.signature = await signCommunity({ community: newerRecord, signer: target.ipnsObj.signer, log: testLog });
                 const targetCommunity = communities[0];
                 const delivered = new Promise<void>((resolve) => {
                     const onUpdate = () => {

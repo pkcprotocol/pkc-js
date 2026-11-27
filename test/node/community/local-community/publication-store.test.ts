@@ -11,6 +11,7 @@
 // in flight, on an in-memory DbHandler.
 
 import { describe, it, expect, vi } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     calculateLatestPostProps,
     calculateLinkProps,
@@ -33,6 +34,9 @@ import signers from "../../../fixtures/signers.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type { CommentPubsubMessagePublication, CommentsTableRowInsert } from "../../../../dist/node/publications/comment/types.js";
 import type { CommentModerationPubsubMessagePublication } from "../../../../dist/node/publications/comment-moderation/types.js";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:publication-store" });
 
 describe("publication-store: export shape", () => {
     it("exports all publication-store helpers", () => {
@@ -75,19 +79,19 @@ describe("publication-store: isPublicationPost / isPublicationReply", () => {
 
 describe("publication-store: calculateLinkProps", () => {
     it("returns undefined when no link is provided", async () => {
-        const community = { settings: { fetchThumbnailUrls: true } } as unknown as LocalCommunity;
+        const community = { _log: testLog, settings: { fetchThumbnailUrls: true } } as unknown as LocalCommunity;
         const result = await calculateLinkProps(community, undefined);
         expect(result).to.equal(undefined);
     });
 
     it("returns undefined when settings.fetchThumbnailUrls is disabled", async () => {
-        const community = { settings: { fetchThumbnailUrls: false } } as unknown as LocalCommunity;
+        const community = { _log: testLog, settings: { fetchThumbnailUrls: false } } as unknown as LocalCommunity;
         const result = await calculateLinkProps(community, "https://example.com/foo.png");
         expect(result).to.equal(undefined);
     });
 
     it("returns undefined when settings is undefined", async () => {
-        const community = { settings: undefined } as unknown as LocalCommunity;
+        const community = { _log: testLog, settings: undefined } as unknown as LocalCommunity;
         const result = await calculateLinkProps(community, "https://example.com/foo.png");
         expect(result).to.equal(undefined);
     });
@@ -99,6 +103,7 @@ describe("publication-store: calculateLatestPostProps", () => {
         const commitTransaction = vi.fn();
         const queryLatestPostCid = vi.fn().mockReturnValue({ cid: "QmLatestPost" });
         const community = {
+            _log: testLog,
             _dbHandler: { createTransaction, commitTransaction, queryLatestPostCid }
         } as unknown as LocalCommunity;
 
@@ -110,6 +115,7 @@ describe("publication-store: calculateLatestPostProps", () => {
 
     it("returns previousCid undefined when there is no prior post", async () => {
         const community = {
+            _log: testLog,
             _dbHandler: {
                 createTransaction: vi.fn(),
                 commitTransaction: vi.fn(),
@@ -125,6 +131,7 @@ describe("publication-store: calculateLatestPostProps", () => {
 describe("publication-store: calculateReplyProps", () => {
     it("throws if the reply has no parentCid", async () => {
         const community = {
+            _log: testLog,
             _dbHandler: { createTransaction: vi.fn(), commitTransaction: vi.fn() }
         } as unknown as LocalCommunity;
         await expect(
@@ -134,6 +141,7 @@ describe("publication-store: calculateReplyProps", () => {
 
     it("throws if the parent is not found in the DB", async () => {
         const community = {
+            _log: testLog,
             _dbHandler: {
                 createTransaction: vi.fn(),
                 commitTransaction: vi.fn(),
@@ -148,6 +156,7 @@ describe("publication-store: calculateReplyProps", () => {
 
     it("returns depth = parent.depth + 1 and inherits postCid", async () => {
         const community = {
+            _log: testLog,
             _dbHandler: {
                 createTransaction: vi.fn(),
                 commitTransaction: vi.fn(),
@@ -163,6 +172,7 @@ describe("publication-store: calculateReplyProps", () => {
 describe("publication-store: resolveAliasPrivateKeyForCommentPublication", () => {
     it("returns the existing per-post alias when one exists for that postCid", async () => {
         const community = {
+            _log: testLog,
             _dbHandler: {
                 queryPseudonymityAliasForPost: vi.fn().mockReturnValue({ aliasPrivateKey: "existingKey" })
             },
@@ -180,6 +190,7 @@ describe("publication-store: resolveAliasPrivateKeyForCommentPublication", () =>
     it("generates a fresh alias on per-reply mode (every call gets a new signer)", async () => {
         const createSigner = vi.fn().mockResolvedValue({ privateKey: "freshReplyKey" });
         const community = {
+            _log: testLog,
             _dbHandler: {},
             _pkc: { createSigner }
         } as unknown as LocalCommunity;
@@ -195,6 +206,7 @@ describe("publication-store: resolveAliasPrivateKeyForCommentPublication", () =>
     it("reuses the existing per-author alias when one exists", async () => {
         const createSigner = vi.fn();
         const community = {
+            _log: testLog,
             _dbHandler: {
                 queryPseudonymityAliasForAuthor: vi.fn().mockReturnValue({ aliasPrivateKey: "existingAuthorKey" })
             },
@@ -211,6 +223,7 @@ describe("publication-store: resolveAliasPrivateKeyForCommentPublication", () =>
 
     it("throws for unsupported modes", async () => {
         const community = {
+            _log: testLog,
             _dbHandler: {},
             _pkc: { createSigner: vi.fn() }
         } as unknown as LocalCommunity;
@@ -233,7 +246,7 @@ describe("publication-store: storeCommentModeration approving a pending comment"
 
     const createCommunityWithPendingComment = async ({ duringIpfsAdd }: { duringIpfsAdd: (dbHandler: DbHandler) => void }) => {
         const address = `test-community-${Date.now()}-${Math.random()}`;
-        const dbHandler = new DbHandler({ address, _pkc: { noData: true } } as never);
+        const dbHandler = new DbHandler({ _log: testLog, address, _pkc: { noData: true } } as never);
         await dbHandler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await dbHandler.createOrMigrateTablesIfNeeded();
         const timestamp = Math.floor(Date.now() / 1000);
@@ -253,6 +266,7 @@ describe("publication-store: storeCommentModeration approving a pending comment"
         dbHandler.insertComments([pendingComment]);
         const pinRm = vi.fn(async (_cid: string, _options: { recursive: boolean }) => undefined);
         const community = {
+            _log: testLog,
             address,
             _dbHandler: dbHandler,
             _cidsToUnPin: new Set<string>(),

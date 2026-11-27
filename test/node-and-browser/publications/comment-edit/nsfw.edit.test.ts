@@ -1,4 +1,5 @@
 import signers from "../../../fixtures/signers.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     getAvailablePKCConfigsToTestAgainst,
     iterateThroughPagesToFindCommentInParentPagesInstance,
@@ -12,6 +13,9 @@ import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsWithCidPostCidDefined } from "../../../../dist/node/publications/comment/types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:nsfw" });
 
 const communityAddress = signers[0].address;
 const roles = [
@@ -115,7 +119,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                 community: { publicKey: recreatedPost.communityPublicKey, name: recreatedPost.communityName },
                 comment: recreatedPost as unknown as Pick<CommentIpfsWithCidPostCidDefined, "signature" | "cid" | "depth" | "postCid">,
                 validatePages: true,
-                validateUpdateSignature: true
+                validateUpdateSignature: true,
+                log: testLog
             });
             expect(commentUpdateValidity).to.deep.equal({ valid: true });
         });

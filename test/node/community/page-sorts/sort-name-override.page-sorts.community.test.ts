@@ -38,6 +38,9 @@ import type { LocalCommunity } from "../../../../dist/node/runtime/node/communit
 import type { RemoteCommunity } from "../../../../dist/node/community/remote-community.js";
 import type { CommunitySettings, PageSortFileFactoryInput } from "../../../../dist/node/community/types.js";
 import type { PageIpfs } from "../../../../dist/node/pages/types.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:sort-name-override" });
 
 // Issue #483: a settings.pages entry may carry its own `sortName`, which replaces the file's `sortName` as the wire
 // key (posts.pages / posts.pageCids / community.pageSorts, and the same under replies). That lets one file be listed
@@ -76,7 +79,7 @@ async function expectEditToFail(community: LocalCommunity, pages: PagesSettings,
 
 // The resolved wire keys of a settings.pages value, per scope, in list order
 async function resolvedKeys(pages: PagesSettings, pkc: PKCType): Promise<{ posts: string[]; replies: string[] }> {
-    const { resolved, failures } = await resolvePageSortsAndCollectFailures({ pagesSettings: pages, pkc });
+    const { resolved, failures } = await resolvePageSortsAndCollectFailures({ pagesSettings: pages, pkc, log: testLog });
     expect(failures.map((failure) => failure.error.code)).to.deep.equal([]);
     return { posts: resolved.posts.map((sort) => sort.sortName), replies: resolved.replies.map((sort) => sort.sortName) };
 }
@@ -305,7 +308,8 @@ describeSkipIfRpc.concurrent("settings.pages[].sortName: validation (issue #483)
 
         const { failures } = await resolvePageSortsAndCollectFailures({
             pagesSettings: { replies: [{ name: "best" }, { name: "new" }, { name: "old", sortName: "best" }] },
-            pkc
+            pkc,
+            log: testLog
         });
         expect(failures.map((f) => [f.scope, f.pageSortIndex, f.error.code, f.error.details.sortName])).to.deep.equal([
             ["replies", 2, "ERR_PAGE_SORT_DUPLICATE_SORT_NAME", "best"]
@@ -349,7 +353,7 @@ describeSkipIfRpc.concurrent("settings.pages[].sortName: validation (issue #483)
             posts: [{ path: SORT_NAME_ECHO_SORT_PATH, sortName: "mirror", options: { expectedSortName: "mirror" } }]
         };
         await community.edit({ settings: { ...community.settings, pages } });
-        const { resolved } = await resolvePageSortsAndCollectFailures({ pagesSettings: pages, pkc });
+        const { resolved } = await resolvePageSortsAndCollectFailures({ pagesSettings: pages, pkc, log: testLog });
         expect(resolved.posts[0].sortName).to.equal("mirror");
         expect(resolved.posts[0].file.sortName, "the file itself is untouched").to.equal("echo");
         expect(resolved.posts[0].file.description).to.equal("factory saw sortName mirror");
@@ -365,7 +369,11 @@ describeSkipIfRpc.concurrent("settings.pages[].sortName: validation (issue #483)
         expect(mismatch.details).to.include({ sortName: "mirror" });
 
         // without an override the file sees no sortName on the entry and its own sortName is the key
-        const plain = await resolvePageSortsAndCollectFailures({ pagesSettings: { posts: [{ path: SORT_NAME_ECHO_SORT_PATH }] }, pkc });
+        const plain = await resolvePageSortsAndCollectFailures({
+            pagesSettings: { posts: [{ path: SORT_NAME_ECHO_SORT_PATH }] },
+            pkc,
+            log: testLog
+        });
         expect(plain.resolved.posts[0].sortName).to.equal("echo");
         expect(plain.resolved.posts[0].file.description).to.equal("factory saw sortName undefined");
     });
@@ -376,7 +384,8 @@ describeSkipIfRpc.concurrent("settings.pages[].sortName: validation (issue #483)
                 posts: [{ name: "topWeek", sortName: "thisWeek", preloaded: true }],
                 replies: [{ name: "newFlat", sortName: "flatLatest", options: { pinnedFirst: "false" } }]
             },
-            pkc
+            pkc,
+            log: testLog
         });
         expect(failures).to.deep.equal([]);
         expect(resolved.posts[0]).to.include({ sortName: "thisWeek", scope: "posts", preloaded: true, flat: false });
@@ -430,7 +439,7 @@ describeSkipIfRpc.concurrent("settings.pages[].sortName: regeneration and finger
         try {
             const fingerprintOf = async (pagesSettings: PagesSettings) => {
                 const factories = lookupPageSortFactories({ pagesSettings, pkc });
-                const { resolved } = await resolvePageSortsAndCollectFailures({ pagesSettings, pkc });
+                const { resolved } = await resolvePageSortsAndCollectFailures({ pagesSettings, pkc, log: testLog });
                 return computePageSortsFingerprint({ pagesSettings, resolved, factories });
             };
             const plain = await fingerprintOf({ posts: [{ name: "top", options: { maxAge: "2w" } }] });

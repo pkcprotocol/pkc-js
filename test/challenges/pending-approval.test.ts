@@ -1,4 +1,5 @@
 import { beforeAll } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     getChallengeVerification,
     getCommunityChallengeFromCommunityChallengeSettings
@@ -8,6 +9,9 @@ import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "..
 import type { LocalCommunity } from "../../dist/node/runtime/node/community/local-community.js";
 import { PKC } from "./fixtures/fixtures.ts";
 import signers from "../fixtures/signers.js";
+
+// Challenge helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:pending-approval" });
 
 // Wrapper function for type assertion boilerplate
 const testGetChallengeVerification = (challengeRequestMessage: unknown, community: unknown, getChallengeAnswers: GetChallengeAnswers) => {
@@ -27,6 +31,7 @@ interface MockChallengeSettings {
 
 interface MockCommunityWithChallenges {
     settings: { challenges: MockChallengeSettings[] };
+    _log: typeof testLog;
     _pkc: ReturnType<typeof PKC>;
     challenges?: unknown[];
 }
@@ -36,6 +41,7 @@ const createCommunityWithChallenges = async (
     challengeSettings: MockChallengeSettings[]
 ): Promise<MockCommunityWithChallenges> => {
     const community: MockCommunityWithChallenges = {
+        _log: testLog,
         settings: { challenges: challengeSettings },
         _pkc: pkcInstance
     };

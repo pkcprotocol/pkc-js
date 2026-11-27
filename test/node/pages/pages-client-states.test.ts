@@ -5,12 +5,14 @@ import signers from "../../fixtures/signers.js";
 import communityRecordFixture from "../../fixtures/signatures/community/valid_community_ipfs_new_format.json" with { type: "json" };
 import { mockGatewayPKC, mockPKCNoDataPathWithOnlyKuboClient, mockPKCV2 } from "../../../dist/node/test/test-util.js";
 import { PostsPages } from "../../../dist/node/pages/pages.js";
-import Logger from "../../../dist/node/logger.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { CommunityIpfsType } from "../../../dist/node/community/types.js";
 import type { PageIpfs } from "../../../dist/node/pages/types.js";
 import type { OptionsToLoadFromGateway } from "../../../dist/node/clients/base-client-manager.js";
+
+const testLog = Logger({ namespace: "pkc-js:test:pages-client-states" });
 
 // The per-sort page client states (community.posts.clients.<transport>[sortType][url].state) bracket each page fetch with
 // fetching-ipfs -> stopped.
@@ -54,7 +56,7 @@ describe("page client states while a page is fetched", () => {
             _pkcRpcClient: { getCommunityPage },
             clients: { ...pkc.clients, pkcRpcClients: { [rpcUrl]: {} } }
         });
-        const posts = new PostsPages({ pkc: rpcPkc, community, pageCids: { hot: pageCid }, pages: {} });
+        const posts = new PostsPages({ pkc: rpcPkc, community, pageCids: { hot: pageCid }, pages: {}, log: testLog });
         const hotRpcClient = posts.clients.pkcRpcClients.hot[rpcUrl];
         const states: string[] = [];
         hotRpcClient.on("statechange", (state) => states.push(state));
@@ -142,8 +144,8 @@ describe("page client states for a sort the instance has not seen", () => {
             clients: { ...pkc.clients, pkcRpcClients: { [rpcUrl]: {} } }
         });
         // One pages object learns the custom sort from its pageCids, which caches the cid under it for the whole PKC
-        new PostsPages({ pkc: rpcPkc, community, pageCids: { [customSort]: pageCid }, pages: {} });
-        const posts = new PostsPages({ pkc: rpcPkc, community, pageCids: {}, pages: {} });
+        new PostsPages({ pkc: rpcPkc, community, pageCids: { [customSort]: pageCid }, pages: {}, log: testLog });
+        const posts = new PostsPages({ pkc: rpcPkc, community, pageCids: {}, pages: {}, log: testLog });
         expect(posts.clients.pkcRpcClients[customSort]).toBeUndefined();
 
         const page = await posts.getPage({ cid: pageCid });
@@ -170,7 +172,7 @@ describe("page client states for a sort the instance has not seen", () => {
             abortController: new AbortController(),
             gatewayTimedOut: () => false,
             validateGatewayResponseFunc: async () => {},
-            log: Logger("pkc-js:test:pages-client-states")
+            log: testLog
         };
 
         fromAddress.posts._clientsManager.preFetchGateway(gatewayUrl, loadOpts);
@@ -188,7 +190,7 @@ describe("page client states for a sort the instance has not seen", () => {
         const libp2pJsPkc: PKC = Object.assign(Object.create(pkc) as PKC, {
             clients: { ...pkc.clients, libp2pJsClients: { [libp2pJsClientKey]: {} } }
         });
-        const posts = new PostsPages({ pkc: libp2pJsPkc, community, pageCids: {}, pages: {} });
+        const posts = new PostsPages({ pkc: libp2pJsPkc, community, pageCids: {}, pages: {}, log: testLog });
         expect(posts.clients.libp2pJsClients[customSort]).toBeUndefined();
 
         posts._clientsManager.updateLibp2pJsClientState("fetching-ipfs", libp2pJsClientKey, [customSort]);

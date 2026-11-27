@@ -26,7 +26,10 @@ export async function holdStartLockInAnotherProcess({
     const script = `
         const [dbHandlerModuleUrl, dataPath, address, blockEventLoopForMs] = process.argv.slice(1);
         const { DbHandler } = await import(dbHandlerModuleUrl);
-        const dbHandler = new DbHandler({ address, _pkc: { dataPath } });
+        // DbHandler and the registry log through community._log and pkc._log (issue #493)
+        const { default: Logger } = await import("@pkcprotocol/pkc-logger");
+        const _log = Logger({ namespace: "pkc-js:test:start-lock-holder" });
+        const dbHandler = new DbHandler({ address, _log, _pkc: { dataPath, _log } });
         try {
             await dbHandler.initDbIfNeeded();
             await dbHandler.lockCommunityStart();

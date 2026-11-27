@@ -4,6 +4,9 @@ import { describe, it, expect, afterEach } from "vitest";
 import { WebSocketServer, type WebSocket, type RawData } from "ws";
 import { EventEmitter } from "events";
 import PKCRpcClient from "../../../dist/node/clients/rpc-client/pkc-rpc-client.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:rpc-client-unmatched-calls" });
 
 // it.fails: this is a known leak with no fix yet (#516). The body asserts the clean behaviour, so the test
 // starts failing once the leak is fixed: remove the .fails then.
@@ -70,7 +73,7 @@ describe("leak: RPC client state for unmatched calls and notifications", () => {
             socket.send(notification(subscription, "update", { payload: "x".repeat(1000) }));
             socket.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32000, message: "start failed" } }));
         });
-        client = new PKCRpcClient(server.url);
+        client = new PKCRpcClient(server.url, testLog);
         for (let i = 0; i < CALLS; i++) await client.startCommunity({ publicKey: `12D3KooWFakePublicKeyForLeakTest${i}` }).catch(() => {});
         await new Promise((resolve) => setTimeout(resolve, 300));
         expect({
@@ -87,7 +90,7 @@ describe("leak: RPC client state for unmatched calls and notifications", () => {
         server = await createScriptedServer((socket) => {
             liveSocket = socket; // no response: the call times out on the client
         });
-        client = new PKCRpcClient(server.url);
+        client = new PKCRpcClient(server.url, testLog);
         internals(client)._callTimeoutMs = 300;
         const error = await client
             .startCommunity({ publicKey: "12D3KooWFakePublicKeyForLeakTestTimeout" })
@@ -102,7 +105,7 @@ describe("leak: RPC client state for unmatched calls and notifications", () => {
     // Finding 6a: rpc-websockets only deletes a queue entry when its response arrives
     it.fails(`calls that time out leave no entry in the rpc-websockets queue (${CALLS} calls)`, async () => {
         server = await createScriptedServer(() => {}); // never answers
-        client = new PKCRpcClient(server.url);
+        client = new PKCRpcClient(server.url, testLog);
         internals(client)._callTimeoutMs = 200;
         for (let i = 0; i < CALLS; i++) await client.startCommunity({ publicKey: `12D3KooWFakePublicKeyForLeakTest${i}` }).catch(() => {});
         expect({ queuedCalls: Object.keys(internals(client)._webSocketClient.queue).length }).toEqual({ queuedCalls: 0 });
@@ -113,7 +116,7 @@ describe("leak: RPC client state for unmatched calls and notifications", () => {
         server = await createScriptedServer((socket) => {
             sockets.push(socket);
         });
-        client = new PKCRpcClient(server.url);
+        client = new PKCRpcClient(server.url, testLog);
         const calls = Array.from({ length: CALLS }, (_, i) =>
             client!.startCommunity({ publicKey: `12D3KooWFakePublicKeyForLeakTest${i}` }).catch((e: { code?: string }) => e.code)
         );
