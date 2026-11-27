@@ -370,14 +370,8 @@ async function publishCommunityRecordToIpns(
         provideOptions: { recursive: true },
         provideInBackground: false
     });
-    if (file.size > MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS) {
-        throw new PKCError("ERR_LOCAL_COMMUNITY_RECORD_TOO_LARGE", {
-            calculatedSizeOfNewCommunityRecord: file.size,
-            maxSize: MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS,
-            newCommunityRecord,
-            address: community.address
-        });
-    }
+    // No size check here: the record's size is its UTF-8 bytes, checked before the add by
+    // _validateCommunitySizeSchemaAndSignatureBeforePublishing. `file.size` is the UnixFS DAG size, which is larger
 
     if (!community.signer.ipnsKeyName) throw Error("IPNS key name is not defined");
     // ttl = one publish cadence (20s at the default publishInterval). The record's ttl is the
