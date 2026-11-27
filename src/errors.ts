@@ -85,7 +85,6 @@ export enum messages {
     ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_SAME_INVALID_COMMUNITY_RECORD = "Aborted the gateway request to load community record because it will give us an invalid record we already processed and validated before",
     ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_SAME_UPDATE_CID = "Aborted the gateway request to load community record because it will give us the same record we already have",
     ERR_GATEWAY_ABORTING_LOADING_COMMUNITY_BECAUSE_WE_ALREADY_LOADED_THIS_RECORD = "Aborted the gateway request to load community record because we already loaded this record before",
-    ERR_GATEWAY_PROVIDED_INCORRECT_X_IPFS_ROOTS = "Gateway provided an x-ipfs-roots that doesn't correspond to body",
     ERR_REMOTE_COMMUNITY_RECEIVED_ALREADY_PROCCESSED_RECORD = "We loaded a community record but it's a record we already consumed before",
     ERR_COMMENT_RECEIVED_ALREADY_PROCESSED_COMMENT_UPDATE = "We loaded a CommentUpdate but it's a record we already consumed",
     ERR_FETCH_CID_P2P_TIMEOUT = "Fetching CID via Kubo-rpc-client/helia P2P has timed out",

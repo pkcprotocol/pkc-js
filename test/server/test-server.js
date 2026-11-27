@@ -380,7 +380,6 @@ const setUpMockGateways = async () => {
         else if (req.url.includes("/ipns")) {
             const communityAddress = convertBase32ToBase58btc(req.url.split("/")[2]);
             const community = await pkc.getCommunity({ address: communityAddress });
-            res.setHeader("x-ipfs-roots", community.updateCid);
             res.setHeader("etag", community.updateCid);
             res.end(JSON.stringify(community.raw.communityIpfs));
         } else res.end((await pkc.fetchCid({ cid: req.url })).content);
@@ -439,7 +438,6 @@ const setUpMockGateways = async () => {
         await new Promise((resolve) => setTimeout(resolve, 11000));
         res.setHeader("Access-Control-Allow-Origin", "*");
         const subRecord = await fetchLatestCommunity();
-        res.setHeader("x-ipfs-roots", subRecord.updateCid);
         res.setHeader("etag", subRecord.updateCid);
 
         res.end(JSON.stringify(subRecord.raw.communityIpfs));
@@ -454,7 +452,6 @@ const setUpMockGateways = async () => {
         await new Promise((resolve) => setTimeout(resolve, 3000));
         res.setHeader("Access-Control-Allow-Origin", "*");
         const subRecord = await fetchLatestCommunity();
-        res.setHeader("x-ipfs-roots", subRecord.updateCid);
         res.setHeader("etag", subRecord.updateCid);
 
         res.end(JSON.stringify(subRecord.raw.communityIpfs));
@@ -487,7 +484,6 @@ const setUpMockGateways = async () => {
             signer: signers[0]
         });
         const updateCid = await calculateIpfsHash(JSON.stringify(communityRecordThirtyMinuteOldIpfs));
-        res.setHeader("x-ipfs-roots", updateCid);
         res.setHeader("etag", updateCid);
 
         res.end(JSON.stringify(communityRecordThirtyMinuteOldIpfs));
@@ -507,7 +503,6 @@ const setUpMockGateways = async () => {
         communityRecordHourOldIpfs.updatedAt = Math.round(Date.now() / 1000) - 60 * 60; // make sure updatedAt is 60 minutes old
         communityRecordHourOldIpfs.signature = await signCommunity({ community: communityRecordHourOldIpfs, signer: signers[0] });
         const updateCid = await calculateIpfsHash(JSON.stringify(communityRecordHourOldIpfs));
-        res.setHeader("x-ipfs-roots", updateCid);
         res.setHeader("etag", updateCid);
 
         res.end(JSON.stringify(communityRecordHourOldIpfs));
@@ -530,7 +525,6 @@ const setUpMockGateways = async () => {
             signer: signers[0]
         });
         const updateCid = await calculateIpfsHash(JSON.stringify(communityRecordTwoHoursOldIpfs));
-        res.setHeader("x-ipfs-roots", updateCid);
         res.setHeader("etag", updateCid);
 
         res.end(JSON.stringify(communityRecordTwoHoursOldIpfs));
@@ -567,7 +561,6 @@ const setUpMockGateways = async () => {
         }
         if (req.url.includes("/ipns")) {
             const subRecord = await fetchLatestCommunity();
-            res.setHeader("x-ipfs-roots", subRecord.updateCid);
             res.setHeader("etag", subRecord.updateCid);
             res.end(JSON.stringify(subRecord.raw.communityIpfs));
             return;

@@ -130,7 +130,6 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
             const freshRecord = await signRecord(generateFreshRecord());
             const freshRecordJson = JSON.stringify(freshRecord);
             const freshRecordCid = await calculateIpfsHash(freshRecordJson);
-            res.setHeader("x-ipfs-roots", freshRecordCid);
             res.setHeader("etag", freshRecordCid);
             res.end(freshRecordJson);
         });
@@ -146,7 +145,6 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
             const freshRecord = await signRecord(generateFreshRecord());
             const freshRecordJson = JSON.stringify(freshRecord);
             const freshRecordCid = await calculateIpfsHash(freshRecordJson);
-            res.setHeader("x-ipfs-roots", freshRecordCid);
             res.setHeader("etag", freshRecordCid);
             res.end(freshRecordJson);
         });
@@ -171,7 +169,6 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
             const freshRecord = await signRecord(generateFreshRecord());
             const freshRecordJson = JSON.stringify(freshRecord);
             const freshRecordCid = await calculateIpfsHash(freshRecordJson);
-            res.setHeader("x-ipfs-roots", freshRecordCid);
             res.setHeader("etag", freshRecordCid);
             res.end(freshRecordJson);
         });
@@ -196,7 +193,6 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
             const oldRecord = await generateRecordWithAge(30 * 60);
             const oldRecordJson = JSON.stringify(oldRecord);
             const oldRecordCid = await calculateIpfsHash(oldRecordJson);
-            res.setHeader("x-ipfs-roots", oldRecordCid);
             res.setHeader("etag", oldRecordCid);
             res.end(oldRecordJson);
         });
@@ -212,7 +208,6 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
             const oldRecord = await generateRecordWithAge(60 * 60);
             const oldRecordJson = JSON.stringify(oldRecord);
             const oldRecordCid = await calculateIpfsHash(oldRecordJson);
-            res.setHeader("x-ipfs-roots", oldRecordCid);
             res.setHeader("etag", oldRecordCid);
             res.end(oldRecordJson);
         });
@@ -228,7 +223,6 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
             const oldRecord = await generateRecordWithAge(2 * 60 * 60);
             const oldRecordJson = JSON.stringify(oldRecord);
             const oldRecordCid = await calculateIpfsHash(oldRecordJson);
-            res.setHeader("x-ipfs-roots", oldRecordCid);
             res.setHeader("etag", oldRecordCid);
             res.end(oldRecordJson);
         });
@@ -256,7 +250,6 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
                 return;
             }
 
-            res.setHeader("x-ipfs-roots", conditional304RecordCid);
             res.setHeader("etag", `"${conditional304RecordCid}"`);
             res.end(conditional304RecordJson);
         });
@@ -280,7 +273,6 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
                 return;
             }
             if (!req.headers["if-none-match"]) await new Promise<void>((resolve) => setTimeout(resolve, 700));
-            res.setHeader("x-ipfs-roots", newerRecordCid);
             res.setHeader("etag", `"${newerRecordCid}"`);
             res.end(newerRecordJson);
         });
@@ -293,7 +285,6 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
                 res.end("Not found");
                 return;
             }
-            res.setHeader("x-ipfs-roots", conditional304RecordCid);
             res.setHeader("etag", `"${conditional304RecordCid}"`);
             res.end(conditional304RecordJson);
         });
@@ -319,7 +310,6 @@ describe("Test fetching community record from multiple gateways (isolated)", asy
                 return;
             }
             await new Promise<void>((resolve) => setTimeout(resolve, 700));
-            res.setHeader("x-ipfs-roots", newerRecordCid);
             res.setHeader("etag", `"${newerRecordCid}"`);
             res.end(newerRecordJson);
         });
