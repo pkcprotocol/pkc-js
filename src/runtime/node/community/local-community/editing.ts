@@ -137,6 +137,16 @@ async function applyPagesEdit(community: LocalCommunity, pagesEdit: PagesEdit | 
 }
 
 export async function validateNewAddressBeforeEditing(community: LocalCommunity, newAddress: string, log: Logger) {
+    // A community's address is its name, or its own identity key when it has no name. Refused here, before the rename
+    // moves the DB file, the MFS folder and the registry entry: setAddress only rejects a malformed address after all
+    // of that, which left a community that could not be started again, and it accepts any well-formed key, so a
+    // community could take the address of a key it cannot sign for (issue #620).
+    if (!isStringDomain(newAddress) && newAddress !== communityIdentityPublicKey(community))
+        throw new PKCError("ERR_COMMUNITY_EDIT_ADDRESS_IS_NOT_A_NAME_OR_OWN_KEY", {
+            newCommunityAddress: newAddress,
+            currentCommunityAddress: community.address,
+            communityPublicKey: communityIdentityPublicKey(community)
+        });
     if (doesDomainAddressHaveCapitalLetter(newAddress))
         throw new PKCError("ERR_COMMUNITY_NAME_HAS_CAPITAL_LETTER", { communityAddress: newAddress });
     // Check if any other community already has the new address as its name (exact or .eth/.bso alias) or its key. This
