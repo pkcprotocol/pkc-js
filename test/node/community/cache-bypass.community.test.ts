@@ -97,7 +97,7 @@ describeSkipIfRpc("CommentModeration acceptance bypasses the name-resolution cac
         });
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
 
-        // Now publish a CommentModeration as the mod. `isPublicationAuthorPartOfRoles` must
+        // Now publish a CommentModeration as the mod. `matchPublicationAuthorAgainstRoles` must
         // re-resolve modDomain with `cache: { maxAge: 0 }` to bind the domain role key to the
         // signer, even though the persistent cache already holds a fresh entry.
         const banMod = await pkc.createCommentModeration({
@@ -113,7 +113,7 @@ describeSkipIfRpc("CommentModeration acceptance bypasses the name-resolution cac
 
         const callsForDomainAfterMod = calls.filter((n) => n === modDomain).length;
         // The moderation flow goes through _checkPublicationValidity (uses 30m cache)
-        // and then isPublicationAuthorPartOfRoles (uses maxAge=0). At minimum the
+        // and then matchPublicationAuthorAgainstRoles (uses maxAge=0). At minimum the
         // maxAge=0 call adds one more invocation regardless of cache state.
         expect(callsForDomainAfterMod).to.be.greaterThan(callsForDomainAfterWarm);
     });
