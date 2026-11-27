@@ -141,10 +141,19 @@ schema verbatim, wire and runtime:
   failure (see below).
 - `stop()`: aborts an in-flight `publish()`.
 - There is no `edit()`. Publishing a revision means calling `createCommunityList()` again
-  with the previous record's props from a loaded instance (`title`, `description`,
-  `author`, `communities`) and publishing a new CID. The runtime fields a loaded instance
-  carries (`address`/`shortAddress` on entries, the derived author fields) are dropped on
-  create; anything else unknown is still rejected.
+  with the previous record's props and publishing a new CID. Two ways to get those props
+  from a loaded instance:
+  - From `raw.communityList`, the signed record exactly as fetched. It has no runtime
+    fields, so remove only `signature` (refused on create) and `timestamp` (so the revision
+    gets a new one), then change what you need:
+    `const { signature, timestamp, ...props } = loaded.raw.communityList`.
+  - From the instance's own props (`title`, `description`, `author`, `communities`). The
+    runtime fields they carry (`address`/`shortAddress` on entries, the derived author
+    fields) are dropped on create.
+
+  Anything else unknown is still rejected, and the loaded instance itself cannot be passed
+  back: options that carry a `cid` are parsed as a load by CID, which allows no other
+  option.
 - Publishing is isomorphic (Node and browser). There is no Node-only dependency: no
   sqlite, no MFS, no pubsub. It does require a node that can `ipfs add`: a kubo RPC client
   or a PKC RPC server. Gateway-only and libp2p-js-only instances can load lists but not

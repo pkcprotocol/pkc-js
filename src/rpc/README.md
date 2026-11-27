@@ -64,6 +64,13 @@ class Subscription extends EventEmitter {
   constructor(subscriptionId) {
     super()
     let emittingMessages = false
+    // an arrow function, so `this` is the subscription
+    const emitMessage = (jsonMessage) => {
+      const message = JSON.parse(jsonMessage)
+      if (subscriptionId === message?.params?.subscription) {
+        this.emit('message', message)
+      }
+    }
     this.on('newListener', (eventName) => {
       // emit all subscription messages received before the listener started
       if (eventName === 'message') {
@@ -84,12 +91,6 @@ class Subscription extends EventEmitter {
         webSocketClient.socket.off('message', emitMessage)
       }
     })
-    function emitMessage(jsonMessage) {
-      const message = JSON.parse(jsonMessage)
-      if (subscriptionId === message?.params?.subscription) {
-        this.emit('message', message)
-      }
-    }
   }
 }
 
@@ -120,15 +121,15 @@ The server registers the following methods. Param shapes are defined in `src/cli
 - `method: setSettings, params: [{pkcOptions: PKCOptions}], result: {success: true}`
 - `method: publishCommunityList, params: [{communityListRawString: string}], result: {cid: string}` — the client signs the `CommunityList` locally and sends the exact signed string; the server checks its size, schema and signature, then adds those bytes to IPFS (see `docs/protocol/community-lists.md`)
 - `method: fetchCommunityList, params: [{cid: string}], result: {communityListRawString: string}` — returns the raw record so the client can check the bytes against the cid and verify the signature itself
-- `method: exportCommunity, params: [{name?: string, publicKey?: string, includePrivateKey?: boolean}], result: {exportId: string}` — starts a database export of a local community; follow it with `exportsSubscribe`. See [EXPORT_COMMUNITY_SPEC.md](EXPORT_COMMUNITY_SPEC.md)
+- `method: exportCommunity, params: [{name?: string, publicKey?: string, includePrivateKey?: boolean}], result: {exportId: string}` — starts a database export of a local community; follow it with `exportsSubscribe`. At least one of `name` or `publicKey` is required. See [EXPORT_COMMUNITY_SPEC.md](EXPORT_COMMUNITY_SPEC.md)
 - `method: cancelExport, params: [{exportId: string}], result: {success: true}` — idempotent, an unknown `exportId` also returns success
-- `method: exportCommunityModLogs, params: [{name?: string, publicKey?: string, startTimestamp?: number, endTimestamp?: number, commentCid?: string, limit?: number, order?: "ASC" | "DESC"}], result: {moderations: CommentModerationTableRow[]}` — see `community.exportCommunityModLogs()` in the root README
+- `method: exportCommunityModLogs, params: [{name?: string, publicKey?: string, startTimestamp?: number, endTimestamp?: number, commentCid?: string, limit?: number, order?: "ASC" | "DESC"}], result: {moderations: CommentModerationTableRow[]}` — at least one of `name` or `publicKey` is required; see `community.exportCommunityModLogs()` in the root README
 
 # JSON-RPC Pubsub Websocket API
 
 Each subscribe/publish method returns `{subscriptionId: number}` and streams JSON-RPC notifications until `unsubscribe` is called.
 
-- [`method: startCommunity, params: [{name?: string, publicKey?: string}]`](#startcommunity)
+- `method: startCommunity, params: [{name?: string, publicKey?: string}]`: starts a local community and streams its events. Notifications use `method: "startCommunity"` (not `startCommunityNotification`)
 - `method: startedCommunitySubscribe, params: [{name?: string, publicKey?: string}]`: same notifications as `startCommunity`, for a client re-establishing its `start()` after a reconnect. It attaches if the community is running and starts it only if it was started and never explicitly stopped since; otherwise it errors with `ERR_RPC_COMMUNITY_NOT_RUNNING`. It never overrides a stop.
 - `method: stopCommunity, params: [{name?: string, publicKey?: string}], result: {success: true}`
 - [`method: commentUpdateSubscribe, params: [{cid: string, communityPublicKey?: string, communityName?: string}]`](#commentupdatesubscribe)
@@ -138,10 +139,10 @@ Each subscribe/publish method returns `{subscriptionId: number}` and streams JSO
 - `method: publishCommentEdit, params: [CommentEditChallengeRequestToEncrypt]`
 - `method: publishCommentModeration, params: [CommentModerationChallengeRequestToEncrypt]`
 - `method: publishCommunityEdit, params: [CommunityEditChallengeRequestToEncrypt]`
-- `method: publishChallengeAnswers, params: [{subscriptionId: number, challengeAnswers: string[]}], result: {success: true}`
+- `method: publishChallengeAnswers, params: [{subscriptionId: number, challengeAnswers: {[challengeIndex: string]: string}}], result: {success: true}`: `challengeAnswers` is a non-empty object keyed by the index of the challenge each answer is for, e.g. `{"0": "1+1=2", "2": "6"}`. An array is rejected
 - [`method: communitiesSubscribe, params: []`](#communitiessubscribe)
 - [`method: settingsSubscribe, params: []`](#settingssubscribe)
-- `method: exportsSubscribe, params: [{name?: string, publicKey?: string}]`: notifications use `method: "exportschange"` and `event: "exportschange"` with `result: {records: CommunityExportRecord[]}`, the community's current exports first and again on every change. Unsubscribing does not cancel an export. See [EXPORT_COMMUNITY_SPEC.md](EXPORT_COMMUNITY_SPEC.md)
+- `method: exportsSubscribe, params: [{name?: string, publicKey?: string}]` (at least one of `name` or `publicKey`): notifications use `method: "exportschange"` and `event: "exportschange"` with `result: {records: CommunityExportRecord[]}`, the community's current exports first and again on every change. Unsubscribing does not cancel an export. See [EXPORT_COMMUNITY_SPEC.md](EXPORT_COMMUNITY_SPEC.md)
 - [`method: unsubscribe, params: [{subscriptionId: number}], result: {success: true}`](#unsubscribe)
 
 ## commentUpdateSubscribe
@@ -224,7 +225,7 @@ The notification format is the same as seen in the pkc-js [Comment Events](https
 }
 ```
 
-`runtimeupdate` event, sent when `author.nameResolved` changes and there is no new `CommentUpdate` to carry it:
+`runtimeupdate` event, sent when `author.nameResolved` changes after the `comment` event and no `CommentUpdate` has been loaded yet. Once a `CommentUpdate` is loaded, the change arrives in an `update` event that repeats the record with the new `runtimeFields`:
 
 ```json
 {
@@ -383,7 +384,7 @@ Publish a comment and subscribe to receive notifications of the challenge pubsub
         "signedPropertyNames": ["title", "content", "author"]
       }
     },
-    "challengeAnswers": ["some answer"]
+    "challengeAnswers": {"0": "some answer"}
   }]
 }
 ```

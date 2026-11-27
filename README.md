@@ -828,14 +828,15 @@ const loaded = await pkc.createCommunityList({cid})
 loaded.on('update', () => console.log(loaded.title, loaded.author?.nameResolved))
 await loaded.update()
 
-// publish a revision from the loaded props (runtime fields like entry.address are dropped on create)
+// publish a revision: start from the signed record as fetched, without its signature and old timestamp
+const {signature, timestamp, ...previousProps} = loaded.raw.communityList
 const revision = await pkc.createCommunityList({
+  ...previousProps,
   signer,
-  title: loaded.title,
-  author: loaded.author,
-  communities: [...loaded.communities, {publicKey: '12D3KooY...'}]
+  communities: [...previousProps.communities, {publicKey: '12D3KooY...'}]
 })
 const revisionCid = await revision.publish()
+// passing `loaded` itself does not work: options with a `cid` mean "load this list" and allow nothing else
 ```
 
 ### `pkc.createCommunity(createCommunityOptions)`
