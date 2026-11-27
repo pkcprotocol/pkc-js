@@ -126,7 +126,7 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
     };
 
     // reports when the main thread is held up, for as long as any community of this process is running
-    const releaseEventLoopWatch = holdEventLoopWatch({ log: community._pkc._log.child({ namespace: "event-loop-watch" }) });
+    const releaseEventLoopWatch = holdEventLoopWatch({ log: community._pkc._log });
     try {
         await runCyclesUntilStopped();
     } finally {

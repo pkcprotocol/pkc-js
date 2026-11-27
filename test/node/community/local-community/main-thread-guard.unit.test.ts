@@ -2,12 +2,13 @@
 // took longer than the publish interval. Both are pure decisions over numbers measured elsewhere, tested here without
 // a community, and the watch that feeds the first is checked for being one per process, held by whoever needs it.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
     EVENT_LOOP_BLOCKED_REPORT_MS,
     eventLoopDelayToReport,
     holdEventLoopWatch,
-    isEventLoopWatchRunning
+    isEventLoopWatchRunning,
+    reportToEventLoopWatchHolders
 } from "../../../../dist/node/runtime/node/event-loop-watch.js";
 import { slowCycleReport } from "../../../../dist/node/runtime/node/community/local-community/ipns-publishing.js";
 import Logger from "@pkcprotocol/pkc-logger";
@@ -48,6 +49,37 @@ describe("event loop watch", () => {
         expect(isEventLoopWatchRunning()).to.equal(true);
 
         releaseSecond();
+        expect(isEventLoopWatchRunning()).to.equal(false);
+    });
+
+    // Issue #493: each PKC instance has its own log buffer, so a report must not go only to whoever started the watch
+    it("reports to every logger that holds it, once each, and no longer to one that gave its holds back", () => {
+        const firstLog = Logger({ namespace: "pkc-js:test:main-thread-guard:first" });
+        const secondLog = Logger({ namespace: "pkc-js:test:main-thread-guard:second" });
+        const firstError = vi.spyOn(firstLog, "error").mockImplementation(() => {});
+        const secondError = vi.spyOn(secondLog, "error").mockImplementation(() => {});
+        const releaseFirst = holdEventLoopWatch({ log: firstLog });
+        const releaseFirstAgain = holdEventLoopWatch({ log: firstLog }); // a second community of the same instance
+        const releaseSecond = holdEventLoopWatch({ log: secondLog });
+        try {
+            reportToEventLoopWatchHolders("blocked");
+            expect(firstError.mock.calls).to.deep.equal([["blocked"]]);
+            expect(secondError.mock.calls).to.deep.equal([["blocked"]]);
+
+            releaseFirst();
+            reportToEventLoopWatchHolders("blocked again");
+            expect(firstError.mock.calls.length, "one hold of the first logger is still out").to.equal(2);
+
+            releaseFirstAgain();
+            reportToEventLoopWatchHolders("blocked a third time");
+            expect(firstError.mock.calls.length).to.equal(2);
+            expect(secondError.mock.calls.length).to.equal(3);
+        } finally {
+            releaseFirst();
+            releaseFirstAgain();
+            releaseSecond();
+            vi.restoreAllMocks();
+        }
         expect(isEventLoopWatchRunning()).to.equal(false);
     });
 });
