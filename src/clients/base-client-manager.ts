@@ -54,6 +54,7 @@ type GenericGatewayFetch = {
         response?: string;
         error?: Error;
         timeoutId: any;
+        timedOut?: boolean; // set by this gateway's own timeout, never by an abort of ours
     };
 };
 
@@ -81,6 +82,9 @@ export type OptionsToLoadFromGateway = {
     path?: string;
     recordPKCType: LoadType;
     abortController: AbortController;
+    // Whether the abort of `abortController` was this gateway's own timeout. Any other abort is ours (another
+    // gateway answered first, the caller stopped) and says nothing about the gateway
+    gatewayTimedOut: () => boolean;
     timeoutMs: number;
     abortRequestErrorBeforeLoadingBodyFunc?: (res: Response) => Promise<PKCError | undefined>; // this is called before consuming the body of the gateway response. Can be used to abort and stop the consumption. Should provide an abort error
     validateGatewayResponseFunc: (resObj: { resText: string | undefined; res: Response }) => Promise<void>; // can throw here to trigger a failure in response
@@ -663,11 +667,17 @@ export class BaseClientsManager {
             // gateway's score in the sorting stats (issue #328). Everything else stays a failure.
             const gatewayConfirmedCurrentRecord =
                 (<PKCError>e).details?.status === 304 || String((<PKCError>e).code).startsWith("ERR_GATEWAY_ABORTING_LOADING");
+            // A request we aborted ourselves is no verdict on the gateway, so it is not recorded at all:
+            // counted as a failure, the two gateways that lose every race of three would sink in the sort.
+            // The abort reaches us as ERR_GATEWAY_TIMED_OUT_OR_ABORTED from the gateway request itself, and as
+            // the plain AbortError from a fetch made while validating the response (the delegated IPNS chain)
+            const isAbort = (<PKCError>e).code === "ERR_GATEWAY_TIMED_OUT_OR_ABORTED" || isAbortError(e);
+            const abortedByUs = isAbort && !loadOpts.gatewayTimedOut();
             if (gatewayConfirmedCurrentRecord)
                 this._pkc._stats
                     .recordGatewaySuccess(gateway, loadOpts.recordIpfsType, Date.now() - timeBefore)
                     .catch((err) => log.error("fetchWithGateway: Failed to report gateway success", err));
-            else
+            else if (!abortedByUs)
                 this._pkc._stats
                     .recordGatewayFailure(gateway, loadOpts.recordIpfsType)
                     .catch((err) => log.error("fetchWithGateway: failed to report gateway error", err));
@@ -690,7 +700,7 @@ export class BaseClientsManager {
     }
 
     async fetchFromMultipleGateways(
-        loadOpts: Omit<OptionsToLoadFromGateway, "abortController"> & { abortSignal?: AbortSignal }
+        loadOpts: Omit<OptionsToLoadFromGateway, "abortController" | "gatewayTimedOut"> & { abortSignal?: AbortSignal }
     ): Promise<{ resText: string; res: Response }> {
         const timeoutMs = loadOpts.timeoutMs;
         const concurrencyLimit = 3;
@@ -726,7 +736,10 @@ export class BaseClientsManager {
             const gatewayFetch = { abortController, timeoutId: undefined } as GenericGatewayFetch[string];
             gatewayFetches[gateway] = gatewayFetch;
             const armTimeout = () =>
-                (gatewayFetch.timeoutId = setTimeout(() => abortController.abort("Gateway request timed out"), timeoutMs));
+                (gatewayFetch.timeoutId = setTimeout(() => {
+                    gatewayFetch.timedOut = true;
+                    abortController.abort("Gateway request timed out");
+                }, timeoutMs));
             // The timeout is this gateway's own, so it runs from when the gateway can send its request. The first
             // `concurrencyLimit` gateways get a slot at once, so theirs is armed now, before the caller arms a deadline of
             // the same length (getComment's is the comment-ipfs timeout too): when the gateways hang, their errors reach the
@@ -737,7 +750,11 @@ export class BaseClientsManager {
             if (startsAtOnce) armTimeout();
             gatewayFetch.promise = queueLimit(() => {
                 if (!startsAtOnce && !abortController.signal.aborted) armTimeout();
-                return this._fetchWithGateway(gateway, { ...loadOpts, abortController });
+                return this._fetchWithGateway(gateway, {
+                    ...loadOpts,
+                    abortController,
+                    gatewayTimedOut: () => gatewayFetch.timedOut === true
+                });
             });
         }
 
@@ -781,6 +798,11 @@ export class BaseClientsManager {
     // (anchor -> minter -> /ipfs/). Longer chains are rejected with ERR_IPNS_MAX_HOPS_EXCEEDED.
     static readonly MAX_IPNS_HOPS = 1;
 
+    // Called with every name resolveIpnsToCidP2P asks its client for, before the request, whether or not the
+    // resolve goes on to succeed, together with the name that walk started from. For subclasses that have to know
+    // which names a client was asked about.
+    protected _onIpnsNameAboutToBeResolvedP2P(_ipnsName: string, _firstNameOfWalk: string) {}
+
     // Resolves an IPNS name to its terminal /ipfs/ CID, following any /ipns/ -> /ipns/
     // delegation hops along the way. Returns the resolved CID together with the ordered
     // chain of IPNS names traversed: ipnsHops[0] is the anchor (the name we were asked to
@@ -810,6 +832,15 @@ export class BaseClientsManager {
             keys(this._pkc.clients.kuboRpcClients).length === 0 && keys(this._pkc.clients.libp2pJsClients).length > 0;
         const ipnsResolveOpts = { nocache: !resolvingViaLibp2pJsClient, recursive: false, ...loadOpts };
         const ipfsClient = this.getIpfsClientWithKuboRpcClientFunctions();
+        // Ends kubo's request once we stop waiting for it (stop(), timeout, or a failed hop). kubo-rpc-client reads
+        // `signal`, not loadOpts.abortSignal, so without this the resolve kept running inside kubo after a stop(),
+        // for up to a minute on a name with no record, and kubo refuses `name pubsub cancel` for a name with a
+        // resolve in progress (issue #602). Kubo only: the libp2p-js resolver hands its options to a pubsub warmup
+        // that is meant to outlive the resolve, and this signal is aborted on success too.
+        const kuboResolveAbortController = new AbortController();
+        const clientResolveOpts = resolvingViaLibp2pJsClient
+            ? ipnsResolveOpts
+            : { ...ipnsResolveOpts, signal: kuboResolveAbortController.signal };
 
         const performIpnsResolve = async () => {
             // We resolve ONE hop at a time (recursive: false) rather than letting the resolver
@@ -830,7 +861,8 @@ export class BaseClientsManager {
                 // both resolution paths report failures identically. See docs/protocol/delegated-ipns.md.
                 const hopIndex = ipnsHops.length - 1;
                 const hopRole = hopIndex === 0 ? "anchor" : "minter";
-                const yieldedValues: string[] = await all(ipfsClient.name.resolve(currentName, ipnsResolveOpts));
+                this._onIpnsNameAboutToBeResolvedP2P(currentName, ipnsName);
+                const yieldedValues: string[] = await all(ipfsClient.name.resolve(currentName, clientResolveOpts));
                 // The single-hop value (kubo may yield it more than once; helia yields it once).
                 const value: string | undefined = yieldedValues[yieldedValues.length - 1];
                 if (!value)
@@ -923,6 +955,8 @@ export class BaseClientsManager {
                 });
             }
             throw error;
+        } finally {
+            kuboResolveAbortController.abort();
         }
 
         throw Error("Should not reach this block in resolveIpnsToCidP2P");

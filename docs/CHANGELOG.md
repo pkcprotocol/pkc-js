@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.0.163](https://github.com/pkcprotocol/pkc-js/compare/v0.0.162...v0.0.163) (2026-11-24)
+
+### Bug Fixes
+
+* **community:** a community loaded by key no longer key-migrates on a name its record claims ([#606](https://github.com/pkcprotocol/pkc-js/issues/606)) ([1855946](https://github.com/pkcprotocol/pkc-js/commit/18559462d4422e972abee9588983419c1314452c))
+
+## [0.0.162](https://github.com/pkcprotocol/pkc-js/compare/v0.0.161...v0.0.162) (2026-11-24)
+
+### Bug Fixes
+
+* **gateways:** sort gateways and pubsub providers by their score ([#487](https://github.com/pkcprotocol/pkc-js/issues/487)) ([41eecf3](https://github.com/pkcprotocol/pkc-js/commit/41eecf3227623c7c785f5d88250906019dd1a847))
+
+## [0.0.161](https://github.com/pkcprotocol/pkc-js/compare/v0.0.160...v0.0.161) (2026-11-24)
+
+### Bug Fixes
+
+* raise the libp2p-js per-peer pubsub topic budget and release kubo IPNS subscriptions ([#604](https://github.com/pkcprotocol/pkc-js/issues/604)) ([c3dda5f](https://github.com/pkcprotocol/pkc-js/commit/c3dda5f90b3fbfe3a34051ddbe67535297ede037)), closes [#602](https://github.com/pkcprotocol/pkc-js/issues/602) [#602](https://github.com/pkcprotocol/pkc-js/issues/602)
+
+## [0.0.160](https://github.com/pkcprotocol/pkc-js/compare/v0.0.159...v0.0.160) (2026-11-24)
+
+### Bug Fixes
+
+* **pages:** keep the RPC page state while fetching, and fetch pages of sorts not seen yet ([#609](https://github.com/pkcprotocol/pkc-js/issues/609)) ([2b1c6fc](https://github.com/pkcprotocol/pkc-js/commit/2b1c6fcf6577d0527184c6a02f1b47c9f176d0da))
+
 ## [0.0.159](https://github.com/pkcprotocol/pkc-js/compare/v0.0.158...v0.0.159) (2026-11-23)
 
 ### Features

@@ -734,6 +734,15 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         return this.address && isStringDomain(this.address) ? this.address : undefined;
     }
 
+    // What this loader looks itself up by in the registries. Never `this.name`: for a loader by key that is
+    // only what its record claims, and with the name's real owner present in the same PKC it would lead to
+    // the owner's instance (#605). A loader by name asked for the name, so the name leads and its publicKey,
+    // which may predate a key migration, is the fallback.
+    protected _registryLookup(): { publicKey?: string; name?: string; preferName: boolean } {
+        const requestedName = this._requestedName();
+        return { publicKey: this.publicKey, name: requestedName, preferName: Boolean(requestedName) };
+    }
+
     // Each loader checks records against the name IT asked for, wherever a record is applied to it:
     // loaders of different identities share one updating instance (matched by public key or name), so
     // the shared instance only verifies the signing key, which holds for every loader alike.
@@ -758,7 +767,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
     _setCommunityIpfsPropsFromUpdatingCommunitiesIfPossible() {
         const log = this._log;
-        const updatingCommunity = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
+        const updatingCommunity = findUpdatingCommunity(this._pkc, this._registryLookup());
         if (updatingCommunity?.raw?.communityIpfs && (this.updatedAt || 0) < updatingCommunity.raw.communityIpfs.updatedAt) {
             // The caller asked for a specific publicKey and the tracked instance holds a record keyed
             // to a different one (its anchor for delegated communities — never signature.publicKey,
@@ -881,7 +890,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         // tracked under the pre-migration address, so a second alias lookup here used to come up
         // empty and throw "should be defined at this stage" even though the instance was tracked —
         // which is how the RPC server's setSettings handler orphaned migrated subscriptions (#197).
-        let communityInstance = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
+        let communityInstance = findUpdatingCommunity(this._pkc, this._registryLookup());
         if (!communityInstance) {
             // Pass publicKey alongside name/address so the updating community can use publicKey fallback.
             // createOpts is deliberately keyed by the (immutable, possibly pre-migration) address: the
@@ -1072,9 +1081,11 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
         if (this._updatingCommunityInstanceWithListeners) await this._cleanUpUpdatingCommunityInstanceWithListeners();
         else {
-            // this instance is pkc._updatingCommunity[address] itself
-            await this._clientsManager.stopUpdatingLoop();
+            // this instance is pkc._updatingCommunity[address] itself. Untracked before the await (a no-op when the
+            // caller already did), so an update() of another instance in that window starts a new updating instance
+            // instead of attaching to this one and being stopped with it.
             untrackUpdatingCommunity(this._pkc, this);
+            await this._clientsManager.stopUpdatingLoop();
         }
         this._setUpdatingStateWithEventEmissionIfNewState("stopped");
         this._setState("stopped");

@@ -46,6 +46,34 @@ import { createDefaultDialTransportGater } from "./dial-transport-filter.js";
 import { pkcDialAddressSorter } from "./dial-address-sorter.js";
 import { binaryKeyToPubsubTopic, ipnsNameToIpnsOverPubsubTopic } from "../util.js";
 
+// How many topic subscriptions of ONE peer the gossipsub of a libp2p-js client keeps track of, as a memory budget:
+// each topic costs its length plus about 1 KiB, so 8 MiB is roughly 8000 topics. Subscriptions past the budget are
+// ignored without an error, and that peer is then never chosen as a recipient for those topics. gossipsub's own
+// default is 1 MiB (about 1000 topics), which a node hosting or seeding a few hundred communities already exceeds:
+// every community has a pubsub topic and an IPNS record topic (issue #602). The limit is applied by the node that
+// receives the subscriptions, so only this default helps a peer with many topics; an app that connects to peers with
+// more than this passes its own gossipsub({ maxTopicBytesPerPeer, decodeRpcLimits }) as libp2pOptions.services.pubsub.
+export const GOSSIPSUB_MAX_TOPIC_BYTES_PER_PEER = 8 * 1024 * 1024;
+
+// gossipsub also caps how many subscriptions ONE message may carry, and a message over the cap is rejected whole, not
+// trimmed. A peer announces all its topics in a single message when we connect, so with gossipsub's default cap of 5000
+// a peer subscribed to 5001 topics is known for none of them, which is far worse than the budget above running out.
+// Set well above what the budget admits (at most 8192 topics), so the budget, which degrades one topic at a time, is
+// always the limit that is reached first. The message's size in bytes is bounded separately by gossipsub.
+export const GOSSIPSUB_MAX_SUBSCRIPTIONS_PER_MESSAGE = 65536;
+
+// decodeRpcLimits replaces gossipsub's defaults as a whole, and the package does not export them: the other fields
+// are its defaults as of @libp2p/gossipsub 17.2.1 (dist/src/message/decodeRpc.js). Re-check them when upgrading.
+const GOSSIPSUB_DECODE_RPC_LIMITS = {
+    maxSubscriptions: GOSSIPSUB_MAX_SUBSCRIPTIONS_PER_MESSAGE,
+    maxMessages: 5000,
+    maxIhaveMessageIDs: 5000,
+    maxIwantMessageIDs: 5000,
+    maxControlMessages: 5000,
+    maxIdontwantMessageIDs: 512,
+    maxPeerInfos: 16
+};
+
 const libp2pJsClients: Partial<Record<string, Libp2pJsClient>> = {}; // key => pkc.clients.libp2pJsClients[key]
 const creatingLibp2pJsClients: Partial<Record<string, Promise<Libp2pJsClient>>> = {};
 
@@ -261,7 +289,12 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     // querying the public IPFS network in addition to the routers the user configured.
                     // Keep the service map narrow and explicit. (See review notes 2026-05-08.)
                     identify: identify(),
-                    pubsub: gossipsub(),
+                    // Both limits are per connected peer: how many of ITS topic subscriptions we remember, and how
+                    // many it may announce in one message (see GOSSIPSUB_MAX_TOPIC_BYTES_PER_PEER).
+                    pubsub: gossipsub({
+                        maxTopicBytesPerPeer: GOSSIPSUB_MAX_TOPIC_BYTES_PER_PEER,
+                        decodeRpcLimits: GOSSIPSUB_DECODE_RPC_LIMITS
+                    }),
                     // powers @helia/ipns pubsub fast-path: fetch latest record from new topic peers (PR ipfs/helia#906)
                     fetch: libp2pFetch(),
                     ...getDelegatedRoutingFields(pkcOptions.httpRoutersOptions, log),

@@ -17,6 +17,7 @@ export type CommunityGatewayFetch = {
         communityRecord?: CommunityIpfsType;
         error?: PKCError;
         timeoutId: ReturnType<typeof setTimeout>;
+        timedOut?: boolean; // set by this gateway's own timeout, never by an abort of ours
         ttl?: number; // ttl in seconds of IPNS record
         ipnsHops?: string[]; // the resolved IPNS chain [anchor, ..., terminal] for THIS gateway's record
     };

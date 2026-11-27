@@ -1372,6 +1372,9 @@ export async function fetchAndValidateIpnsRecordFromGateway(
         // Don't remap aborts: a cancelled fetch is not a chain-validation failure, and remapping it
         // would misclassify parent-driven aborts and break their abort logic.
         if (isAbortError(e)) throw e;
+        // An abort with a reason string makes fetch reject with that string itself, which is no AbortError.
+        // The gateway fetchers abort that way, so the signal is what tells an abort from a failed fetch
+        throwIfAbortSignalAborted(opts?.abortSignal);
         if (e instanceof PKCError) throw e;
         throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
             reason: "Failed to fetch the raw IPNS record from the gateway",
