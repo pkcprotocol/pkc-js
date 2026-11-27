@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createLogger } from "@pkcprotocol/pkc-logger";
 import type { Logger } from "@pkcprotocol/pkc-logger";
 import PKC from "../../dist/node/index.js";
@@ -54,12 +54,16 @@ describe("the log handed to a challenge package (#625)", () => {
             comment: { author: { address: signers[2].address }, signature: { publicKey: signers[2].publicKey } }
         } as unknown as DecryptedChallengeRequestMessageTypeWithCommunityAuthor;
 
-        const verification = await getChallengeVerification({
-            challengeRequestMessage,
-            community: community as unknown as LocalCommunity,
-            getChallengeAnswers: async () => ({})
-        });
-        await realPkc.destroy();
+        let verification: Awaited<ReturnType<typeof getChallengeVerification>>;
+        try {
+            verification = await getChallengeVerification({
+                challengeRequestMessage,
+                community: community as unknown as LocalCommunity,
+                getChallengeAnswers: async () => ({})
+            });
+        } finally {
+            await realPkc.destroy();
+        }
         expect(verification.challengeSuccess).to.equal(true);
 
         const getChallengeLogs = seenLogs.filter((entry) => entry.where === "getChallenge");
@@ -93,6 +97,12 @@ describe("the log handed to a challenge package (#625)", () => {
         const installerLog = createLogger({ namespace: "installer" }).child({ namespace: "install" });
         validateChallengeFileFactory(captureChallenge, { name: "capture", log: installerLog });
         expect(seenLogs).to.deep.equal([{ where: "factory", namespace: "installer:install:challenge:capture", tags: {} }]);
+    });
+
+    it("validateChallengeFileFactory without a log throws a caller error, not ERR_CHALLENGE_FILE_INVALID", () => {
+        // an installer built against the old types passes no log; that must not read as a broken package
+        const call = () => validateChallengeFileFactory(captureChallenge, { name: "capture" } as unknown as { name: string; log: Logger });
+        expect(call).to.throw(TypeError, /options\.log is required/);
     });
 });
 
@@ -131,6 +141,11 @@ describe("the log handed to a page sort package (#625)", () => {
         validatePageSortFileFactory(capturePageSort, { name: "capture", log: installerLog });
         expect(seenLogs).to.deep.equal([{ where: "factory", namespace: "installer:install:page-sort:capture", tags: {} }]);
     });
+
+    it("validatePageSortFileFactory without a log throws a caller error, not ERR_PAGE_SORT_FILE_INVALID", () => {
+        const call = () => validatePageSortFileFactory(capturePageSort, { name: "capture" } as unknown as { name: string; log: Logger });
+        expect(call).to.throw(TypeError, /options\.log is required/);
+    });
 });
 
 describe("the log handed to a name resolver (#625)", () => {
@@ -161,6 +176,11 @@ describe("the log handed to a name resolver (#625)", () => {
         });
     });
 
+    // the destroy() test destroys the instance itself; this covers running the resolve() test alone or a failure before it
+    afterAll(async () => {
+        if (!pkc.destroyed) await pkc.destroy();
+    });
+
     it("resolve() receives a log under name-resolver:<key> tagged with the name being resolved", async () => {
         seenLogs.length = 0;
         // a name no earlier run resolved: a cached resolution would skip the resolver
@@ -172,9 +192,11 @@ describe("the log handed to a name resolver (#625)", () => {
         expect(seenLogs[0].namespace.endsWith(":name-resolver:capture-resolver")).to.equal(true);
     });
 
-    it("destroy() receives the instance's log under name-resolver:<key>, with no name tag", async () => {
+    it("destroy() receives the same name-resolver:<key> log as resolve(), with no name tag", async () => {
         seenLogs.length = 0;
         await pkc.destroy();
-        expect(seenLogs).to.deep.equal([{ where: "destroy", namespace: "pkc-js:name-resolver:destroy-resolver", tags: {} }]);
+        expect(seenLogs).to.deep.equal([
+            { where: "destroy", namespace: "pkc-js:pkc:clients-manager:name-resolver:destroy-resolver", tags: {} }
+        ]);
     });
 });

@@ -222,7 +222,6 @@ const validateChallengeOrChallengeResult = ({
     return { ok: true };
 };
 
-// load and validate a challenge factory + ChallengeFile for one challenge index
 // The logger handed to a challenge package's factory and validate hook (issues #493, #625): the caller's child under
 // the challenge's own namespace, tagged with the entry's index in settings.challenges so two entries of one challenge
 // can be told apart. A caller with no index (a registry listing) gets the namespace only.
@@ -240,6 +239,7 @@ export const challengeFileLog = ({
         ...(challengeIndex === undefined ? {} : { tags: { challengeIndex: String(challengeIndex) } })
     });
 
+// load and validate a challenge factory + ChallengeFile for one challenge index
 const loadChallengeFile = async ({
     communityChallengeSettings,
     challengeIndex,

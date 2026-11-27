@@ -420,7 +420,7 @@ const packageName = community.pageSorts?.posts ? published?.name : sortName;
 const factory = packageName ? registry[packageName] : undefined;
 if (!factory) throw Error(`cannot re-sort ${sortName}: its package is not installed, or it was loaded by path`);
 const options = published?.publicOptions ?? {}; // the option set the sort ran with, reserved options included
-const file = factory({ pageSortSettings: { name: packageName, options }, log: pkc.logger.child({ namespace: `page-sort:${packageName}` }) });
+const file = factory({ pageSortSettings: { name: packageName, options }, log: pkc.logger.child({ namespace: `pkc-js:page-sort:${packageName}` }) });
 const baseTimestamp = Math.round(Date.now() / 1000);
 
 // `score` gets the CommentUpdate without its nested `replies`; null declines the comment; ties keep the page's order
