@@ -146,7 +146,7 @@ const V36_CREATE_PSEUDONYMITY_ALIASES = `
 // ──────────────────────────────────────────────────────────────
 
 // An IPNS-key-style address (NOT a domain)
-const IPNS_ADDRESS = "12D3KooWTestCommunityAddress";
+const IPNS_ADDRESS = "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z"; // a well-formed key address: schemas refuse anything else
 // A domain-style address
 const DOMAIN_ADDRESS = "my-community.eth";
 
