@@ -1023,6 +1023,10 @@ export async function verifyCommentUpdate({
     if (forbiddenKeysOf(update.author).length > 0)
         return { valid: false, reason: messages.ERR_COMMENT_UPDATE_AUTHOR_INCLUDES_FORBIDDEN_KEY };
 
+    // Checked on its own: a page verifies its updates with validateUpdateSignature: false, and the type would
+    // otherwise only be looked at together with the signature bytes
+    if (update.signature.type !== SIGNATURE_TYPE_ED25519) return { valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID };
+
     if (validateUpdateSignature) {
         const jsonValidation = await _validateSignatureOfPKCRecord(update);
 
