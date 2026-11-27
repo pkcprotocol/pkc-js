@@ -890,8 +890,8 @@ describeSkipIfRpc.concurrent("settings.pages[].sortName: published record (issue
                 excludeCommentPendingApproval: "true",
                 excludeCommentWithApprovedFalse: "false"
             };
-            const topDescription = pkcJsPageSorts.top({ pageSortSettings: { name: "top" } }).description;
-            const newFlatDescription = pkcJsPageSorts.newFlat({ pageSortSettings: { name: "newFlat" } }).description;
+            const topDescription = pkcJsPageSorts.top({ pageSortSettings: { name: "top" }, log: testLog }).description;
+            const newFlatDescription = pkcJsPageSorts.newFlat({ pageSortSettings: { name: "newFlat" }, log: testLog }).description;
             for (const _community of [community, remoteCommunity]) {
                 expect(_community.pageSorts).to.deep.equal({
                     posts: {

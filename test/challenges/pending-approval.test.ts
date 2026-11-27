@@ -48,7 +48,8 @@ const createCommunityWithChallenges = async (
     community.challenges = await Promise.all(
         challengeSettings.map(
             async (challenge) =>
-                (await getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings: challenge })).communityChallenge
+                (await getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings: challenge, log: testLog }))
+                    .communityChallenge
         )
     );
     return community;

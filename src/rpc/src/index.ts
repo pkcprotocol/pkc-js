@@ -1166,10 +1166,15 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
             ...builtInChallenges, // built-ins first
             ...(pkc.settings?.challenges || {}) // user-defined override
         };
-        const challenges = mapValues(allChallengeFactories, (challengeFactory) =>
+        // A factory always gets a logger (issue #625). This listing belongs to no community, so it is the server's own
+        // child under the package's namespace, with no publicKey or challengeIndex tag.
+        const challenges = mapValues(allChallengeFactories, (challengeFactory, name) =>
             // both dropped keys are functions: they cannot be serialized, and both only ever run
             // community-side on the node that owns the community
-            omit(challengeFactory({ challengeSettings: {} }), ["getChallenge", "validateChallengeSettings"])
+            omit(challengeFactory({ challengeSettings: {}, log: this._log.child({ namespace: `challenge:${name}` }) }), [
+                "getChallenge",
+                "validateChallengeSettings"
+            ])
         );
 
         // Page sorts (issue #73): the same projection, functions dropped and `requireReplies` kept so a config UI can
@@ -1179,7 +1184,10 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const pageSorts: PKCWsServerSettingsSerialized["pageSorts"] = {};
         for (const [name, pageSortFactory] of Object.entries(allPageSortFactories)) {
             try {
-                pageSorts[name] = omit(pageSortFactory({ pageSortSettings: { name } }), ["score", "validatePageSortSettings"]);
+                pageSorts[name] = omit(
+                    pageSortFactory({ pageSortSettings: { name }, log: this._log.child({ namespace: `page-sort:${name}` }) }),
+                    ["score", "validatePageSortSettings"]
+                );
             } catch (e) {
                 this._log.error(
                     `_serializeSettingsFromPKC: Page sort "${name}" could not be listed in the RPC settings because its factory threw`,

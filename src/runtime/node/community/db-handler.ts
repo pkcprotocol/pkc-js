@@ -758,11 +758,13 @@ export class DbHandler {
                 const newChallenges = newSettings.challenges
                     ? await Promise.all(
                           newSettings.challenges?.map(
-                              async (cs) =>
+                              async (cs, challengeIndex) =>
                                   (
                                       await getCommunityChallengeFromCommunityChallengeSettings({
                                           communityChallengeSettings: cs,
-                                          pkc: this._community._pkc
+                                          challengeIndex,
+                                          pkc: this._community._pkc,
+                                          log: this._community._log
                                       })
                                   ).communityChallenge
                           )
