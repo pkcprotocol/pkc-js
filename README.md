@@ -828,15 +828,17 @@ const loaded = await pkc.createCommunityList({cid})
 loaded.on('update', () => console.log(loaded.title, loaded.author?.nameResolved))
 await loaded.update()
 
-// publish a revision: start from the signed record as fetched, without its signature and old timestamp
-const {signature, timestamp, ...previousProps} = loaded.raw.communityList
+// publish a revision: start from the signed record as fetched, without its signature and old timestamp.
+// getCommunityList() resolves once the record is loaded; update() above returns before it is
+const previous = await pkc.getCommunityList({cid})
+const {signature, timestamp, ...previousProps} = previous.raw.communityList
 const revision = await pkc.createCommunityList({
   ...previousProps,
   signer,
   communities: [...previousProps.communities, {publicKey: '12D3KooY...'}]
 })
 const revisionCid = await revision.publish()
-// passing `loaded` itself does not work: options with a `cid` mean "load this list" and allow nothing else
+// passing `previous` itself does not work: options with a `cid` mean "load this list" and allow nothing else
 ```
 
 ### `pkc.createCommunity(createCommunityOptions)`
