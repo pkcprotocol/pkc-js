@@ -34,7 +34,7 @@ import {
 import * as ipnsPublishing from "../../dist/node/runtime/node/community/local-community/ipns-publishing.js";
 import { cleanUpIpfsRepoIfDue, purgeDisapprovedCommentsOlderThan } from "../../dist/node/runtime/node/community/local-community/cleanup.js";
 import { providePubsubTopicRoutingCidsIfNeeded } from "../../dist/node/runtime/node/community/local-community/pubsub.js";
-import { calculateStringSizeSameAsIpfsAddCidV0 } from "../../dist/node/util.js";
+import { utf8ByteLength } from "../../dist/node/util.js";
 import { CommunityIpfsSchema } from "../../dist/node/community/schema.js";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
 import { CID } from "multiformats/cid";
@@ -276,7 +276,7 @@ async function main() {
         // placeholder signatures. That excludes a fixed per-cycle cost (one preloaded page, verified
         // twice) from every number below; it does not grow with the board.
         community._validateCommunitySizeSchemaAndSignatureBeforePublishing = async (record) => {
-            await calculateStringSizeSameAsIpfsAddCidV0(deterministicStringify(record));
+            utf8ByteLength(deterministicStringify(record));
             CommunityIpfsSchema.safeParse(record);
         };
 

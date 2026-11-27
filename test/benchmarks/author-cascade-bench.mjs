@@ -50,7 +50,7 @@ import {
     updateCommentsAndWritePostUpdates,
     updateCommunityIpnsIfNeeded
 } from "../../dist/node/runtime/node/community/local-community/ipns-publishing.js";
-import { calculateStringSizeSameAsIpfsAddCidV0 } from "../../dist/node/util.js";
+import { utf8ByteLength } from "../../dist/node/util.js";
 import { CommunityIpfsSchema } from "../../dist/node/community/schema.js";
 import { DbHandler } from "../../dist/node/runtime/node/community/db-handler.js";
 import { PageGenerator } from "../../dist/node/runtime/node/community/page-generator.js";
@@ -448,7 +448,7 @@ async function main() {
         community._stopHasBeenCalled = true;
         await community._publishLoopPromise;
         community._validateCommunitySizeSchemaAndSignatureBeforePublishing = async (record) => {
-            await calculateStringSizeSameAsIpfsAddCidV0(deterministicStringify(record));
+            utf8ByteLength(deterministicStringify(record));
             CommunityIpfsSchema.safeParse(record);
         };
         if (STAGES) timeKuboClient(community._clientsManager.getDefaultKuboRpcClient()._client);
