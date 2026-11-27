@@ -278,7 +278,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         ) {
             // was only provided with a single preloaded page, no page cids
             if (typeof postsPagesCreationTimestamp !== "number") throw Error("community.updatedAt should be defined when updating posts");
-            const parsedPages = parseRawPages(newPosts);
+            const parsedPages = parseRawPages(newPosts, this._log);
             this.posts.updateProps({
                 ...parsedPages,
                 community: this,
@@ -296,7 +296,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
             log.trace(`_updateLocalPostsInstanceIfNeeded: Updating the props of community (${this.address}) posts`);
             if (typeof postsPagesCreationTimestamp !== "number") throw Error("community.updatedAt should be defined when updating posts");
-            const parsedPages = <Pick<PostsPages, "pages"> & { pagesIpfs: PostsPagesTypeIpfs | undefined }>parseRawPages(newPosts);
+            const parsedPages = <Pick<PostsPages, "pages"> & { pagesIpfs: PostsPagesTypeIpfs | undefined }>parseRawPages(newPosts, this._log);
             this.posts.updateProps({
                 ...parsedPages,
                 community: this,

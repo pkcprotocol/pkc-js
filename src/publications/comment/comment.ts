@@ -492,7 +492,7 @@ export class Comment
         } else if (!newReplies.pageCids && "pages" in newReplies && newReplies.pages) {
             // only pages is provided
             this.replies.updateProps({
-                ...parseRawPages(newReplies),
+                ...parseRawPages(newReplies, this._log),
                 community: this.replies._community,
                 pageCids: {}
             });
@@ -503,7 +503,7 @@ export class Comment
             if (shouldUpdateReplies) {
                 log.trace(`_updateRepliesPostsInstanceIfNeeded: Updating the props of comment instance (${this.cid}) replies`);
                 const parsedPages = <Pick<RepliesPages, "pages"> & { pagesIpfs: RepliesPagesTypeIpfs | undefined }>(
-                    parseRawPages(newReplies)
+                    parseRawPages(newReplies, this._log)
                 );
                 this.replies.updateProps({
                     ...parsedPages,

@@ -187,7 +187,7 @@ export class RepliesPages extends BasePages {
     }
 
     override _parseRawPageIpfs(pageIpfs: PageIpfs): PageTypeJson {
-        return parsePageIpfs(pageIpfs);
+        return parsePageIpfs(pageIpfs, this._clientsManager._log);
     }
 
     override async getPage(args: GetPageParam): Promise<PageTypeJson> {
@@ -297,7 +297,7 @@ export class PostsPages extends BasePages {
     }
 
     override _parseRawPageIpfs(pageIpfs: PageIpfs): PageTypeJson {
-        return parsePageIpfs(pageIpfs);
+        return parsePageIpfs(pageIpfs, this._clientsManager._log);
     }
 
     override async getPage(getPageArgs: GetPageParam): Promise<PageTypeJson> {
@@ -363,7 +363,7 @@ export class ModQueuePages extends BasePages {
     }
 
     override _parseRawPageIpfs(pageIpfs: ModQueuePageIpfs): ModQueuePageTypeJson {
-        return parseModQueuePageIpfs(pageIpfs);
+        return parseModQueuePageIpfs(pageIpfs, this._clientsManager._log);
     }
 
     override async getPage(getPageArgs: GetPageParam): Promise<ModQueuePageTypeJson> {

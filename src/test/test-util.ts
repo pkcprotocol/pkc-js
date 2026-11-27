@@ -1066,7 +1066,7 @@ export async function findCommentInCommunityInstancePagesPreloadedAndPageCids(op
             comments: loadedAllHotPagesComments.map((c) => c.raw)
         };
         const postInPage = findCommentInHierarchicalPageIpfsRecursively(pageIpfs, comment.cid);
-        if (postInPage) return mapPageIpfsCommentToPageJsonComment(postInPage);
+        if (postInPage) return mapPageIpfsCommentToPageJsonComment(postInPage, community._log);
         else return undefined;
     } else if (Object.keys(community.posts?.pageCids).length > 0) {
         const postsNewPageCid = community.posts.pageCids.new;
@@ -1100,7 +1100,7 @@ export async function findReplyInParentCommentPagesInstancePreloadedAndPageCids(
             comments: loadedAllBestPagesComments.map((c) => c.raw)
         };
         const replyInPage = findCommentInHierarchicalPageIpfsRecursively(pageIpfs, reply.cid);
-        if (replyInPage) return mapPageIpfsCommentToPageJsonComment(replyInPage);
+        if (replyInPage) return mapPageIpfsCommentToPageJsonComment(replyInPage, parentComment._log);
         else return undefined;
     } else {
         if (!("new" in parentComment.replies.pageCids)) {
@@ -1141,7 +1141,7 @@ export async function iterateThroughPagesToFindCommentInParentPagesInstance(
     const preloadedPage = Object.keys(pages.pages)[0];
 
     const commentInPage = findCommentInPageInstance(pages, commentCid);
-    if (commentInPage) return mapPageIpfsCommentToPageJsonComment(commentInPage);
+    if (commentInPage) return mapPageIpfsCommentToPageJsonComment(commentInPage, pages._clientsManager._log);
 
     if (pages.pages[preloadedPage]?.nextCid || pages.pageCids.new) {
         // means we have multiple pages

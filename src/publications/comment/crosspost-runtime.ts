@@ -32,9 +32,7 @@ function _chainOf<T extends { comment: { crosspost?: T } }>(crosspost: T): T[] {
     return chain;
 }
 
-// `log` is optional: the page mappers (pages/util.ts) are pure and have no logger to hand in, so only a Comment reports
-// the author props it refused.
-export function cloneCrosspostForRuntime(crosspost: Crosspost, log?: Logger): CrosspostRuntime {
+export function cloneCrosspostForRuntime(crosspost: Crosspost, log: Logger): CrosspostRuntime {
     const chain = _chainOf(crosspost);
     let child: CrosspostRuntime | undefined;
     // Innermost first, so each level can point at the copy of the one below it.
@@ -46,7 +44,7 @@ export function cloneCrosspostForRuntime(crosspost: Crosspost, log?: Logger): Cr
             const author: Record<string, unknown> = {};
             const { skipped } = mergeAuthorProps({ target: author, props: level.comment.author });
             if (skipped.length > 0)
-                log?.error(`cloneCrosspostForRuntime: Refused author props of crosspost level ${i} that collide with an object`, skipped);
+                log.error(`cloneCrosspostForRuntime: Refused author props of crosspost level ${i} that collide with an object`, skipped);
             comment.author = <CrosspostRuntime["comment"]["author"]>author;
         }
         // `child` is defined exactly when this level had a nested crosspost, so this preserves
