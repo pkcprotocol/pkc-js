@@ -76,11 +76,11 @@ describe("RPC schema forward compatibility — param parsers (server side)", () 
     it("parseRpcPublishChallengeAnswersParam tolerates unknown fields", () => {
         const result = parseRpcPublishChallengeAnswersParam({
             subscriptionId: 1,
-            challengeAnswers: ["answer1"],
+            challengeAnswers: { "0": "answer1" },
             futureField: 42
         });
         expect(result.subscriptionId).to.equal(1);
-        expect(result.challengeAnswers).to.deep.equal(["answer1"]);
+        expect(result.challengeAnswers).to.deep.equal({ "0": "answer1" });
     });
 
     it("parseRpcUnsubscribeParam tolerates unknown fields", () => {

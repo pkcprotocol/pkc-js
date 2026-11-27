@@ -1,4 +1,5 @@
 import Logger from "../../logger.js";
+import { guardDetached } from "../../detached-guard.js";
 import { Client as WebSocketClient } from "rpc-websockets";
 import assert from "assert";
 import { PKCError } from "../../pkc-error.js";
@@ -271,9 +272,11 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                 if (!this._destroyRequested) log.error("connection with web socket has been closed", this._websocketServerUrl);
                 this._openConnectionPromise = undefined;
                 this.setState("stopped");
-                if (this._destroyRequested) return;
                 this._lastClose = { closeCode, closeReason: String(closeReason ?? "") };
+                // Also on a close destroy() asked for: a call still waiting then can never be answered, and would
+                // otherwise stay pending for the whole call timeout
                 this._rejectCallsLostWithConnection();
+                if (this._destroyRequested) return;
                 this._failPublicationsLostWithConnection();
                 if (!this._webSocketClient.willReconnect()) return;
                 if (closeCode === WEBSOCKET_CLOSE_NORMAL) this._scheduleReconnectAfterCleanClose();
@@ -433,12 +436,18 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         const serverSubscriptionId = this._serverIdByLocalId.get(subscriptionId) ?? subscriptionId;
         this._resubscribeCalls.delete(subscriptionId);
         this._publishSubscriptionIds.delete(subscriptionId);
-        if (liveOnServer) await this._webSocketClient.call("unsubscribe", [{ subscriptionId: serverSubscriptionId }]);
-        this._serverIdByLocalId.delete(subscriptionId);
-        this._localIdByServerId.delete(serverSubscriptionId);
-        if (this._subscriptionEvents[subscriptionId]) this._subscriptionEvents[subscriptionId].removeAllListeners();
-        delete this._subscriptionEvents[subscriptionId];
-        delete this._pendingSubscriptionMsgs[subscriptionId];
+        try {
+            if (liveOnServer) await this._webSocketClient.call("unsubscribe", [{ subscriptionId: serverSubscriptionId }]);
+        } finally {
+            // Clean up locally even when the call rejects: a call that fails because the connection dropped
+            // has nothing left to retry (the server dropped the subscription with the connection), and
+            // callers clear their own handle to this id, so anything kept here would never be released
+            this._serverIdByLocalId.delete(subscriptionId);
+            this._localIdByServerId.delete(serverSubscriptionId);
+            if (this._subscriptionEvents[subscriptionId]) this._subscriptionEvents[subscriptionId].removeAllListeners();
+            delete this._subscriptionEvents[subscriptionId];
+            delete this._pendingSubscriptionMsgs[subscriptionId];
+        }
     }
 
     private _attachNotificationHandler() {
@@ -447,14 +456,25 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         ).socket;
         if (!socket || this._socketsWithNotificationHandler.has(socket)) return;
         this._socketsWithNotificationHandler.add(socket);
-        socket.on("message", (jsonMessage) => {
-            const message: unknown = JSON.parse(jsonMessage);
-            if (!isRpcSubscriptionNotification(message)) return; // a response to a call, handled by rpc-websockets
-            const serverSubscriptionId = message.params.subscription;
-            const subscriptionId = this._localIdByServerId.get(serverSubscriptionId) ?? serverSubscriptionId;
-            message.params.subscription = subscriptionId;
-            this._dispatchNotification(subscriptionId, message);
-        });
+        // Nothing awaits this listener, and the server is not trusted: a frame that is not JSON, or a notification whose
+        // handler throws, is dropped and reported as an "error" of the client. Without the guard either one is an uncaught
+        // exception, whatever listeners the application attached.
+        socket.on(
+            "message",
+            guardDetached({
+                entryPoint: "PKCRpcClient socket message",
+                handler: (jsonMessage: string) => {
+                    const message: unknown = JSON.parse(jsonMessage);
+                    if (!isRpcSubscriptionNotification(message)) return; // a response to a call, handled by rpc-websockets
+                    const serverSubscriptionId = message.params.subscription;
+                    const subscriptionId = this._localIdByServerId.get(serverSubscriptionId) ?? serverSubscriptionId;
+                    message.params.subscription = subscriptionId;
+                    this._dispatchNotification(subscriptionId, message);
+                },
+                onFailure: (cause) =>
+                    this.emit("error", new PKCError("ERR_RPC_CLIENT_FAILED_TO_HANDLE_SERVER_MESSAGE", { rpcUrl: this._websocketServerUrl, cause }))
+            })
+        );
     }
 
     // save all subscription messages (ie json rpc messages without 'id', also called json rpc 'notifications')

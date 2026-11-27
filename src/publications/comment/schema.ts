@@ -185,11 +185,20 @@ export const CommentUpdateSchema = z
         archived: z.boolean().optional(), // mod archived a post
         removed: z.boolean().optional(), // mod deleted a comment
         reason: z.string().optional(), // reason the mod took a mood action,
+        authorBanExpiresAt: PKCTimestampSchema.optional(), // present only on a comment a mod banned the author from: the author.banExpiresAt of the newest commentModeration on this cid that carried one, verbatim. It stays after the ban runs out, and an unban published on this comment leaves it as a timestamp in the past, so only its presence is meaningful; read author.community.banExpiresAt for whether the author is banned now. A mod removes it by publishing author.banExpiresAt 0 on this comment (issue #363)
         approved: z.boolean().optional(), // if comment was pending approval and it got approved or disapproved. Does not apply to comments pending approvals, you need to use moderation.pageCids.pendingApproval to fetch pending comments
         updatedAt: PKCTimestampSchema, // timestamp in seconds the CommentUpdate was updated
         author: AuthorWithCommentUpdateSchema.pick({ community: true }).optional(), // add commentUpdate.author.community to comment.author.community, override comment.author.flairs with commentUpdate.author.community.flairs if any
         lastChildCid: CidStringSchema.optional(), // The cid of the most recent direct reply that childCount counts
         lastReplyTimestamp: PKCTimestampSchema.optional(), // The timestamp of the most recent reply that replyCount counts
+        // Opaque own-post recognition tag on comments the community aliased on a pseudonymityMode board (issue #381).
+        // base64 of the first 16 bytes of HMAC-SHA256(K, cid); 16 bytes is 22 unpadded base64 chars. Community-generated
+        // and reserved: a challenge may not set it (CommentUpdateChallengeReservedFieldNames). Derivation is documented in
+        // docs/protocol/pseudonymity-author-tag.md; pkc-js exports no helper. A future derivation changes it under a new label.
+        pseudonymityAuthorTag: z
+            .string()
+            .regex(/^[A-Za-z0-9+/]{22}$/, "pseudonymityAuthorTag must be 22 base64 characters (16 bytes)")
+            .optional(),
         signature: JsonSignatureSchema, // signature of the CommentUpdate by the community owner to protect against malicious gateway
         protocolVersion: ProtocolVersionSchema,
         // The getter defers TypeScript inference of the comment-schema <-> pages-schema cycle; the
@@ -227,9 +236,12 @@ export const CommentUpdateChallengeReservedFieldNames = [
     "updatedAt",
     "lastChildCid",
     "lastReplyTimestamp",
+    "authorBanExpiresAt",
     "replies",
     "edit",
-    "protocolVersion"
+    "protocolVersion",
+    // Community-generated from the alias table; a challenge must never supply its own (issue #381).
+    "pseudonymityAuthorTag"
 ] as const satisfies readonly (keyof z.infer<typeof CommentUpdateSchema>)[];
 
 export const CommentUpdateForDisapprovedPendingComment = CommentUpdateSchema.pick({
@@ -304,7 +316,10 @@ export const CommentUpdateTableRowSchema = CommentUpdateSchema.extend({
     insertedAt: PKCTimestampSchema,
     postUpdatesBucket: z.int().nonnegative().optional(), // the post updates bucket of post CommentUpdate, not applicable to replies
     publishedToPostUpdatesMFS: z.boolean(), // whether the comment latest update has been published
-    replies: DbRepliesSchema.optional() // Override: DB stores CID refs, not wire format
+    replies: DbRepliesSchema.optional(), // Override: DB stores CID refs, not wire format
+    // Keys of the signed record that CommentUpdateSchema does not know (a challenge's commentUpdate extras). A snapshot of
+    // what was signed, rebuilt with the table on every DB_VERSION bump, never a source of truth
+    extraProps: z.looseObject({}).optional()
 });
 
 // Comment pubsub reserved fields
@@ -329,7 +344,36 @@ const additionalCommentReservedFields = [
     // Runtime-only, accepted by pkc.getComment({cid, abortSignal}) and stripped before the rest
     // reaches createComment. Reserved so a record arriving on the wire carrying that key is rejected
     // rather than carried onto the instance (issue #278).
-    "abortSignal"
+    "abortSignal",
+    // Methods of a Comment instance (own, EventEmitter's included). A record carrying one would replace the method on
+    // every reader that copies unknown props onto the instance. Properties are covered by the lists above and by the
+    // CommentJson check below; methods are not, so test/node-and-browser/comment-reserved-members.test.ts compares this
+    // list with a live Comment and fails when a method is added without being reserved.
+    "publish",
+    "publishChallengeAnswers",
+    "update",
+    "stop",
+    "getType",
+    "setCid",
+    "setCommunityAddress",
+    "startCommentUpdateCommunitySubscription",
+    "loadCommentIpfsAndStartCommentUpdateSubscription",
+    "toJSONPubsubRequestToEncrypt",
+    "setMaxListeners",
+    "getMaxListeners",
+    "emit",
+    "addListener",
+    "on",
+    "prependListener",
+    "once",
+    "prependOnceListener",
+    "removeListener",
+    "off",
+    "removeAllListeners",
+    "listeners",
+    "rawListeners",
+    "listenerCount",
+    "eventNames"
 ] as const;
 
 type AdditionalCommentReservedField = (typeof additionalCommentReservedFields)[number];
@@ -388,7 +432,8 @@ export const CommentIpfsReservedFields = difference(
 
 export const CommentUpdateReservedFields = difference(CommentPubsubMessageReservedFields, [
     ...keys(CommentUpdateSchema.shape),
-    ...keys(CommentUpdateTableRowSchema.shape),
+    // extraProps is the table's column for the record's unknown keys, never a key of the record itself: it stays reserved
+    ...keys(CommentUpdateTableRowSchema.shape).filter((key) => key !== "extraProps"),
     "pendingApproval"
 ]);
 

@@ -143,59 +143,36 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             await loadedCommunity.stop();
         });
 
-        // Scenario B + name resolves to different key: triggers key migration
-        it(`community loaded by raw IPNS key triggers key migration when record's name resolves to different key`, async () => {
+        // Scenario B + name resolves to different key. The name in a record is a claim nobody has proven, and
+        // this loader asked for a key, so the claim is contradicted (nameResolved=false) and the identity
+        // stays. It is not a key migration: anyone can publish a record claiming someone else's name (#605).
+        it(`community loaded by raw IPNS key stays on that key when its record's name resolves to a different key`, async () => {
             // "migration-test.bso" is in defaultMockResolverRecords → signers[0].address,
-            // which differs from the mocked record's signer → triggers key migration
+            // which differs from the mocked record's signer
             const { communityAddress: ipnsKey } = await createMockedCommunityIpns({ name: "migration-test.bso" });
-            const differentKey = signers[0].address;
 
             const testPKC = await config.pkcInstancePromise();
 
             try {
                 const community = await testPKC.createCommunity({ address: ipnsKey });
-                const errorPromise = new Promise<PKCError>((resolve) => {
-                    community.on("error", (err) => {
-                        if ((err as PKCError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") {
-                            resolve(err as PKCError);
-                        }
-                    });
-                });
-
-                // First update: record loaded, name set from record. Capture it from a listener attached before
-                // update(): by the time a later check runs, the loop may have migrated to signers[0] and loaded its
-                // record, which has no name, and name follows the latest record. Over RPC that can all be replayed
-                // before update() returns.
-                const nameFromFirstRecordPromise = new Promise<string | undefined>((resolve) => {
-                    const onUpdate = () => {
-                        if (typeof community.updatedAt !== "number") return;
-                        community.removeListener("update", onUpdate);
-                        resolve(community.name);
-                    };
-                    community.on("update", onUpdate);
+                const migrationErrors: PKCError[] = [];
+                community.on("error", (err) => {
+                    if ((err as PKCError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY")
+                        migrationErrors.push(err as PKCError);
                 });
 
                 await community.update();
-
-                expect(await nameFromFirstRecordPromise).to.equal("migration-test.bso");
-
-                const error = await errorPromise;
-                expect(error.details.previousPublicKey).to.equal(ipnsKey);
-                expect(error.details.newPublicKey).to.equal(differentKey);
-
-                // Predicate matching means the cleared state was observed during an "update" emit.
-                // Don't re-read these fields after the await — the update loop continues with
-                // the new key by design and may repopulate updatedAt before the next line runs.
                 await resolveWhenConditionIsTrue({
                     toUpdate: community,
-                    predicate: async () =>
-                        community.publicKey === differentKey &&
-                        community.updatedAt === undefined &&
-                        community.raw.communityIpfs === undefined
+                    predicate: async () => community.nameResolved === false
                 });
-                // publicKey is stable post-migration; address is immutable
-                expect(community.publicKey).to.equal(differentKey);
+
+                expect(migrationErrors).to.deep.equal([]);
+                expect(community.publicKey).to.equal(ipnsKey);
                 expect(community.address).to.equal(ipnsKey);
+                expect(community.name).to.equal("migration-test.bso");
+                expect(community.updatedAt).to.be.a("number");
+                expect(community.raw.communityIpfs).to.be.an("object");
 
                 await community.stop();
             } finally {
@@ -203,7 +180,43 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             }
         });
 
-        // Scenario B + name fails to resolve: nameResolved becomes false
+        // The CI failure behind #605: a by-key loader of a record claiming "migration-test.bso" used to migrate
+        // onto signers[0], the key that name resolves to, and stay registered under it while still polling its
+        // own key. A later loader of signers[0] by key was then served by that entry and, over RPC, came out
+        // following the claimant's key.
+        it(`a by-key loader of a record claiming another community's name does not capture by-key loaders of that community`, async () => {
+            const { communityAddress: claimantKey } = await createMockedCommunityIpns({ name: "migration-test.bso" });
+            const ownerKey = signers[0].address;
+
+            const testPKC = await config.pkcInstancePromise();
+
+            try {
+                const claimant = await testPKC.createCommunity({ address: claimantKey });
+                await claimant.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: claimant,
+                    predicate: async () => claimant.nameResolved === false
+                });
+
+                const owner = await testPKC.createCommunity({ address: ownerKey });
+                await owner.update();
+                await resolveWhenConditionIsTrue({
+                    toUpdate: owner,
+                    predicate: async () => typeof owner.updatedAt === "number"
+                });
+
+                expect(owner.publicKey).to.equal(ownerKey);
+                expect(owner.ipnsHops).to.deep.equal([ownerKey]);
+                expect(claimant.publicKey).to.equal(claimantKey);
+                expect(claimant.ipnsHops).to.deep.equal([claimantKey]);
+
+                await owner.stop();
+                await claimant.stop();
+            } finally {
+                await testPKC.destroy();
+            }
+        });
+
         it(`community loaded by raw IPNS key sets nameResolved=false when record's name cannot be resolved`, async () => {
             const { communityAddress: ipnsKey } = await createMockedCommunityIpns({ name: "unresolvable-name.bso" });
 

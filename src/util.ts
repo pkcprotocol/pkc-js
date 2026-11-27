@@ -18,7 +18,6 @@ import type {
     FilesRmOptions,
     FilesStatOptions,
     FilesStatResult,
-    FilesWriteOptions,
     RoutingProvideOptions
 } from "kubo-rpc-client";
 import type {
@@ -102,6 +101,34 @@ export function interruptibleSleep({ ms, signal }: { ms: number; signal?: AbortS
 // inter-iteration sleep and the comment parallel-connect timer.
 export function sleepUntilTimeoutOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
     return interruptibleSleep({ ms, signal }).promise;
+}
+
+// AbortSignal.any() replacement for compositions that include a long-lived signal (the pkc destroy
+// signal, a comment's stop signal). On Node 20/22 every AbortSignal.any() call retains memory for as
+// long as any source has not aborted, so composing with a signal that lives as long as the pkc grows
+// the heap by one unit per call (#502). This links the sources with plain abort listeners instead.
+// Call dispose() once the operation settles: listeners left on a long-lived signal are the #144 leak.
+export function linkAbortSignals(signals: (AbortSignal | undefined)[]): { signal: AbortSignal | undefined; dispose: () => void } {
+    const sources = signals.filter((signal): signal is AbortSignal => Boolean(signal));
+    if (sources.length <= 1) return { signal: sources[0], dispose: () => {} };
+    const controller = new AbortController();
+    const alreadyAborted = sources.find((source) => source.aborted);
+    if (alreadyAborted) {
+        controller.abort(alreadyAborted.reason);
+        return { signal: controller.signal, dispose: () => {} };
+    }
+    const listeners = sources.map((source) => {
+        const onAbort = () => {
+            dispose();
+            controller.abort(source.reason);
+        };
+        source.addEventListener("abort", onAbort, { once: true });
+        return { source, onAbort };
+    });
+    const dispose = () => {
+        for (const { source, onAbort } of listeners) source.removeEventListener("abort", onAbort);
+    };
+    return { signal: controller.signal, dispose };
 }
 
 // Race `promise` against `signal` aborting, rejecting with an AbortError if the signal fires first.
@@ -555,6 +582,11 @@ export function deepMergeRuntimeFields(target: any, source: any): void {
     if (!source || typeof source !== "object") return;
     if (!target || typeof target !== "object") return;
     for (const key of Object.keys(source)) {
+        // runtimeFields come from the RPC server: a key that reaches the prototype machinery (an own "__proto__" from
+        // JSON.parse) would recurse into Object.prototype or a class prototype and overwrite members of every instance
+        if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+        // a runtime field is data: it never names an underscore member, and never replaces a method (own or inherited)
+        if (key.startsWith("_") || typeof target[key] === "function") continue;
         if (Array.isArray(source[key]) && Array.isArray(target?.[key])) {
             for (let i = 0; i < source[key].length; i++) {
                 if (i < target[key].length) deepMergeRuntimeFields(target[key][i], source[key][i]);
@@ -1044,63 +1076,6 @@ export async function retryKuboIpfsAdd({
     });
 }
 
-type KuboFilesWriteParameters = Parameters<PKC["clients"]["kuboRpcClients"][string]["_client"]["files"]["write"]>;
-
-export async function writeKuboFilesWithTimeout({
-    ipfsClient: kuboRpcClient,
-    log,
-    path,
-    content,
-    inputNumOfRetries,
-    options,
-    timeoutMs
-}: {
-    ipfsClient: Pick<PKC["clients"]["kuboRpcClients"][string]["_client"], "files">;
-    log: Logger;
-    path: KuboFilesWriteParameters[0];
-    content: KuboFilesWriteParameters[1];
-    inputNumOfRetries?: number;
-    options?: FilesWriteOptions;
-    timeoutMs?: number;
-}): Promise<void> {
-    const numOfRetries = inputNumOfRetries ?? 3;
-    // 60s, not the 15s this used to be. Since kubo 0.43.0 a repo GC and in-flight MFS writes hold
-    // each other off, so a write can legitimately pause for the length of a GC and then succeed —
-    // the changelog calls this out explicitly. A 15s budget turns that ordinary contention into a
-    // failed sync.
-    const timeoutMilliseconds = timeoutMs ?? 60_000;
-
-    // kubo 0.43.0 honors `timeout` on files.write, so hand the daemon the same budget: it aborts the
-    // op server-side and releases the MFS lock, where a bare client-side abort would leave the write
-    // running under the lock. pTimeout stays as the backstop for a daemon that never answers at all,
-    // with enough slack that the server's own (more informative) error normally wins the race.
-    const writeOptions: FilesWriteOptions = { timeout: timeoutMilliseconds, ...options };
-
-    return new Promise((resolve, reject) => {
-        const operation = retry.operation({
-            retries: numOfRetries,
-            factor: 2,
-            minTimeout: 2000
-        });
-
-        operation.attempt(async (currentAttempt) => {
-            try {
-                await pTimeout(kuboRpcClient.files.write(path, content, writeOptions), {
-                    milliseconds: timeoutMilliseconds + 5_000,
-                    message: `Timed out writing to MFS path ${path} after ${timeoutMilliseconds + 5_000}ms`
-                });
-                resolve();
-            } catch (error) {
-                log.error(`Failed attempt ${currentAttempt}/${numOfRetries + 1} to write content to MFS path ${path}:`, error);
-
-                if (operation.retry(error as Error)) return;
-
-                reject(operation.mainError() || error);
-            }
-        });
-    });
-}
-
 export async function removeBlocksFromKuboNode({
     ipfsClient: kuboRpcClient,
     log,
@@ -1396,6 +1371,9 @@ export async function fetchAndValidateIpnsRecordFromGateway(
         // Don't remap aborts: a cancelled fetch is not a chain-validation failure, and remapping it
         // would misclassify parent-driven aborts and break their abort logic.
         if (isAbortError(e)) throw e;
+        // An abort with a reason string makes fetch reject with that string itself, which is no AbortError.
+        // The gateway fetchers abort that way, so the signal is what tells an abort from a failed fetch
+        throwIfAbortSignalAborted(opts?.abortSignal);
         if (e instanceof PKCError) throw e;
         throw new PKCError("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID", {
             reason: "Failed to fetch the raw IPNS record from the gateway",

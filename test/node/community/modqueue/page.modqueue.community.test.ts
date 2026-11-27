@@ -14,7 +14,7 @@ import type { SignerType } from "../../../../dist/node/signer/types.js";
 import type { ModQueuePageTypeJson } from "../../../../dist/node/pages/types.js";
 
 const depthsToTest = [0, 1, 2, 3, 10, 15, 25, 35];
-const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: ["pending"] } };
+const pendingApprovalCommentProps = { challengeRequest: { challengeAnswers: { "0": "pending" } } };
 
 interface SetupResult {
     pkc: PKCType;

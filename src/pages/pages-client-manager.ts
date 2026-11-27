@@ -11,7 +11,7 @@ import {
     parseModQueuePageIpfsSchemaWithPKCErrorIfItFails,
     parsePageIpfsSchemaWithPKCErrorIfItFails
 } from "../schema/schema-util.js";
-import { hideClassPrivateProps, throwIfAbortSignalAborted } from "../util.js";
+import { hideClassPrivateProps, linkAbortSignals, throwIfAbortSignalAborted } from "../util.js";
 import { PKC } from "../pkc/pkc.js";
 import { sha256 } from "js-sha256";
 import { PagesIpfsGatewayClient, PagesKuboRpcClient, PagesLibp2pJsClient, PagesPKCRpcStateClient } from "./pages-clients.js";
@@ -153,8 +153,12 @@ export class BasePagesClientsManager extends BaseClientsManager {
         this._updatePageCidsSortCache(nextPageCid, sortTypes);
     }
 
+    // The sortTypes these four receive come from pkc._memCaches.pageCidToSortTypes, which every instance of a PKC shares.
+    // Another instance may have cached the cid under a sort this one holds no client state for: a custom sort from
+    // settings.pages (#73), on an instance created without a record. So each seeds the missing states before reading them.
     updateKuboRpcState(newState: PagesKuboRpcClient["state"], kuboRpcClientUrl: string, sortTypes: string[] | undefined) {
         if (!Array.isArray(sortTypes)) return;
+        this._updateKuboRpcClientStates(sortTypes);
         for (const sortType of sortTypes) {
             if (this.clients.kuboRpcClients[sortType][kuboRpcClientUrl].state === newState) continue;
             this.clients.kuboRpcClients[sortType][kuboRpcClientUrl].state = newState;
@@ -168,6 +172,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
         sortTypes: string[] | undefined
     ) {
         if (!Array.isArray(sortTypes)) return;
+        this._updateLibp2pJsClientStates(sortTypes);
         for (const sortType of sortTypes) {
             if (this.clients.libp2pJsClients[sortType][libp2pJsClientKey].state === newState) continue;
             this.clients.libp2pJsClients[sortType][libp2pJsClientKey].state = newState;
@@ -177,6 +182,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
     updateGatewayState(newState: PagesIpfsGatewayClient["state"], gateway: string, sortTypes: string[] | undefined) {
         if (!Array.isArray(sortTypes)) return;
+        this._updateIpfsGatewayClientStates(sortTypes);
         for (const sortType of sortTypes) {
             if (this.clients.ipfsGateways[sortType][gateway].state === newState) continue;
             this.clients.ipfsGateways[sortType][gateway].state = newState;
@@ -186,6 +192,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
     updateRpcState(newState: PagesPKCRpcStateClient["state"], rpcUrl: string, sortTypes: string[] | undefined) {
         if (!Array.isArray(sortTypes)) return;
+        this._updatePKCRpcClientStates(sortTypes);
         for (const sortType of sortTypes) {
             if (this.clients.pkcRpcClients[sortType][rpcUrl].state === newState) continue;
             this.clients.pkcRpcClients[sortType][rpcUrl].state = newState;
@@ -228,7 +235,8 @@ export class BasePagesClientsManager extends BaseClientsManager {
         this.updateRpcState("fetching-ipfs", currentRpcUrl, opts.sortTypes);
 
         try {
-            return this._requestPageFromRPC(opts);
+            // Awaited, so the finally below sets "stopped" once the request settles, not while it is in flight
+            return await this._requestPageFromRPC(opts);
         } catch (e) {
             opts.log.error(`Failed to retrieve page (${opts.pageCid}) with rpc due to error:`, e);
             throw e;
@@ -323,11 +331,43 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
         // Combine the user-provided abort signal with the PKC-level destroy signal so in-flight fetches
         // reject promptly when pkc.destroy() runs instead of blocking its serial stop() awaits.
-        const destroySignal = this._pkc._getDestroyAbortSignal();
-        const signals = [opts.abortSignal, destroySignal].filter((s): s is AbortSignal => Boolean(s));
-        const combinedSignal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
-        throwIfAbortSignalAborted(combinedSignal);
+        // Linked with listeners, not AbortSignal.any(): on Node 20/22 that retains memory per call for as
+        // long as the destroy signal lives (#502). Disposed in the finally below.
+        const linked = linkAbortSignals([opts.abortSignal, this._pkc._getDestroyAbortSignal()]);
+        const combinedSignal = linked.signal!;
+        try {
+            throwIfAbortSignalAborted(combinedSignal);
+            return await this._fetchPageAfterSignalCombined({
+                pageCid,
+                log,
+                pageMaxSize,
+                isFirstPage,
+                sortTypesFromPageCids,
+                sortTypesFromMemcache,
+                combinedSignal
+            });
+        } finally {
+            linked.dispose();
+        }
+    }
 
+    private async _fetchPageAfterSignalCombined({
+        pageCid,
+        log,
+        pageMaxSize,
+        isFirstPage,
+        sortTypesFromPageCids,
+        sortTypesFromMemcache,
+        combinedSignal
+    }: {
+        pageCid: string;
+        log: Logger;
+        pageMaxSize: number;
+        isFirstPage: boolean;
+        sortTypesFromPageCids: string[] | undefined;
+        sortTypesFromMemcache: string[] | undefined;
+        combinedSignal: AbortSignal;
+    }) {
         let result: { page: PageIpfs | ModQueuePageIpfs; runtimeFields?: PageRuntimeFields };
         try {
             if (this._pkc._pkcRpcClient) {

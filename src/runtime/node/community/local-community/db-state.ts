@@ -6,7 +6,15 @@ import { PKCError } from "../../../../pkc-error.js";
 import env from "../../../../version.js";
 import { STORAGE_KEYS } from "../../../../constants.js";
 import { parseCommunityIpfsSchemaPassthroughWithPKCErrorIfItFails } from "../../../../schema/schema-util.js";
-import { deriveDbPosts, resolveDbPostsCidRefs, importSignerIntoKuboNode } from "../../util.js";
+import { closeSync, existsSync, openSync } from "node:fs";
+import Database from "better-sqlite3";
+import {
+    deriveDbPosts,
+    resolveDbPostsCidRefs,
+    importSignerIntoKuboNode,
+    forgetCommunityThatFailedToBeDeleted,
+    removeFileRetryingWhileBusy
+} from "../../util.js";
 import { SignerWithPublicKeyAddress } from "../../../../signer/index.js";
 import { getIpfsKeyFromPrivateKey, getPublicKeyFromPrivateKey } from "../../../../signer/util.js";
 import { findStartedCommunity } from "../../../../pkc/tracked-instance-registry-util.js";
@@ -51,59 +59,65 @@ export async function importCommunitySignerIntoIpfsIfNeeded(community: LocalComm
     });
 }
 
-export async function getDbInternalState(
-    community: LocalCommunity,
-    lock: boolean
-): Promise<InternalCommunityRecordAfterFirstUpdateType | InternalCommunityRecordBeforeFirstUpdateType> {
+export function getDbInternalState(
+    community: LocalCommunity
+): InternalCommunityRecordAfterFirstUpdateType | InternalCommunityRecordBeforeFirstUpdateType {
     const log = Logger("pkc-js:local-community:_getDbInternalState");
     if (!community._dbHandler.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]))
         throw new PKCError("ERR_COMMUNITY_HAS_NO_INTERNAL_STATE", { address: community.address, dataPath: community._pkc.dataPath });
-    let lockedIt = false;
     try {
-        if (lock) {
-            await community._dbHandler.lockCommunityState();
-            lockedIt = true;
-        }
-        const internalState = await community._dbHandler.keyvGet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]);
+        const internalState = community._dbHandler.keyvGet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY]);
         if (!internalState)
             throw new PKCError("ERR_COMMUNITY_HAS_NO_INTERNAL_STATE", { address: community.address, dataPath: community._pkc.dataPath });
         return internalState as InternalCommunityRecordAfterFirstUpdateType | InternalCommunityRecordBeforeFirstUpdateType;
     } catch (e) {
         log.error("Failed to get community", community.address, "internal state from db", e);
         throw e;
-    } finally {
-        if (lockedIt) await community._dbHandler.unlockCommunityState();
     }
 }
 
+type InternalStateProps = Partial<InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType>;
+
+// The read of the stored record, the merge and the write run as one synchronous write transaction on the community DB
+// (see DbHandler.runInWriteTransaction), so no other writer, in this process or another, gets between them. A lock file
+// guarded them before, which a killed process left behind (issue #561).
+// A writer of the whole record (the publish cycle, stop()) passes a function that builds it, called inside that
+// transaction. A record built before it lacked an edit of a started community that stored itself in the meantime, and was
+// written over it. The instance it is built from gets such an edit only once edit() resumes after its write, so until
+// then the edit's props are in community._editsStoredNotApplied, and are laid over the record built here.
 export async function updateDbInternalState(
     community: LocalCommunity,
-    props: Partial<InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType>
+    propsOrBuildProps: InternalStateProps | (() => InternalStateProps)
 ): Promise<InternalCommunityRecordBeforeFirstUpdateType | InternalCommunityRecordAfterFirstUpdateType> {
     const log = Logger("pkc-js:local-community:_updateDbInternalState");
-    if (isEmpty(props)) throw Error("props to update DB internal state should not be empty");
+    if (typeof propsOrBuildProps !== "function" && isEmpty(propsOrBuildProps))
+        throw Error("props to update DB internal state should not be empty");
     await community._dbHandler.initDbIfNeeded();
 
-    props._internalStateUpdateId = uuidV4();
-    let lockedIt = false;
+    let props: InternalStateProps = typeof propsOrBuildProps === "function" ? {} : propsOrBuildProps;
     try {
-        await community._dbHandler.lockCommunityState();
-        lockedIt = true;
-        const internalStateBefore = await community._getDbInternalState(false);
-        // Convert posts to CID-ref format for compact DB storage (strip preloaded page data)
-        const propsToStore =
-            "posts" in props && props.posts
-                ? {
-                      ...props,
-                      posts: deriveDbPosts({
-                          posts: props.posts as CommunityIpfsType["posts"],
-                          allPageCids: community._postsAllPageCids
-                      }) as typeof props.posts
-                  }
-                : props;
-        const mergedInternalState = { ...internalStateBefore, ...propsToStore };
-        await community._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY], mergedInternalState);
-        community._internalStateUpdateId = props._internalStateUpdateId;
+        const internalStateUpdateId = uuidV4();
+        const mergedInternalState = community._dbHandler.runInWriteTransaction(() => {
+            if (typeof propsOrBuildProps === "function")
+                props = Object.assign(propsOrBuildProps(), ...community._editsStoredNotApplied) as InternalStateProps;
+            props._internalStateUpdateId = internalStateUpdateId;
+            const internalStateBefore = community._getDbInternalState(); // through the method, which tests patch
+            // Convert posts to CID-ref format for compact DB storage (strip preloaded page data)
+            const propsToStore =
+                "posts" in props && props.posts
+                    ? {
+                          ...props,
+                          posts: deriveDbPosts({
+                              posts: props.posts as CommunityIpfsType["posts"],
+                              allPageCids: community._postsAllPageCids
+                          }) as typeof props.posts
+                      }
+                    : props;
+            const merged = { ...internalStateBefore, ...propsToStore };
+            community._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY], merged);
+            return merged;
+        });
+        community._internalStateUpdateId = internalStateUpdateId;
         log.trace("Updated community", community.address, "internal state in db with new props", Object.keys(props));
         if (community.updateCid && community.raw.communityIpfs) {
             community.raw.localCommunity = community.toJSONInternalRpcAfterFirstUpdate();
@@ -114,21 +128,30 @@ export async function updateDbInternalState(
     } catch (e) {
         log.error("Failed to update community", community.address, "internal state in db with new props", Object.keys(props), e);
         throw e;
-    } finally {
-        if (lockedIt) await community._dbHandler.unlockCommunityState();
     }
 }
 
 export async function updateInstanceStateWithDbState(community: LocalCommunity) {
-    const currentDbState = await community._getDbInternalState(false);
+    const currentDbState = community._getDbInternalState();
 
     if ("updatedAt" in currentDbState) {
         // Resolve CID-ref posts from DB back to full wire format with preloaded pages.
         // DB stores posts in compact CID-ref format (no preloaded page data).
         // _dbHandler is guaranteed to be initialized here since we're loading from DB.
         if (currentDbState.posts && !("pages" in currentDbState.posts)) {
-            const dbPosts = currentDbState.posts as unknown as DbPostsFormat;
-            currentDbState.posts = resolveDbPostsCidRefs({ dbPosts, dbHandler: community._dbHandler }) as typeof currentDbState.posts;
+            if (community._dbHandler.hasCommentsAndCommentUpdatesTables()) {
+                const dbPosts = currentDbState.posts as unknown as DbPostsFormat;
+                currentDbState.posts = resolveDbPostsCidRefs({ dbPosts, dbHandler: community._dbHandler }) as typeof currentDbState.posts;
+            } else {
+                // A killed migration left the DB without a table the posts are read from. Throwing here would fail
+                // pkc.createCommunity({ address }), and with it the only way to the start() that finishes the migration
+                // and restores the table. So the community loads without its posts, and start() loads them again once
+                // the tables are back.
+                Logger("pkc-js:local-community:updateInstanceStateWithDbState").error(
+                    `The DB of community (${community.address}) is missing its comments or commentUpdates table, most likely after an interrupted migration. Loading it without posts, start() will restore them`
+                );
+                delete currentDbState.posts;
+            }
         }
         await community.initInternalCommunityAfterFirstUpdateNoMerge(currentDbState);
     } else await community.initInternalCommunityBeforeFirstUpdateNoMerge(currentDbState);
@@ -245,13 +268,37 @@ export async function setChallengesToDefaultIfNotDefined(community: LocalCommuni
     }
 }
 
+// Whether the DB file holds a community's internal state: true, false, or undefined when the file could not be read
+// well enough to tell (locked by another connection, an I/O error). A file that is missing, is not a database or has
+// no keyv table holds none
+function doesDbFileHoldInternalState({
+    dbFilePath,
+    internalStateKey,
+    log
+}: {
+    dbFilePath: string;
+    internalStateKey: string;
+    log: Logger;
+}): boolean | undefined {
+    if (!existsSync(dbFilePath)) return false;
+    let db: Database.Database | undefined;
+    try {
+        db = new Database(dbFilePath, { readonly: true, fileMustExist: true });
+        return db.prepare("SELECT 1 FROM keyv WHERE key = ?").get(`keyv:${internalStateKey}`) !== undefined;
+    } catch (e) {
+        const code = (e as { code?: unknown }).code;
+        if (typeof code === "string" && ["SQLITE_NOTADB", "SQLITE_ERROR"].includes(code)) return false;
+        log.error(`Failed to tell whether ${dbFilePath} holds an internal state, leaving the file in place`, e);
+        return undefined;
+    } finally {
+        db?.close();
+    }
+}
+
 export async function createNewLocalCommunityDb(community: LocalCommunity) {
     // We're creating a totally new community here with a new db
     // This function should be called only once per community
     const log = Logger("pkc-js:local-community:_createNewLocalCommunityDb");
-    await community.initDbHandlerIfNeeded();
-    await community._dbHandler.initDbIfNeeded({ fileMustExist: false });
-    await community._dbHandler.createOrMigrateTablesIfNeeded();
     await initSignerProps(community, community.signer); // init this.encryption as well
 
     // A read-only community gets no backfilled topic: absence of pubsubTopic on the wire is what tells
@@ -274,8 +321,8 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
         community.settings = { ...community.settings, purgeDisapprovedCommentsOlderThan: 1.21e6 }; // two weeks
     }
 
-    // Creation can throw: nothing has been persisted yet, so refusing to create the community is safe and
-    // leaves the owner with no broken config on disk.
+    // Creation can throw: the DB file is only created further down, after every check that can refuse the settings,
+    // so a refused creation leaves nothing on disk (issue #540).
     await throwIfChallengeSettingsAreInvalid({
         challengeSettings: community.settings.challenges!,
         pkc: community._pkc,
@@ -295,7 +342,7 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
         )
     );
 
-    // settings.pages is validated the same way: an invalid entry refuses creation before anything is on disk
+    // settings.pages is validated the same way: an invalid entry refuses creation before the DB file is created
     community._pageSorts = await resolvePageSortsOrThrow({
         pagesSettings: community.settings.pages,
         pkc: community._pkc,
@@ -303,11 +350,60 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
     });
     community.pageSorts = derivePublicPageSorts({ pagesSettings: community.settings.pages, resolved: community._pageSorts });
 
-    if (community._dbHandler.keyvHas(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY])) throw Error("Internal state exists already");
+    // The settings are valid, so the DB can be created. A DB with its tables and no internal state is not a community:
+    // it is left out of pkc.communities and nothing would ever remove it. So if a step fails before the internal state
+    // is written, the connection is closed and the file is removed, but only a file this call created. Nothing
+    // serializes two creations of the same community, in this process or across processes, so "this call created it"
+    // is decided by creating the file exclusively: one caller wins, and a file that was already there, or that another
+    // call created a moment ago, belongs to someone else and is left alone.
+    await community.initDbHandlerIfNeeded();
+    // A failed deletion of this address may still be queued for the next start, which would delete the new DB
+    await forgetCommunityThatFailedToBeDeleted({ communityAddress: community.address, pkc: community._pkc });
+    await community._dbHandler.initDbConfigIfNeeded();
+    const dbFilePath = community._dbHandler.getDbConfig().filename;
+    let createdDbFile = false;
+    if (dbFilePath !== ":memory:")
+        try {
+            closeSync(openSync(dbFilePath, "wx")); // an empty file is an empty SQLite DB
+            createdDbFile = true;
+        } catch (e) {
+            if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+        }
+    const internalStateKey = STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY];
+    try {
+        await community._dbHandler.initDbIfNeeded({ fileMustExist: false });
+        await community._dbHandler.createOrMigrateTablesIfNeeded();
 
-    await community._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.INTERNAL_COMMUNITY], community.toJSONInternalBeforeFirstUpdate());
+        if (community._dbHandler.keyvHas(internalStateKey)) throw Error("Internal state exists already");
 
-    await community._updateStartedValue();
+        await community._dbHandler.keyvSet(internalStateKey, community.toJSONInternalBeforeFirstUpdate());
+    } catch (e) {
+        try {
+            community._dbHandler.destoryConnection();
+        } catch (closeError) {
+            log.error(`Failed to close the DB of community (${community.address}) after its creation failed`, closeError);
+        }
+        // Another call may have written its internal state into the file this one created. Then it is a community and
+        // stays. The file is read for that, not the connection, which a failed table creation has closed already. The
+        // file is removed only when it is known to hold no internal state, which is asked again before every attempt:
+        // a file that stays busy for a while on Windows may be busy because another creator is writing its state
+        const isNotKnownToBeStateless = () => doesDbFileHoldInternalState({ dbFilePath, internalStateKey, log }) !== false;
+        if (createdDbFile)
+            for (const filePath of [dbFilePath, `${dbFilePath}-wal`, `${dbFilePath}-shm`])
+                await removeFileRetryingWhileBusy(filePath, { log, keepIf: isNotKnownToBeStateless }).catch((removeError) =>
+                    log.error(`Failed to remove ${filePath} after the creation of community (${community.address}) failed`, removeError)
+                );
+        throw e;
+    }
+
+    // The internal state is written, so the community exists from here on: a failure below closes the connection and
+    // keeps the DB
+    try {
+        await community._updateStartedValue();
+    } catch (e) {
+        community._dbHandler.destoryConnection();
+        throw e;
+    }
 
     community._dbHandler.destoryConnection(); // Need to destory connection so process wouldn't hang
     community._updateIpnsPubsubPropsIfNeeded({

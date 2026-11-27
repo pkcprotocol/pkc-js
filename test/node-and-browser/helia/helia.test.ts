@@ -79,17 +79,19 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 forceMockPubsub: false
             });
 
+            const kuboApiUrl = "http://localhost:15001/api/v0";
             const kuboPKC = await mockPKCV2({
-                pkcOptions: { pubsubKuboRpcClientsOptions: ["http://localhost:15001/api/v0"] },
+                pkcOptions: { pubsubKuboRpcClientsOptions: [kuboApiUrl] },
                 forceMockPubsub: false,
                 remotePKC: true
             });
 
             const kuboRpc = Object.values(kuboPKC.clients.pubsubKuboRpcClients)[0];
+            const { ID: kuboPeerId } = (await fetch(`${kuboApiUrl}/id`, { method: "POST" }).then((res) => res.json())) as { ID: string };
 
             const pubsubMsgs: IpfsHttpClientPubsubMessage[] = [];
 
-            kuboRpc._client.pubsub.subscribe(mathCliNoMockedPubsubCommunityAddress, (msg: IpfsHttpClientPubsubMessage) => {
+            await kuboRpc._client.pubsub.subscribe(mathCliNoMockedPubsubCommunityAddress, (msg: IpfsHttpClientPubsubMessage) => {
                 pubsubMsgs.push(msg);
             });
 
@@ -98,12 +100,36 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
             expect(numOfPeersBeforePublishing).to.equal(0);
             const heliaWithKuboRpcClientFunctions = libp2pJsClient.heliaWithKuboRpcClientFunctions;
 
-            await heliaWithKuboRpcClientFunctions.pubsub.publish(mathCliNoMockedPubsubCommunityAddress, new TextEncoder().encode("test"));
+            // The mock HTTP router returns two providers for every topic: this kubo and the kubo serving
+            // the community, and the two kubos are not peered with each other. pubsub.publish() sends as
+            // soon as gossipsub meshes ONE topic peer, so the message reaches whichever kubo grafted
+            // first, and when that is the other kubo this one never receives it. Hold the gossipsub
+            // publish that pubsub.publish() makes until this kubo is in our mesh, so it is always a
+            // recipient. Being meshed also means we have an outbound stream to it, which the send needs.
+            const gossipsub = libp2pJsClient._helia.libp2p.services.pubsub;
+            const originalGossipsubPublish = gossipsub.publish.bind(gossipsub);
+            let gossipsubRecipients: string[] | undefined;
+            const gossipsubPublishSpy = vi.spyOn(gossipsub, "publish").mockImplementation(async (topic: string, data?: Uint8Array) => {
+                await vi.waitFor(() => expect(gossipsub.getMeshPeers(topic)).to.include(kuboPeerId), { timeout: 20000, interval: 50 });
+                const publishResult = await originalGossipsubPublish(topic, data);
+                gossipsubRecipients = publishResult.recipients.map((peerId) => peerId.toString());
+                return publishResult;
+            });
+
+            try {
+                await heliaWithKuboRpcClientFunctions.pubsub.publish(
+                    mathCliNoMockedPubsubCommunityAddress,
+                    new TextEncoder().encode("test")
+                );
+            } finally {
+                gossipsubPublishSpy.mockRestore();
+            }
 
             const numOfPeersAfterPublishing = libp2pJsClient._helia.libp2p.getConnections().length;
             expect(numOfPeersAfterPublishing).to.be.greaterThan(numOfPeersBeforePublishing);
+            expect(gossipsubRecipients).to.include(kuboPeerId);
 
-            await new Promise((resolve) => setTimeout(resolve, 1000));
+            await vi.waitFor(() => expect(pubsubMsgs.length).to.be.greaterThan(0), { timeout: 10000, interval: 50 });
             expect(pubsubMsgs.length).to.equal(1);
             expect(pubsubMsgs[0].data.toString()).to.equal("116,101,115,116"); // uint8 array representation of "test"
 
@@ -598,6 +624,35 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-libp2pjs"]
                 await pkc.destroy();
             }
         }, 15000);
+    });
+
+    // Issue #541: a warmup still waiting for a topic subscriber when the PKC is destroyed kept its 10 s
+    // timeout timer, its 1 s poll interval and its findProviders query until the wait timed out by itself.
+    // A warmup started without a caller signal (the IPNS resolver's, for a name nobody is subscribed to)
+    // had nothing else to end it, so the destroyed node's timers kept the process alive for up to 10 s.
+    describe(`Helia stop() ends warmups that are still waiting - ${config.name}`, () => {
+        it("destroy() settles a subscribe() that is waiting for a subscriber of a topic nobody subscribes to", async () => {
+            const pkc = await config.pkcInstancePromise({ forceMockPubsub: false });
+            const heliaShape = Object.values(pkc.clients.libp2pJsClients)[0].heliaWithKuboRpcClientFunctions;
+            const unknownTopic = `stop-ends-warmup-test-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+
+            let settled = false;
+            // No signal: only the stop can end this wait before its own 10 s timeout
+            const subscribePromise = heliaShape.pubsub
+                .subscribe(unknownTopic, () => {})
+                .then(
+                    () => (settled = true),
+                    () => (settled = true)
+                );
+            // Let the warmup reach its subscriber wait
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            expect(settled, "the warmup should still be waiting for a subscriber").to.be.false;
+
+            await pkc.destroy();
+            await new Promise((resolve) => setTimeout(resolve, 0)); // setImmediate does not exist in browsers
+            expect(settled, "destroy() resolved while the warmup was still waiting for a subscriber").to.be.true;
+            await subscribePromise;
+        }, 20000);
     });
 
     // Issue #189: every block fetched over the helia transport used to go through

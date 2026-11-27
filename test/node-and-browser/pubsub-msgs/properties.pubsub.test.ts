@@ -46,7 +46,7 @@ type Challenge = {
 type ChallengeAnswer = {
     challengeRequestId: { constructor: { name: string }; length: number };
     type: string;
-    challengeAnswers: string[];
+    challengeAnswers: Record<string, string>;
     encrypted: EncryptedField;
     protocolVersion: string;
     signature: SignatureField;
@@ -130,9 +130,10 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             expect(challenge.challengeRequestId.constructor.name).to.equal("Uint8Array");
             expect(challenge.challengeRequestId.length).to.equal(38);
             expect(challenge.type).to.equal("CHALLENGE");
-            expect(challenge.challenges).to.be.a("array");
-            expect(challenge.challenges[0].challenge).to.be.a("string");
-            expect(challenge.challenges[0].index).to.be.undefined; // you can get index from array
+            expect(challenge.challenges).to.be.a("object");
+            expect(Object.keys(challenge.challenges)).to.deep.equal(["0"]); // keyed by challenge index
+            expect(challenge.challenges["0"].challenge).to.be.a("string");
+            expect((challenge.challenges["0"] as Record<string, unknown>).index).to.be.undefined; // the key is the index
             expect(challenge.challenges[0].type).to.equal("text/plain");
 
             expect(challenge.encrypted).to.be.a("object");
@@ -170,7 +171,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             expect(challengeAnswer.challengeRequestId.constructor.name).to.equal("Uint8Array");
             expect(challengeAnswer.challengeRequestId.length).to.equal(38);
             expect(challengeAnswer.type).to.equal("CHALLENGEANSWER");
-            expect(challengeAnswer.challengeAnswers).to.deep.equal(["2"]);
+            expect(challengeAnswer.challengeAnswers).to.deep.equal({ "0": "2" });
             expect(challengeAnswer.encrypted).to.be.a("object");
             expect(challengeAnswer.encrypted.ciphertext.constructor.name).to.equal("Uint8Array");
             expect(challengeAnswer.encrypted.iv.constructor.name).to.equal("Uint8Array");
@@ -205,7 +206,7 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             const challengeVerificationPromise = new Promise<ChallengeVerification>((resolve) =>
                 comment.once("challengeverification", resolve as (msg: unknown) => void)
             );
-            await comment.publishChallengeAnswers({ challengeAnswers: ["12345"] }); // wrong answer here
+            await comment.publishChallengeAnswers({ challengeAnswers: { "0": "12345" } }); // wrong answer here
             const challengeVerifcation = await challengeVerificationPromise;
             expect(challengeVerifcation.challengeRequestId.constructor.name).to.equal("Uint8Array");
             expect(challengeVerifcation.challengeRequestId.length).to.equal(38);

@@ -120,3 +120,39 @@ describe("PKCRpcClient calls whose response is lost", () => {
         expect(timeoutError.details?.rpcMethod).to.equal("startCommunity");
     });
 });
+
+// A call that is still waiting for its response when destroy() closes the socket can never be answered. It used to
+// stay pending until the per-call timeout (2 minutes by default), because calls lost with the connection were only
+// rejected on a close the client had not asked for. Seen in CI as stop-aborts-community-fetch "unwinds publish()
+// when the pkc is destroyed mid-fetch" taking 120 s: the publish being unwound had an unsubscribe in flight, and the
+// server answered it a few milliseconds after the client was gone.
+describe("PKCRpcClient calls still waiting for a response at destroy()", () => {
+    let server: LossyRpcServer;
+
+    beforeAll(async () => {
+        server = await LossyRpcServer.create(1); // never answers the first call
+    });
+
+    afterAll(async () => {
+        await server.destroy();
+    });
+
+    it("rejects the call when destroy() closes the connection, without waiting for the call timeout", async () => {
+        const client = new PKCRpcClient(`ws://127.0.0.1:${server.port}`);
+        type CallError = { code?: string; details?: { rpcMethod?: string } };
+        const call: Promise<CallError | undefined> = client
+            .startCommunity({ publicKey: "12D3KooWFakePublicKeyForCallPendingAtDestroy" })
+            .then(
+                (): CallError | undefined => undefined,
+                (err: unknown): CallError | undefined => err as CallError
+            );
+        while (server.callsReceived.length === 0) await new Promise((resolve) => setTimeout(resolve, 10));
+
+        await client.destroy();
+
+        expect(await raceAgainstHang(call, 5_000)).to.equal("settled");
+        const error = await call;
+        expect(error?.code).to.equal("ERR_RPC_CONNECTION_LOST");
+        expect(error?.details?.rpcMethod).to.equal("startCommunity");
+    });
+});

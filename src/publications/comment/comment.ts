@@ -7,8 +7,7 @@ import {
     isAbortError,
     isIpns,
     retryKuboIpfsAdd,
-    shortifyCid,
-    sleepUntilTimeoutOrAbort
+    shortifyCid
 } from "../../util.js";
 import Publication from "../publication.js";
 import { getCommunityAddressFromRecord, getCommunityPublicKeyFromWire, getCommunityNameFromWire } from "../publication-community.js";
@@ -46,6 +45,7 @@ import { RepliesPages } from "../../pages/pages.js";
 import { findCommentInPageInstanceRecursively, parseRawPages } from "../../pages/util.js";
 import { CommentIpfsSchema, CommentUpdateForChallengeVerificationSchema, CommentUpdateSchema } from "./schema.js";
 import { parseRpcCommentEventWithPKCErrorIfItFails, parseRpcCommentUpdateEventWithPKCErrorIfItFails } from "../../schema/schema-util.js";
+import { assignUnknownProps, mergeAuthorProps } from "../../unknown-props.js";
 import type { SignerType } from "../../signer/types.js";
 import type { CreatePublicationOptions } from "../../types.js";
 import { CommentClientsManager } from "./comment-client-manager.js";
@@ -119,8 +119,12 @@ export class Comment
     archived?: CommentUpdateType["archived"];
     removed?: CommentUpdateType["removed"];
     reason?: CommentUpdateType["reason"];
+    authorBanExpiresAt?: CommentUpdateType["authorBanExpiresAt"];
     lastChildCid?: CommentUpdateType["lastChildCid"];
     lastReplyTimestamp?: CommentUpdateType["lastReplyTimestamp"];
+    // Own-post recognition tag on comments the community aliased on a pseudonymityMode board (issue #381).
+    // Present only on aliased comments; clients that hold the account key reproduce it to mark "(You)".
+    pseudonymityAuthorTag?: CommentUpdateType["pseudonymityAuthorTag"];
     pendingApproval?: CommentUpdateForChallengeVerification["pendingApproval"];
     approved?: CommentUpdateType["approved"];
     number?: CommentUpdateType["number"];
@@ -150,6 +154,10 @@ export class Comment
     private _postForUpdating?: CommentClientsManager["_postForUpdating"];
 
     _numOfListenersForUpdatingInstance = 0;
+    // Bumped by update() and stop(). The start-up of an update awaits pkc.createComment() for the shared instance, or the
+    // RPC commentUpdateSubscribe, and compares it afterwards: once a stop() ran, that start-up is stale and must not
+    // track, mirror, start or subscribe anything. `state` alone cannot tell, because a new update() sets it to "updating" again
+    private _updateAttempt = 0;
 
     _updatingCommentInstance?: { comment: Comment } & Pick<PublicationEvents, "error" | "updatingstatechange" | "update" | "statechange"> =
         undefined; // the comment instance we're mirroing
@@ -254,15 +262,9 @@ export class Comment
 
         const unknownProps = difference(keys(props), keys(CommentIpfsSchema.shape));
         if (unknownProps.length > 0) {
-            const unknownPropsWithValues = pick(props, unknownProps);
-            log(
-                `Found unknown props on loaded CommentIpfs (cid: ${this.cid})`,
-                unknownPropsWithValues,
-                "Full props:",
-                props,
-                "Will set them on the Comment instance"
-            );
-            Object.assign(this, unknownPropsWithValues);
+            log(`Found unknown props on loaded CommentIpfs (cid: ${this.cid})`, pick(props, unknownProps), "Will set them on the Comment instance");
+            const { skipped } = assignUnknownProps({ target: this, record: props, knownKeys: keys(CommentIpfsSchema.shape) });
+            if (skipped.length > 0) log.error(`Refused unknown props of CommentIpfs (cid: ${this.cid}) that collide with the instance`, skipped);
         }
         this._setAuthorNameResolvedFromCache();
     }
@@ -316,11 +318,14 @@ export class Comment
 
         if (ownAuthor.length === 0 && replyAuthors.length === 0 && crosspostAuthors.length === 0) return;
 
-        const previousNameResolved = this.author.nameResolved;
         const onResolved = () => {
             const crosspostChanged = this.crosspost
                 ? applyNameResolvedCacheToCrosspost({ crosspost: this.crosspost, cache: this._pkc._memCaches.nameResolvedCache })
                 : false;
+            // Read now, not when this call asked: the verdict may already be on the author through a path that
+            // emitted update for it (a mirror copying it from the updating instance that heard it first, a
+            // CommentUpdate, this comment's other batch), and that update is the one for this verdict.
+            const previousNameResolved = this.author.nameResolved;
             this._setAuthorNameResolvedFromCache();
             if (this.replies?.pages) {
                 for (const page of Object.values(this.replies.pages)) {
@@ -391,7 +396,8 @@ export class Comment
             const unknownProps = difference(keys(props), keys(CommentUpdateSchema.shape));
             if (unknownProps.length > 0) {
                 log("Found unknown props on CommentUpdate record", unknownProps, "Will set them on Comment instance");
-                Object.assign(this, pick(props, unknownProps));
+                const { skipped } = assignUnknownProps({ target: this, record: props, knownKeys: keys(CommentUpdateSchema.shape) });
+                if (skipped.length > 0) log.error("Refused unknown props of CommentUpdate that collide with the instance", skipped);
             }
         }
 
@@ -406,6 +412,7 @@ export class Comment
         this.archived = props.archived;
         this.removed = props.removed;
         this.reason = props.reason;
+        this.authorBanExpiresAt = props.authorBanExpiresAt;
         this.edit = props.edit;
         this.protocolVersion = props.protocolVersion;
 
@@ -418,13 +425,18 @@ export class Comment
                   : this.spoiler;
 
         this.nsfw = typeof props.nsfw === "boolean" ? props.nsfw : typeof props.edit?.nsfw === "boolean" ? props.edit?.nsfw : this.nsfw;
-        if (props.author) Object.assign(this.author, props.author);
+        if (props.author) {
+            const { skipped } = mergeAuthorProps({ target: this.author, props: props.author });
+            if (skipped.length > 0)
+                Logger("pkc-js:comment:_initCommentUpdate").error("Refused author props of CommentUpdate that collide with an object", skipped);
+        }
         if (props.edit?.content) this.content = props.edit.content;
         // TODO flairs merging strategy will likely change — currently first-defined wins (mod > author edit > existing)
         this.flairs = props.flairs || props.edit?.flairs || this.flairs;
         this.author.flairs = props.author?.community?.flairs || props.edit?.author?.flairs || this.author?.flairs;
         this.lastChildCid = props.lastChildCid;
         this.lastReplyTimestamp = props.lastReplyTimestamp;
+        this.pseudonymityAuthorTag = "pseudonymityAuthorTag" in props ? props.pseudonymityAuthorTag : undefined;
 
         this._updateRepliesPostsInstance(props.replies, community);
         if (typeof this.pendingApproval === "boolean" || "pendingApproval" in props)
@@ -501,7 +513,6 @@ export class Comment
                 originalPubsubMsg: this.raw.pubsubMessageToPublish
             });
             log.error(error);
-            this.emit("error", error);
             return error;
         }
 
@@ -527,7 +538,6 @@ export class Comment
                 decryptedChallengeVerification: decryptedVerification
             });
             log.error(error);
-            this.emit("error", error);
             return error;
         }
         const commentUpdateValidity = await verifyCommentUpdate({
@@ -545,7 +555,6 @@ export class Comment
                 decryptedChallengeVerification: decryptedVerification
             });
             log.error(error);
-            this.emit("error", error);
             return error;
         }
 
@@ -556,7 +565,6 @@ export class Comment
                 decryptedChallengeVerification: decryptedVerification
             });
             log.error(error);
-            this.emit("error", error);
             return error;
         }
     }
@@ -601,7 +609,14 @@ export class Comment
 
     _initCommentUpdateFromChallengeVerificationProps(commentUpdate: CommentUpdateForChallengeVerification) {
         this.raw.commentUpdateFromChallengeVerification = commentUpdate;
-        if (commentUpdate.author) Object.assign(this.author, commentUpdate.author);
+        if (commentUpdate.author) {
+            const { skipped } = mergeAuthorProps({ target: this.author, props: commentUpdate.author });
+            if (skipped.length > 0)
+                Logger("pkc-js:comment:_initCommentUpdateFromChallengeVerificationProps").error(
+                    "Refused author props of the challenge verification that collide with an object",
+                    skipped
+                );
+        }
         this.protocolVersion = commentUpdate.protocolVersion;
         if ("pendingApproval" in commentUpdate) this.pendingApproval = commentUpdate.pendingApproval;
         else this.pendingApproval = false;
@@ -620,7 +635,12 @@ export class Comment
         const unknownProps = difference(keys(decryptedVerification.commentUpdate), keys(CommentUpdateForChallengeVerificationSchema.shape));
         if (unknownProps.length > 0) {
             log("Found unknown props on decryptedVerification.commentUpdate record", unknownProps, "Will set them on Comment instance");
-            Object.assign(this, pick(decryptedVerification.commentUpdate, unknownProps));
+            const { skipped } = assignUnknownProps({
+                target: this,
+                record: decryptedVerification.commentUpdate,
+                knownKeys: keys(CommentUpdateForChallengeVerificationSchema.shape)
+            });
+            if (skipped.length > 0) log.error("Refused unknown props of the challenge verification that collide with the instance", skipped);
         }
         this.emit("update", this);
         // RPC clients rely on the server for name resolution (sent via runtimeFields)
@@ -641,8 +661,10 @@ export class Comment
 
         if (!this._pkc._pkcRpcClient) {
             // no need to validate if RPC
+            // Thrown, not emitted here: the publication ends as failed with this error. Emitting it and returning let the
+            // verdict be reported as "succeeded" for a comment that was never installed on this instance
             const errorInVerificationProps = await this._verifyChallengeVerificationCommentProps(decryptedVerification);
-            if (errorInVerificationProps) return;
+            if (errorInVerificationProps) throw errorInVerificationProps;
         }
 
         await this._updateCommentPropsFromDecryptedChallengeVerification(decryptedVerification);
@@ -740,28 +762,36 @@ export class Comment
         });
     }
 
-    // Kicked off in parallel with the in-flight CommentIpfs fetch. After a short delay,
-    // if raw.comment still hasn't loaded, call pkc.getCommunity. Subscribing to the
-    // community's IPNS pubsub topic connects us to peers that likely have the comment
-    // block, and bitswap will then automatically fetch it from them. Without this, on
-    // libp2pjs with no provider record for the comment CID, we'd wait the full ~60s
-    // cat() timeout before any retry path tried to connect to community peers.
-    private _scheduleParallelCommunityConnect(log: Logger) {
-        if (!this.communityName && !this.communityPublicKey) return;
-        const stopSignal = this._getStopAbortSignal();
-        // Fire-and-forget: wait 5s (or until stopped), then connect. sleepUntilTimeoutOrAbort detaches its
-        // abort listener on both outcomes so it never leaks on the long-lived stop signal (see issue #147).
-        void (async () => {
-            await sleepUntilTimeoutOrAbort(5_000, stopSignal);
-            if (this.raw.comment) return;
-            if (this._isStopAbortRequested() || this._pkc.destroyed) return;
-            log("Starting parallel pkc.getCommunity for", this.cid, "so bitswap can fetch the comment block from community peers");
-            try {
-                await this._pkc.getCommunity({ name: this.communityName, publicKey: this.communityPublicKey });
-            } catch (err) {
-                if (!isAbortError(err as Error)) log.error("Parallel pkc.getCommunity failed for", this.cid, err);
-            }
-        })();
+    // Started at the same moment as the CommentIpfs fetch, by both update() and pkc.getComment()
+    // (issue #562). A fresh comment CID is often not listed on the HTTP routers yet, while the
+    // community always is: pkc.getCommunity connects us to the community's peers, and the pending
+    // want for the comment block is then served by one of them (see createNoProvidersRetryWaiter in
+    // helia-for-pkc.ts for how an in-flight fetch picks up a peer that connects late).
+    //
+    // Not started when it cannot help: no community identity on the comment, the community already
+    // updating on this pkc (its peers are connected), or no P2P client (a gateway cannot serve
+    // bitswap, and under a PKC RPC client the server runs this instead).
+    //
+    // Resolves with the error the community load failed with, if any, and never rejects. An abort is
+    // not a failure. `abortSignal` cancels the community load; update() passes its stop signal.
+    async _startParallelCommunityConnect({ abortSignal }: { abortSignal?: AbortSignal }): Promise<Error | undefined> {
+        const log = Logger("pkc-js:comment:_startParallelCommunityConnect");
+        if (!this.communityName && !this.communityPublicKey) return undefined;
+        if (this.raw.comment) return undefined;
+        if (abortSignal?.aborted || this._pkc.destroyed) return undefined;
+        const hasP2PClient =
+            Object.keys(this._pkc.clients.libp2pJsClients).length > 0 || Object.keys(this._pkc.clients.kuboRpcClients).length > 0;
+        if (!hasP2PClient) return undefined;
+        if (findUpdatingCommunity(this._pkc, { publicKey: this.communityPublicKey, name: this.communityName })) return undefined;
+        log("Starting parallel pkc.getCommunity for", this.cid, "so bitswap can fetch the comment block from community peers");
+        try {
+            await this._pkc.getCommunity({ name: this.communityName, publicKey: this.communityPublicKey, abortSignal });
+            return undefined;
+        } catch (err) {
+            if (abortSignal?.aborted || isAbortError(err as Error)) return undefined;
+            log.error("Parallel pkc.getCommunity failed for", this.cid, err);
+            return err as Error;
+        }
     }
 
     async _attemptToFetchCommentIpfsIfNeeded(log: Logger) {
@@ -777,6 +807,9 @@ export class Comment
                     newCommentIpfsOrNonRetriableError
                 );
                 // We can't proceed with an invalid CommentIpfs, so we're stopping the update loop and emitting an error event for the user
+                // _stopUpdateLoop() drops the stop signal without aborting it, which would leave the parallel
+                // community load running with a signal no later stop() can reach
+                this._abortStopOperations(`Aborting comment operations for ${this.cid} because its CommentIpfs failed to load`);
                 await this._stopUpdateLoop();
                 this._changeCommentStateEmitEventEmitStateChangeEvent({
                     newUpdatingState: "failed",
@@ -832,7 +865,7 @@ export class Comment
     async loadCommentIpfsAndStartCommentUpdateSubscription() {
         const log = Logger("pkc-js:update:loadCommentIpfsAndStartCommentUpdateSubscription");
         this._createStopAbortController();
-        this._scheduleParallelCommunityConnect(log);
+        void this._startParallelCommunityConnect({ abortSignal: this._getStopAbortSignal() });
         await this._attemptInfintelyToLoadCommentIpfs();
         if (!this.raw.comment) {
             if (this.state === "stopped" || this._isStopAbortRequested()) return;
@@ -1011,26 +1044,43 @@ export class Comment
         const rpcUrl = this._pkc.pkcRpcClientsOptions![0];
         if (!rpcUrl) throw Error("Failed to get rpc url");
         if (!this.cid) throw Error("Can't start updating comment without defining this.cid");
+        const updateAttempt = this._updateAttempt;
+        let subscriptionId: number;
         try {
-            const { subscriptionId } = await this._pkc._pkcRpcClient!.commentUpdateSubscribe({
+            ({ subscriptionId } = await this._pkc._pkcRpcClient!.commentUpdateSubscribe({
                 cid: this.cid,
                 ...(this.raw.comment || this.raw.commentUpdate ? { raw: this.raw } : undefined),
                 communityName: this.communityName,
                 communityPublicKey: this.communityPublicKey,
                 parentCid: this.parentCid,
                 postCid: this.postCid
-            });
-            this._updateRpcSubscriptionId = subscriptionId;
+            }));
         } catch (e) {
+            if (updateAttempt !== this._updateAttempt) {
+                // stop() already settled the states, and a newer update() may be running: this failure is not theirs
+                log.error("A commentUpdate subscribe that stop() made stale failed", e);
+                return;
+            }
             log.error("Failed to receive commentUpdate from RPC due to error", e);
             await this._stopUpdateLoop();
             this._setStateWithEmission("stopped");
             this._setUpdatingStateWithEmissionIfNewState("failed");
             throw e;
         }
+        if (updateAttempt !== this._updateAttempt) {
+            // stop() ran while subscribing: it had no subscription id to unsubscribe and already untracked this
+            // instance, so keeping the subscription would leave an untracked, live update loop until pkc.destroy().
+            // A newer update() has its own subscription or mirror
+            try {
+                await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
+            } catch (e) {
+                log.error("Failed to unsubscribe from a commentUpdate subscription stopped while subscribing", e);
+            }
+            return;
+        }
+        this._updateRpcSubscriptionId = subscriptionId;
         this._setStateWithEmission("updating");
 
-        const subscriptionId = this._updateRpcSubscriptionId;
         // Deferred so a listener attached synchronously after `await update()` resolves still
         // receives events the server emitted at subscribe time (#314); see
         // attachSubscriptionHandlersDeferred for the mechanism
@@ -1201,7 +1251,12 @@ export class Comment
         // create a new pkc._updatingComments[this.cid]
         const log = Logger("pkc-js:comment:update:_setUpNewUpdatingCommentInstance");
 
+        const updateAttempt = this._updateAttempt;
         const updatingCommentInstance = await this._pkc.createComment(this);
+        // stop() during the await above found no mirror to detach, so tracking, mirroring and starting the shared
+        // instance now would leave a stopped comment with a live update loop that nothing ever stops. After a stop() and
+        // a new update(), it would orphan one of two shared instances, and the other update() would fail to mirror
+        if (updateAttempt !== this._updateAttempt) return;
 
         trackUpdatingComment(this._pkc, updatingCommentInstance);
 
@@ -1222,7 +1277,11 @@ export class Comment
         if (this.state === "updating") return; // Do nothing if it's already updating
 
         if (!this.cid) throw Error("Can't call comment.update() without defining cid");
+        const updateAttempt = ++this._updateAttempt;
         this._setStateWithEmission("updating");
+        // A statechange listener called stop() for "updating". The start-up below reads the attempt after this point, so it
+        // would take the stop()'s attempt for its own and track, mirror and start an instance for the stopped comment
+        if (updateAttempt !== this._updateAttempt) return;
 
         const existingUpdatingComment = findUpdatingComment(this._pkc, { cid: this.cid });
         if (existingUpdatingComment) {
@@ -1257,6 +1316,7 @@ export class Comment
         const log = Logger("pkc-js:comment:update:_stopUpdateLoop");
         if (!this.cid) return;
         this._commentIpfsloadingOperation?.stop();
+        this._clientsManager._cancelTransientFetchRetry();
         if (this._updateRpcSubscriptionId) {
             // Clear the id synchronously, before the awaited unsubscribe round trip, so the
             // deferred attach-and-replay timer from _updateViaRpc (#314) sees the stop immediately
@@ -1336,11 +1396,25 @@ export class Comment
     }
 
     override async stop() {
+        const updateAttempt = ++this._updateAttempt; // an update() start-up still awaiting sees it is stale and leaves this comment alone
         this._abortStopOperations(
             `Aborting comment operations for ${this.cid || this.author?.address || "comment"} because comment.stop() was called`
         );
-        if (this.state === "publishing") await super.stop();
-        this._setStateWithEmission("stopped");
+        const isPublishing = () => this.state === "publishing"; // read again after an await, where the state can have changed
+        if (isPublishing()) {
+            await super.stop();
+            // A verdict recorded before this stop() still lands while the teardown above is awaited, and its listener may
+            // have called update(). That update() came after this stop(), so the rest of this stop() must not undo it
+            if (updateAttempt !== this._updateAttempt) return;
+            this._setStateWithEmission("stopped");
+        } else {
+            // The state is written after the await, not before it: until the update loop is stopped below, this is still
+            // an updating comment, and an update() called meanwhile has to see that and do nothing
+            await this._cancelBackgroundCommunityRefresh();
+            // A publish() called right after a stop() that was not awaited set "publishing", which this stop() has no
+            // business undoing
+            if (!isPublishing()) this._setStateWithEmission("stopped");
+        }
         await this._stopUpdateLoop();
         this.replies._stop();
         this._setUpdatingStateWithEmissionIfNewState("stopped");

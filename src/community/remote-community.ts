@@ -36,6 +36,7 @@ import type {
 } from "./types.js";
 import type { CommentModerationTableRow } from "../publications/comment-moderation/types.js";
 import { difference, keys, omit, pick } from "remeda";
+import { assignUnknownProps } from "../unknown-props.js";
 import { ModQueuePages, PostsPages } from "../pages/pages.js";
 import type { PostsPagesTypeIpfs } from "../pages/types.js";
 import { parseRawPages } from "../pages/util.js";
@@ -306,7 +307,10 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
     initCommunityIpfsPropsNoMerge(newProps: CommunityIpfsType) {
         const log = Logger("pkc-js:remote-community:initCommunityIpfsPropsNoMerge");
         this.raw.communityIpfs = newProps;
-        this.initRemoteCommunityPropsNoMerge(newProps);
+        // ipnsName is derived state of this client (_updateIpnsPubsubPropsIfNeeded reads it out of whatever it is
+        // handed, a runtime Json or clone options included). The wire record has no such field, so one a
+        // community signed into its record must not decide where this reader resolves and subscribes.
+        this.initRemoteCommunityPropsNoMerge(omit(newProps, ["ipnsName" as keyof CommunityIpfsType]));
         // pubsubTopicRoutingCid is derived state of the PUBLISHED topic, so a full record is the
         // authority for it and it is recomputed on every one. Absence of pubsubTopic means the
         // challenge exchange is disabled (issue #229), so no routing CID may survive the record that
@@ -317,7 +321,13 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         const unknownProps = difference(keys(this.raw.communityIpfs), keys(CommunityIpfsSchema.shape));
         if (unknownProps.length > 0) {
             log(`Found unknown props on community (${this.address}) ipfs record`, unknownProps);
-            Object.assign(this, pick(this.raw.communityIpfs, unknownProps));
+            const { skipped } = assignUnknownProps({
+                target: this,
+                record: this.raw.communityIpfs,
+                knownKeys: keys(CommunityIpfsSchema.shape)
+            });
+            if (skipped.length > 0)
+                log.error(`Refused unknown props of community (${this.address}) record that collide with the instance`, skipped);
         }
     }
 
@@ -695,6 +705,15 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         return this.address && isStringDomain(this.address) ? this.address : undefined;
     }
 
+    // What this loader looks itself up by in the registries. Never `this.name`: for a loader by key that is
+    // only what its record claims, and with the name's real owner present in the same PKC it would lead to
+    // the owner's instance (#605). A loader by name asked for the name, so the name leads and its publicKey,
+    // which may predate a key migration, is the fallback.
+    protected _registryLookup(): { publicKey?: string; name?: string; preferName: boolean } {
+        const requestedName = this._requestedName();
+        return { publicKey: this.publicKey, name: requestedName, preferName: Boolean(requestedName) };
+    }
+
     // Each loader checks records against the name IT asked for, wherever a record is applied to it:
     // loaders of different identities share one updating instance (matched by public key or name), so
     // the shared instance only verifies the signing key, which holds for every loader alike.
@@ -719,7 +738,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
     _setCommunityIpfsPropsFromUpdatingCommunitiesIfPossible() {
         const log = Logger("pkc-js:remote-community:_setCommunityIpfsPropsFromUpdatingCommunitiesIfPossible");
-        const updatingCommunity = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
+        const updatingCommunity = findUpdatingCommunity(this._pkc, this._registryLookup());
         if (updatingCommunity?.raw?.communityIpfs && (this.updatedAt || 0) < updatingCommunity.raw.communityIpfs.updatedAt) {
             // The caller asked for a specific publicKey and the tracked instance holds a record keyed
             // to a different one (its anchor for delegated communities — never signature.publicKey,
@@ -842,7 +861,7 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
         // tracked under the pre-migration address, so a second alias lookup here used to come up
         // empty and throw "should be defined at this stage" even though the instance was tracked —
         // which is how the RPC server's setSettings handler orphaned migrated subscriptions (#197).
-        let communityInstance = findUpdatingCommunity(this._pkc, { publicKey: this.publicKey, name: this.name });
+        let communityInstance = findUpdatingCommunity(this._pkc, this._registryLookup());
         if (!communityInstance) {
             // Pass publicKey alongside name/address so the updating community can use publicKey fallback.
             // createOpts is deliberately keyed by the (immutable, possibly pre-migration) address: the
@@ -1032,9 +1051,11 @@ export class RemoteCommunity extends TypedEmitter<CommunityEvents> implements Om
 
         if (this._updatingCommunityInstanceWithListeners) await this._cleanUpUpdatingCommunityInstanceWithListeners();
         else {
-            // this instance is pkc._updatingCommunity[address] itself
-            await this._clientsManager.stopUpdatingLoop();
+            // this instance is pkc._updatingCommunity[address] itself. Untracked before the await (a no-op when the
+            // caller already did), so an update() of another instance in that window starts a new updating instance
+            // instead of attaching to this one and being stopped with it.
             untrackUpdatingCommunity(this._pkc, this);
+            await this._clientsManager.stopUpdatingLoop();
         }
         this._setUpdatingStateWithEventEmissionIfNewState("stopped");
         this._setState("stopped");

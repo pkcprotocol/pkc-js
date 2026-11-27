@@ -68,6 +68,7 @@ import {
     CreateCommentEditOptionsWithRefinementSchema
 } from "../publications/comment-edit/schema.js";
 import { PKCUserOptionsSchema } from "../schema.js";
+import { forbiddenAuthorKeysInCrosspostChain, forbiddenKeysOf } from "../unknown-props.js";
 import { z, type ZodObject, type ZodType } from "zod";
 import type {
     CreateCommunityEditPublicationOptions,
@@ -145,7 +146,16 @@ export function parseCommentIpfsSchemaWithPKCErrorIfItFails(commentIpfsJson: z.i
         }
     );
     if (!parseRes.success) throw new PKCError("ERR_INVALID_COMMENT_IPFS_SCHEMA", { zodError: parseRes.error, commentIpfsJson });
-    else return <CommentIpfsType>commentIpfsJson;
+    const forbiddenRecordKeys = forbiddenKeysOf(commentIpfsJson);
+    if (forbiddenRecordKeys.length > 0)
+        throw new PKCError("ERR_COMMENT_IPFS_INCLUDES_FORBIDDEN_KEY", { forbiddenRecordKeys, commentIpfsJson });
+    const forbiddenAuthorKeys = forbiddenKeysOf(commentIpfsJson.author);
+    if (forbiddenAuthorKeys.length > 0)
+        throw new PKCError("ERR_COMMENT_IPFS_AUTHOR_INCLUDES_FORBIDDEN_KEY", { forbiddenAuthorKeys, commentIpfsJson });
+    const forbiddenInCrosspostChain = forbiddenAuthorKeysInCrosspostChain(commentIpfsJson);
+    if (forbiddenInCrosspostChain.length > 0)
+        throw new PKCError("ERR_CROSSPOST_COMMENT_AUTHOR_INCLUDES_FORBIDDEN_KEY", { forbiddenInCrosspostChain, commentIpfsJson });
+    return <CommentIpfsType>commentIpfsJson;
 }
 
 export function parseCommunityListSchemaWithPKCErrorIfItFails(
@@ -175,7 +185,13 @@ export function parseCommentUpdateSchemaWithPKCErrorIfItFails(commentUpdateJson:
         { commentUpdateJson }
     );
     if (!parseRes.success) throw new PKCError("ERR_INVALID_COMMENT_UPDATE_SCHEMA", { zodError: parseRes.error, commentUpdateJson });
-    else return commentUpdateJson;
+    const forbiddenRecordKeys = forbiddenKeysOf(commentUpdateJson);
+    if (forbiddenRecordKeys.length > 0)
+        throw new PKCError("ERR_COMMENT_UPDATE_INCLUDES_FORBIDDEN_KEY", { forbiddenRecordKeys, commentUpdateJson });
+    const forbiddenAuthorKeys = forbiddenKeysOf(commentUpdateJson.author);
+    if (forbiddenAuthorKeys.length > 0)
+        throw new PKCError("ERR_COMMENT_UPDATE_AUTHOR_INCLUDES_FORBIDDEN_KEY", { forbiddenAuthorKeys, commentUpdateJson });
+    return commentUpdateJson;
 }
 
 export function parsePageIpfsSchemaWithPKCErrorIfItFails(pageIpfsJson: z.infer<typeof PageIpfsSchema>): PageIpfs {

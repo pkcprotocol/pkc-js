@@ -67,6 +67,27 @@ Where `keysToOmitFromSignedPropertyNames` = `["signer", "challengeRequest", "com
 
 Each publication type defines reserved fields — all field names that could appear on the full runtime object. These are used to prevent users from injecting fields that could collide with internal or future fields. See `CommentPubsubMessageReservedFields` in `src/publications/comment/schema.ts`.
 
+## Keys Named Like An Object Member
+
+A record is invalid when one of its keys would replace a member of the instance a reader builds from it, whoever signed it. Two rules, one per kind of name:
+
+- **Forbidden keys** (`forbiddenKeysOf` in `src/unknown-props.ts`): `__proto__`, `constructor`, `prototype`, any name `Object.prototype` has (`toString`, `hasOwnProperty`, ...), and any name starting with `_`. Refused at the top level of a record and inside its `author` object.
+- **Members of a Comment** (`update`, `stop`, `publish`, `emit`, `on`, ...): in the reserved-field lists (`additionalCommentReservedFields` in `src/publications/comment/schema.ts`), so they are refused by the existing reserved-field checks. `test/node-and-browser/forbidden-record-keys.test.ts` compares the list with a live `Comment` and fails when a method is added without being reserved. Properties of a Comment are covered by the lists and by the compile-time check against `CommentJson`.
+
+**Records stored before the rule.** A community accepted such keys until DB version 47, so its DB can hold comments with them. The open-time sweeps of the v47 migration re-verify every stored comment and comment edit, which purges the offenders (the same purge as for any invalid signature), and drop forbidden keys from stored challenge `commentUpdate` extras (`comments.challengeCommentUpdate`), keeping the comment. Without that, the community would fail its own signature check on every publish cycle. See `test/node/community/v46-to-v47.migration.db.community.test.ts`.
+
+| Where | Rule | Result |
+|-------|------|--------|
+| `_verifyPublicationSignatureAndAuthor` (every publication type, so the community's acceptance path and every reader that verifies a comment) | forbidden keys, top level and `author` | `ERR_PUBLICATION_INCLUDES_FORBIDDEN_KEY`, `ERR_PUBLICATION_AUTHOR_INCLUDES_FORBIDDEN_KEY` |
+| `checkCommentPublication` (community acceptance) | members of a Comment | `ERR_COMMENT_HAS_RESERVED_FIELD` |
+| `verifyCommentIpfs` | both rules | `ERR_COMMENT_IPFS_INCLUDES_FORBIDDEN_KEY`, `ERR_COMMENT_IPFS_AUTHOR_INCLUDES_FORBIDDEN_KEY`, `ERR_COMMENT_IPFS_RECORD_INCLUDES_RESERVED_FIELD` |
+| `_verifyCrosspost`, once per chain level | both rules | `ERR_CROSSPOST_COMMENT_INCLUDES_FORBIDDEN_KEY`, `ERR_CROSSPOST_COMMENT_AUTHOR_INCLUDES_FORBIDDEN_KEY` (a nested level surfaces through the level above's `ERR_CROSSPOST_COMMENT_SIGNATURE_IS_INVALID`) |
+| `verifyCommentUpdate` | both rules | `ERR_COMMENT_UPDATE_INCLUDES_FORBIDDEN_KEY`, `ERR_COMMENT_UPDATE_AUTHOR_INCLUDES_FORBIDDEN_KEY`, `ERR_COMMENT_UPDATE_RECORD_INCLUDES_RESERVED_FIELD` |
+| `parseCommentIpfsSchemaWithPKCErrorIfItFails` (the crosspost chain included), `parseCommentUpdateSchemaWithPKCErrorIfItFails` | forbidden keys | the same codes, thrown |
+| `validateChallengeResult` (a challenge's `commentUpdate` extras) | reserved names and forbidden keys | `ERR_CHALLENGE_RESULT_OVERRIDES_RESERVED_COMMENT_UPDATE_FIELD` |
+
+Every other unknown key is free-form, top level and in `author`: a future field is fine, and `extraProp` still loads. The loaders refuse the same names again when they build the instance, for a record that never went through a gate (see [wire-vs-runtime.md](./wire-vs-runtime.md#unknown-props-and-author-keys-from-a-record)).
+
 ## Key Functions
 
 All in `src/signer/signatures.ts`:

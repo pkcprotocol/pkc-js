@@ -2,7 +2,11 @@ import net from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { circuitRelayServer } from "@libp2p/circuit-relay-v2";
 import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/helia-for-pkc.js";
-import { directFetchIpnsRecordFromProviders, summarizeProviderReachability } from "../../../dist/node/helia/util.js";
+import {
+    directFetchIpnsRecordFromProviders,
+    PRIVATE_ONLY_PROVIDER_DIAL_DELAY_MS,
+    summarizeProviderReachability
+} from "../../../dist/node/helia/util.js";
 import type { DirectFetchMiss, DirectFetchResult } from "../../../dist/node/helia/util.js";
 import { MockHttpRouter } from "../../../dist/node/runtime/node/test/mock-http-router.js";
 import { ipnsNameToIpnsOverPubsubTopic, pubsubTopicToDhtKeyCid } from "../../../dist/node/util.js";
@@ -368,6 +372,144 @@ describeSkipIfRpc("directFetchIpnsRecordFromProviders (issue #185)", () => {
             `direct fetch took ${elapsed}ms: the retry needs only the completed provider stream (~${SLOW_ROUTER_DELAY_MS}ms), so ` +
                 `taking ~${TARPIT_DIAL_SETTLE_MS}ms means the retry pass is gated on the unrelated tarpit dial settling (issue #215)`
         ).to.be.lessThan(RETRY_UNGATED_MAX_MS);
+    });
+
+    // Issue #475: NAT'd seeders (often in a VM) announce only private/loopback addrs (127.0.0.1, 10.0.2.15,
+    // fec0::...). From anywhere else those dials hang, so when such providers were yielded first they used
+    // up every maxPeers slot and the public provider was never tried. They must be dialed last instead: a
+    // provider with a public addr first, the private-only ones only if no public provider produced a record.
+    // The "public" publisher is announced as /dns4/localhost. (fully qualified, trailing dot): isPrivate only
+    // matches the bare name "localhost", so it counts as public, yet it still reaches the local node. The
+    // private-only provider is a loopback tarpit.
+    it("dials providers reachable only on private/loopback addrs after public ones (issue #475)", async () => {
+        const TARPIT_DIAL_SETTLE_MS = 5_000;
+        const PUBLIC_FIRST_MAX_MS = 3_500; // red waits for the tarpit to use the only slot and fail (~5s+)
+
+        const { routingKey, marshalled, topic, cid } = await makeRecord();
+        const publisher = await startPublisherNode({ routingKey, recordToServe: marshalled });
+        const publicAddrs = publisher.Addrs.map((addr) => addr.replace(/^\/ip4\/127\.0\.0\.1\//, "/dns4/localhost./"));
+        expect(
+            publicAddrs.every((addr) => addr.startsWith("/dns4/localhost./")),
+            "publisher must be announced by name"
+        ).to.equal(true);
+
+        const router = new MockHttpRouter();
+        await router.start();
+        startedRouters.push(router);
+        const tarpitPeerId = peerIdFromPrivateKey(await generateKeyPair("Ed25519")).toString();
+        // MockHttpRouter serves the newest record first, so the private-only tarpit is added last to be yielded first
+        router.addProviderForTesting(cid, { ID: publisher.ID, Addrs: publicAddrs });
+        router.addProviderForTesting(cid, { ID: tarpitPeerId, Addrs: [await startTarpitWsAddr()] });
+
+        const node = await createNode({
+            routers: [router.url],
+            libp2pOptions: { connectionManager: { addressDialTimeout: TARPIT_DIAL_SETTLE_MS } }
+        });
+
+        const start = Date.now();
+        const result = await directFetchIpnsRecordFromProviders({
+            helia: node._helia,
+            pubsubTopic: topic,
+            routingKey,
+            maxPeers: 1, // one slot: whichever provider takes it decides the outcome
+            validate: ipnsValidator,
+            log
+        });
+        const elapsed = Date.now() - start;
+
+        expect(result.recordBytes, "the public provider must be tried although a private-only one was yielded first").to.not.equal(
+            undefined
+        );
+        expect(asHit(result).peerId).to.equal(publisher.ID);
+        expect(uint8ArrayEquals(asHit(result).recordBytes, marshalled), "served record bytes must match").to.equal(true);
+        expect(elapsed, `direct fetch took ${elapsed}ms: the private-only tarpit was dialed before the public provider`).to.be.lessThan(
+            PUBLIC_FIRST_MAX_MS
+        );
+    });
+
+    // Issue #475, the other half: a private-only provider waits for the public ones, but not forever. When a
+    // router is a black hole the provider stream never ends, and the only reachable provider may be on the
+    // LAN (here: loopback). It must still be dialed after PRIVATE_ONLY_PROVIDER_DIAL_DELAY_MS.
+    it("still dials a private-only provider when a black-hole router keeps the provider stream open (issue #475)", async () => {
+        const PRIVATE_ONLY_RELEASE_MAX_MS = PRIVATE_ONLY_PROVIDER_DIAL_DELAY_MS + 2_500;
+        const { routingKey, marshalled, topic, cid } = await makeRecord();
+        const publisher = await startPublisherNode({ routingKey, recordToServe: marshalled }); // 127.0.0.1 only
+        const goodRouterUrl = await startRouterServing(cid, publisher);
+        const blackHole = new MockHttpRouter({ faultMode: "blackHole" });
+        await blackHole.start();
+        startedRouters.push(blackHole);
+        const node = await createNode({ routers: [goodRouterUrl, blackHole.url] });
+
+        const ac = new AbortController();
+        const giveUp = setTimeout(() => ac.abort(), 15_000);
+        const start = Date.now();
+        const result = await directFetchIpnsRecordFromProviders({
+            helia: node._helia,
+            pubsubTopic: topic,
+            routingKey,
+            maxPeers: 4,
+            validate: ipnsValidator,
+            log,
+            options: { signal: ac.signal }
+        }).finally(() => clearTimeout(giveUp));
+        const elapsed = Date.now() - start;
+
+        expect(asHit(result).peerId).to.equal(publisher.ID);
+        expect(elapsed, `direct fetch took ${elapsed}ms: the private-only provider waited for the black-hole router`).to.be.lessThan(
+            PRIVATE_ONLY_RELEASE_MAX_MS
+        );
+    });
+
+    // Issue #475 (PR #492 review): a provider can still be mid-classification (the isDialable() await in
+    // providerIsReachableOnlyPrivately) when the 2s timer releases the private-only queue. It used to be
+    // queued after the queue was drained, and since a release happens only once it was never dialed. Here a
+    // loopback tarpit is queued first (starting the timer) and the publisher's classification is held until
+    // the tarpit has been dialed, i.e. until the release has happened.
+    it("dials a private-only provider whose classification finishes after the 2s release (issue #475)", async () => {
+        const { routingKey, marshalled, topic, cid } = await makeRecord();
+        const publisher = await startPublisherNode({ routingKey, recordToServe: marshalled }); // 127.0.0.1 only
+        const tarpitPeerId = peerIdFromPrivateKey(await generateKeyPair("Ed25519")).toString();
+        const router = new MockHttpRouter();
+        await router.start();
+        startedRouters.push(router);
+        // MockHttpRouter serves the newest record first, so the tarpit is added last to be yielded first
+        router.addProviderForTesting(cid, { ID: publisher.ID, Addrs: publisher.Addrs });
+        router.addProviderForTesting(cid, { ID: tarpitPeerId, Addrs: [await startTarpitWsAddr()] });
+        const node = await createNode({
+            routers: [router.url],
+            libp2pOptions: { connectionManager: { addressDialTimeout: 3_000 } }
+        });
+
+        const libp2p = node._helia.libp2p;
+        let markTarpitDialed!: () => void;
+        const tarpitDialed = new Promise<void>((resolve) => (markTarpitDialed = resolve));
+        const originalDial = libp2p.dial.bind(libp2p);
+        libp2p.dial = ((target: Parameters<typeof libp2p.dial>[0], options?: Parameters<typeof libp2p.dial>[1]) => {
+            if (target.toString() === tarpitPeerId) markTarpitDialed();
+            return originalDial(target, options);
+        }) as typeof libp2p.dial;
+        // The direct fetch asks isDialable() about a provider twice: once for the reachability verdict, then
+        // inside the private-only classification. Only the second one sits after the release check.
+        let publisherChecks = 0;
+        const originalIsDialable = libp2p.isDialable.bind(libp2p);
+        libp2p.isDialable = (async (addrs: Parameters<typeof libp2p.isDialable>[0], options?: Parameters<typeof libp2p.isDialable>[1]) => {
+            const asked = (Array.isArray(addrs) ? addrs : [addrs]).map((addr) => addr.toString());
+            if (asked.some((addr) => publisher.Addrs.includes(addr)) && ++publisherChecks === 2) await tarpitDialed;
+            return originalIsDialable(addrs, options);
+        }) as typeof libp2p.isDialable;
+
+        const result = await directFetchIpnsRecordFromProviders({
+            helia: node._helia,
+            pubsubTopic: topic,
+            routingKey,
+            maxPeers: 4,
+            validate: ipnsValidator,
+            log
+        });
+
+        expect(publisherChecks, "the classification must have been held past the release").to.be.greaterThanOrEqual(2);
+        expect(result.recordBytes, "the provider classified after the release was never dialed").to.not.equal(undefined);
+        expect(asHit(result).peerId).to.equal(publisher.ID);
     });
 
     // Issue #215: a provider whose ONLY addrs are /p2p-circuit must not be dialed by the

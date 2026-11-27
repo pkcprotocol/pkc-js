@@ -16,10 +16,15 @@ export async function runHangingScenarioInChildProcess({
 }: RunHangingScenarioInChildProcessOptions): Promise<void> {
     return new Promise((resolve, reject) => {
         const waitForCleanupMs = Math.max(1000, timeoutMs);
+        // The child starts its cleanup wait only after the scenario has run, so with a handle that never
+        // closes it would still be waiting when the timer below kills it, and its report of the remaining
+        // handles would be lost. This deadline ends the wait early enough to print the report and exit.
+        const reportMarginMs = Math.min(2000, Math.floor(timeoutMs / 4));
         const env = {
             ...process.env,
             PKC_CONFIGS: configCode,
-            HANGING_RUNNER_WAIT: String(waitForCleanupMs)
+            HANGING_RUNNER_WAIT: String(waitForCleanupMs),
+            HANGING_RUNNER_WAIT_DEADLINE: String(Date.now() + timeoutMs - reportMarginMs)
         };
         const child = spawn(process.execPath, [runnerPath, "--scenario", scenarioModuleBaseName], {
             env,

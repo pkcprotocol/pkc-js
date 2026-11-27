@@ -27,6 +27,7 @@ import {
     PKCError
 } from "../pkc-error.js";
 import Logger from "../logger.js";
+import { guardDetached } from "../detached-guard.js";
 import type { PubsubMessage } from "../pubsub-messages/types.js";
 import type { PubsubSubscriptionHandler, ResultOfFetchingCommunity } from "../types.js";
 import * as cborg from "cborg";
@@ -41,6 +42,7 @@ import { convertBase58IpnsNameToBase36Cid } from "../signer/util.js";
 import pTimeout from "p-timeout";
 import { InflightResourceTypes } from "../util/inflight-fetch-manager.js";
 import { NameResolutionCache } from "./name-resolution-cache.js";
+import { invalidateSharedPubsubTopicList } from "./shared-pubsub-topic-list.js";
 import type { NameResolveCacheOptions } from "../schema.js";
 
 export type LoadType = "community" | "comment-update" | "comment" | "page-ipfs" | "generic-ipfs";
@@ -52,6 +54,7 @@ type GenericGatewayFetch = {
         response?: string;
         error?: Error;
         timeoutId: any;
+        timedOut?: boolean; // set by this gateway's own timeout, never by an abort of ours
     };
 };
 
@@ -79,6 +82,9 @@ export type OptionsToLoadFromGateway = {
     path?: string;
     recordPKCType: LoadType;
     abortController: AbortController;
+    // Whether the abort of `abortController` was this gateway's own timeout. Any other abort is ours (another
+    // gateway answered first, the caller stopped) and says nothing about the gateway
+    gatewayTimedOut: () => boolean;
     timeoutMs: number;
     abortRequestErrorBeforeLoadingBodyFunc?: (res: Response) => Promise<PKCError | undefined>; // this is called before consuming the body of the gateway response. Can be used to abort and stop the consumption. Should provide an abort error
     validateGatewayResponseFunc: (resObj: { resText: string | undefined; res: Response }) => Promise<void>; // can throw here to trigger a failure in response
@@ -122,6 +128,56 @@ const GATEWAYS_THAT_SUPPORT_SUBDOMAIN_RESOLUTION: Record<string, boolean> = {}; 
 // 100 sits above the realistic batch window, so coalescing survives, and caps the burst for the
 // resolvers that do not batch.
 const MAX_CONCURRENT_AUTHOR_NAME_RESOLUTIONS = 100;
+
+// Whether a path resolve failed because a directory on the way was read and has no entry of that name. Kubo's RPC
+// reports it as an HTTP 500 whose message is `no link named "<name>" under <cid>`, with no code of its own, and helia's
+// unixfs throws DoesNotExistError. A directory that could not be loaded fails differently (a timeout, no providers)
+function isIpfsPathNotInFolderError(error: unknown): boolean {
+    if (!(error instanceof Error)) return false;
+    return error.name === "DoesNotExistError" || (error.name === "HTTPError" && /^no link named /.test(error.message));
+}
+
+// What one background author name resolve came to: a verdict was cached, it learned nothing because every
+// resolver failed (nameResolveFailedCache paces the retry), or its caller stopped before it learned anything
+type AuthorNameResolveOutcome = "verdict" | "failed" | "aborted";
+
+// A background author name resolve that is still outstanding, shared by every caller that asks for the same
+// name and signer meanwhile (PKC._authorNameResolvesInFlight, issue #353)
+export type AuthorNameResolveInFlight = {
+    // Stop signals of the callers waiting for it, its owner's included. A Comment or community asks on every
+    // one of its updates, so it asks again while it waits; that ask is skipped rather than told twice.
+    callers: Set<AbortSignal>;
+    // The callers that joined it, each told the outcome once. A joiner that is stopped removes itself.
+    joiners: Set<(outcome: AuthorNameResolveOutcome) => void>;
+};
+
+// Waits for a resolve another caller started. A resolve is bounded only by its owner's signal, so the wait
+// ends as soon as the joiner is stopped and leaves nothing on the resolve: a stopped Comment or community must
+// not stay referenced through its onResolved until someone else's resolve settles.
+const waitForAuthorNameResolveInFlight = ({
+    inFlightResolve,
+    abortSignal
+}: {
+    inFlightResolve: AuthorNameResolveInFlight;
+    abortSignal?: AbortSignal;
+}): Promise<AuthorNameResolveOutcome> =>
+    new Promise((resolve) => {
+        if (abortSignal?.aborted) return resolve("aborted");
+        const onAbort = () => finish("aborted");
+        const finish = (outcome: AuthorNameResolveOutcome) => {
+            inFlightResolve.joiners.delete(finish);
+            if (abortSignal) {
+                inFlightResolve.callers.delete(abortSignal);
+                abortSignal.removeEventListener("abort", onAbort);
+            }
+            resolve(outcome);
+        };
+        inFlightResolve.joiners.add(finish);
+        if (abortSignal) {
+            inFlightResolve.callers.add(abortSignal);
+            abortSignal.addEventListener("abort", onAbort, { once: true });
+        }
+    });
 
 export class BaseClientsManager {
     // Class that has all function but without clients field for maximum interopability
@@ -211,26 +267,42 @@ export class BaseClientsManager {
 
         const timeBefore = Date.now();
 
-        const handlePubsubError = async (err: Error) => {
-            error = err;
-            log.error(
-                "pubsub callback error, topic",
-                pubsubTopic,
-                "provider url",
-                kuboPubsubRpcUrlOrLibp2pJsKey,
-                "error",
-                err,
-                "Will unsubscribe and re-attempt to subscribe"
-            );
+        // The pubsub client calls this from a stream callback and does not await or catch it, so a throw or a rejection
+        // here (the provider is gone, so subscribing again fails) is an unhandled rejection that ends the process. The
+        // guard reports it as an "error" of the pkc instead: delivered to a listener, and, as documented, thrown when
+        // nothing listens.
+        const handlePubsubError = guardDetached({
+            entryPoint: `pubsub onError (${kuboPubsubRpcUrlOrLibp2pJsKey})`,
+            onFailure: (cause) =>
+                this._pkc.emit(
+                    "error",
+                    new PKCError("ERR_FAILED_TO_RESUBSCRIBE_TO_PUBSUB_TOPIC_AFTER_ERROR", {
+                        pubsubTopic,
+                        pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey,
+                        cause
+                    })
+                ),
+            handler: async (err: Error) => {
+                error = err;
+                log.error(
+                    "pubsub callback error, topic",
+                    pubsubTopic,
+                    "provider url",
+                    kuboPubsubRpcUrlOrLibp2pJsKey,
+                    "error",
+                    err,
+                    "Will unsubscribe and re-attempt to subscribe"
+                );
 
-            await this._pkc._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe");
-            try {
-                await this.pubsubUnsubscribeOnProvider(pubsubTopic, kuboPubsubRpcUrlOrLibp2pJsKey, handler);
-            } catch (e) {
-                log.error("Failed to unsubscribe after onError, topic", pubsubTopic, "provider url", kuboPubsubRpcUrlOrLibp2pJsKey, e);
+                await this._pkc._stats.recordGatewayFailure(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe");
+                try {
+                    await this.pubsubUnsubscribeOnProvider(pubsubTopic, kuboPubsubRpcUrlOrLibp2pJsKey, handler);
+                } catch (e) {
+                    log.error("Failed to unsubscribe after onError, topic", pubsubTopic, "provider url", kuboPubsubRpcUrlOrLibp2pJsKey, e);
+                }
+                await this.pubsubSubscribeOnProvider(pubsubTopic, handler, kuboPubsubRpcUrlOrLibp2pJsKey);
             }
-            await this.pubsubSubscribeOnProvider(pubsubTopic, handler, kuboPubsubRpcUrlOrLibp2pJsKey);
-        };
+        });
 
         let error: Error | undefined;
         try {
@@ -239,6 +311,7 @@ export class BaseClientsManager {
                     try {
                         await pubsubClient.pubsub.subscribe(pubsubTopic, handler, { onError: handlePubsubError });
                     } catch (e) {
+                        invalidateSharedPubsubTopicList(pubsubClient);
                         // Only a transient socket-level failure is retried, e.g. kubo's API refusing connections
                         // while saturated (#422). Anything else, including "Already subscribed", stops immediately.
                         const networkErrorDetails = extractNetworkErrorDetails(e);
@@ -262,6 +335,7 @@ export class BaseClientsManager {
                     }
                 }
             );
+            invalidateSharedPubsubTopicList(pubsubClient);
             if (error) throw error;
             await this._pkc._stats.recordGatewaySuccess(kuboPubsubRpcUrlOrLibp2pJsKey, "pubsub-subscribe", Date.now() - timeBefore);
             this.pubsubProviderSubscriptions[kuboPubsubRpcUrlOrLibp2pJsKey].push(pubsubTopic);
@@ -304,7 +378,12 @@ export class BaseClientsManager {
         if (!pubsubClient) throw new PKCError("ERR_INVALID_PUBSUB_PROVIDER", { pubsubProviderUrl: kuboPubsubRpcUrlOrLibp2pJsKey });
 
         try {
-            await pubsubClient.pubsub.unsubscribe(pubsubTopic, handler);
+            try {
+                await pubsubClient.pubsub.unsubscribe(pubsubTopic, handler);
+            } finally {
+                // the node's list changed, or may have: nobody may act on one read before this (issue #576)
+                invalidateSharedPubsubTopicList(pubsubClient);
+            }
             this.pubsubProviderSubscriptions[kuboPubsubRpcUrlOrLibp2pJsKey] = this.pubsubProviderSubscriptions[
                 kuboPubsubRpcUrlOrLibp2pJsKey
             ].filter((subPubsubTopic) => subPubsubTopic !== pubsubTopic);
@@ -316,7 +395,14 @@ export class BaseClientsManager {
     }
 
     async pubsubUnsubscribe(pubsubTopic: string, handler?: PubsubSubscriptionHandler) {
-        for (const pubsubProviderUrl of keys(this._pkc.clients.pubsubKuboRpcClients)) {
+        // libp2p-js providers too, but only those this manager subscribed the topic on: their shim
+        // throws once helia is stopping, where the kubo path tolerates an unknown topic. Unsubscribing
+        // kubo providers only left every libp2p-js publication's challenge handler on the community's
+        // topic for the life of the PKC, retaining the publication (#496 leak suite).
+        const libp2pJsProvidersWithTopic = keys(this._pkc.clients.libp2pJsClients).filter((key) =>
+            this.pubsubProviderSubscriptions[key]?.includes(pubsubTopic)
+        );
+        for (const pubsubProviderUrl of [...keys(this._pkc.clients.pubsubKuboRpcClients), ...libp2pJsProvidersWithTopic]) {
             try {
                 await this.pubsubUnsubscribeOnProvider(pubsubTopic, pubsubProviderUrl, handler);
             } catch (e) {
@@ -557,11 +643,17 @@ export class BaseClientsManager {
             // gateway's score in the sorting stats (issue #328). Everything else stays a failure.
             const gatewayConfirmedCurrentRecord =
                 (<PKCError>e).details?.status === 304 || String((<PKCError>e).code).startsWith("ERR_GATEWAY_ABORTING_LOADING");
+            // A request we aborted ourselves is no verdict on the gateway, so it is not recorded at all:
+            // counted as a failure, the two gateways that lose every race of three would sink in the sort.
+            // The abort reaches us as ERR_GATEWAY_TIMED_OUT_OR_ABORTED from the gateway request itself, and as
+            // the plain AbortError from a fetch made while validating the response (the delegated IPNS chain)
+            const isAbort = (<PKCError>e).code === "ERR_GATEWAY_TIMED_OUT_OR_ABORTED" || isAbortError(e);
+            const abortedByUs = isAbort && !loadOpts.gatewayTimedOut();
             if (gatewayConfirmedCurrentRecord)
                 this._pkc._stats
                     .recordGatewaySuccess(gateway, loadOpts.recordIpfsType, Date.now() - timeBefore)
                     .catch((err) => log.error("Failed to report gateway success", err));
-            else
+            else if (!abortedByUs)
                 this._pkc._stats
                     .recordGatewayFailure(gateway, loadOpts.recordIpfsType)
                     .catch((err) => log.error("failed to report gateway error", err));
@@ -584,7 +676,7 @@ export class BaseClientsManager {
     }
 
     async fetchFromMultipleGateways(
-        loadOpts: Omit<OptionsToLoadFromGateway, "abortController"> & { abortSignal?: AbortSignal }
+        loadOpts: Omit<OptionsToLoadFromGateway, "abortController" | "gatewayTimedOut"> & { abortSignal?: AbortSignal }
     ): Promise<{ resText: string; res: Response }> {
         const timeoutMs = loadOpts.timeoutMs;
         const concurrencyLimit = 3;
@@ -615,13 +707,31 @@ export class BaseClientsManager {
             loadOpts.abortSignal.addEventListener("abort", onParentAbort, { once: true });
         }
 
-        for (const gateway of gatewaysSorted) {
+        for (const [i, gateway] of gatewaysSorted.entries()) {
             const abortController = new AbortController();
-            gatewayFetches[gateway] = {
-                abortController,
-                promise: queueLimit(() => this._fetchWithGateway(gateway, { ...loadOpts, abortController })),
-                timeoutId: setTimeout(() => abortController.abort("Gateway request timed out"), timeoutMs)
-            };
+            const gatewayFetch = { abortController, timeoutId: undefined } as GenericGatewayFetch[string];
+            gatewayFetches[gateway] = gatewayFetch;
+            const armTimeout = () =>
+                (gatewayFetch.timeoutId = setTimeout(() => {
+                    gatewayFetch.timedOut = true;
+                    abortController.abort("Gateway request timed out");
+                }, timeoutMs));
+            // The timeout is this gateway's own, so it runs from when the gateway can send its request. The first
+            // `concurrencyLimit` gateways get a slot at once, so theirs is armed now, before the caller arms a deadline of
+            // the same length (getComment's is the comment-ipfs timeout too): when the gateways hang, their errors reach the
+            // caller first. A gateway that waits for a slot gets its timeout when its request starts. Armed at enqueue, it
+            // would run down in the queue, and a gateway queued behind 3 hanging ones would start aborted. A gateway that
+            // cleanUp() reached first starts aborted anyway, and gets no timer cleanUp() can't clear
+            const startsAtOnce = i < concurrencyLimit;
+            if (startsAtOnce) armTimeout();
+            gatewayFetch.promise = queueLimit(() => {
+                if (!startsAtOnce && !abortController.signal.aborted) armTimeout();
+                return this._fetchWithGateway(gateway, {
+                    ...loadOpts,
+                    abortController,
+                    gatewayTimedOut: () => gatewayFetch.timedOut === true
+                });
+            });
         }
 
         const gatewayPromises = Object.values(gatewayFetches).map((fetching) => fetching.promise);
@@ -664,6 +774,11 @@ export class BaseClientsManager {
     // (anchor -> minter -> /ipfs/). Longer chains are rejected with ERR_IPNS_MAX_HOPS_EXCEEDED.
     static readonly MAX_IPNS_HOPS = 1;
 
+    // Called with every name resolveIpnsToCidP2P asks its client for, before the request, whether or not the
+    // resolve goes on to succeed, together with the name that walk started from. For subclasses that have to know
+    // which names a client was asked about.
+    protected _onIpnsNameAboutToBeResolvedP2P(_ipnsName: string, _firstNameOfWalk: string) {}
+
     // Resolves an IPNS name to its terminal /ipfs/ CID, following any /ipns/ -> /ipns/
     // delegation hops along the way. Returns the resolved CID together with the ordered
     // chain of IPNS names traversed: ipnsHops[0] is the anchor (the name we were asked to
@@ -693,6 +808,15 @@ export class BaseClientsManager {
             keys(this._pkc.clients.kuboRpcClients).length === 0 && keys(this._pkc.clients.libp2pJsClients).length > 0;
         const ipnsResolveOpts = { nocache: !resolvingViaLibp2pJsClient, recursive: false, ...loadOpts };
         const ipfsClient = this.getIpfsClientWithKuboRpcClientFunctions();
+        // Ends kubo's request once we stop waiting for it (stop(), timeout, or a failed hop). kubo-rpc-client reads
+        // `signal`, not loadOpts.abortSignal, so without this the resolve kept running inside kubo after a stop(),
+        // for up to a minute on a name with no record, and kubo refuses `name pubsub cancel` for a name with a
+        // resolve in progress (issue #602). Kubo only: the libp2p-js resolver hands its options to a pubsub warmup
+        // that is meant to outlive the resolve, and this signal is aborted on success too.
+        const kuboResolveAbortController = new AbortController();
+        const clientResolveOpts = resolvingViaLibp2pJsClient
+            ? ipnsResolveOpts
+            : { ...ipnsResolveOpts, signal: kuboResolveAbortController.signal };
 
         const performIpnsResolve = async () => {
             // We resolve ONE hop at a time (recursive: false) rather than letting the resolver
@@ -713,7 +837,8 @@ export class BaseClientsManager {
                 // both resolution paths report failures identically. See docs/protocol/delegated-ipns.md.
                 const hopIndex = ipnsHops.length - 1;
                 const hopRole = hopIndex === 0 ? "anchor" : "minter";
-                const yieldedValues: string[] = await all(ipfsClient.name.resolve(currentName, ipnsResolveOpts));
+                this._onIpnsNameAboutToBeResolvedP2P(currentName, ipnsName);
+                const yieldedValues: string[] = await all(ipfsClient.name.resolve(currentName, clientResolveOpts));
                 // The single-hop value (kubo may yield it more than once; helia yields it once).
                 const value: string | undefined = yieldedValues[yieldedValues.length - 1];
                 if (!value)
@@ -806,6 +931,8 @@ export class BaseClientsManager {
                 });
             }
             throw error;
+        } finally {
+            kuboResolveAbortController.abort();
         }
 
         throw Error("Should not reach this block in resolveIpnsToCidP2P");
@@ -816,8 +943,10 @@ export class BaseClientsManager {
     // The cid an /ipfs/ path names, as CIDv1, or undefined when it cannot be told. Files are content-addressed, so a
     // caller comparing it with the cid it last fetched can skip an unchanged file without reading it (issue #312).
     // Kubo and helia walk only the directory blocks on the way, which an unchanged path already has locally. Undefined
-    // with only gateways. Throws only ERR_FETCH_CID_P2P_TIMEOUT: the walk could not reach the path's blocks in time, and
-    // a fetch of the path would walk the same blocks. Any other failure is undefined, and the caller fetches anyway.
+    // with only gateways. Throws ERR_FETCH_CID_P2P_TIMEOUT when the walk could not reach the path's blocks in time: a
+    // fetch of the path would walk the same blocks. Throws ERR_IPFS_PATH_NOT_IN_FOLDER when the walk read the folder and
+    // it has no such entry: the folder is named by its cid, so that answer does not change and a fetch would only
+    // repeat it. Any other failure is undefined, and the caller fetches anyway.
     async _resolveIpfsPathToCid({
         root,
         path,
@@ -857,6 +986,8 @@ export class BaseClientsManager {
             if (e instanceof PKCError && e.code === "ERR_FETCH_CID_P2P_TIMEOUT") throw e; // helia's own timeout
             if (e instanceof Error && e.name === "TimeoutError" && !abortSignal?.aborted)
                 throw new PKCError("ERR_FETCH_CID_P2P_TIMEOUT", { ipfsPath: `/ipfs/${root}/${path}`, timeoutMs, error: e });
+            if (isIpfsPathNotInFolderError(e))
+                throw new PKCError("ERR_IPFS_PATH_NOT_IN_FOLDER", { ipfsPath: `/ipfs/${root}/${path}`, error: e });
             log.trace("Could not resolve", `${root}/${path}`, "to a cid, the caller will fetch it", e);
             return undefined;
         }
@@ -1171,6 +1302,9 @@ export class BaseClientsManager {
         // Deduplicate and skip already-cached entries
         const seen = new Set<string>();
         const toResolve: Array<{ authorName: string; signaturePublicKey: string; cacheKey: string }> = [];
+        // Authors another caller is already resolving, with that caller's resolve
+        const joined: Array<{ author: { authorName: string; signaturePublicKey: string }; inFlightResolve: AuthorNameResolveInFlight }> =
+            [];
         for (const { authorName, signaturePublicKey } of authors) {
             if (!isStringDomain(authorName)) continue;
             // No resolver here can handle this TLD, so we can never find out. Skip rather than attempt and
@@ -1184,17 +1318,24 @@ export class BaseClientsManager {
             // An attempt for this exact name and signer is already outstanding. A resolve is bounded only by
             // the caller's abort signal, so a reachable-but-slow resolver would otherwise collect one attempt
             // per caller per update: the floor below is measured from when an attempt finished, and one that
-            // has not answered yet has finished nothing.
-            if (inFlight.has(cacheKey)) continue;
+            // has not answered yet has finished nothing. Join it rather than skip it: its verdict is this
+            // caller's too, and onResolved is the only way this caller gets a verdict applied to its objects.
+            // Unless this caller already waits for it (it started it, or joined it on an earlier ask): that ask
+            // tells it. Callers without a stop signal cannot be told apart, so each of their asks waits.
+            const inFlightResolve = inFlight.get(cacheKey);
+            if (inFlightResolve) {
+                if (!abortSignal || !inFlightResolve.callers.has(abortSignal))
+                    joined.push({ author: { authorName, signaturePublicKey }, inFlightResolve });
+                continue;
+            }
             // The last attempt learned nothing. The verdict is still undefined, which is also the marker that
             // allows a retry, so without this every caller would reach the network for as long as the
             // resolvers stayed down. The entry expires on its own, which is what ends the pacing.
             if (failedRecently.get(cacheKey)) continue;
-            inFlight.add(cacheKey);
             toResolve.push({ authorName, signaturePublicKey, cacheKey });
         }
 
-        if (toResolve.length === 0) return;
+        if (toResolve.length === 0 && joined.length === 0) return;
 
         // A `false` verdict is an accusation resting on evidence nothing persists, and the states that
         // produce one (no record yet, a record that is not a key) are exactly what a domain looks like while
@@ -1206,9 +1347,9 @@ export class BaseClientsManager {
                 : verificationCache.set(cacheKey, false, { ttl: this._pkc._nameResolvedFalseTtlMs });
 
         const limit = pLimit(MAX_CONCURRENT_AUTHOR_NAME_RESOLUTIONS);
-        const resolveOne = async (entry: (typeof toResolve)[0]) => {
+        const resolveOne = async (entry: (typeof toResolve)[0]): Promise<AuthorNameResolveOutcome> => {
             try {
-                if (abortSignal?.aborted) return false;
+                if (abortSignal?.aborted) return "aborted";
                 const { resolvedAuthorName: resolved } = await this.resolveAuthorNameIfNeeded({
                     authorName: entry.authorName,
                     abortSignal,
@@ -1219,17 +1360,17 @@ export class BaseClientsManager {
                     // this signer, so cache false. An all-resolvers-errored outcome no longer arrives here, it
                     // throws ERR_ALL_NAME_RESOLVERS_FAILED and is left undefined for retry below. Issue #353.
                     setVerdict(entry.cacheKey, false);
-                    return true; // newly set
+                    return "verdict"; // newly set
                 }
                 const signerAddress = await getPKCAddressFromPublicKey(entry.signaturePublicKey);
                 setVerdict(entry.cacheKey, resolved === signerAddress);
-                return true; // newly set
+                return "verdict"; // newly set
             } catch (e) {
-                if (isAbortError(e)) return false;
+                if (isAbortError(e)) return "aborted";
                 if (e instanceof PKCError && e.code === "ERR_RESOLVED_TEXT_RECORD_TO_NON_IPNS") {
                     // The resolvers answered: the record exists and is not a key. Definitive non-match.
                     setVerdict(entry.cacheKey, false);
-                    return true; // newly set
+                    return "verdict"; // newly set
                 }
                 log.error("Failed to resolve author name in background", entry.authorName, e);
                 // We never got an answer (every resolver errored, or the resolve timed out). "We could not find
@@ -1238,18 +1379,52 @@ export class BaseClientsManager {
                 // no verdict to pace the retry, and undefined is what invites one. An abort is deliberately
                 // not recorded here, since the caller going away is not the resolvers failing. Issue #353.
                 failedRecently.set(entry.cacheKey, true, { ttl: this._pkc._nameResolveFailedRetryFloorMs });
-                return false;
-            } finally {
-                inFlight.delete(entry.cacheKey);
+                return "failed";
             }
         };
 
-        Promise.allSettled(toResolve.map((entry) => limit(() => resolveOne(entry))))
-            .then((results) => {
-                const anyNewlySet = results.some((r) => r.status === "fulfilled" && r.value === true);
-                if (anyNewlySet) onResolved();
-            })
-            .catch((e) => log.error("Unexpected error in resolveAuthorNamesInBackground", e));
+        const ownAttempts = toResolve.map((entry) => {
+            const inFlightResolve: AuthorNameResolveInFlight = { callers: new Set(abortSignal ? [abortSignal] : []), joiners: new Set() };
+            inFlight.set(entry.cacheKey, inFlightResolve);
+            const settle = (outcome: AuthorNameResolveOutcome) => {
+                // Released before the joiners hear, so one that has to ask again finds the name free
+                if (inFlight.get(entry.cacheKey) === inFlightResolve) inFlight.delete(entry.cacheKey);
+                for (const joiner of inFlightResolve.joiners) joiner(outcome);
+                return outcome;
+            };
+            return limit(() => resolveOne(entry)).then(settle, () => settle("failed"));
+        });
+
+        // The caller hears about the resolves it started once they have all settled, as before joining existed, and
+        // about each resolve it joined as that one lands. A background resolve has no timeout of its own: it is
+        // bounded only by its owner's signal. So a verdict must not wait for a resolve another caller owns, neither
+        // the caller's own verdicts nor the verdict of another resolve it joined.
+        //
+        // A caller that was stopped in the meantime is not notified. Its stop aborts what is still outstanding,
+        // which settles the batch, and a verdict that landed before the stop would otherwise reach a stopped
+        // Comment, whose onResolved changes what it renders and emits "update".
+        for (const { author, inFlightResolve } of joined)
+            waitForAuthorNameResolveInFlight({ inFlightResolve, abortSignal })
+                .then((outcome) => {
+                    // This caller was stopped while it waited, so it gets nothing, as if its own attempt had been aborted
+                    if (abortSignal?.aborted) return;
+                    if (outcome === "verdict") onResolved();
+                    // Its owner was stopped before it learned anything, which says nothing about the name: ask on this
+                    // caller's behalf, and that call runs onResolved itself on a verdict. A failed attempt is not retried
+                    // here, nameResolveFailedCache paces that for joiners as for owners. Not once the pkc is destroyed:
+                    // destroy() is what stopped the owner, and it closes the storage and caches a new resolve would use.
+                    else if (outcome === "aborted" && !this._pkc.destroyed)
+                        this.resolveAuthorNamesInBackground({ authors: [author], onResolved, abortSignal });
+                })
+                .catch((e) => log.error("Unexpected error in resolveAuthorNamesInBackground", e));
+
+        if (ownAttempts.length > 0)
+            Promise.allSettled(ownAttempts)
+                .then((results) => {
+                    const anyNewlySet = results.some((r) => r.status === "fulfilled" && r.value === "verdict");
+                    if (anyNewlySet && !abortSignal?.aborted) onResolved();
+                })
+                .catch((e) => log.error("Unexpected error in resolveAuthorNamesInBackground", e));
     }
 
     // Misc functions
@@ -1261,10 +1436,13 @@ export class BaseClientsManager {
         return calculateIpfsCidV0(content);
     }
 
+    // abortSignal is the caller's own cancellation: a caller that joined another community's fetch fetches again
+    // when that community is stopped, unless it was stopped too
     protected async _withInflightCommunityFetch(
         communityAddress: string,
-        fetcher: () => Promise<ResultOfFetchingCommunity>
+        fetcher: () => Promise<ResultOfFetchingCommunity>,
+        abortSignal?: AbortSignal
     ): Promise<ResultOfFetchingCommunity> {
-        return this._pkc._inflightFetchManager.withResource(InflightResourceTypes.COMMUNITY_IPNS, communityAddress, fetcher);
+        return this._pkc._inflightFetchManager.withResource(InflightResourceTypes.COMMUNITY_IPNS, communityAddress, fetcher, abortSignal);
     }
 }

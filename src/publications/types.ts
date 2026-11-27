@@ -47,6 +47,7 @@ export type PublicationEventArgs<T extends keyof PublicationEvents> = Parameters
 export type PublicationRpcErrorToTransmit = PublicationEventArgs<"error">[0] & {
     details?: PKCError["details"] & {
         newPublishingState?: Publication["publishingState"];
+        newState?: Publication["state"]; // the server publication's state when it emitted the error: "stopped" means the error ended its publish
         publishThrowError?: boolean; // if true, the error was thrown by publish() not emitted by the publication instance
     };
 };

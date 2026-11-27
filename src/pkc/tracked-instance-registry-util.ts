@@ -14,6 +14,9 @@ type StartedCommunity = LocalCommunity | RpcLocalCommunity;
 type CommunityLookup = {
     name?: string;
     publicKey?: string;
+    // Which of the two identifies what the caller asked for when they lead to different instances. A caller
+    // that asked for a name sets this; its publicKey may predate a key migration. Everyone else is after a key.
+    preferName?: boolean;
 };
 
 type CommunityWithAliases = {
@@ -134,12 +137,20 @@ export function syncCommentRegistryEntry<T extends CommentLookup>(registry: Trac
     return registry.track({ value: comment, aliases: persistAliases(comment, registry, getCommentRegistryAliases(comment)) });
 }
 
+// The name and the key are looked up one after the other, never as one set: they can lead to different
+// instances, e.g. a key whose record claims a name and the community that name resolves to, both updating
+// in one PKC. A lookup that mixed them matched both and threw.
 export function findCommunityInRegistry<T extends CommunityWithAliases>(
     registry: TrackedInstanceRegistry<T>,
     lookup: CommunityLookup,
     dataPath?: string
 ): T | undefined {
-    return registry.findByAliases(getCommunityRegistryAliases(lookup, dataPath));
+    // Throws for a lookup that carries neither
+    if (!lookup.name && !lookup.publicKey) getCommunityRegistryAliases(lookup, dataPath);
+    const byKey = () =>
+        lookup.publicKey ? registry.findByAliases(getCommunityRegistryAliases({ publicKey: lookup.publicKey }, dataPath)) : undefined;
+    const byName = () => (lookup.name ? registry.findByAliases(getCommunityRegistryAliases({ name: lookup.name }, dataPath)) : undefined);
+    return lookup.preferName ? byName() ?? byKey() : byKey() ?? byName();
 }
 
 export function findCommentInRegistry<T extends CommentLookup>(registry: TrackedInstanceRegistry<T>, lookup: CommentLookup): T | undefined {
@@ -150,21 +161,65 @@ export function listRegistryValues<T extends object>(registry: TrackedInstanceRe
     return registry.values();
 }
 
+// A name is a lookup alias of an updating instance only while it is proven to point at the instance's key.
 // An updating instance loaded by a domain accepts every record its key signs, since its loaders by key share it,
 // including a record that claims another domain. Only the domain the instance resolved is proven to point at its
 // key, so a claimed one is left out of its aliases: a loader of that domain must resolve it rather than be handed
-// this key's records. An instance loaded by key has no domain of its own and keeps the name its record claims.
+// this key's records. An instance loaded by key has no domain of its own, and anyone can publish a record claiming
+// a name they do not hold, so the name its record claims counts only while its verdict is `nameResolved: true`.
+// Pending or contradicted, a loader of that name resolves it itself and reaches the key the name points at (#605).
 function withOnlyProvenUpdatingName(community: TrackedCommunity): CommunityWithAliases {
+    if (!community.name) return community;
     const loadedByDomain = isStringDomain(community.address) ? community.address : undefined;
-    if (!loadedByDomain || !community.name || areEquivalentNames(community.name, loadedByDomain)) return community;
+    const nameIsProven = loadedByDomain ? areEquivalentNames(community.name, loadedByDomain) : community.nameResolved === true;
+    if (nameIsProven) return community;
     return { name: undefined, publicKey: community.publicKey, signer: community.signer };
 }
 
+function forgetUpdatingCommunityAliasesOfName(pkc: PKC, community: TrackedCommunity, name: string): void {
+    const staleAliases = isEthAliasDomain(name) ? getEquivalentCommunityAliases(name) : [name];
+    const currentAliases = new Set(getCommunityRegistryAliases(withOnlyProvenUpdatingName(community)));
+    const aliasesToForget = staleAliases.filter((alias) => !currentAliases.has(alias));
+    const aliasHistory = getTrackedAliasHistory(community, pkc._updatingCommunities);
+    aliasesToForget.forEach((alias) => aliasHistory.delete(alias));
+    pkc._updatingCommunities.removeAliases(community, aliasesToForget);
+}
+
 function syncUpdatingCommunityRegistryEntry(pkc: PKC, community: TrackedCommunity): TrackedCommunity {
+    const provenIdentity = withOnlyProvenUpdatingName(community);
+    // The alias history is sticky, so a name that was proven and no longer is (a verdict that turned false or
+    // was cleared) has to be taken out of it, not merely left out of this sync
+    if (community.name && !provenIdentity.name && pkc._updatingCommunities.has(community))
+        forgetUpdatingCommunityAliasesOfName(pkc, community, community.name);
+    // Two updating instances can hold one key: a loader of the name arrives while this by-key instance's
+    // verdict is pending, opens its own instance and resolves to the same key. Whichever syncs last takes
+    // every alias it has, and without a proven name this one has only the key. Taking it back would leave
+    // the name on the other instance and the key here, and a lookup that passes both would match two
+    // instances and throw. So it yields: lookups go to the other instance until this one's name is proven,
+    // and its attached loaders keep being served by it meanwhile.
+    if (community.name && !provenIdentity.name && provenIdentity.publicKey) {
+        const keyOwner = pkc._updatingCommunities.findByAlias(provenIdentity.publicKey);
+        if (keyOwner && keyOwner !== community) return pkc._updatingCommunities.track({ value: community });
+    }
     return pkc._updatingCommunities.track({
         value: community,
-        aliases: persistAliases(community, pkc._updatingCommunities, getCommunityRegistryAliases(withOnlyProvenUpdatingName(community)))
+        aliases: persistAliases(
+            community,
+            pkc._updatingCommunities,
+            getCommunityRegistryAliases(withoutUnprovenKeyOfAnotherInstance(pkc, community, provenIdentity))
+        )
     });
+}
+
+// The mirror image of the rule above, for an instance asked for by name with a key passed alongside. Until
+// the name resolves, that key is a hint. When another updating instance was asked for by that very key, the
+// key stays with it: this instance may be about to migrate away, and taking the key would hand it every
+// later loader of the key and carry them along.
+function withoutUnprovenKeyOfAnotherInstance(pkc: PKC, community: TrackedCommunity, identity: CommunityWithAliases): CommunityWithAliases {
+    if (!isStringDomain(community.address) || community.nameResolved === true || !identity.publicKey || !identity.name) return identity;
+    const keyOwner = pkc._updatingCommunities.findByAlias(identity.publicKey);
+    if (!keyOwner || keyOwner === community || keyOwner.address !== identity.publicKey) return identity;
+    return { name: identity.name, publicKey: undefined, signer: undefined };
 }
 
 export function trackUpdatingCommunity(pkc: PKC, community: TrackedCommunity): TrackedCommunity {
@@ -204,12 +259,7 @@ export function refreshTrackedCommunityAliases(pkc: PKC, community: TrackedCommu
 // by its old name, and its renames go through setAddress.
 export function forgetTrackedUpdatingCommunityName(pkc: PKC, community: TrackedCommunity, name: string): void {
     if (!pkc._updatingCommunities.has(community)) return;
-    const staleAliases = isEthAliasDomain(name) ? getEquivalentCommunityAliases(name) : [name];
-    const currentAliases = new Set(getCommunityRegistryAliases(withOnlyProvenUpdatingName(community)));
-    const aliasesToForget = staleAliases.filter((alias) => !currentAliases.has(alias));
-    const aliasHistory = getTrackedAliasHistory(community, pkc._updatingCommunities);
-    aliasesToForget.forEach((alias) => aliasHistory.delete(alias));
-    pkc._updatingCommunities.removeAliases(community, aliasesToForget);
+    forgetUpdatingCommunityAliasesOfName(pkc, community, name);
 }
 
 export function refreshTrackedCommentAliases(pkc: PKC, comment: Comment): void {
@@ -217,7 +267,15 @@ export function refreshTrackedCommentAliases(pkc: PKC, comment: Comment): void {
 }
 
 export function findUpdatingCommunity(pkc: PKC, lookup: CommunityLookup): TrackedCommunity | undefined {
-    return findCommunityInRegistry(pkc._updatingCommunities, lookup);
+    const found = findCommunityInRegistry(pkc._updatingCommunities, lookup);
+    // A caller that asked for a name follows the name. A by-key instance whose record claims a name that
+    // resolves to another key never migrates, and resolves no name but the one its record claims. Joining it
+    // through the key the caller passed alongside would pin the caller to that key, whether the contradicted
+    // claim is the caller's name or another one. The caller opens an instance of its own instead, which
+    // resolves the name it asked for and migrates.
+    if (found && lookup.preferName && lookup.name && !isStringDomain(found.address) && found.nameResolved === false && found.name)
+        return undefined;
+    return found;
 }
 
 export function findStartedCommunity(pkc: PKC, lookup: CommunityLookup): StartedCommunity | undefined {

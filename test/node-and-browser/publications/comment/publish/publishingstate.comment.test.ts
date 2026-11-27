@@ -279,8 +279,8 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             mockPost.removeAllListeners("challenge");
 
             mockPost.once("challenge", async (challengeMsg) => {
-                expect(challengeMsg?.challenges[0]?.challenge).to.be.a("string");
-                await mockPost.publishChallengeAnswers({ challengeAnswers: ["12345"] }); // Wrong answer here
+                expect(challengeMsg?.challenges["0"]?.challenge).to.be.a("string");
+                await mockPost.publishChallengeAnswers({ challengeAnswers: { "0": "12345" } }); // Wrong answer here
             });
 
             await publishWithExpectedResult({ publication: mockPost, expectedChallengeSuccess: false });

@@ -272,7 +272,7 @@ describe("owner publishing while the exchange is disabled", async () => {
         const challengesReceived: DecryptedChallengeMessageType[] = [];
         post.on("challenge", (challengeMsg) => {
             challengesReceived.push(challengeMsg);
-            post.publishChallengeAnswers({ challengeAnswers: ["2"] });
+            post.publishChallengeAnswers({ challengeAnswers: { "0": "2" } });
         });
 
         await publishWithExpectedResult({ publication: post, expectedChallengeSuccess: true });
@@ -280,8 +280,8 @@ describe("owner publishing while the exchange is disabled", async () => {
         // the exchange really ran in-process rather than the publication being waved through: the
         // community issued the math question configured in settings.challenges
         expect(challengesReceived).to.have.lengthOf(1);
-        expect(challengesReceived[0].challenges).to.have.lengthOf(1);
-        expect(challengesReceived[0].challenges[0].challenge).to.equal(mathChallenge[0].options.question);
+        expect(Object.keys(challengesReceived[0].challenges)).to.deep.equal(["0"]);
+        expect(challengesReceived[0].challenges["0"].challenge).to.equal(mathChallenge[0].options.question);
         expect(challengesReceived[0].challenges[0].type).to.equal("text/plain");
         expect(post.cid).to.be.a("string");
     });
@@ -292,7 +292,7 @@ describe("owner publishing while the exchange is disabled", async () => {
         const verificationsReceived: DecryptedChallengeVerificationMessageType[] = [];
         post.on("challenge", (challengeMsg) => {
             challengesReceived.push(challengeMsg);
-            post.publishChallengeAnswers({ challengeAnswers: ["wrong answer"] });
+            post.publishChallengeAnswers({ challengeAnswers: { "0": "wrong answer" } });
         });
         post.on("challengeverification", (verification) => verificationsReceived.push(verification));
 
@@ -301,7 +301,7 @@ describe("owner publishing while the exchange is disabled", async () => {
         // the failure has to come from the question being asked and answered wrong, not from the
         // challenge never being issued: read-only mode removes the network path, not the pipeline
         expect(challengesReceived).to.have.lengthOf(1);
-        expect(challengesReceived[0].challenges[0].challenge).to.equal(mathChallenge[0].options.question);
+        expect(challengesReceived[0].challenges["0"].challenge).to.equal(mathChallenge[0].options.question);
         expect(verificationsReceived).to.have.lengthOf(1);
         expect(verificationsReceived[0].challengeSuccess).to.be.false;
         expect(verificationsReceived[0].challengeErrors).to.deep.equal({ "0": "Wrong answer." });

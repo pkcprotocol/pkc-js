@@ -7,7 +7,7 @@ import {
     PKCTimestampSchema,
     PublicationBaseBeforeSigning,
     SignerWithAddressPublicKeySchema,
-    CommunityAuthorSchema,
+    CommentModerationAuthorSchema,
     hasAtLeastOneCommunityIdentifier,
     atLeastOneCommunityIdentifierMessage
 } from "../../schema/schema.js";
@@ -26,7 +26,7 @@ export const ModeratorOptionsSchema = z
         removed: z.boolean().optional(),
         purged: z.boolean().optional(),
         reason: z.string().optional(),
-        author: CommunityAuthorSchema.pick({ banExpiresAt: true, flairs: true }).loose().optional()
+        author: CommentModerationAuthorSchema.loose().optional()
     })
     .strict();
 

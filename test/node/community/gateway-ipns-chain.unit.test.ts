@@ -121,6 +121,25 @@ describeSkipIfRpc("Delegated IPNS gateway chain validation branches", () => {
         }
     });
 
+    // The gateway fetchers abort with a reason string ("Gateway request timed out", "Cleaning up requests for
+    // community"), and fetch then rejects with that string itself, not with an AbortError
+    it("throws an abort error when the signal was aborted with a reason string", async () => {
+        const abortController = new AbortController();
+        const reason = "Cleaning up requests for community";
+        vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+            abortController.abort(reason);
+            throw abortController.signal.reason;
+        });
+        try {
+            await fetchAndValidateIpnsRecordFromGateway("http://localhost:1234", "12D3KooWAnchor", { abortSignal: abortController.signal });
+            expect.fail("should throw the abort");
+        } catch (e) {
+            expect((e as Error).name).to.equal("AbortError");
+            expect((e as Error).message).to.equal(reason);
+            expect((e as PKCError).code).to.not.equal("ERR_GATEWAY_IPNS_RECORD_CHAIN_INVALID");
+        }
+    });
+
     it("rejects a record whose signature does not validate against the requested name", async () => {
         // A record validly signed by key A, but fetched under a DIFFERENT name B -> the routing key
         // derived from B does not match the record's signing key, so ipnsValidator rejects it. This

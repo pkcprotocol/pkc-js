@@ -466,24 +466,32 @@ describe("RPC community update subscription survives concurrent sibling churn (#
     // The victim MUST be addressed by raw IPNS key: a domain-addressed community rebuilds its
     // updating instance as {name, publicKey}, whose aliases happen to satisfy the old lookup, which
     // is why the setSettings-burst test above (domain victim, pre-record window) always passed.
+    //
+    // A loader by key never key-migrates on its own (#605). The victim gets its migrated state by
+    // sharing: client B asks for the name, the server-side updating instance migrates, and client
+    // A's by-key subscription mirrors it.
     itIfRpc(`a key-addressed subscription survives a settings change after its key migration has completed`, async () => {
         const domain = `settings-after-migration-${Date.now()}.bso`;
         const target = await createMigrationTargetWithInvalidRecord({ name: domain });
         resolverRecords.set(domain, target.newKey);
         // The old key's record carries the domain as its name, like real pre-migration records of a
-        // domain community do; resolving that name is what triggers the migration server-side
+        // domain community do
         const { communityAddress: oldKey } = await createMockedCommunityIpns({ name: domain });
 
         const clientA = await createClient();
+        const clientB = await createClient();
         try {
-            const communityA = await clientA.createCommunity({ address: oldKey });
-            const migrationErrorPromise = new Promise<PKCError>((resolve) => {
-                communityA.on("error", (err) => {
+            const communityB = await clientB.createCommunity({ address: domain, publicKey: oldKey });
+            const migrationErrorB = new Promise<PKCError>((resolve) => {
+                communityB.on("error", (err) => {
                     if ((err as PKCError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY") resolve(err as PKCError);
                 });
             });
+            await communityB.update();
+            await withTimeout(migrationErrorB, 60_000, "client B key-migration error");
+
+            const communityA = await clientA.createCommunity({ address: oldKey });
             await communityA.update();
-            await withTimeout(migrationErrorPromise, 60_000, "client A key-migration error");
 
             // Let the migration COMPLETE: publish the new key's record and wait for it end to end,
             // so the server-side subscription instance is fully post-migration when settings change
@@ -498,17 +506,18 @@ describe("RPC community update subscription survives concurrent sibling churn (#
             );
             expect(communityA.address).to.equal(oldKey); // address is immutable
 
-            // Events observed AFTER the settings change below. The server-side re-subscribe follows
-            // fresh-subscribe semantics: reload the old key's record, re-announce the migration,
-            // then deliver the new key's record again — so the strong signal that the subscription
-            // is alive is a re-announced migration error followed by a record update
-            const postSwap: { migrationError?: PKCError; recordUpdateAfterError: boolean } = { recordUpdateAfterError: false };
-            communityA.on("error", (err) => {
-                if ((err as PKCError).code === "ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY")
-                    postSwap.migrationError = err as PKCError;
-            });
+            // Client A is now the only user of the migrated server-side instance
+            await communityB.stop();
+            await clientB.destroy();
+
+            // The server-side re-subscribe follows fresh-subscribe semantics. With the by-name sibling
+            // gone, the re-created updating instance is client A's own, addressed by key: it loads
+            // the old key's record and stays on it. A record arriving after the swap is the signal
+            // that the subscription is alive.
+            let recordUpdatesAfterSwap = 0;
+            let settingsSwapped = false;
             communityA.on("update", () => {
-                if (postSwap.migrationError && typeof communityA.updatedAt === "number") postSwap.recordUpdateAfterError = true;
+                if (settingsSwapped && typeof communityA.updatedAt === "number") recordUpdatesAfterSwap++;
             });
 
             const rpcClientA = clientA.clients.pkcRpcClients[rpcUrl];
@@ -522,6 +531,7 @@ describe("RPC community update subscription survives concurrent sibling churn (#
                 "client A initial RPC settings"
             );
             const currentOptions = rpcClientA.settings!.pkcOptions;
+            settingsSwapped = true;
             await withTimeout(
                 rpcClientA.setSettings({
                     pkcOptions: {
@@ -540,22 +550,17 @@ describe("RPC community update subscription survives concurrent sibling churn (#
 
             // Before the fix nothing ever arrives again on this subscription
             await pollUntil(
-                () => Boolean(postSwap.migrationError),
+                () => recordUpdatesAfterSwap > 0 && communityA.publicKey === oldKey,
                 60_000,
-                "re-announced key-migration error after the settings change (#197: subscription orphaned by settings swap)"
+                "a record on the key client A asked for after the settings change (#197: subscription orphaned by settings swap)"
             );
-            await pollUntil(
-                () => postSwap.recordUpdateAfterError,
-                60_000,
-                "post-migration record after the settings change (#197: subscription orphaned by settings swap)"
-            );
-            expect(communityA.publicKey).to.equal(target.newKey);
             expect(communityA.address).to.equal(oldKey);
 
             await communityA.stop();
         } finally {
             await target.destroy();
             if (!clientA.destroyed) await clientA.destroy();
+            if (!clientB.destroyed) await clientB.destroy();
         }
     });
 

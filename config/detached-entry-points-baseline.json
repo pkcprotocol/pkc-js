@@ -1,0 +1,97 @@
+{
+    "_note": "Existing async listeners, timer callbacks and void promises that are not wrapped in guardDetached. The scan test fails on a site that is not listed here, so a new one must be wrapped (src/detached-guard.ts). An entry may only be removed (by wrapping the site or when the code is gone), never added without a review: add one only with a status of 'contained' (a reason stating why it cannot reject) and have it reviewed.",
+    "sites": {
+        "src/community-list/community-list.ts::update::void promise#1": {
+            "status": "documented",
+            "reason": "its catch emits an error; stops the process only when nothing listens (load-failure.test.ts)"
+        },
+        "src/runtime/node/community/local-community/export.ts::runExportTask::void promise#1": {
+            "status": "unreviewed",
+            "reason": "only a throwing exportschange listener could reject it; not reproduced"
+        },
+        "src/community/rpc-remote-community.ts::_initMirroringUpdatingCommunity::async property handler#1": {
+            "status": "unreproduced",
+            "reason": "mirror listener awaiting stop(); real trigger unproven (comment-mirror-listeners.test.ts shows the construct)"
+        },
+        "src/publications/comment/comment-client-manager.ts::_fetchCommentIpfsFromPages::on listener#1": {
+            "status": "unreproduced",
+            "reason": "awaits community.stop(); real trigger unproven"
+        },
+        "src/publications/comment/comment-client-manager.ts::_fetchCommentIpfsFromPages::on listener#2": {
+            "status": "unreproduced",
+            "reason": "awaits community.stop(); real trigger unproven"
+        },
+        "src/publications/comment/comment-client-manager.ts::_fetchCommentIpfsFromPages::on listener#3": {
+            "status": "unreviewed",
+            "reason": "not reviewed"
+        },
+        "src/publications/comment/comment-client-manager.ts::_fetchCommentIpfsFromPages::void promise#1": {
+            "status": "unreviewed",
+            "reason": "not reviewed"
+        },
+        "src/publications/comment/comment.ts::loadCommentIpfsAndStartCommentUpdateSubscription::void promise#1": {
+            "status": "contained",
+            "reason": "_startParallelCommunityConnect resolves with its error and never rejects (see its doc comment)"
+        },
+        "src/publications/comment/comment.ts::_updateViaRpc::on listener#1": {
+            "status": "documented",
+            "reason": "_handleErrorEventFromRpc emits an error; stops the process only when nothing listens (rpc-client-notifications.test.ts)"
+        },
+        "src/publications/comment/comment.ts::_useUpdatingCommentFromPKC::async property handler#1": {
+            "status": "unreproduced",
+            "reason": "mirror statechange awaiting stop(); injected-rejection test only"
+        },
+        "src/publications/comment/comment.ts::_useUpdatingCommentFromPKC::async property handler#2": {
+            "status": "unreproduced",
+            "reason": "mirror error awaiting _stopUpdateLoop(); injected-rejection test only"
+        },
+        "src/util.ts::resolveWhenPredicateIsTrue::on listener#1": {
+            "status": "unreviewed",
+            "reason": "audit read it as try/catch to reject; not verified by a test"
+        },
+        "src/util.ts::retryKuboIpfsAddAndProvide::void promise#1": {
+            "status": "unreviewed",
+            "reason": "audit read runProvide as having an internal try/catch; not verified by a test"
+        },
+        "src/community/remote-community.ts::_initCommunityInstanceWithListeners::async property handler#1": {
+            "status": "unreproduced",
+            "reason": "mirror statechange awaiting stop(); real trigger unproven"
+        },
+        "src/runtime/node/sqlite-lru-cache.ts::class SqliteCache::setInterval callback#1": {
+            "status": "unreviewed",
+            "reason": "audit read the debounced function as try/catch'd; not verified by a test"
+        },
+        "src/runtime/node/sqlite-lru-cache.ts::set::setImmediate callback#1": {
+            "status": "unreviewed",
+            "reason": "audit read the debounced function as try/catch'd; not verified by a test"
+        },
+        "src/helia/util.ts::connectToPubsubPeersUntilSubscriber::void promise#1": {
+            "status": "unreviewed",
+            "reason": "Promise.allSettled(...).then(...); not reviewed further"
+        },
+        "src/pkc/pkc.ts::getComment::void promise#1": {
+            "status": "unreviewed",
+            "reason": "not reviewed"
+        },
+        "src/publications/publication.ts::_unregisterFromPkcOncePublishWorkSettles::void promise#1": {
+            "status": "unreviewed",
+            "reason": "finally() of the background community refresh; not reviewed"
+        },
+        "src/publications/publication.ts::_publishAfterRegistering::void promise#1": {
+            "status": "contained",
+            "reason": "_endPublicationAfterDetachedFailure never throws except by the documented unlistened emit"
+        },
+        "src/rpc/src/index.ts::setSettings::setTimeout callback#1": {
+            "status": "unreproduced",
+            "reason": "_forceCleanupPublication after 60s; needs cleanup() to throw"
+        },
+        "src/rpc/src/index.ts::setSettings::setTimeout callback#2": {
+            "status": "contained",
+            "reason": "_retirePKCIfNeeded catches the destroy it awaits"
+        },
+        "src/rpc/src/index.ts::_bindCommunityUpdateSubscription::on listener#1": {
+            "status": "unreviewed",
+            "reason": "audit read recoverIfStrandedListener as having a try/catch; not verified by a test"
+        }
+    }
+}

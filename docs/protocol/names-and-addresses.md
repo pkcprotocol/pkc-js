@@ -52,7 +52,8 @@ that is `undefined`, which is also the marker that lets a later pass retry.
 | What happened                                   | `community.nameResolved`                          | `author.nameResolved`            |
 | ----------------------------------------------- | ------------------------------------------------- | -------------------------------- |
 | resolved to the expected key                    | `true`                                            | `true`                           |
-| resolved to a **different** key                 | `true` (key migration, identity follows the name) | `false`                          |
+| asked for by name, resolved to a **different** key | `true` (key migration, identity follows the name) | `false`                          |
+| asked for by key, record's name resolves to a **different** key | `false` (the key stays, no migration) | n/a |
 | resolved to a non-anchor hop of its own chain   | `false`                                           | n/a                              |
 | resolvers answered, no TXT record               | `false`                                           | `false`                          |
 | one resolver errored, a later one answered      | as the answering resolver says                    | as the answering resolver says   |
@@ -67,6 +68,43 @@ The community row for a key change is the one exception to the rule: a migration
 rather than contradicting it. `_applyKeyMigration` repoints `community.publicKey` at the key the name now
 resolves to, wipes every record from the old key as potentially compromised, and tells the application through
 an `ERR_COMMUNITY_NAME_RESOLVES_TO_DIFFERENT_PUBLIC_KEY` error event rather than through the flag.
+
+A migration needs a name the caller asked for: `createCommunity({ address: "name.bso" })` or
+`createCommunity({ name, publicKey })`. A community asked for by key alone never migrates on the name its
+record claims. The name in its
+record is a claim that anyone can publish, so when that name resolves to another key the claim is contradicted
+and `nameResolved` is `false`, like any other name that does not point at the key. The community keeps its
+key and its record. An application that stored a community by key and wants to follow it across a key
+change loads it by name. Issue #605.
+
+The same rule decides which loaders share an updating instance (`pkc._updatingCommunities`). An instance
+asked for by key is found under the name its record claims only while that name is proven, meaning
+`nameResolved` is `true`. While the verdict is pending or `false`, a caller asking for the name does not
+join that instance: it resolves the name itself and loads the key the name points at. Otherwise a record
+claiming a name it does not hold would be served to everyone who asks for that name. The cost is that a
+caller asking for an honest name before the by-key instance's verdict arrives opens a second updating
+instance for the same community.
+
+Two things follow from the name of a by-key community being only a claim:
+
+- Its own registry lookups go by key alone, and a lookup that carries a name and a key tries them one
+  after the other (the key first, unless the caller asked for the name). The name and the key can lead to
+  different instances: a key whose record claims a name, and the community the name resolves to.
+- The fetch path caches what a publication needs to reach a community under the community's key, and
+  under its name only when the name leads to that key: the name the community was asked for by, or the
+  name its record claims once `nameResolved` is `true`. A publication addressed to a name is therefore
+  never sent to a key that merely claims it.
+
+- A caller that asked for `{ name, publicKey }` follows the name. It does not join a by-key instance of
+  that key whose record's name is contradicted, since that instance never migrates. It opens an updating
+  instance of its own, which resolves the name and migrates. Until that instance has proven its name, the
+  key it was given stays in the registry with the instance that was asked for by that key, so callers of
+  the key are not carried along by the migration.
+
+Sharing is not isolation. A caller that asked for a key still follows a key migration when it shares an
+updating instance with a caller that asked for the name. A caller that asked for `{ name, publicKey }` and
+joined a by-key instance while its verdict was still pending stays on it if the verdict then turns `false`.
+Both are tracked in issue #450.
 
 `_resolveViaNameResolvers` is what makes the distinction possible. It returns `null` when the resolvers ran and
 found no record, and throws `ERR_ALL_NAME_RESOLVERS_FAILED` (with each resolver's error in `details`, keyed by
@@ -184,7 +222,7 @@ What happens to comments published before an address change:
 
 A local community's address is its name when it has one, else its identity key (the anchor's key on a delegated
 community), so changing the name and changing the address are one operation. `edit({ name })` and `edit({ address })`
-both move the community's DB file, its start lock and its MFS `postUpdates` folder to the new address, and from the next
+both move the community's DB file, its row in the communities registry and its MFS `postUpdates` folder to the new address, and from the next
 page build the identity rule above filters by the new name:
 
 | Edit                                                               | Result                                                |
@@ -200,6 +238,15 @@ the owner meant is not pkc-js's guess. Before issue [#430](https://github.com/pk
 `edit({ name })` changed only `community.name` and left the address, DB and lock on the old name. The pages then kept
 the comments signed with the old name, the community's own pre-publish check rejected every new record
 (`ERR_LOCAL_COMMUNITY_PRODUCED_INVALID_SIGNATURE`), and the renamed record was never published.
+
+A rename moves the postUpdates folder and then the DB file. When the DB file can't be renamed, the move is undone,
+whether the community was started or not: the partial DB file at the new address is removed, the postUpdates folder is
+moved back, and a started community is restarted under its old address. `edit()` rejects with
+`ERR_FAILED_TO_RENAME_COMMUNITY_DB`, whose `details` carry the rename's own error (`error`, `errorMessage`,
+`errorCode`), both DB paths, and what could not be undone: `partialDbCopyRemoved` (with `partialDbCopyPath` when the
+file is left, which on Windows happens if it stays busy for 10s) and `postUpdatesFolderMovedBack`. A partial file that
+is left behind is not deleted later on its own, because a later attempt that succeeds puts the community's real DB at
+that path; that attempt overwrites the leftover.
 
 Readers that loaded the community by its old name do not follow a rename. They keep fetching the same IPNS key, but
 the next record claims a different name than the one they asked for, so they refuse it (see "A remote community's

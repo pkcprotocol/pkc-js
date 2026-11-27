@@ -11,6 +11,7 @@ import { ResultOfFetchingCommunity } from "../types.js";
 import { NameResolverClient } from "../clients/name-resolver-client.js";
 import type { NameResolveCacheOptions } from "../schema.js";
 import { RemoteCommunity } from "./remote-community.js";
+import { refreshTrackedCommunityAliases } from "../pkc/tracked-instance-registry-util.js";
 import { keys, mapValues } from "remeda";
 import type { CommunityIpfsType } from "./types.js";
 import { getCommunityNameFromWire } from "./community-wire.js";
@@ -48,6 +49,7 @@ import { getAuthorNameFromRuntime } from "../publications/publication-author.js"
 
 import { type CommunityGatewayFetch, selectWinningGatewayCommunity } from "./community-gateway-selection.js";
 import type { Libp2pJsClient } from "../helia/libp2pjsClient.js";
+import { cancelKuboIpnsPubsubSubscriptions } from "../clients/kubo-ipns-pubsub.js";
 import type { IpnsRecordArrival, IpnsRecordArrivalListener } from "../helia/types.js";
 
 export const MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS = 1024 * 1024; // 1mb
@@ -86,6 +88,11 @@ export class CommunityClientsManager extends PKCClientsManager {
     private _suppressUpdatingStateForNameResolution = 0;
     _ipnsLoadingOperation?: RetryOperation = undefined;
     _updateCidsAlreadyLoaded: LimitedSet<string> = new LimitedSet<string>(30); // we will keep track of the last 50 community update cids that we loaded
+    // Every name this update run asked kubo to resolve, grouped by the name the walk started from: one group is one
+    // community's chain (its anchor and the minters it led to). Kubo subscribes to a name's record topic when asked,
+    // also when the resolve then fails, and community.ipnsHops holds only the chain of the last record that loaded,
+    // so it misses a minter that was rotated away, the key a name pointed to before, and a hop with no record.
+    private _ipnsNamesResolvedThroughKuboByWalk = new Map<string, Set<string>>();
 
     // Gateway freshness plumbing (issue #328). Entity-tags (quotes preserved, W/ stripped) of
     // gateway responses whose record we already consumed. Etags are opaque per RFC 9110 —
@@ -349,6 +356,7 @@ export class CommunityClientsManager extends PKCClientsManager {
             // claimed one.
             if (publicKeyBeforeApply && this._community.publicKey !== publicKeyBeforeApply) {
                 this._community.nameResolved = undefined;
+                refreshTrackedCommunityAliases(this._pkc, this._community);
                 // The retry floors were earned against the previous identity and must not pace the first
                 // classification of the new one.
                 this._nameResolvedFalseAtMs = undefined;
@@ -474,6 +482,29 @@ export class CommunityClientsManager extends PKCClientsManager {
         this._gatewayEtagsOfLoadedRecords.clear();
         this._gatewayMaxAgeSecondsFromLastPoll = undefined;
         this._clearIpnsArrivalSubscriptions();
+        await this._cancelKuboIpnsPubsubSubscriptions();
+    }
+
+    // Every name.resolve through kubo left kubo subscribed to the record topic of each name it walked. This runs
+    // when the last follower of the community in this PKC instance is gone, so nothing here reads those records any
+    // more (issue #602). When kubo holds the key of any name of a community, all of that community's are left
+    // alone: it is hosted through this node, and its host has to stay subscribed. Another process following the
+    // same names on this node is subscribed again by its next resolve.
+    private async _cancelKuboIpnsPubsubSubscriptions() {
+        const kuboRpcClient = Object.values(this._pkc.clients.kuboRpcClients)[0];
+        const walks = [...this._ipnsNamesResolvedThroughKuboByWalk.values()];
+        this._ipnsNamesResolvedThroughKuboByWalk.clear();
+        if (!kuboRpcClient) return; // helia and gateways hold no kubo subscription
+        // One walk at a time: a key kubo holds for the community a name moved away from says nothing about the one
+        // it moved to
+        for (const namesOfWalk of walks)
+            await cancelKuboIpnsPubsubSubscriptions({ kuboRpcClient, ipnsNames: [...namesOfWalk], unlessKuboHoldsAKey: true });
+    }
+
+    protected override _onIpnsNameAboutToBeResolvedP2P(ipnsName: string, firstNameOfWalk: string) {
+        if (Object.keys(this._pkc.clients.kuboRpcClients).length === 0) return;
+        const namesOfWalk = this._ipnsNamesResolvedThroughKuboByWalk.get(firstNameOfWalk) ?? new Set<string>();
+        this._ipnsNamesResolvedThroughKuboByWalk.set(firstNameOfWalk, namesOfWalk.add(ipnsName));
     }
 
     // How long the gateway-backed update loop sleeps before its next poll (issue #328). The
@@ -798,6 +829,9 @@ export class CommunityClientsManager extends PKCClientsManager {
             this._nameResolveFailedAtMs = undefined;
             if (this._community.nameResolved === newNameResolved) return;
             this._community.nameResolved = newNameResolved;
+            // A key-addressed updating instance is findable under its record's name only while that name
+            // is proven, so the registry follows the verdict
+            refreshTrackedCommunityAliases(this._pkc, this._community);
             // Only emit update if the community has been loaded at least once —
             // otherwise we'd fire a premature "update" before the IPNS fetch completes.
             if (typeof this._community.updatedAt === "number") {
@@ -835,6 +869,18 @@ export class CommunityClientsManager extends PKCClientsManager {
                         // community identity to the rotating minter key and wipe its loaded record (#257).
                         log(
                             `Community name ${name} resolves to ${resolved}, a non-anchor hop of the community's own chain, instead of its identity ${this._community.publicKey}. Marking nameResolved false`
+                        );
+                        setNameResolvedAndEmitUpdate(false);
+                        return;
+                    }
+                    if (!isStringDomain(this._community.address)) {
+                        // This community was asked for by key, and the name is only what its record claims.
+                        // Anyone can publish a record claiming a name they do not hold, so a claim that
+                        // resolves to another key is contradicted, not a key migration: following it would
+                        // move a loader that asked for one key onto a key it never asked for, and register
+                        // it in pkc._updatingCommunities under that key for the next loader to share (#605).
+                        log(
+                            `Community ${this._community.address} was loaded by key and its record claims the name ${name}, which resolves to ${resolved}. Marking nameResolved false and staying on the key`
                         );
                         setNameResolvedAndEmitUpdate(false);
                         return;
@@ -929,7 +975,7 @@ export class CommunityClientsManager extends PKCClientsManager {
     }
 
     async fetchNewUpdateForCommunity(communityAddress: string): Promise<ResultOfFetchingCommunity> {
-        return this._withInflightCommunityFetch(communityAddress, async () => {
+        const fetchCommunity = async (): Promise<ResultOfFetchingCommunity> => {
             let ipnsName: string | null;
             const isDomain = isStringDomain(communityAddress);
 
@@ -1042,12 +1088,35 @@ export class CommunityClientsManager extends PKCClientsManager {
                     (!communityForPublishing.name || !areEquivalentCommunityAddresses(previousForKey.name, communityForPublishing.name))
                 )
                     this._pkc._memCaches.communityForPublishing.delete(previousForKey.name);
-                this._pkc._memCaches.communityForPublishing.set(anchorIdentityAddress, communityForPublishing);
+                // The entry under the name answers publications addressed to the name, so it is written only
+                // for a name that leads to this key: the one this community was asked for by, or the one its
+                // record claims once that is proven. A community asked for by key may hold a record claiming
+                // a name it does not own, and must not become where publications to that name are sent (#605).
+                const recordName = communityForPublishing.name;
+                const nameLeadsToThisKey =
+                    !recordName ||
+                    (isStringDomain(this._community.address)
+                        ? areEquivalentCommunityAddresses(this._community.address, recordName)
+                        : // The verdict describes the name of the record applied so far, which this record may
+                          // have just changed: it vouches only for that name
+                          this._community.nameResolved === true &&
+                          Boolean(this._community.name) &&
+                          areEquivalentCommunityAddresses(this._community.name!, recordName));
+                if (nameLeadsToThisKey) this._pkc._memCaches.communityForPublishing.set(anchorIdentityAddress, communityForPublishing);
+                else if (
+                    recordName &&
+                    this._pkc._memCaches.communityForPublishing.get(recordName, { allowStale: true })?.publicKey === identityPublicKey
+                )
+                    // Written while the name was proven for this key, which it no longer is
+                    this._pkc._memCaches.communityForPublishing.delete(recordName);
                 if (anchorIdentityAddress !== identityPublicKey)
                     this._pkc._memCaches.communityForPublishing.set(identityPublicKey, communityForPublishing);
             }
             return subRes;
-        });
+        };
+        // The stop signal is this community's own cancellation: when the fetch we joined belongs to another
+        // community that gets stopped, we fetch on our own instead, unless this community was stopped too
+        return this._withInflightCommunityFetch(communityAddress, fetchCommunity, this._community._getStopAbortSignal());
     }
 
     // True while the libp2p-js resolver's push-channel watchdog vouches for `ipnsName`'s topic
@@ -1196,7 +1265,26 @@ export class CommunityClientsManager extends PKCClientsManager {
         // if all gateways returned the same community.updateCid
         const gatewayFetches: CommunityGatewayFetch = {};
 
-        for (const gatewayUrl of gatewaysSorted) {
+        const stopSignal = this._community._getStopAbortSignal();
+        const onStopAbort = () => cleanUp();
+
+        const cleanUp = () => {
+            queueLimit.clearQueue();
+            Object.values(gatewayFetches).forEach((gateway) => {
+                if (!gateway.communityRecord && !gateway.error) gateway.abortController.abort("Cleaning up requests for community");
+                clearTimeout(gateway.timeoutId);
+            });
+            if (stopSignal) stopSignal.removeEventListener("abort", onStopAbort);
+        };
+
+        // Before any gateway is queued, so a community stopped during the sort above asks no gateway. After a later
+        // stop, the listener's cleanUp() is what keeps a queued gateway from starting its request
+        if (stopSignal) {
+            throwIfAbortSignalAborted(stopSignal);
+            stopSignal.addEventListener("abort", onStopAbort, { once: true });
+        }
+
+        for (const [gatewayIndex, gatewayUrl] of gatewaysSorted.entries()) {
             const abortController = new AbortController();
             const throwIfGatewayRespondsWithInvalidCommunity: OptionsToLoadFromGateway["validateGatewayResponseFunc"] = async (
                 gatewayRes
@@ -1367,44 +1455,36 @@ export class CommunityClientsManager extends PKCClientsManager {
             for (const cid of Array.from(this._updateCidsAlreadyLoaded.values()).slice(-5)) etagsForConditionalRequest.add(`"${cid}"`);
             const requestHeaders =
                 etagsForConditionalRequest.size > 0 ? { "If-None-Match": Array.from(etagsForConditionalRequest).join(", ") } : undefined;
-            gatewayFetches[gatewayUrl] = {
-                abortController,
-                promise: queueLimit(() =>
-                    this._fetchWithGateway(gatewayUrl, {
-                        recordIpfsType: "ipns",
-                        root: ipnsName,
-                        recordPKCType: "community",
-                        validateGatewayResponseFunc: throwIfGatewayRespondsWithInvalidCommunity,
-                        abortRequestErrorBeforeLoadingBodyFunc: checkResponseHeadersIfOldCid,
-                        abortController,
-                        maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS,
-                        timeoutMs: this._pkc._timeouts["community-ipns"],
-                        log,
-                        requestHeaders: requestHeaders
-                    })
-                ),
-                timeoutId: setTimeout(
-                    () => abortController.abort("Aborting community IPNS request because it timed out after " + timeoutMs + "ms"),
-                    timeoutMs
-                )
-            };
-        }
-
-        const stopSignal = this._community._getStopAbortSignal();
-        const onStopAbort = () => cleanUp();
-
-        const cleanUp = () => {
-            queueLimit.clearQueue();
-            Object.values(gatewayFetches).forEach((gateway) => {
-                if (!gateway.communityRecord && !gateway.error) gateway.abortController.abort("Cleaning up requests for community");
-                clearTimeout(gateway.timeoutId);
+            const gatewayFetch = { abortController } as CommunityGatewayFetch[string];
+            gatewayFetches[gatewayUrl] = gatewayFetch;
+            const armTimeout = () =>
+                (gatewayFetch.timeoutId = setTimeout(() => {
+                    gatewayFetch.timedOut = true;
+                    abortController.abort("Aborting community IPNS request because it timed out after " + timeoutMs + "ms");
+                }, timeoutMs));
+            // The timeout is this gateway's own, so it runs from when the gateway can send its request, as in
+            // fetchFromMultipleGateways: armed now for the first `concurrencyLimit` gateways, which get a slot at once, and
+            // when its request starts for a gateway that waits for a slot. Armed at enqueue, a queued gateway's timeout would
+            // run down while it waits, and a gateway queued behind 3 hanging ones would start aborted. A gateway that
+            // cleanUp() reached first starts aborted anyway, and gets no timer cleanUp() can't clear
+            const startsAtOnce = gatewayIndex < concurrencyLimit;
+            if (startsAtOnce) armTimeout();
+            gatewayFetch.promise = queueLimit(() => {
+                if (!startsAtOnce && !abortController.signal.aborted) armTimeout();
+                return this._fetchWithGateway(gatewayUrl, {
+                    recordIpfsType: "ipns",
+                    root: ipnsName,
+                    recordPKCType: "community",
+                    validateGatewayResponseFunc: throwIfGatewayRespondsWithInvalidCommunity,
+                    abortRequestErrorBeforeLoadingBodyFunc: checkResponseHeadersIfOldCid,
+                    abortController,
+                    gatewayTimedOut: () => gatewayFetch.timedOut === true,
+                    maxFileSizeBytes: MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS,
+                    timeoutMs: this._pkc._timeouts["community-ipns"],
+                    log,
+                    requestHeaders: requestHeaders
+                });
             });
-            if (stopSignal) stopSignal.removeEventListener("abort", onStopAbort);
-        };
-
-        if (stopSignal) {
-            throwIfAbortSignalAborted(stopSignal);
-            stopSignal.addEventListener("abort", onStopAbort, { once: true });
         }
 
         const _findRecentCommunity = (): { community: CommunityIpfsType; cid: string } | undefined => {
