@@ -163,7 +163,7 @@ import {
 
 // For logging the options of createCommunity: a signer is reduced to what identifies it. Its privateKey (and the
 // key material a Signer instance derives from it) must never reach the log buffer, which getLogs serves to RPC clients.
-function withoutSignerSecrets<T extends object>(options: T): T | (Omit<T, "signer"> & { signer: Record<string, unknown> }) {
+export function withoutSignerSecrets<T extends object>(options: T): T | (Omit<T, "signer"> & { signer: Record<string, unknown> }) {
     if (!("signer" in options) || typeof options.signer !== "object" || options.signer === null) return options;
     const signer: Record<string, unknown> = { ...options.signer };
     return { ...options, signer: pick(signer, ["type", "address", "publicKey"]) };

@@ -1,4 +1,4 @@
-import { PKC } from "./pkc.js";
+import { PKC, withoutSignerSecrets } from "./pkc.js";
 import type { InputPKCOptions, GetCommunityArgs, GetCommentArgs } from "../types.js";
 import { parseCreateRpcCommunityFunctionArgumentSchemaWithPKCErrorIfItFails } from "../schema/schema-util.js";
 import { CreateRpcCommunityFunctionArgumentSchema } from "../community/schema.js";
@@ -190,7 +190,7 @@ export class PKCWithRpcClient extends PKC {
         const parsedRpcOptions =
             "clients" in options ? options : parseCreateRpcCommunityFunctionArgumentSchemaWithPKCErrorIfItFails(options);
 
-        log.trace("createCommunity: Received community options to create a community instance over RPC:", options);
+        log.trace("createCommunity: Received community options to create a community instance over RPC:", withoutSignerSecrets(options));
 
         const hasIdentifier =
             ("address" in parsedRpcOptions && typeof parsedRpcOptions.address === "string") ||

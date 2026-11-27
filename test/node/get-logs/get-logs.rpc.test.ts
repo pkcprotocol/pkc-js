@@ -102,6 +102,8 @@ describeIfRpc("pkc.getLogs({ rpcUrl }) and the getLogs RPC method (#493)", () =>
             expect(serverRoot.getLogs({ regex: { source: "createCommunity: Received options" } }).entries.length).to.be.greaterThan(0);
             const privateKeyAsRegex = signer.privateKey.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
             expect(serverRoot.getLogs({ regex: { source: privateKeyAsRegex } }).entries).to.deep.equal([]);
+            // The RPC client logs the options too, into its own buffer
+            expect((await clientPKC.getLogs({ regex: { source: privateKeyAsRegex } })).entries).to.deep.equal([]);
         } finally {
             await community.delete();
         }
