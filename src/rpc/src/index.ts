@@ -40,7 +40,7 @@ import Publication from "../../publications/publication.js";
 import { PKCError } from "../../pkc-error.js";
 import { LocalCommunity } from "../../runtime/node/community/local-community.js";
 import { RemoteCommunity } from "../../community/remote-community.js";
-import { calculateStringSizeSameAsIpfsAddCidV0, hideClassPrivateProps, replaceXWithY, retryKuboIpfsAddAndProvide } from "../../util.js";
+import { utf8ByteLength, hideClassPrivateProps, replaceXWithY, retryKuboIpfsAddAndProvide } from "../../util.js";
 import { MAX_COMMUNITY_LIST_SIZE_BYTES } from "../../community-list/schema.js";
 import { verifyCommunityList } from "../../signer/signatures.js";
 import { keys, mapValues, omit } from "remeda";
@@ -1074,7 +1074,7 @@ class PKCWsServer extends TypedEmitter<PKCRpcServerEvents> {
         const parsedArgs = parseRpcPublishCommunityListParam(params[0]);
         const pkc = await this._getPKCInstance();
         const recordString = parsedArgs.communityListRawString;
-        const sizeBytes = await calculateStringSizeSameAsIpfsAddCidV0(recordString);
+        const sizeBytes = utf8ByteLength(recordString);
         if (sizeBytes > MAX_COMMUNITY_LIST_SIZE_BYTES)
             throw new PKCError("ERR_COMMUNITY_LIST_OVER_ALLOWED_SIZE", {
                 sizeBytes,

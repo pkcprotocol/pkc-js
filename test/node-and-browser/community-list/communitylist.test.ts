@@ -138,6 +138,32 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             expect(list.state).to.equal("stopped");
         });
 
+        it("a list a few bytes under 2mb publishes and loads: the limit counts the record's bytes", async () => {
+            // The limit used to be checked against the UnixFS DAG size on publish and on the RPC client's load, which is
+            // about 500 bytes more than the file at this size, while every other loader counted the file's bytes. A
+            // list in that window published nowhere and loaded only without RPC (issue #485)
+            const limitBytes = 2 * 1024 * 1024;
+            const signer = await pkc.createSigner();
+            const timestamp = Math.round(Date.now() / 1000);
+            const listWithTagOf = (tagLength: number) =>
+                pkc.createCommunityList({
+                    signer,
+                    timestamp,
+                    communities: [{ ...mockCommunityListEntries[0], tags: ["x".repeat(tagLength)] }]
+                });
+            const small = await listWithTagOf(1000);
+            await small.publish();
+            const smallBytes = Buffer.byteLength(JSON.stringify(small.raw.communityList));
+
+            const targetBytes = limitBytes - 100;
+            const list = await listWithTagOf(1000 + targetBytes - smallBytes);
+            const cid = await list.publish();
+            expect(Buffer.byteLength(JSON.stringify(list.raw.communityList))).to.equal(targetBytes);
+
+            const loaded = await pkc.getCommunityList({ cid });
+            expect(loaded.communities?.[0].tags?.[0].length).to.equal(1000 + targetBytes - smallBytes);
+        });
+
         it("publishes a revision from a loaded instance's props, as the spec documents", async () => {
             // docs/protocol/community-lists.md: "Publishing a revision means calling createCommunityList()
             // again with the previous record's props (obtained from a loaded instance)". A loaded

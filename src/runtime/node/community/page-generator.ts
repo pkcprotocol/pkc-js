@@ -1,4 +1,4 @@
-import { calculateUnixFsDagSizeCidV0, hideClassPrivateProps, retryKuboIpfsAddAndProvide, timestamp } from "../../../util.js";
+import { hideClassPrivateProps, retryKuboIpfsAddAndProvide, timestamp } from "../../../util.js";
 import v8 from "node:v8";
 import { Buffer } from "buffer";
 import { LocalCommunity } from "./local-community.js";
@@ -106,27 +106,6 @@ function pageBytes(entrySizes: number[], hasNextCid: boolean): number {
     let bytes = PAGE_OPEN_BYTES + (hasNextCid ? PAGE_CLOSE_WITH_CID_BYTES : PAGE_CLOSE_BYTES) + Math.max(entrySizes.length - 1, 0);
     for (const size of entrySizes) bytes += size;
     return bytes;
-}
-
-// What `ipfs add` reports for a page of these entries
-const pageDagSize = (entrySizes: number[], hasNextCid: boolean): number => calculateUnixFsDagSizeCidV0(pageBytes(entrySizes, hasNextCid));
-
-// The most UTF-8 bytes a page may hold for what `ipfs add` reports to stay at or under dagSizeLimit. The DAG size grows
-// with the bytes (a leaf per 256 KiB chunk plus the root's links, about 7,950 bytes at 32 MiB), so a binary search
-// finds the boundary; computed once per distinct limit (the first page size and the 1, 2, 4... MiB steps).
-const pageByteBudgets = new Map<number, number>();
-function pageByteBudget(dagSizeLimit: number): number {
-    const cached = pageByteBudgets.get(dagSizeLimit);
-    if (cached !== undefined) return cached;
-    let fits = 0;
-    let high = Math.max(dagSizeLimit, 0); // a DAG is never smaller than its bytes
-    while (fits < high) {
-        const middle = Math.ceil((fits + high) / 2);
-        if (calculateUnixFsDagSizeCidV0(middle) <= dagSizeLimit) fits = middle;
-        else high = middle - 1;
-    }
-    pageByteBudgets.set(dagSizeLimit, fits);
-    return fits;
 }
 
 const SERIALIZE_BATCH = 256; // entries resolved and serialized per database round trip
@@ -307,23 +286,26 @@ export class PageGenerator {
         for (let i = chunks.length - 1; i >= 0; i--) {
             const modQueuePageIpfs: ModQueuePageIpfs = { nextCid: cids[i + 1], comments: chunks[i] };
             if (!modQueuePageIpfs.nextCid) delete modQueuePageIpfs.nextCid; // we don't to include undefined anywhere in the protocol
-            const addRes = await retryKuboIpfsAddAndProvide({
-                ipfsClient: ipfsClient._client,
-                log: Logger("pkc-js:page-generator:addQueuedCommentChunksToIpfs"),
-                content: deterministicStringify(modQueuePageIpfs),
-                addOptions: { pin: true },
-                provideOptions: { recursive: true },
-                provideInBackground: true
-            });
+            const content = deterministicStringify(modQueuePageIpfs);
+            // A page's size is its UTF-8 bytes, the number a reader's download limit counts, checked before the add
+            const pageSizeBytes = Buffer.byteLength(content);
             const expectedSize = Math.min(MB * Math.pow(2, i), MAX_PAGE_SIZE_BYTES);
-            if (addRes.size > expectedSize)
+            if (pageSizeBytes > expectedSize)
                 throw new PKCError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
-                    addRes,
+                    pageSizeBytes,
                     pageIpfs: modQueuePageIpfs,
                     expectedSize,
                     sortName,
                     pageNum: i
                 });
+            const addRes = await retryKuboIpfsAddAndProvide({
+                ipfsClient: ipfsClient._client,
+                log: Logger("pkc-js:page-generator:addQueuedCommentChunksToIpfs"),
+                content,
+                addOptions: { pin: true },
+                provideOptions: { recursive: true },
+                provideInBackground: true
+            });
             cids[i] = addRes.path;
             listOfPage[i] = modQueuePageIpfs;
         }
@@ -356,7 +338,7 @@ export class PageGenerator {
             const maximumPageSize = Math.min(MB * Math.pow(2, embedFirst ? Math.max(pageNum - 1, 0) : pageNum), MAX_PAGE_SIZE_BYTES);
             const entries = chunks[pageNum];
             const entrySizes = entries.map(serialized.sizeOf);
-            const calculatedSize = pageDagSize(entrySizes, nextCid !== undefined);
+            const calculatedSize = pageBytes(entrySizes, nextCid !== undefined);
             if (calculatedSize > maximumPageSize)
                 throw new PKCError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
                     calculatedSizeOfStringifedPageIpfs: calculatedSize,
@@ -398,6 +380,16 @@ export class PageGenerator {
         pageNum: number;
     }): Promise<string> {
         const content = PAGE_OPEN + serialized.stringsOf(entries).join(",") + (nextCid ? pageCloseWithNextCid(nextCid) : PAGE_CLOSE);
+        // The size that was budgeted is the entries' summed UTF-8 sizes; this is the page as actually serialized
+        const pageSizeBytes = Buffer.byteLength(content);
+        if (pageSizeBytes > maximumPageSize)
+            throw new PKCError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
+                pageSizeBytes,
+                expectedSize: maximumPageSize,
+                commentCount: entries.length,
+                sortName,
+                pageNum
+            });
         const addRes = await retryKuboIpfsAddAndProvide({
             ipfsClient: this._community._clientsManager.getDefaultKuboRpcClient()._client,
             log: Logger("pkc-js:page-generator:addChunksToIpfs"),
@@ -406,22 +398,12 @@ export class PageGenerator {
             provideOptions: { recursive: true },
             provideInBackground: true
         });
-        if (addRes.size > maximumPageSize)
-            throw new PKCError("ERR_PAGE_GENERATED_IS_OVER_EXPECTED_SIZE", {
-                addRes,
-                expectedSize: maximumPageSize,
-                commentCount: entries.length,
-                sortName,
-                pageNum
-            });
         return addRes.path;
     }
 
     // Split comments into pages: the first under firstPageSizeBytes, then 1, 2, 4... MiB up to MAX_PAGE_SIZE_BYTES, each 1 KiB
     // under its limit.
-    // A page is measured as what `ipfs add` reports for it: its UTF-8 bytes (wrapper, entries, commas) against the
-    // byte budget of its limit (pageByteBudget). Summing each entry's own DAG size instead over-counted pages of many
-    // small entries and under-counted pages of few large ones by more than the margin (issue #504). `sizeOf` gives an
+    // A page is measured as a reader counts it: its UTF-8 bytes (wrapper, entries, commas) against its limit. `sizeOf` gives an
     // entry's UTF-8 JSON size when the caller already serialized it (the page generator does, once per entry for
     // every sort), else each comment is stringified here.
     _chunkComments<T extends PageIpfs["comments"] | ModQueuePageIpfs["comments"]>({
@@ -439,7 +421,7 @@ export class PageGenerator {
         for (let i = 0; i < comments.length; i++) entryBytes[i] = bytesOf(comments[i]);
 
         // Quick check for small arrays - if everything fits in one page, no nextCid needed
-        if (pageDagSize(entryBytes, false) <= FIRST_PAGE_SIZE) return [comments]; // Single page, no chunking needed
+        if (pageBytes(entryBytes, false) <= FIRST_PAGE_SIZE) return [comments]; // Single page, no chunking needed
 
         // The wrapper's bytes with and without nextCid (the entries and their commas are added as they come)
         const WRAPPER_WITH_CID_BYTES = pageBytes([], true);
@@ -457,13 +439,13 @@ export class PageGenerator {
         for (let i = 0; i < comments.length; i++) {
             const commentBytes = entryBytes[i];
             const maxSize = getCurrentMaxSize(chunkIndex);
-            const byteBudget = pageByteBudget(maxSize - SAFETY_MARGIN); // the bytes whose DAG stays a margin under the limit
+            const byteBudget = maxSize - SAFETY_MARGIN;
             const isLastItem = i === comments.length - 1;
 
             // Add comma if needed
             const commaSize = currentChunk.length > 0 ? 1 : 0;
 
-            // Check if adding this comment would take the page's DAG past the limit minus the safety margin
+            // Check if adding this comment would take the page past the limit minus the safety margin
             if (accumulatedBytes + commaSize + commentBytes > byteBudget) {
                 if (currentChunk.length > 0) {
                     chunks.push(currentChunk);
@@ -690,7 +672,7 @@ export class PageGenerator {
                 nonPreloaded.push({ sort, chunks });
                 continue;
             }
-            const firstChunkSize = pageDagSize(chunks[0].map(serialized.sizeOf), chunks.length > 1);
+            const firstChunkSize = pageBytes(chunks[0].map(serialized.sizeOf), chunks.length > 1);
             if (firstChunkSize > share) {
                 // Its share of the budget is not enough even for its first chunk: degrade this sort to pageCids
                 const rechunked = this._chunkComments({

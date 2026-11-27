@@ -5,7 +5,7 @@ import { getAuthorWalletProofMessage, verifyAuthorWalletEntry } from "../signer/
 import PKCIndex from "../index.js";
 import type { PKCCommunitiesEntry } from "../clients/rpc-client/types.js";
 import {
-    calculateStringSizeSameAsIpfsAddCidV0,
+    utf8ByteLength,
     hasTransientNetworkErrorCode,
     removeUndefinedValuesRecursively,
     retryKuboIpfsAdd,
@@ -2858,7 +2858,7 @@ export async function forceCommunityToGenerateAllPostsPages(community: RemoteCom
 
     community.setMaxListeners(100);
     if (Object.keys(community.posts.pageCids).length > 0) return;
-    const curRecordSize = await calculateStringSizeSameAsIpfsAddCidV0(JSON.stringify(rawCommunityRecord));
+    const curRecordSize = utf8ByteLength(JSON.stringify(rawCommunityRecord));
 
     const maxCommentSize = 30000;
     const defaultContent = "x".repeat(FORCE_COMMUNITY_MIN_POST_CONTENT_BYTES); // 30kb

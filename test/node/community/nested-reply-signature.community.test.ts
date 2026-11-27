@@ -3,7 +3,6 @@ import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { it, vi, expect } from "vitest";
 import { of as calculateIpfsCidV0Lib } from "typestub-ipfs-only-hash";
 import { randomUUID } from "node:crypto";
-import { calculateStringSizeSameAsIpfsAddCidV0 } from "../../../dist/node/util.js";
 import env from "../../../dist/node/version.js";
 import * as cborg from "cborg";
 
@@ -32,7 +31,7 @@ async function createCommunityWithDefaultDb(): Promise<CommunityContext> {
     await community._dbHandler.createOrMigrateTablesIfNeeded();
     const fakeIpfsClient = {
         add: async (content: string) => {
-            const size = await calculateStringSizeSameAsIpfsAddCidV0(content);
+            const size = Buffer.byteLength(content);
             const cid = await calculateIpfsCidV0Lib(`${content.length}-${Math.random()}`);
             return { cid, path: cid, size };
         },

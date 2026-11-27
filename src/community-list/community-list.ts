@@ -9,8 +9,7 @@ import type { SignerWithPublicKeyAddress } from "../signer/index.js";
 import { buildRuntimeAuthor } from "../publications/publication-author.js";
 import {
     calculateIpfsCidV0,
-    calculateStringSizeSameAsIpfsAddCidV0,
-    calculateStringSizeSameAsIpfsAddCidV0Sync,
+    utf8ByteLength,
     isStringDomain,
     retryKuboIpfsAddAndProvide,
     shortifyAddress,
@@ -148,7 +147,7 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
             const record = <CommunityListIpfsType>{ ...cleanedProps, signature };
             parseCommunityListSchemaWithPKCErrorIfItFails(record); // throws on schema violations incl. duplicate entry publicKey
             const recordString = JSON.stringify(record);
-            const sizeBytes = await calculateStringSizeSameAsIpfsAddCidV0(recordString);
+            const sizeBytes = utf8ByteLength(recordString);
             if (sizeBytes > MAX_COMMUNITY_LIST_SIZE_BYTES)
                 throw new PKCError("ERR_COMMUNITY_LIST_OVER_ALLOWED_SIZE", {
                     sizeBytes,
@@ -302,7 +301,7 @@ export class CommunityList extends TypedEmitter<CommunityListEvents> {
             rawString = res.communityListRawString;
             // The RPC server is not trusted with record validity: enforce the load cap before hashing or
             // parsing, the same error the direct path throws, then check the bytes are the cid's bytes
-            const sizeBytes = calculateStringSizeSameAsIpfsAddCidV0Sync(rawString);
+            const sizeBytes = utf8ByteLength(rawString);
             if (sizeBytes > MAX_COMMUNITY_LIST_SIZE_BYTES)
                 throw new PKCError("ERR_OVER_DOWNLOAD_LIMIT", { cid, sizeBytes, maxSizeBytes: MAX_COMMUNITY_LIST_SIZE_BYTES });
             const calculatedCid = await calculateIpfsCidV0(rawString);

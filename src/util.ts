@@ -42,8 +42,8 @@ import { PKC } from "./pkc/pkc.js";
 import Logger from "./logger.js";
 import retry from "retry";
 import { peerIdFromString } from "@libp2p/peer-id";
-// ipns / ipns/validator / blockstore-core / ipfs-unixfs-importer are dynamic-imported inside the async
-// functions that use them (IPNS-record read/validate + CID-size helpers) so these externals stay off
+// ipns / ipns/validator are dynamic-imported inside the async
+// functions that use them (IPNS-record read/validate) so these externals stay off
 // the eager import path — an RPC-only consumer never resolves them at import time.
 import type { IPNSRecord } from "ipns";
 import { findUpdatingCommunity } from "./pkc/tracked-instance-registry-util.js";
@@ -1423,92 +1423,11 @@ export async function fetchAndValidateIpnsRecordFromGateway(
     }
 }
 
-const textEncoder = new TextEncoder();
-
-// What `ipfs add` reports as the size of a file of `byteLength` bytes under pkc-js's add options (CIDv0, no raw
-// leaves, 256 KiB fixed chunks, balanced layout, 174 links per node): the cumulative DAG size, which depends only on
-// the length. Computed from the dag-pb and UnixFS protobuf encodings instead of importing and hashing, so the page
-// generator can size every comment and page synchronously (issue #351). Pinned to the importer by
-// test/node/util/unixfs-dag-size.test.ts across every encoding boundary.
-const UNIXFS_CHUNK_BYTES = 262144;
-const UNIXFS_MAX_LINKS_PER_NODE = 174;
-const CIDV0_MULTIHASH_BYTES = 34; // sha2-256 multihash: 2 header bytes + 32 digest bytes
-const UNIXFS_TYPE_FILE_FIELD_BYTES = 2; // field 1 varint, value 2 (File)
-
-function protobufVarintBytes(value: number): number {
-    let bytes = 1;
-    while (value >= 0x80) {
-        value = Math.floor(value / 0x80);
-        bytes++;
-    }
-    return bytes;
-}
-
-// A length-delimited field: 1 tag byte + the length varint + the payload
-const protobufBytesFieldBytes = (payloadLength: number): number => 1 + protobufVarintBytes(payloadLength) + payloadLength;
-// A varint field: 1 tag byte + the varint
-const protobufVarintFieldBytes = (value: number): number => 1 + protobufVarintBytes(value);
-
-// A leaf holding one chunk: dag-pb { Data: UnixFS { Type: File, Data: chunk, filesize } }; an empty file skips Data
-function unixFsLeafBytes(chunkLength: number): number {
-    const unixfs =
-        UNIXFS_TYPE_FILE_FIELD_BYTES + (chunkLength > 0 ? protobufBytesFieldBytes(chunkLength) : 0) + protobufVarintFieldBytes(chunkLength);
-    return protobufBytesFieldBytes(unixfs);
-}
-
-type UnixFsDagNode = { dagBytes: number; fileBytes: number };
-
-// A parent over up to 174 children: one dag-pb Link per child (CIDv0 hash, empty name, Tsize = the child's DAG size)
-// plus UnixFS { Type: File, filesize, blocksizes[] } (blocksizes are not packed)
-function unixFsParentNode(children: UnixFsDagNode[]): UnixFsDagNode {
-    let links = 0;
-    let unixfs = UNIXFS_TYPE_FILE_FIELD_BYTES;
-    let fileBytes = 0;
-    let childrenDagBytes = 0;
-    for (const child of children) {
-        const link = protobufBytesFieldBytes(CIDV0_MULTIHASH_BYTES) + protobufBytesFieldBytes(0) + protobufVarintFieldBytes(child.dagBytes);
-        links += protobufBytesFieldBytes(link);
-        unixfs += protobufVarintFieldBytes(child.fileBytes);
-        fileBytes += child.fileBytes;
-        childrenDagBytes += child.dagBytes;
-    }
-    unixfs += protobufVarintFieldBytes(fileBytes);
-    return { dagBytes: links + protobufBytesFieldBytes(unixfs) + childrenDagBytes, fileBytes };
-}
-
-export function calculateUnixFsDagSizeCidV0(byteLength: number): number {
-    if (!Number.isInteger(byteLength) || byteLength < 0) throw new Error(`Invalid byte length ${byteLength}`);
-    const chunkCount = Math.max(1, Math.ceil(byteLength / UNIXFS_CHUNK_BYTES));
-    if (chunkCount === 1) return unixFsLeafBytes(byteLength); // a single chunk is the file itself (reduceSingleLeafToSelf)
-    let level: UnixFsDagNode[] = new Array(chunkCount);
-    for (let i = 0; i < chunkCount; i++) {
-        const chunkLength = i < chunkCount - 1 ? UNIXFS_CHUNK_BYTES : byteLength - UNIXFS_CHUNK_BYTES * (chunkCount - 1);
-        level[i] = { dagBytes: unixFsLeafBytes(chunkLength), fileBytes: chunkLength };
-    }
-    while (level.length > 1) {
-        const parents: UnixFsDagNode[] = [];
-        for (let i = 0; i < level.length; i += UNIXFS_MAX_LINKS_PER_NODE)
-            parents.push(unixFsParentNode(level.slice(i, i + UNIXFS_MAX_LINKS_PER_NODE)));
-        level = parents;
-    }
-    return level[0].dagBytes;
-}
-
-// Sync twin of calculateStringSizeSameAsIpfsAddCidV0: the same number, from the UTF-8 byte length alone
-export function calculateStringSizeSameAsIpfsAddCidV0Sync(content: string): number {
-    return calculateUnixFsDagSizeCidV0(Buffer.byteLength(content, "utf8"));
-}
-
-export async function calculateStringSizeSameAsIpfsAddCidV0(content: string): Promise<number> {
-    const { MemoryBlockstore } = await import("blockstore-core");
-    const { importFile } = await import("ipfs-unixfs-importer");
-    const blockstore = new MemoryBlockstore();
-    const entry = await importFile({ path: "content.json", content: textEncoder.encode(content) }, blockstore, {
-        cidVersion: 0,
-        rawLeaves: false,
-        wrapWithDirectory: false
-    });
-    return Number(entry.size);
+// The size of a record as every size limit in the protocol counts it: its UTF-8 bytes, which is what a reader
+// downloads and what every loader caps (`cat({ length })`, a gateway body). Not the UnixFS DAG size `ipfs add`
+// reports, which adds the chunking overhead and which only this implementation could compute (issue #485).
+export function utf8ByteLength(content: string): number {
+    return Buffer.byteLength(content, "utf8");
 }
 
 export type NetworkErrorDetails = {
