@@ -1,5 +1,5 @@
 import { BaseClientsManager, OptionsToLoadFromGateway } from "../clients/base-client-manager.js";
-import { isReservedObjectKey } from "../object-key-util.js";
+import { isForbiddenWireName } from "../object-key-util.js";
 import type { ModQueuePageIpfs, ModQueueSortName, PageIpfs } from "./types.js";
 import { isEmpty, keys, unique } from "remeda";
 import Logger from "../logger.js";
@@ -47,7 +47,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
     // as parsed JSON (zod drops an own `__proto__` key without rejecting it). A reserved key would write through
     // Object.prototype or an inherited value, so it is skipped: no page is ever fetched under such a name.
     private _indexableSortTypes(sortTypes: string[]): string[] {
-        return sortTypes.filter((sortType) => !isReservedObjectKey(sortType));
+        return sortTypes.filter((sortType) => !isForbiddenWireName(sortType));
     }
 
     protected _updateIpfsGatewayClientStates(sortTypes: string[]) {
@@ -126,7 +126,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
     updatePageCidsToSortTypes(newPageCids: BasePages["pageCids"]) {
         for (const [sortType, pageCid] of Object.entries(newPageCids)) {
-            if (isReservedObjectKey(sortType)) continue;
+            if (isForbiddenWireName(sortType)) continue;
             this._updatePageCidsSortCache(pageCid, [sortType]);
         }
         // A community may publish pageCids under any sort name its page-sort packages declare (settings.pages, #73),

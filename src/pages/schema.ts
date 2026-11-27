@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { CidStringSchema } from "../schema/schema.js";
 import { CommentIpfsSchema, CommentUpdateForChallengeVerificationSchema, CommentUpdateSchema } from "../publications/comment/schema.js";
-import { isReservedObjectKey } from "../object-key-util.js";
+import { isForbiddenWireName } from "../object-key-util.js";
 
 // Pages schemas here
 
@@ -15,8 +15,9 @@ export const PageIpfsSchema = z.object({
 export const SortNameStringSchema = z
     .string()
     .min(1)
-    .refine((name) => !isReservedObjectKey(name), {
-        message: "A sort name cannot be __proto__, constructor or prototype, nor any other key an object inherits (toString, valueOf, ...)"
+    .refine((name) => !isForbiddenWireName(name), {
+        message:
+            "A sort name cannot start with an underscore, nor be __proto__, constructor or prototype, nor any other key an object inherits (toString, valueOf, ...)"
     });
 
 export const PostSortNameSchema = z

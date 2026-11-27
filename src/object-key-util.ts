@@ -36,3 +36,9 @@ export const RESERVED_OBJECT_KEYS: ReadonlySet<string> = new Set([
 export function isReservedObjectKey(key: string): boolean {
     return RESERVED_OBJECT_KEYS.has(key);
 }
+
+// The one rule for every name a record brings from the wire: a member of a record or of its `author`, and a sort name.
+// The underscore prefix is how private members are named, so it is refused as a whole.
+export function isForbiddenWireName(name: string): boolean {
+    return name.startsWith("_") || RESERVED_OBJECT_KEYS.has(name);
+}

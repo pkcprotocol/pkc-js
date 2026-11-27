@@ -5,7 +5,7 @@
 //
 // Dependency-free on purpose: schema modules and runtime modules may both import it.
 
-import { isReservedObjectKey } from "./object-key-util.js";
+import { isForbiddenWireName, isReservedObjectKey } from "./object-key-util.js";
 
 // The names each target received from records, so a later record may update them (`tip: 1` then `tip: 2`).
 // A name the instance had before any record data touched it is a member, and is never in this set.
@@ -17,7 +17,7 @@ const namesAssignedFromRecords = new WeakMap<object, Set<string>>();
 // through a gate). Names of the members of an instance are covered by the reserved-field lists, not by this rule.
 // The set is frozen (see RESERVED_OBJECT_KEYS): the underscore prefix, plus a fixed list of names.
 export function isForbiddenRecordKey(name: string): boolean {
-    return name.startsWith("_") || isReservedObjectKey(name);
+    return isForbiddenWireName(name);
 }
 
 export function forbiddenKeysOf(record: unknown): string[] {

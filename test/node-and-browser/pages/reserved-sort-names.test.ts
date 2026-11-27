@@ -17,7 +17,10 @@ import type { RemoteCommunity } from "../../../dist/node/community/remote-commun
 // a function shared by every object in the process. See the review of PR #538.
 
 const INHERITED = ["toString", "hasOwnProperty", "valueOf", "isPrototypeOf", "propertyIsEnumerable", "toLocaleString", "__defineGetter__"];
-const RESERVED = ["__proto__", "constructor", "prototype", ...INHERITED];
+// A sort name may not start with an underscore either, the same rule a record member name has: the prefix is how
+// private members are named, and one rule for every key a record brings is simpler for other implementations
+const UNDERSCORED = ["_", "_private", "_clientsManager"];
+const RESERVED = ["__proto__", "constructor", "prototype", ...INHERITED, ...UNDERSCORED];
 const CID = "QmbFMke1KXqnYyBBWxB74N4c5SBnJMVAiMNRcGu6x1AwQH";
 const EMPTY_PAGE = { comments: [] as unknown[] };
 
@@ -130,7 +133,7 @@ getAvailablePKCConfigsToTestAgainst({
             // JSON.parse is how a record from the wire carries an own __proto__ key (an object literal would set the prototype)
             const inheritedFunctionKeysBefore = INHERITED.map((key) => Object.getOwnPropertyNames(Reflect.get(Object.prototype, key)));
             const wire = JSON.parse(
-                JSON.stringify(Object.fromEntries(INHERITED.map((key) => [key, CID]))).replace(
+                JSON.stringify(Object.fromEntries([...INHERITED, ...UNDERSCORED].map((key) => [key, CID]))).replace(
                     "{",
                     `{"__proto__": "${CID}", "constructor": "${CID}", "prototype": "${CID}", "hot": "${CID}", `
                 )
