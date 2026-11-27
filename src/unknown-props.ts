@@ -5,8 +5,7 @@
 //
 // Dependency-free on purpose: schema modules and runtime modules may both import it.
 
-// Names that reach the prototype machinery, whatever the target holds
-const PROTOTYPE_NAMES = new Set(["__proto__", "constructor", "prototype"]);
+import { isReservedObjectKey } from "./object-key-util.js";
 
 // The names each target received from records, so a later record may update them (`tip: 1` then `tip: 2`).
 // A name the instance had before any record data touched it is a member, and is never in this set.
@@ -16,8 +15,9 @@ const namesAssignedFromRecords = new WeakMap<object, Set<string>>();
 // the instance and merges `author` into comment.author, so a key that means something to an object, or that is
 // private by name, makes the record invalid at the gate (the loaders refuse it as well, for a record that never went
 // through a gate). Names of the members of an instance are covered by the reserved-field lists, not by this rule.
+// The set is frozen (see RESERVED_OBJECT_KEYS): the underscore prefix, plus a fixed list of names.
 export function isForbiddenRecordKey(name: string): boolean {
-    return PROTOTYPE_NAMES.has(name) || name.startsWith("_") || name in Object.prototype;
+    return name.startsWith("_") || isReservedObjectKey(name);
 }
 
 export function forbiddenKeysOf(record: unknown): string[] {
@@ -50,7 +50,9 @@ export function forbiddenAuthorKeysInCrosspostChain(record: { crosspost?: unknow
 export type AssignUnknownPropsResult = { assigned: string[]; skipped: string[] };
 
 function isBlockedName({ target, name }: { target: object; name: string }): boolean {
-    if (PROTOTYPE_NAMES.has(name)) return true;
+    // Local safety, not a protocol rule: what may be copied onto this instance is decided against the instance itself,
+    // so a member an engine or a polyfill adds later is protected here without making any record invalid
+    if (isReservedObjectKey(name)) return true;
     // No private member can be set from a record, whether or not the instance holds it yet
     if (name.startsWith("_")) return true;
     // Own or inherited, Object.prototype included (toString, hasOwnProperty, ...): that is a member
