@@ -43,7 +43,7 @@ CommunityListEntry { // metadata set by the list curator, NOT the community owne
   check like every other record.
 - All array-valued fields are plural (`communities`, `languages`, `locations`, `features`,
   `tags`).
-- **Load schemas are loose.** When loading a record, `CommunityListSchema` and
+- **Load schemas are loose.** When loading a record, `CommunityListIpfsLooseSchema` and
   `CommunityListEntrySchema` must accept and preserve unknown extra props (zod `.loose()`),
   exactly like `CommentIpfsSchema` and `CommunityIpfsSchema`. This is load-bearing, not
   stylistic: a newer publisher may add fields and sign them, and verification walks the

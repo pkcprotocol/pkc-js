@@ -99,7 +99,8 @@ All in `src/signer/signatures.ts`:
 | `signVote()` | Sign a Vote |
 | `signCommentEdit()` | Sign a CommentEdit |
 | `signCommunity()` | Sign a `CommunityIpfsType` record |
-| `verifyComment()` | Verify CommentIpfs/CommentPubsubMessage signature |
+| `verifyCommentPubsubMessage()` | Verify a CommentPubsubMessage signature |
+| `verifyCommentIpfs()` | Verify a CommentIpfs signature |
 | `verifyCommentUpdate()` | Verify CommentUpdate was signed by the correct community |
 | `verifyCommunity()` | Verify `CommunityIpfsType` signature |
 | `verifyPage()` | Verify all comments and updates in a page |

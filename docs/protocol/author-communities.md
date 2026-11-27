@@ -138,8 +138,8 @@ only if **all** of its conditions hold:
 
 | publisher and type | challenge 0 (`fail`) | challenge 1 (`question`) | result |
 |---|---|---|---|
-| owner, post | excluded by `role` | excluded by `role` | accepted, unchallenged |
-| owner, reply | excluded by either rule | excluded by `role` | accepted, unchallenged |
+| owner, post | excluded by `roles` | excluded by `roles` | accepted, unchallenged |
+| owner, reply | excluded by either rule | excluded by `roles` | accepted, unchallenged |
 | stranger, post | matches neither rule, so it runs and fails | dropped | **rejected** |
 | stranger, reply | excluded by `publicationType` | runs | challenged normally |
 | stranger, vote | matches neither rule, so it runs and fails | dropped | **rejected** |
@@ -149,7 +149,7 @@ question: they get one immediate failed verification rather than a challenge rou
 
 **Votes stay rejected.** In the feed-only default nobody can send one in the first place; in this
 flavor `vote` is deliberately absent from the `publicationType` exclude, so a stranger's vote hits the
-`fail` challenge exactly like a stranger's post, while the owner's own votes stay excluded by `role`.
+`fail` challenge exactly like a stranger's post, while the owner's own votes stay excluded by `roles`.
 The reason is the karma model in [crossposts.md](crossposts.md): karma over a profile is read at
 tier 2 from each entry's origin community, so a vote published to the profile lands on the crosspost
 copy, is tallied by the owner's own delegate, and counts toward nothing a client should trust. It
@@ -434,7 +434,7 @@ identity and orphans the profile, and compromise of it takes both. Minter rotati
 fully supported, see [delegated-ipns.md](delegated-ipns.md); it re-points `An` at a new `Mn'` and the
 address does not move.
 
-Migration between minters reuses `exportCommunity`, which is type-blind and already sqlite-based. The
+Migration between minters reuses `community.export()`, which is type-blind and already sqlite-based. The
 community address in the database is the anchor, and the minter key is the community signer, which
 an export leaves out unless it is called with `includePrivateKey: true`, so the database is portable
 by construction.

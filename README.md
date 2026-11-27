@@ -1790,7 +1790,6 @@ setTimeout(() => comment.stop(), 600000)
 | Type | Description |
 | -------- | -------- |
 | `ChallengeMessage` | The challenge the user must complete |
-| `Comment` | The `Comment` instance, i.e. `this` |
 
 Object is of the form:
 

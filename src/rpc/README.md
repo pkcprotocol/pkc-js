@@ -3,7 +3,7 @@
 ```js
 const {PKCWsServer} = require('@pkcprotocol/pkc-js/rpc')
 const port = 8080
-const pkcOptions = {ipfsHttpClientsOptions: ['http://localhost:5001/api/v0']}
+const pkcOptions = {kuboRpcClientsOptions: ['http://localhost:5001/api/v0']}
 const pkcWebSocketServer = await PKCWsServer({port, pkcOptions})
 
 // debug raw JSON RPC messages in console (optional)
@@ -24,7 +24,7 @@ Name resolution (`.bso`, `.eth` domains) happens **server-side**. The RPC server
 
 ```js
 const pkcOptions = {
-  ipfsHttpClientsOptions: ['http://localhost:5001/api/v0'],
+  kuboRpcClientsOptions: ['http://localhost:5001/api/v0'],
   nameResolvers: [bsoResolver({provider: 'https://cloudflare-eth.com'})]
 }
 const pkcWebSocketServer = await PKCWsServer({port, pkcOptions})
@@ -109,7 +109,7 @@ new Subscription(subscriptionId).on('message', console.log)
 The server registers the following methods. Param shapes are defined in `src/clients/rpc-client/schema.ts`; all params are passed as the single element of a one-element array, e.g. `webSocketClient.call('getComment', [{cid}])`.
 
 - `method: getComment, params: [{cid: string, communityPublicKey?: string, communityName?: string}], result: CommentIpfs`
-- `method: getCommunityPage, params: [{cid: string, communityName?: string, communityPublicKey?: string, type: "posts" | "modqueue", pageMaxSize: number}], result: {page, runtimeFields?}`
+- `method: getCommunityPage, params: [{cid: string, communityName?: string, communityPublicKey?: string, type: "posts" | "modqueue", pageMaxSize: number}], result: {page, runtimeFields?}` (at least one of `communityName` or `communityPublicKey` is required)
 - `method: getCommentPage, params: [{cid: string, commentCid: string, communityName?: string, communityPublicKey?: string, pageMaxSize: number}], result: {page, runtimeFields?}`
 - `method: createCommunity, params: [createCommunityOptions: CreateNewLocalCommunityUserOptions], result: RpcInternalCommunityRecordBeforeFirstUpdate`
 - `method: editCommunity, params: [{name?: string, publicKey?: string, editOptions: CommunityEditOptions}], result: RpcLocalCommunityUpdateResult`
@@ -129,7 +129,7 @@ The server registers the following methods. Param shapes are defined in `src/cli
 
 Each subscribe/publish method returns `{subscriptionId: number}` and streams JSON-RPC notifications until `unsubscribe` is called.
 
-- `method: startCommunity, params: [{name?: string, publicKey?: string}]`: starts a local community and streams its events. Notifications use `method: "startCommunity"` (not `startCommunityNotification`)
+- `method: startCommunity, params: [{name?: string, publicKey?: string}]`: starts a local community and streams its events. Notifications use `method: "startCommunity"` (not `startCommunityNotification`) and these events: `update` (`{community, localCommunity, runtimeFields}`, or `{localCommunity}` before the first update), `startedstatechange` (`{state}`), `challengerequest`, `challenge` and `challengeanswer` (the encoded pubsub message), `challengeverification` (`{challengeVerification}`) and `error`. A client attaching to a community that is already running receives one `update` snapshot at once
 - `method: startedCommunitySubscribe, params: [{name?: string, publicKey?: string}]`: same notifications as `startCommunity`, for a client re-establishing its `start()` after a reconnect. It attaches if the community is running and starts it only if it was started and never explicitly stopped since; otherwise it errors with `ERR_RPC_COMMUNITY_NOT_RUNNING`. It never overrides a stop.
 - `method: stopCommunity, params: [{name?: string, publicKey?: string}], result: {success: true}`
 - [`method: commentUpdateSubscribe, params: [{cid: string, communityPublicKey?: string, communityName?: string}]`](#commentupdatesubscribe)
@@ -335,7 +335,7 @@ The notification format is the same as seen in the pkc-js [Community Events](htt
 }
 ```
 
-For a community that is local to the RPC server, `result` is `{community, localCommunity, runtimeFields}`, or only `{localCommunity}` before its first update; `localCommunity` carries the owner-side props such as `settings` and `signer` \(without its private key\). When a remote community's record is cleared after a key migration, `result` is `{resetInstance: true, runtimeFields: {newPublicKey, nameResolved, updatingState}}`.
+For a community that is local to the RPC server, `result` is `{community, localCommunity, runtimeFields}`, or only `{localCommunity}` before its first update; `localCommunity` carries the owner-side props such as `settings` and `signer` \(without its private key\). When a remote community's record is cleared after a key migration, `result` is `{resetInstance: true, runtimeFields: {newPublicKey, nameResolved, updatingState}}`. For a community that is started on the RPC server, changes of its `startedState` are also sent as `updatingstatechange` events. An `error` event is sent as well; there is no `statechange` event for communities.
 
 `updatingstatechange` event:
 
@@ -359,7 +359,9 @@ Publish a comment and subscribe to receive notifications of the challenge pubsub
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| comment | `Comment` | Comment to publish |
+| comment | `CommentPubsubMessage` | The signed comment to publish |
+| challengeAnswers | `{[challengeIndex: string]: string}` or `undefined` | Answers sent with the request, keyed by the index of the challenge each one is for |
+| challengeCommentCids | `string[]` or `undefined` | Comment CIDs for challenges that ask for them |
 
 ### Result:
 
@@ -408,10 +410,11 @@ The notification format is the same as seen in the pkc-js [Comment Events](https
   "params": {
     "result": {
       "type": "CHALLENGE",
-      "challenges": [
-        {"type": "text/plain", "challenge": "2+2"},
-        {"type": "text/plain", "challenge": "5+5"}
-      ]
+      "challengeRequestId": "...",
+      "challenges": {
+        "0": {"type": "text/plain", "challenge": "2+2"},
+        "1": {"type": "text/plain", "challenge": "5+5"}
+      }
     },
     "event": "challenge",
     "subscription": 23784
@@ -461,7 +464,11 @@ The notification format is the same as seen in the pkc-js [Comment Events](https
 }
 ```
 
-`publishingstatechange` and `statechange` events send `{ "state": "..." }`, like the state events above.
+`publishingstatechange` and `statechange` events send `{ "state": "..." }`, like the state events above. Only `publishComment` sends `statechange`.
+
+Every publish method also sends `challengerequest` and `challengeanswer` (the encoded pubsub message) and `error`. The other four use the same events under their own notification names: `publishVoteNotification`, `publishCommentEditNotification`, `publishCommentModerationNotification` and `publishCommunityEditNotification`.
+
+`error` events carry the error with its `stack` removed, and `details` name the state the instance moved to: `newPublishingState` and `newState` for the publish methods, `newUpdatingState` or `newPublishingState` for `commentUpdateSubscribe`, `newUpdatingState` or `newStartedState` for `communityUpdateSubscribe` and `startCommunity`. When `publish()` itself throws, the call still returns `{subscriptionId}` and the failure arrives as an `error` event whose `details.publishThrowError` is `true`.
 
 ## communitiesSubscribe
 
