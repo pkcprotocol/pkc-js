@@ -570,7 +570,7 @@ function reportCycleIfSlow({
     log: Logger;
 }) {
     const report = slowCycleReport({ cycleMs, slowAfterMs: community._pkc.publishInterval, phasesMs });
-    if (report) log.error(`A publish cycle of community`, community.address, report);
+    if (report) log.error(`reportCycleIfSlow: A publish cycle of community`, community.address, report);
 }
 
 export async function syncIpnsWithDb(community: LocalCommunity) {

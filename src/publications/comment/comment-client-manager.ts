@@ -176,12 +176,14 @@ export class CommentClientsManager extends PublicationClientsManager {
             TRANSIENT_FETCH_RETRY_MAX_DELAY_MS
         );
         this._transientFetchRetry.attempts++;
-        log.trace("Comment", this._comment.cid, "will retry its CommentUpdate lookup in", delayMs, "ms");
+        log.trace("_scheduleTransientFetchRetry: Comment", this._comment.cid, "will retry its CommentUpdate lookup in", delayMs, "ms");
         const timer = setTimeout(() => {
             if (this._transientFetchRetry.timer !== timer) return;
             this._transientFetchRetry.timer = undefined;
             if (this._comment.state !== "updating") return;
-            lookup().catch((error) => log.error("Comment", this._comment.cid, "failed to retry its CommentUpdate lookup", error));
+            lookup().catch((error) =>
+                log.error("_scheduleTransientFetchRetry: Comment", this._comment.cid, "failed to retry its CommentUpdate lookup", error)
+            );
         }, delayMs);
         // A pending retry must not keep a process alive that is otherwise done (Node only; a browser timer has no unref)
         if (typeof timer === "object" && "unref" in timer) timer.unref();
@@ -355,7 +357,13 @@ export class CommentClientsManager extends PublicationClientsManager {
                 if (e instanceof PKCError && e.code === "ERR_IPFS_PATH_NOT_IN_FOLDER") {
                     // The folder was read and has no entry for the post: not a failure to load, and a fetch would
                     // only be told the same
-                    log.trace("Post", this._comment.cid, "has no CommentUpdate at", path, "trying the next timestamp range");
+                    log.trace(
+                        "_fetchPostCommentUpdateIpfsP2P: Post",
+                        this._comment.cid,
+                        "has no CommentUpdate at",
+                        path,
+                        "trying the next timestamp range"
+                    );
                     pathsNotInTheirFolder.push(path);
                     continue;
                 }
@@ -549,7 +557,13 @@ export class CommentClientsManager extends PublicationClientsManager {
             } catch (e) {
                 throwIfAbortSignalAborted(abortSignal); // superseded or stopped: not a failure to try the next range for
                 if (this._didEveryGatewayAnswerNotFound(e)) {
-                    log.trace("Post", this._comment.cid, "has no CommentUpdate at", path, "trying the next timestamp range");
+                    log.trace(
+                        "_fetchPostCommentUpdateFromGateways: Post",
+                        this._comment.cid,
+                        "has no CommentUpdate at",
+                        path,
+                        "trying the next timestamp range"
+                    );
                     pathsNotInTheirFolder.push(path);
                     continue;
                 }
@@ -656,7 +670,11 @@ export class CommentClientsManager extends PublicationClientsManager {
         }
         if (newCommentUpdate === POST_NOT_IN_POST_UPDATES) {
             // Nothing failed to load: the record's postUpdates don't hold the post (yet). The next record is checked again
-            log("Post", this._comment.cid, "is not under the postUpdates of this community record");
+            log(
+                "useCommunityPostUpdatesToFetchCommentUpdate: Post",
+                this._comment.cid,
+                "is not under the postUpdates of this community record"
+            );
             this._comment._setUpdatingStateWithEmissionIfNewState("waiting-retry");
         } else if (newCommentUpdate) {
             this._useLoadedCommentUpdateIfNewInfo(newCommentUpdate, subIpfs, log);

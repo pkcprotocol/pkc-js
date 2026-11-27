@@ -183,7 +183,7 @@ async function checkAuthorWalletProofs(publication: PublicationFromDecryptedChal
     for (const [chainTicker, entry] of Object.entries(wallets)) {
         const result = verifyAuthorWalletEntry({ entry, authorPublicKey, nowSeconds: pkcTimestamp() });
         if (result.outcome === "invalid") {
-            log("Rejecting publication: invalid author.wallets proof", chainTicker, result.reason);
+            log("checkAuthorWalletProofs: Rejecting publication: invalid author.wallets proof", chainTicker, result.reason);
             return `${messages.ERR_AUTHOR_WALLET_PROOF_IS_INVALID}. Chain ticker: ${chainTicker}. ${result.reason}`;
         }
     }

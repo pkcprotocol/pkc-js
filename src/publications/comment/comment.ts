@@ -1137,7 +1137,7 @@ export class Comment
             try {
                 await this._pkc._pkcRpcClient!.unsubscribe(subscriptionId);
             } catch (e) {
-                log.error("Failed to unsubscribe from a commentUpdate subscription stopped while subscribing", e);
+                log.error("_updateViaRpc: Failed to unsubscribe from a commentUpdate subscription stopped while subscribing", e);
             }
             return;
         }

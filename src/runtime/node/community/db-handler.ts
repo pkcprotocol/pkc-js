@@ -328,7 +328,12 @@ export class DbHandler {
             } catch (e) {
                 // The checkpoint throws on a file that is not a database. The connection is closed all the same:
                 // an open handle keeps the file locked on Windows (issue #540)
-                log.error("Failed to checkpoint the WAL of community", this._community.address, "before closing its DB", e);
+                log.error(
+                    "destroyConnection: Failed to checkpoint the WAL of community",
+                    this._community.address,
+                    "before closing its DB",
+                    e
+                );
             } finally {
                 this._db.close();
             }
@@ -693,7 +698,9 @@ export class DbHandler {
                 // An earlier run of this migration was killed between dropping the table and renaming its migrated copy,
                 // when the two were separate commits. The copy is complete (the drop only ran after it), so it becomes the
                 // table; creating an empty one here would lose every row
-                log(`Table ${tableName} is missing but its migrated copy ${tempTableName} exists. Will restore the table from it`);
+                log(
+                    `createOrMigrateTablesIfNeeded: Table ${tableName} is missing but its migrated copy ${tempTableName} exists. Will restore the table from it`
+                );
                 this._db.exec(`ALTER TABLE ${tempTableName} RENAME TO ${tableName}`);
             } else if (!tableExists) {
                 log(`createOrMigrateTablesIfNeeded: Table ${tableName} does not exist. Will create schema`);
@@ -789,7 +796,10 @@ export class DbHandler {
             try {
                 await removeFileRetryingWhileBusy(backupDbPath, { log });
             } catch (e) {
-                log.error(`Failed to remove the pre-migration backup ${backupDbPath}. It is no longer needed and can be deleted`, e);
+                log.error(
+                    `createOrMigrateTablesIfNeeded: Failed to remove the pre-migration backup ${backupDbPath}. It is no longer needed and can be deleted`,
+                    e
+                );
             }
         }
     }

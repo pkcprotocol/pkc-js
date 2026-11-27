@@ -477,7 +477,8 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     for await (const _chunk of helia.blockstore.get(rootCid, { signal: wantSignal })) void _chunk;
                     arrived = true;
                 })().catch((error) => {
-                    if (!wantSignal.aborted) log.trace("Broadcast want for", String(rootCid), "failed, keeping the retry backoff", error);
+                    if (!wantSignal.aborted)
+                        log.trace("startWant: Broadcast want for", String(rootCid), "failed, keeping the retry backoff", error);
                     // Never settle: the backoff timer stays the only thing that ends a wait
                     return new Promise<void>(() => {});
                 });
@@ -501,7 +502,7 @@ export async function createLibp2pJsClientOrUseExistingOne(
                     }
                     if (arrived) {
                         earlyWakeUsed = true;
-                        log.trace("Root block", String(rootCid), "arrived through the broadcast want, retrying the session now");
+                        log.trace("wait: Root block", String(rootCid), "arrived through the broadcast want, retrying the session now");
                     }
                 },
                 stop() {

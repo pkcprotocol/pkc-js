@@ -90,7 +90,7 @@ export async function markPostsMissingFromBucketForRewrite({
     if (missing.length > 0) {
         community._dbHandler.forceUpdateOnAllCommentsWithCid(missing);
         log.error(
-            `The postUpdates bucket ${bucket} of community ${community.address} holds ${listed.size} entries in MFS and ${missing.length} of its ${published.length} published posts are not in it. They will be written again by the next cycle`
+            `markPostsMissingFromBucketForRewrite: The postUpdates bucket ${bucket} of community ${community.address} holds ${listed.size} entries in MFS and ${missing.length} of its ${published.length} published posts are not in it. They will be written again by the next cycle`
         );
     }
     return missing.length;
@@ -263,11 +263,11 @@ async function recoverInterruptedBucketSwap(kuboRpcClient: KuboRpcClient, bucket
     if (next) {
         if (live) {
             // The swap stopped before the live bucket came down: the live one is still the published one
-            log(`Discarding the stale rebuilt bucket ${nextPath} left by an interrupted swap`);
+            log(`recoverInterruptedBucketSwap: Discarding the stale rebuilt bucket ${nextPath} left by an interrupted swap`);
             await kubo.files.rm(nextPath, { recursive: true, timeout: MFS_OP_TIMEOUT_MS });
         } else {
             // The swap stopped between taking the live bucket down and moving the new one in
-            log(`Finishing the interrupted swap of ${nextPath} into ${bucketPath}`);
+            log(`recoverInterruptedBucketSwap: Finishing the interrupted swap of ${nextPath} into ${bucketPath}`);
             await kubo.files.mv(nextPath, bucketPath, { flush: true, timeout: MFS_OP_TIMEOUT_MS });
             // Read back like any other swap: the caller takes what this returns for what MFS holds
             live = await statMfsPathOrUndefined(kuboRpcClient, bucketPath, log);

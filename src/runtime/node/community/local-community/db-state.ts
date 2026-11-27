@@ -304,7 +304,10 @@ function doesDbFileHoldInternalState({
     } catch (e) {
         const code = (e as { code?: unknown }).code;
         if (typeof code === "string" && ["SQLITE_NOTADB", "SQLITE_ERROR"].includes(code)) return false;
-        log.error(`Failed to tell whether ${dbFilePath} holds an internal state, leaving the file in place`, e);
+        log.error(
+            `doesDbFileHoldInternalState: Failed to tell whether ${dbFilePath} holds an internal state, leaving the file in place`,
+            e
+        );
         return undefined;
     } finally {
         db?.close();
@@ -398,7 +401,10 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
         try {
             community._dbHandler.destoryConnection();
         } catch (closeError) {
-            log.error(`Failed to close the DB of community (${community.address}) after its creation failed`, closeError);
+            log.error(
+                `_createNewLocalCommunityDb: Failed to close the DB of community (${community.address}) after its creation failed`,
+                closeError
+            );
         }
         // Another call may have written its internal state into the file this one created. Then it is a community and
         // stays. The file is read for that, not the connection, which a failed table creation has closed already. The
@@ -408,7 +414,10 @@ export async function createNewLocalCommunityDb(community: LocalCommunity) {
         if (createdDbFile)
             for (const filePath of [dbFilePath, `${dbFilePath}-wal`, `${dbFilePath}-shm`])
                 await removeFileRetryingWhileBusy(filePath, { log, keepIf: isNotKnownToBeStateless }).catch((removeError) =>
-                    log.error(`Failed to remove ${filePath} after the creation of community (${community.address}) failed`, removeError)
+                    log.error(
+                        `_createNewLocalCommunityDb: Failed to remove ${filePath} after the creation of community (${community.address}) failed`,
+                        removeError
+                    )
                 );
         throw e;
     }

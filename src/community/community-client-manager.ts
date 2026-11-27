@@ -888,7 +888,7 @@ export class CommunityClientsManager extends PKCClientsManager {
                         // move a loader that asked for one key onto a key it never asked for, and register
                         // it in pkc._updatingCommunities under that key for the next loader to share (#605).
                         log(
-                            `Community ${this._community.address} was loaded by key and its record claims the name ${name}, which resolves to ${resolved}. Marking nameResolved false and staying on the key`
+                            `_resolveNameInBackground: Community ${this._community.address} was loaded by key and its record claims the name ${name}, which resolves to ${resolved}. Marking nameResolved false and staying on the key`
                         );
                         setNameResolvedAndEmitUpdate(false);
                         return;

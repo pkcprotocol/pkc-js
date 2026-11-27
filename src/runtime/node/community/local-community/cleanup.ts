@@ -323,7 +323,7 @@ async function _readStoredGcIntervalStart({
         const stored: unknown = await community._pkc._storage.getItem(gcIntervalStorageKey(kuboUrl));
         return typeof stored === "number" ? stored : undefined;
     } catch (e) {
-        log.error("Failed to read when the GC interval of the kubo node", kuboUrl, "started", e);
+        log.error("_readStoredGcIntervalStart: Failed to read when the GC interval of the kubo node", kuboUrl, "started", e);
         return undefined;
     }
 }
@@ -334,7 +334,7 @@ async function _startGcInterval({ community, kuboUrl, log }: { community: LocalC
     try {
         await community._pkc._storage.setItem(gcIntervalStorageKey(kuboUrl), now);
     } catch (e) {
-        log.error("Failed to store when the GC interval of the kubo node", kuboUrl, "started", e);
+        log.error("_startGcInterval: Failed to store when the GC interval of the kubo node", kuboUrl, "started", e);
     }
 }
 

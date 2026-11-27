@@ -86,7 +86,7 @@ function computePseudonymityAuthorTagForComment(community: LocalCommunity, comme
         return computePseudonymityAuthorTag({ sharedKey: cached.sharedKey, commentCid });
     } catch (e) {
         log.error(
-            `Failed to derive pseudonymityAuthorTag for comment (${commentCid}) with author public key (${authorPublicKeyBase64}); publishing the CommentUpdate without a tag`,
+            `computePseudonymityAuthorTagForComment: Failed to derive pseudonymityAuthorTag for comment (${commentCid}) with author public key (${authorPublicKeyBase64}); publishing the CommentUpdate without a tag`,
             e
         );
         return undefined;

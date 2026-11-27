@@ -359,15 +359,15 @@ export class CommunitiesRegistry {
                 else this._onFileEvent(eventType, filename);
                 this._emitListIfOutdated();
             } catch (error) {
-                this._log.error("Failed to follow a change in", communitiesPath, eventType, filename, error);
+                this._log.error("startMonitoring: Failed to follow a change in", communitiesPath, eventType, filename, error);
             }
         });
-        this._watcher.on("error", (error) => this._log.error("The watcher of", communitiesPath, "failed", error));
+        this._watcher.on("error", (error) => this._log.error("startMonitoring: The watcher of", communitiesPath, "failed", error));
         this._timer = setInterval(() => {
             try {
                 this.readChangesOfOtherInstances();
             } catch (error) {
-                this._log.error("Failed to read what other PKC instances changed in the communities registry", error);
+                this._log.error("startMonitoring: Failed to read what other PKC instances changed in the communities registry", error);
             }
         }, COMMUNITIES_REGISTRY_TICK_MS);
         this._timer.unref();
@@ -459,7 +459,7 @@ export class CommunitiesRegistry {
                 this._registerFile(communityAddress);
                 this._emitListIfOutdated();
             } catch (error) {
-                this._log.error("Failed to register the community DB found without a row", communityAddress, error);
+                this._log.error("hasCommunityDb: Failed to register the community DB found without a row", communityAddress, error);
             }
         }
         return true;
@@ -530,7 +530,7 @@ export class CommunitiesRegistry {
         } catch (error) {
             this._releasesToWriteAgain.add(communityAddress);
             this._mirrorStartedAgain(communityAddress);
-            this._log.error("Failed to write that community", communityAddress, "is stopped, will try again", error);
+            this._log.error("releaseStart: Failed to write that community", communityAddress, "is stopped, will try again", error);
         }
         this._emitListIfOutdated();
     }
@@ -586,12 +586,12 @@ export class CommunitiesRegistry {
             }
         } catch (error) {
             if (this._db.inTransaction) this._db.exec("ROLLBACK");
-            this._log.error("Failed to release the communities of a closing PKC instance", error);
+            this._log.error("close: Failed to release the communities of a closing PKC instance", error);
         }
         try {
             releaseInstanceLock({ db: this._db, lockPath });
         } catch (error) {
-            this._log.error("Failed to release the lock of a closing PKC instance", error);
+            this._log.error("close: Failed to release the lock of a closing PKC instance", error);
         }
         if (this._db.open) this._db.close();
     }
@@ -730,7 +730,7 @@ export class CommunitiesRegistry {
                 try {
                     rmSync(path.join(communitiesPath, dirent.name), { recursive: true, force: true });
                 } catch (error) {
-                    this._log.error("Failed to remove the start lock of an older version", dirent.name, error);
+                    this._log.error("_reconcileWithDirectory: Failed to remove the start lock of an older version", dirent.name, error);
                 }
                 continue;
             }
@@ -767,7 +767,11 @@ export class CommunitiesRegistry {
             try {
                 this._registerFile(address);
             } catch (error) {
-                this._log.error("Failed to read again the identity of community DB", address, error);
+                this._log.error(
+                    "_readAgainIdentitiesThatFailedToBeRead: Failed to read again the identity of community DB",
+                    address,
+                    error
+                );
             }
             if (!this._identityReadsToRetry.has(address)) continue; // read, or not a community DB any more
             if (retriesLeft <= 1) this._identityReadsToRetry.delete(address);
@@ -792,7 +796,11 @@ export class CommunitiesRegistry {
                 if (Date.now() - statSync(lockPath).mtimeMs < INSTANCE_LOCK_MIN_AGE_TO_SWEEP_MS) continue;
                 if (!isInstanceLockHeldSync(lockPath)) rmSync(lockPath, { force: true });
             } catch (error) {
-                this._log.error("Failed to check the lock file of another PKC instance", lockPath, error);
+                this._log.error(
+                    "_sweepInstanceLocksOfDeadInstances: Failed to check the lock file of another PKC instance",
+                    lockPath,
+                    error
+                );
             }
         }
     }
@@ -920,7 +928,7 @@ export class CommunitiesRegistry {
         } catch (error) {
             // A `communitieschange` listener of the user threw. Whatever changed the list (a start, a stop, a creation)
             // has been written, and must not fail on it: a start that threw here kept a claim nothing released
-            this._log.error("A listener of the list of local communities threw", error);
+            this._log.error("_emitListIfOutdated: A listener of the list of local communities threw", error);
         }
     }
 }

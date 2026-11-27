@@ -71,7 +71,9 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
                 const passes = kind === "busy" || (kind === "maybe-transient" && ++consecutiveIoErrors <= MAX_CONSECUTIVE_IO_ERRORS);
                 if (!passes) throw error;
                 if (shouldStopPublishLoop()) return;
-                log(`The DB of community (${community.address}) could not be read (${kind}), reading again in ${MS_BETWEEN_DB_READ_RETRIES}ms`);
+                log(
+                    `readUpdateTriggerRidingOutDbFaults: The DB of community (${community.address}) could not be read (${kind}), reading again in ${MS_BETWEEN_DB_READ_RETRIES}ms`
+                );
                 await new Promise<void>((resolve) => setTimeout(resolve, MS_BETWEEN_DB_READ_RETRIES));
             }
         }
@@ -150,10 +152,12 @@ export async function publishLoop(community: LocalCommunity, syncIntervalMs: num
                     community.emit("error", error);
                 } catch (e) {
                     // nobody listens for errors, or a listener threw. The community goes down all the same
-                    log.error(`A listener of the error of community (${community.address}) threw, or there is none`, e);
+                    log.error(`_publishLoop: A listener of the error of community (${community.address}) threw, or there is none`, e);
                 }
                 // not awaited: stop() waits for this loop to end
-                community.stop().catch((e) => log.error(`Failed to stop community (${community.address}) after its start was taken`, e));
+                community
+                    .stop()
+                    .catch((e) => log.error(`_publishLoop: Failed to stop community (${community.address}) after its start was taken`, e));
                 break;
             }
             let lastSyncFailed = false;
@@ -187,7 +191,10 @@ function isCommunityStartTakenByAnotherInstance(community: LocalCommunity, log: 
     try {
         return community._dbHandler.confirmCommunityStartIsStillOurs() === "taken";
     } catch (e) {
-        log.error(`Failed to confirm that community (${community.address}) is still started by this PKC instance`, e);
+        log.error(
+            `isCommunityStartTakenByAnotherInstance: Failed to confirm that community (${community.address}) is still started by this PKC instance`,
+            e
+        );
         return false;
     }
 }
@@ -882,7 +889,7 @@ async function deleteCommunityWhileMarked(community: LocalCommunity) {
     } catch (e) {
         // The community is deleted: its DB has moved. A row that could not be removed (storage.db locked for too long)
         // goes with the filesystem event of the move, or with the next lookup of the address
-        log.error(`Failed to remove deleted community (${community.address}) from the communities registry`, e);
+        log.error(`delete: Failed to remove deleted community (${community.address}) from the communities registry`, e);
     }
 
     log(`delete: Deleted community (${community.address}) successfully`);

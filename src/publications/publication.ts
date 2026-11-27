@@ -614,7 +614,10 @@ class Publication extends TypedEmitter<PublicationEvents> {
             try {
                 await this._verifyDecryptedChallengeVerificationAndUpdateCommentProps(decryptedChallengeVerification);
             } catch (e) {
-                log.error("The comment in a successful challenge verification does not verify", e);
+                log.error(
+                    "_handleIncomingChallengeVerificationPubsubMessage: The comment in a successful challenge verification does not verify",
+                    e
+                );
                 await this._tearDownThenWriteFailure(e as PKCError | Error);
                 return;
             }
@@ -1794,7 +1797,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
                 // The request is held by the last provider (the ones before it threw), so there is nobody left to
                 // retry with. Give it the same failure wait as a retried request below. Stopping here instead left the
                 // publication stopped with publishingState "waiting-challenge" and no error
-                log(`No response from the last provider (${currentPubsubProvider}), will wait for it until the failure threshold`);
+                log(
+                    `_handleNotReceivingResponseToChallengeRequest: No response from the last provider (${currentPubsubProvider}), will wait for it until the failure threshold`
+                );
             }
             await sleepUntilTimeoutOrAbort(this._setProviderFailureThresholdSeconds * 1000, runSignal);
             if (this._hasPublishEnded()) return;
@@ -1808,7 +1813,9 @@ class Publication extends TypedEmitter<PublicationEvents> {
             // publication stays subscribed for its verification, exactly like a publication whose
             // challenge arrived before any retry (issue #340).
             if (this._didWeReceiveChallengeOrChallengeVerification()) {
-                log(`Received a challenge or challenge verification while waiting for retried providers, will keep the exchange alive`);
+                log(
+                    `_handleNotReceivingResponseToChallengeRequest: Received a challenge or challenge verification while waiting for retried providers, will keep the exchange alive`
+                );
                 return;
             }
             if (this._isAllAttemptsExhausted(providers.length)) {
@@ -1933,7 +1940,7 @@ class Publication extends TypedEmitter<PublicationEvents> {
                         })
                     );
                 } catch (endError) {
-                    log.error("Failed to end the exchange the local community rejected", endError);
+                    log.error("_publishWithLocalCommunity: Failed to end the exchange the local community rejected", endError);
                 }
             })
             .finally(() => {

@@ -175,7 +175,7 @@ export async function removeFileRetryingWhileBusy(
     const deadline = Date.now() + timeoutMs;
     for (let retryDelayMs = 50; ; retryDelayMs = Math.min(retryDelayMs * 2, 1000)) {
         if (keepIf?.()) {
-            log(`${filePath} is not to be removed any more, leaving it in place`);
+            log(`removeFileRetryingWhileBusy: ${filePath} is not to be removed any more, leaving it in place`);
             return;
         }
         try {
@@ -184,7 +184,7 @@ export async function removeFileRetryingWhileBusy(
         } catch (e) {
             const code = (e as NodeJS.ErrnoException).code;
             if (!code || !WINDOWS_FILE_BUSY_ERROR_CODES.includes(code) || Date.now() + retryDelayMs >= deadline) throw e;
-            log(`${filePath} is still busy (${code}), retrying its removal in ${retryDelayMs}ms`);
+            log(`removeFileRetryingWhileBusy: ${filePath} is still busy (${code}), retrying its removal in ${retryDelayMs}ms`);
             await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
         }
     }

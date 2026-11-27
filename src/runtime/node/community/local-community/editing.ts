@@ -215,7 +215,10 @@ async function movePostUpdatesFolderBack({
         await movePostUpdatesFolderToNewAddress(community, newAddress, oldAddress);
         return undefined;
     } catch (moveBackError) {
-        log.error(`Failed to move the postUpdates folder of community (${oldAddress}) back from ${newAddress}`, moveBackError);
+        log.error(
+            `movePostUpdatesFolderBack: Failed to move the postUpdates folder of community (${oldAddress}) back from ${newAddress}`,
+            moveBackError
+        );
         return moveBackError as Error;
     }
 }
@@ -229,7 +232,10 @@ function emitRenameUndoError({ community, error, log }: { community: LocalCommun
     try {
         community.emit("error", error);
     } catch (emitError) {
-        log.error(`Nothing listens for the errors of community (${community.address}), the error it could not report was`, error);
+        log.error(
+            `emitRenameUndoError: Nothing listens for the errors of community (${community.address}), the error it could not report was`,
+            error
+        );
     }
 }
 
