@@ -108,7 +108,7 @@ const isCidV0 = (cid: string) => {
         return false;
     }
 };
-const CommunityListCidSchema = CidStringSchema.refine(isCidV0, messages.ERR_COMMUNITY_LIST_CID_MUST_BE_V0);
+export const CommunityListCidSchema = CidStringSchema.refine(isCidV0, messages.ERR_COMMUNITY_LIST_CID_MUST_BE_V0);
 
 export const CreateCommunityListWithCidOptionsSchema = z.object({ cid: CommunityListCidSchema }).strict();
 

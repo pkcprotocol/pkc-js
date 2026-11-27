@@ -4,6 +4,7 @@ import { AuthorAddressSchema, ChallengeAnswersByIndexSchema, CidStringSchema } f
 import { CommunityEditOptionsSchema, CommunityExportRecordsSchema, ExportCommunityModLogsOptionsSchema } from "../../community/schema.js";
 import { CommentModerationsTableRowSchema } from "../../publications/comment-moderation/schema.js";
 import { NameResolveCacheOptionsSchema } from "../../schema.js";
+import { CommunityListCidSchema } from "../../community-list/schema.js";
 import type { EncodedDecryptedChallengeVerificationMessageType } from "../../pubsub-messages/types.js";
 export const SubscriptionIdSchema = z.number().positive().int();
 
@@ -126,5 +127,6 @@ export const RpcExportCommunityModLogsResultSchema = z.object({
 // bytes the client signed, and object round-trips through JSON-RPC/zod may reorder keys
 export const RpcPublishCommunityListParamSchema = z.object({ communityListRawString: z.string() });
 export const RpcPublishCommunityListResultSchema = z.object({ cid: CidStringSchema });
-export const RpcFetchCommunityListParamSchema = z.object({ cid: CidStringSchema });
+// CIDv0 only, like the client's own check: the server is reachable by clients that skip it
+export const RpcFetchCommunityListParamSchema = z.object({ cid: CommunityListCidSchema });
 export const RpcFetchCommunityListResultSchema = z.object({ communityListRawString: z.string() });

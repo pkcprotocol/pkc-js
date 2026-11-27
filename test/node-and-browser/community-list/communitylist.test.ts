@@ -12,6 +12,7 @@ import { PKCError } from "../../../dist/node/pkc-error.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import { CommunityList } from "../../../dist/node/community-list/community-list.js";
 import type { CommunityListIpfsType } from "../../../dist/node/community-list/types.js";
+import { parseRpcFetchCommunityListParam } from "../../../dist/node/clients/rpc-client/rpc-schema-util.js";
 import { addCommunityListRecordToIpfs, buildSignedCommunityListRecord, mockCommunityListEntries } from "./communitylist-test-util.js";
 
 const expectPKCErrorCode = (err: unknown, code: keyof typeof messages) => {
@@ -618,5 +619,20 @@ describe("communitylist load lifecycle", () => {
         const outcome = await Promise.race([settled, new Promise((resolve) => setTimeout(() => resolve("pending"), 3000))]);
         expect(outcome).to.equal("rejected");
         expect(fetchCalls).to.equal(1); // stop() cancelled the retry
+    });
+});
+
+// The RPC server parses fetchCommunityList params with this function. The client refuses a CIDv1 before calling, but
+// the server is reachable by any client, so it must refuse one too (BSIP-15: a list address is a CIDv0)
+describe("RPC fetchCommunityList params", () => {
+    const cidV0 = "QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f";
+
+    it("accepts a CIDv0 and tolerates unknown members", () => {
+        expect(parseRpcFetchCommunityListParam({ cid: cidV0, futureOption: true }).cid).to.equal(cidV0);
+    });
+
+    it("rejects a CIDv1", () => {
+        const cidV1 = CID.parse(cidV0).toV1().toString();
+        expect(() => parseRpcFetchCommunityListParam({ cid: cidV1 })).to.throw(messages.ERR_COMMUNITY_LIST_CID_MUST_BE_V0);
     });
 });
