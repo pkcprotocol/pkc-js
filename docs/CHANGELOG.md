@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.164](https://github.com/pkcprotocol/pkc-js/compare/v0.0.163...v0.0.164) (2026-11-27)
+
+### Features
+
+* **logger:** per-identifier logs via tagged loggers, pkc.getLogs and a getLogs RPC method ([#506](https://github.com/pkcprotocol/pkc-js/issues/506)) ([14af7b8](https://github.com/pkcprotocol/pkc-js/commit/14af7b80789af3d297a1750ce0ea23b9d9ff91c4)), closes [#493](https://github.com/pkcprotocol/pkc-js/issues/493) [#5f7600cef](https://github.com/pkcprotocol/pkc-js/issues/5f7600cef)
+
+### Build
+
+* **deps:** upgrade @pkcprotocol/pkc-logger 0.3.0 -> 0.3.1 ([#624](https://github.com/pkcprotocol/pkc-js/issues/624)) ([5dd8d0b](https://github.com/pkcprotocol/pkc-js/commit/5dd8d0be96574fc78232a8c01e73142185e09146))
+
 ## [0.0.163](https://github.com/pkcprotocol/pkc-js/compare/v0.0.162...v0.0.163) (2026-11-24)
 
 ### Bug Fixes
