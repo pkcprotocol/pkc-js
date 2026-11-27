@@ -154,12 +154,12 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 });
             const small = await listWithTagOf(1000);
             await small.publish();
-            const smallBytes = Buffer.byteLength(JSON.stringify(small.raw.communityList));
+            const smallBytes = new TextEncoder().encode(JSON.stringify(small.raw.communityList)).length;
 
             const targetBytes = limitBytes - 100;
             const list = await listWithTagOf(1000 + targetBytes - smallBytes);
             const cid = await list.publish();
-            expect(Buffer.byteLength(JSON.stringify(list.raw.communityList))).to.equal(targetBytes);
+            expect(new TextEncoder().encode(JSON.stringify(list.raw.communityList)).length).to.equal(targetBytes);
 
             const loaded = await pkc.getCommunityList({ cid });
             expect(loaded.communities?.[0].tags?.[0].length).to.equal(1000 + targetBytes - smallBytes);

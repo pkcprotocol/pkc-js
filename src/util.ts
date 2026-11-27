@@ -1426,8 +1426,10 @@ export async function fetchAndValidateIpnsRecordFromGateway(
 // The size of a record as every size limit in the protocol counts it: its UTF-8 bytes, which is what a reader
 // downloads and what every loader caps (`cat({ length })`, a gateway body). Not the UnixFS DAG size `ipfs add`
 // reports, which adds the chunking overhead and which only this implementation could compute (issue #485).
+const utf8Encoder = new TextEncoder();
 export function utf8ByteLength(content: string): number {
-    return Buffer.byteLength(content, "utf8");
+    // Buffer does not exist in a browser, where this runs for CommunityList records
+    return typeof Buffer !== "undefined" ? Buffer.byteLength(content, "utf8") : utf8Encoder.encode(content).length;
 }
 
 export type NetworkErrorDetails = {
