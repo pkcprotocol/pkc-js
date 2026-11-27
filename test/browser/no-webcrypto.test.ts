@@ -7,9 +7,13 @@ import type { PKC as PKCType } from "../../dist/node/pkc/pkc.js";
 // suite runs pkc-js without WebCrypto. Here crypto.subtle is removed BEFORE pkc-js is imported, so the real
 // runtime/browser/polyfill.ts installs its digest fallback and every client has to work with only that.
 //
-// dist/ must not be imported statically in this file: a static import is evaluated before the line below,
+// An insecure origin also has no WebTransport: browsers expose it only in a secure context. It is removed here
+// too, so the libp2p-js client has to reach peers over WSS alone, as it would on a real insecure origin.
+//
+// dist/ must not be imported statically in this file: a static import is evaluated before the lines below,
 // while crypto.subtle still exists, and the fallback would never install.
 Object.defineProperty(globalThis.crypto, "subtle", { value: undefined, configurable: true, writable: true });
+Object.defineProperty(globalThis, "WebTransport", { value: undefined, configurable: true, writable: true });
 const hadSubtleWhenPkcJsLoaded = Boolean(globalThis.crypto.subtle);
 await import("../../dist/node/index.js");
 const { getAvailablePKCConfigsToTestAgainst, publishRandomPost, resolveWhenConditionIsTrue } = await import(
@@ -19,7 +23,11 @@ const { getAvailablePKCConfigsToTestAgainst, publishRandomPost, resolveWhenCondi
 const communityAddress = signers[0].address;
 const toHex = (buffer: ArrayBuffer) => [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
-describe("pkc-js in a browser without crypto.subtle", () => {
+describe("pkc-js in a browser without crypto.subtle or WebTransport", () => {
+    it("has no WebTransport, as on an insecure origin", () => {
+        expect((globalThis as { WebTransport?: unknown }).WebTransport).to.equal(undefined);
+    });
+
     it("installs a crypto.subtle that has only digest", () => {
         expect(hadSubtleWhenPkcJsLoaded).to.equal(false);
         expect(Object.keys(globalThis.crypto.subtle)).to.deep.equal(["digest"]);

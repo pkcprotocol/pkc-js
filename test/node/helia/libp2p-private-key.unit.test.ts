@@ -1,6 +1,9 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/helia-for-pkc.js";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:libp2p-private-key" });
 
 // Which key the libp2p-js node starts with. pkc-js generates one itself so the node never touches the libp2p
 // keychain (it needs WebCrypto), except when the caller brings a datastore, which may persist the node's key.
@@ -15,7 +18,8 @@ describe("libp2p-js client private key", () => {
             key: `libp2p-private-key-test-${keyCounter++}`,
             httpRoutersOptions: ["http://localhost:1"], // never reached; required only so setup doesn't throw
             libp2pOptions: {},
-            heliaOptions
+            heliaOptions,
+            log: testLog
         })) as Libp2pJsClient;
         runningClients.push(client);
         return client;
