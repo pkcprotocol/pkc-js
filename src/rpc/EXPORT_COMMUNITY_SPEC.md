@@ -237,7 +237,7 @@ The `exportId` is unguessable (UUIDv4 = 122 bits of entropy), so it doubles as t
 
 ## Concurrency
 
-- Per-community serialization. Each `LocalCommunity` instance keeps a private `_exportQueue: Promise<void>` chained per call. A second `community.export()` call for the same community immediately appends a record (`progress: 0`) and waits for the prior export to finish before stepping its own backup. The RPC server uses the same in-process serialization.
+- Per-community serialization. Each `LocalCommunity` instance keeps a private `_exportQueue: Promise<void>` chained per call. A second `community.export()` call for the same community immediately appends a record (`progress: 0`) and waits for the prior export to finish before stepping its own backup. The RPC server uses the same in-process serialization once it holds an instance for the community: every export-related call reuses the `LocalCommunity` cached by the first one. Two first calls for a community that is not started, arriving before either has cached its instance, each create their own instance and so are not serialized against each other (#622).
 - Different communities export in parallel.
 
 ## File Format
