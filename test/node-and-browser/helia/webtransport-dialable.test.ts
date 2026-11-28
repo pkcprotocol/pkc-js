@@ -43,6 +43,21 @@ describe("libp2p-js client transports (pkc-js#475)", () => {
         expect(await client.heliaNode.libp2p.isDialable(multiaddr(WEBTRANSPORT_ADDR))).to.equal(browserHasWebTransport);
     });
 
+    // An insecure origin (plain http that is not localhost) has no WebTransport global, since browsers expose it
+    // only in a secure context. @libp2p/webtransport checks the global on every dial, so such a node must skip
+    // WebTransport addresses and still dial WSS (#581).
+    it("skips WebTransport and still dials WSS when the WebTransport global is missing", async () => {
+        const globals = globalThis as { WebTransport?: unknown };
+        const originalWebTransport = globals.WebTransport;
+        Object.defineProperty(globalThis, "WebTransport", { value: undefined, configurable: true, writable: true });
+        try {
+            expect(await client.heliaNode.libp2p.isDialable(multiaddr(WEBTRANSPORT_ADDR))).to.equal(false);
+            expect(await client.heliaNode.libp2p.isDialable(multiaddr(WSS_ADDR))).to.equal(true);
+        } finally {
+            Object.defineProperty(globalThis, "WebTransport", { value: originalWebTransport, configurable: true, writable: true });
+        }
+    });
+
     it("does not dial WebRTC-direct (denied by default, #166)", async () => {
         expect(await client.heliaNode.libp2p.isDialable(multiaddr(WEBRTC_DIRECT_ADDR))).to.equal(false);
     });

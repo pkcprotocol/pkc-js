@@ -126,7 +126,7 @@ whatever the publication type. What changed is that it now says which of the fou
 
 **pkc-js owns name-resolution caching. Resolvers should be thin network wrappers.**
 
--   pkc-js maintains a persistent cache of raw `name → publicKey` resolutions at `${dataPath}/lru-storage/nameResolutions.db` (Node) or in localforage (browser). Falls back to in-memory under `noData: true`.
+-   pkc-js maintains a persistent cache of raw `name → publicKey` resolutions in the `pkcjs_lrustorage_nameResolutions` table of the sqlite file `${dataPath}/lru-storage` (Node) or in localforage (browser). Falls back to in-memory under `noData: true`.
 -   Cache entries record `{ publicKey, resolverKey, provider, resolvedAtMs }` and are keyed by `${name}::${resolverKey}::${sha256(provider)}` so that different resolvers or different RPC providers do not collide.
 -   Resolvers should NOT implement their own cache. The contract is plug-in simplicity: `canResolve` + `resolve` + nothing else mandatory. A resolver implementation that just hits the network on every call is a fully valid implementation; pkc-js calls it sparingly.
 
@@ -321,7 +321,7 @@ both roles.
 | Function                           | File                                     | Purpose                                 |
 | ---------------------------------- | ---------------------------------------- | --------------------------------------- |
 | `getPKCAddressFromPublicKeySync()` | `src/signer/util.ts`                     | Ed25519 public key → IPNS address       |
-| `isStringDomain()`                 | `src/util.ts`                            | Check if a string is a domain name      |
+| `isStringDomain()`                 | `src/domain-util.ts`                      | Check if a string is a domain name      |
 | `areEquivalentNames()`             | `src/domain-util.ts`                     | Same name? `.eth`/`.bso` alias and case |
 | `getAuthorNameFromWire()`          | `src/publications/publication-author.ts` | Extract name from wire author           |
 | `getCommunityDomainFromWire()`     | `src/community/community-wire.ts`        | Extract domain from wire community      |

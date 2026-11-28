@@ -22,7 +22,9 @@ Every publication and record in the protocol is Ed25519 signed. Each type declar
 | `Vote` | Author | `JsonSignature` | `VoteSignedPropertyNames` |
 | `CommentEdit` | Author | `JsonSignature` | `CommentEditSignedPropertyNames` |
 | `CommentModeration` | Moderator | `JsonSignature` | `CommentModerationSignedPropertyNames` |
+| `CommunityEdit` | Community owner or admin | `JsonSignature` | `CommunityEditPublicationSignedPropertyNames` |
 | `CommunityIpfsType` | Community owner | `JsonSignature` | `CommunitySignedPropertyNames` |
+| `CommunityList` | Curator (any key) | `JsonSignature` | `CommunityListSignedPropertyNames` |
 | Challenge messages | Sender | `PubsubSignature` | Per-message type (binary, not JSON) |
 
 ## Signature Object Shapes
@@ -97,11 +99,19 @@ All in `src/signer/signatures.ts`:
 | `signCommentUpdate()` | Sign a CommentUpdate (community signs) |
 | `signVote()` | Sign a Vote |
 | `signCommentEdit()` | Sign a CommentEdit |
+| `signCommentModeration()` | Sign a CommentModeration |
+| `signCommunityEdit()` | Sign a CommunityEdit |
 | `signCommunity()` | Sign a `CommunityIpfsType` record |
-| `verifyComment()` | Verify CommentIpfs/CommentPubsubMessage signature |
+| `signCommunityList()` | Sign a CommunityList |
+| `verifyCommentPubsubMessage()` | Verify a CommentPubsubMessage signature |
+| `verifyCommentIpfs()` | Verify a CommentIpfs signature |
 | `verifyCommentUpdate()` | Verify CommentUpdate was signed by the correct community |
+| `verifyVote()`, `verifyCommentEdit()`, `verifyCommentModeration()`, `verifyCommunityEdit()` | Verify the signature of that publication |
 | `verifyCommunity()` | Verify `CommunityIpfsType` signature |
+| `verifyCommunityList()` | Verify a CommunityList signature |
 | `verifyPage()` | Verify all comments and updates in a page |
+| `verifyPageComment()` | Verify one comment of a page together with its CommentUpdate |
+| `verifyModQueuePage()` | Verify a page of the moderation queue |
 
 ## Invariants
 

@@ -807,6 +807,35 @@ describe(`Editing community.roles`, async () => {
         expect(remoteCommunity.roles).to.be.undefined;
     });
 
+    it(`edit({ roles }) replaces the whole roles map: a role left out of the edit is removed`, async () => {
+        // roles is not a per-key patch (docs/protocol/author-communities.md, "Converting an existing community").
+        // To keep the existing roles, spread them: { ...community.roles, [newKey]: { role } }
+        const keptAddress = (await pkc.createSigner()).address;
+        const droppedAddress = (await pkc.createSigner()).address;
+        const addedAddress = (await pkc.createSigner()).address;
+        await community.edit({ roles: { [keptAddress]: { role: "admin" }, [droppedAddress]: { role: "moderator" } } });
+        expect(Object.keys(community.roles!).sort()).to.deep.equal([keptAddress, droppedAddress].sort());
+
+        // droppedAddress is neither repeated nor set to undefined
+        await community.edit({ roles: { [keptAddress]: { role: "admin" }, [addedAddress]: { role: "moderator" } } });
+        expect(community.roles).to.deep.equal({ [keptAddress]: { role: "admin" }, [addedAddress]: { role: "moderator" } });
+
+        const remoteCommunity = await remotePKC.createCommunity({ address: community.address });
+        await remoteCommunity.update();
+        await resolveWhenConditionIsTrue({
+            toUpdate: remoteCommunity,
+            predicate: async () => Boolean(remoteCommunity.roles?.[addedAddress]) && !remoteCommunity.roles?.[droppedAddress]
+        });
+        expect(remoteCommunity.roles).to.deep.equal({ [keptAddress]: { role: "admin" }, [addedAddress]: { role: "moderator" } });
+        await remoteCommunity.stop();
+
+        // spreading keeps what is there
+        await community.edit({ roles: { ...community.roles, [droppedAddress]: { role: "moderator" } } });
+        expect(Object.keys(community.roles!).sort()).to.deep.equal([keptAddress, droppedAddress, addedAddress].sort());
+
+        await community.edit({ roles: {} });
+    });
+
     it(`Editing roles with an unresolvable domain throws ERR_ROLE_ADDRESS_NAME_COULD_NOT_BE_RESOLVED`, async () => {
         // "nonexistent.bso" doesn't resolve in the mock resolver
         await expect(community.edit({ roles: { "nonexistent.bso": { role: "moderator" } } })).rejects.toMatchObject({
