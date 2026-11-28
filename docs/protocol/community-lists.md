@@ -135,7 +135,8 @@ schema verbatim, wire and runtime:
 ## Owner API
 
 - `pkc.createCommunityList({signer, title?, description?, author?, communities,
-  timestamp?})`: builds the instance. `timestamp` defaults to now, like publications.
+  timestamp?, protocolVersion?})`: builds the instance. `timestamp` defaults to now, like
+  publications, and `protocolVersion` to the version of this pkc-js.
 - `publish()`: explicit one-shot. Signs the JSON and adds the file to IPFS (locally, or via
   the RPC server). Sets `cid` on the instance and returns. Throws on any validation
   failure (see below).

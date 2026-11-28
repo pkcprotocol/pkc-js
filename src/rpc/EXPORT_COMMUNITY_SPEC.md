@@ -203,7 +203,7 @@ The signer lives inside the `internalCommunity` KeyV record. With the backup DB 
 
 - Directory: `<pkcDataPath>/exports/` (sibling of `<pkcDataPath>/communities/`).
 - On-disk filename: `<exportId>.sqlite`. Embedded callers can override the entire path with `exportPath`.
-- Persistence: each community persists its `exports` array in its internal KeyV record so records survive process restart. On community load, the server prunes any records whose backing files no longer exist on disk.
+- Persistence: each community persists its `exports` array in its internal KeyV record so records survive process restart. On community load, the server prunes any records whose backing files no longer exist on disk, and any record that was still in progress when the process exited (`progress < 1` with no `error`), since an export cannot be resumed. Records that carry an `error` are kept.
 
 ### Retention
 
@@ -217,6 +217,8 @@ The signer lives inside the `internalCommunity` KeyV record. With the backup DB 
 - Returns `200` with `Content-Length` and `Content-Type: application/vnd.sqlite3`, streams file.
 - After streaming completes successfully, server deletes the file, removes the record from `community.exports`, and fires `exportschange`.
 - Unknown `exportId`: `404`.
+- Any method other than `GET`: `405` with `Allow: GET`.
+- A file whose community is not loaded on the server (for example after a restart) is served straight from `<pkcDataPath>/exports/<exportId>.sqlite`. After that download only the file is deleted: no `exportschange` fires, and the record is pruned the next time the community is loaded.
 - No range/resume in v1.
 
 ### Capability via `exportId`
@@ -256,6 +258,7 @@ Sync errors (thrown from `community.export()`):
 - `ERR_EXPORT_PATH_TARGETS_LIVE_DB` — caller-supplied `exportPath` resolves to the live community DB; refusing to overwrite it (shipped).
 - `ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED` — server refused an `includePrivateKey: true` request because `allowPrivateKeyExport` is `false`; the message instructs the operator to restart with `allowPrivateKeyExport=true` (shipped).
 - `ERR_EXPORT_PATH_NOT_SUPPORTED_OVER_RPC` — caller used an RPC client and passed `exportPath` (shipped).
+- `ERR_COMMUNITY_NOT_FOUND` — over RPC, neither `name` nor `publicKey` matches a community on the server (shipped).
 
 Async errors (recorded in `record.error.code`):
 - `ERR_EXPORT_CANCELLED` — recorded when an `AbortSignal` aborts an in-progress record (or when `pkc.destroy()` cancels in-flight exports). The signal is honored throughout the backup pipeline, including the post-backup scrub, hash, and rename steps.

@@ -18,6 +18,19 @@ pkcWebSocketServer.on('error', console.log)
 console.log(`test server pkc wss listening on port ${port}`)
 ```
 
+`PKCWsServer(options)` takes these options, all optional:
+
+| Name | Type | Default | Description |
+| ---- | ---- | ------- | ----------- |
+| port | `number` | | Port to listen on. `0` asks the OS for a free port |
+| server | `http.Server` or `https.Server` | | An existing HTTP(S) server to attach to, in place of `port` |
+| pkcOptions | `PKCOptions` | | Options of the `PKC` instance the server creates |
+| authKey | `string` | `undefined` | Connections that do not come from localhost are rejected unless the request path is `/<authKey>`, e.g. `ws://host:port/<authKey>`. A connection through a proxy (one that sends `X-Forwarded-For`) does not count as localhost |
+| startStartedCommunitiesOnStartup | `boolean` | `true` | Start the communities that were running when the server last stopped |
+| autoStartConcurrency | `number` | `5` | How many of those communities are started in parallel. `0` or `1` starts them one at a time |
+| allowPrivateKeyExport | `boolean` | `true` | When `false`, `exportCommunity` with `includePrivateKey: true` is rejected with `ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED` |
+| exportFileMaxAgeMs | `number` | `86400000` (24 hours) | On startup, export files older than this are deleted. `0` disables the deletion. See [EXPORT_COMMUNITY_SPEC.md](EXPORT_COMMUNITY_SPEC.md) |
+
 ## Name resolution
 
 Name resolution (`.bso`, `.eth` domains) happens **server-side**. The RPC server must have `nameResolvers` configured in its `pkcOptions` — for example, by registering `@bitsocial/bso-resolver`. RPC clients do **not** need `nameResolvers`; they pass domain names directly to methods like `communityUpdateSubscribe` and the server resolves them.

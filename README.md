@@ -443,6 +443,7 @@ PubsubSignature {
   - [`community.stop()`](#communitystop)
   - [`community.update()`](#communityupdate)
   - `community.delete()`
+  - [`community.export(options?)`](#communityexportoptions)
   - [`community.exportCommunityModLogs(opts?)`](#communityexportcommunitymodlogsopts)
   - `community.address`
   - `community.shortAddress`
@@ -803,6 +804,7 @@ Either `{cid}` to load an existing list (a CIDv0 `Qm...`, as `publish()` returns
 | author | `Author` or `undefined` | The curator's profile, same schema as `publication.author`; `author.name` must be a domain |
 | communities | `CommunityListEntry[]` | Entries of the list; duplicate `publicKey` entries throw |
 | timestamp | `number` or `undefined` | Seconds, defaults to now |
+| protocolVersion | `string` or `undefined` | Defaults to the protocol version of this pkc-js. A value passed here is kept as given |
 
 #### Returns
 
@@ -1579,6 +1581,59 @@ community.on('error', (error) => {
   console.error(error)
 })
 community.update()
+```
+
+### `community.export(options?)`
+
+> Write a backup of the community's database to a sqlite file. Only usable by the community owner: a read-only `RemoteCommunity` throws `ERR_COMMUNITY_NOT_LOCAL`. The promise resolves with an `exportId` once the export is queued; the copy itself runs in the background. Follow it through `community.exports` and the `exportschange` event, which both carry the community's export records. The full behaviour, including the RPC methods and the download endpoint of an RPC server, is in [`src/rpc/EXPORT_COMMUNITY_SPEC.md`](src/rpc/EXPORT_COMMUNITY_SPEC.md).
+
+#### Parameters
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| options | `ExportCommunityUserOptions` or `undefined` | Options of the export |
+
+##### ExportCommunityUserOptions
+
+An object which may have the following keys:
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| includePrivateKey | `boolean` or `undefined` | Keep the community signer's private key in the file. Defaults to `false`, which removes it. An RPC server started with `allowPrivateKeyExport: false` refuses `true` |
+| exportPath | `string` or `undefined` | Where to write the file. Defaults to `<dataPath>/exports/<exportId>.sqlite`. Not available over RPC (`ERR_EXPORT_PATH_NOT_SUPPORTED_OVER_RPC`) |
+| signal | `AbortSignal` or `undefined` | Aborting it cancels the export; this is the only way to cancel one |
+
+#### Returns
+
+`Promise<{ exportId: string }>`
+
+##### CommunityExportRecord
+
+Each entry of `community.exports` and of the `exportschange` payload:
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| exportId | `string` | Id returned by `community.export()` |
+| name | `string` or `undefined` | Name of the community, if it has one |
+| publicKey | `string` | Public key of the community |
+| includePrivateKey | `boolean` | The option the export was requested with |
+| progress | `number` | From `0` to `1`; `1` means the file is complete |
+| size | `number` or `undefined` | Size of the file in bytes, once complete |
+| sha256 | `string` or `undefined` | Hex sha256 of the file, once complete |
+| url | `string` or `undefined` | Once complete: a `file://` URL locally, or an `http(s)://<rpc server>/exports/<exportId>` URL for an RPC client. The RPC server deletes the file after it has been downloaded once |
+| error | `{code: string, message: string}` or `undefined` | Set if the export failed or was cancelled (`ERR_EXPORT_CANCELLED`) |
+
+#### Example
+
+```js
+const community = await pkc.createCommunity({ address: '12D3KooW...' })
+community.on('exportschange', (records) => {
+  for (const record of records) {
+    if (record.error) console.log('export failed', record.exportId, record.error.code)
+    else if (record.progress === 1) console.log('export ready', record.url, record.sha256)
+  }
+})
+const { exportId } = await community.export()
 ```
 
 ### `community.exportCommunityModLogs(opts?)`
