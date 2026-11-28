@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { omit } from "remeda";
 import { cleanUpBeforePublishing } from "../../../../dist/node/signer/signatures.js";
 import { calculateExpectedSignatureSize } from "../../../../dist/node/runtime/node/util.js";
-import { calculateStringSizeSameAsIpfsAddCidV0, timestamp } from "../../../../dist/node/util.js";
+import { timestamp } from "../../../../dist/node/util.js";
 import env from "../../../../dist/node/version.js";
 import { sha256 } from "js-sha256";
 import { PKCError } from "../../../../dist/node/pkc-error.js";
@@ -180,7 +180,10 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
             expectExclusiveBestPreloadLocation(replies!, "community.posts root");
 
             const movedDepths = logCommentsThatMovedBestPreloadToPageCids(updates, rows, "community.posts");
-            expect(movedDepths).to.deep.equal([85, 60, 35, 10]);
+            // [85, 60, 35, 10] while createCommentContent sized its repeat unit as a UnixFS DAG (the unit's bytes plus
+            // framing), which left every seeded comment short of its target size. Sized in UTF-8 bytes the comments
+            // reach their target, so a chain of 23 levels fits inline where 25 did
+            expect(movedDepths).to.deep.equal([87, 64, 41, 18]);
 
             const preloadedSortName = "hot";
             const availablePostsSize = await calculateAvailablePostsSizeForCommunity(context.community);
@@ -243,7 +246,8 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
             await expectCommentUpdateUnderLimit(rootUpdate!.newCommentUpdate, "root update should stay under 1mib");
 
             const movedDepths = logCommentsThatMovedBestPreloadToPageCids(updates, rows, "community.posts");
-            expect(movedDepths).to.deep.equal([35, 10]);
+            // [35, 10] while sizes were UnixFS DAG sizes (see the test above)
+            expect(movedDepths).to.deep.equal([37, 14]);
 
             const preloadedSortName = "hot";
             const availablePostsSize = await calculateAvailablePostsSizeForCommunity(context.community);
@@ -260,7 +264,7 @@ describeSkipIfRpc.concurrent("page-generator disables oversized preloaded pages"
             const generatedPosts = await pageGenerator.generateCommunityPosts({ preloadedPageSizeBytes: availablePostsSize });
 
             expect(capturedFirstChunk, "expected to capture first chunk from sortAndChunkComments").to.exist;
-            const firstChunkSerializedSize = await calculateStringSizeSameAsIpfsAddCidV0(JSON.stringify({ comments: capturedFirstChunk }));
+            const firstChunkSerializedSize = Buffer.byteLength(JSON.stringify({ comments: capturedFirstChunk }));
             expect(firstChunkSerializedSize, "first chunk should fit within production preloaded budget").to.be.at.most(availablePostsSize);
 
             expect(capturedFirstChunk![0].commentUpdate.replyCount).to.equal(updates.length - 1);
@@ -531,7 +535,7 @@ async function calculateAvailablePostsSizeForCommunity(community: LocalCommunity
         protocolVersion: PROTOCOL_VERSION
     });
 
-    const baseSize = await calculateStringSizeSameAsIpfsAddCidV0(JSON.stringify(baseCommunity));
+    const baseSize = Buffer.byteLength(JSON.stringify(baseCommunity));
     const expectedSignatureSize = calculateExpectedSignatureSize(baseCommunity);
     return 1024 * 1024 - baseSize - expectedSignatureSize - 1000;
 }
@@ -583,7 +587,7 @@ function createFakeIpfsClient(): FakeIpfsClient {
     const noopAsync = async (): Promise<void> => {};
     return {
         add: async (content: string): Promise<FakeIpfsAddResult> => {
-            const size = await calculateStringSizeSameAsIpfsAddCidV0(content);
+            const size = Buffer.byteLength(content);
             const cid = await calculateIpfsCidV0Lib(`${content.length}-${Math.random()}`);
             return { cid, path: cid, size };
         },
@@ -698,7 +702,7 @@ async function buildTestCommentRowsFromTrees({
 
 async function createCommentContent(prefix: string, targetBytes: number = MAX_COMMENT_SIZE_BYTES / 2 - 512): Promise<string> {
     const unit = `${prefix}-chunk-`;
-    const unitBytes = await calculateStringSizeSameAsIpfsAddCidV0(unit);
+    const unitBytes = Buffer.byteLength(unit);
     const repeat = Math.max(1, Math.floor(targetBytes / unitBytes));
     return unit.repeat(repeat);
 }
@@ -718,7 +722,7 @@ async function calculateModQueueChunkSize(comments: unknown[], hasNextCid: boole
         : {
               comments
           };
-    return await calculateStringSizeSameAsIpfsAddCidV0(JSON.stringify(payload));
+    return Buffer.byteLength(JSON.stringify(payload));
 }
 
 function assertParentAndPostCid(
@@ -760,7 +764,7 @@ async function expectCommentUpdateUnderLimit(
 ): Promise<number> {
     expect(commentUpdate, `${contextMessage} (comment update missing)`).to.exist;
     const serialized = JSON.stringify(commentUpdate);
-    const sizeBytes = await calculateStringSizeSameAsIpfsAddCidV0(serialized);
+    const sizeBytes = Buffer.byteLength(serialized);
     expect(sizeBytes, contextMessage).to.be.lessThan(limitBytes);
     return sizeBytes;
 }

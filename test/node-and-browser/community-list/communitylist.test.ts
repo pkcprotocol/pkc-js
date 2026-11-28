@@ -12,6 +12,7 @@ import { PKCError } from "../../../dist/node/pkc-error.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import { CommunityList } from "../../../dist/node/community-list/community-list.js";
 import type { CommunityListIpfsType } from "../../../dist/node/community-list/types.js";
+import { parseRpcFetchCommunityListParam } from "../../../dist/node/clients/rpc-client/rpc-schema-util.js";
 import { addCommunityListRecordToIpfs, buildSignedCommunityListRecord, mockCommunityListEntries } from "./communitylist-test-util.js";
 
 const expectPKCErrorCode = (err: unknown, code: keyof typeof messages) => {
@@ -136,6 +137,32 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
                 expectPKCErrorCode(e, "ERR_COMMUNITY_LIST_OVER_ALLOWED_SIZE");
             }
             expect(list.state).to.equal("stopped");
+        });
+
+        it("a list a few bytes under 2mb publishes and loads: the limit counts the record's bytes", async () => {
+            // The limit used to be checked against the UnixFS DAG size on publish and on the RPC client's load, which is
+            // about 500 bytes more than the file at this size, while every other loader counted the file's bytes. A
+            // list in that window published nowhere and loaded only without RPC (issue #485)
+            const limitBytes = 2 * 1024 * 1024;
+            const signer = await pkc.createSigner();
+            const timestamp = Math.round(Date.now() / 1000);
+            const listWithTagOf = (tagLength: number) =>
+                pkc.createCommunityList({
+                    signer,
+                    timestamp,
+                    communities: [{ ...mockCommunityListEntries[0], tags: ["x".repeat(tagLength)] }]
+                });
+            const small = await listWithTagOf(1000);
+            await small.publish();
+            const smallBytes = new TextEncoder().encode(JSON.stringify(small.raw.communityList)).length;
+
+            const targetBytes = limitBytes - 100;
+            const list = await listWithTagOf(1000 + targetBytes - smallBytes);
+            const cid = await list.publish();
+            expect(new TextEncoder().encode(JSON.stringify(list.raw.communityList)).length).to.equal(targetBytes);
+
+            const loaded = await pkc.getCommunityList({ cid });
+            expect(loaded.communities?.[0].tags?.[0].length).to.equal(1000 + targetBytes - smallBytes);
         });
 
         it("publishes a revision from a loaded instance's props, as the spec documents", async () => {
@@ -655,5 +682,20 @@ describe("communitylist load lifecycle", () => {
         const outcome = await Promise.race([settled, new Promise((resolve) => setTimeout(() => resolve("pending"), 3000))]);
         expect(outcome).to.equal("rejected");
         expect(fetchCalls).to.equal(1); // stop() cancelled the retry
+    });
+});
+
+// The RPC server parses fetchCommunityList params with this function. The client refuses a CIDv1 before calling, but
+// the server is reachable by any client, so it must refuse one too (BSIP-15: a list address is a CIDv0)
+describe("RPC fetchCommunityList params", () => {
+    const cidV0 = "QmYHzA8euDgUpNy3fh7JRwpPwt6jCgF35YTutYkyGGyr8f";
+
+    it("accepts a CIDv0 and tolerates unknown members", () => {
+        expect(parseRpcFetchCommunityListParam({ cid: cidV0, futureOption: true }).cid).to.equal(cidV0);
+    });
+
+    it("rejects a CIDv1", () => {
+        const cidV1 = CID.parse(cidV0).toV1().toString();
+        expect(() => parseRpcFetchCommunityListParam({ cid: cidV1 })).to.throw(messages.ERR_COMMUNITY_LIST_CID_MUST_BE_V0);
     });
 });

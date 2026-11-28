@@ -3,7 +3,6 @@ import { vi } from "vitest";
 import { of as calculateIpfsCidV0Lib } from "typestub-ipfs-only-hash";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { calculateStringSizeSameAsIpfsAddCidV0 } from "../../../../dist/node/util.js";
 import { updateCommentsThatNeedToBeUpdated } from "../../../../dist/node/runtime/node/community/local-community/comment-updates.js";
 import env from "../../../../dist/node/version.js";
 
@@ -79,7 +78,7 @@ function createFakeIpfsClient(): FakeIpfsClient {
     const noopAsync = async (): Promise<void> => {};
     return {
         add: async (content: string) => {
-            const size = await calculateStringSizeSameAsIpfsAddCidV0(content);
+            const size = Buffer.byteLength(content);
             const cid = await calculateIpfsCidV0Lib(`${content.length}-${Math.random()}`);
             return { cid, path: cid, size };
         },

@@ -92,7 +92,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
         await ensurePublicationIsSigned(publication, community);
 
         const orig = publication.raw.pubsubMessageToPublish!;
-        const modified = { ...orig, communityPublicKey: "QmFakeWrongCommunityPublicKey" } as Record<string, unknown>;
+        const modified = { ...orig, communityPublicKey: "12D3KooWP4XfbLzE6RJZKGE17P2LzHNmWBWnJBhQz718uxwrXBFV" } as Record<string, unknown>;
         const signedProps = orig.signature.signedPropertyNames;
         modified.signature = await _signJson(signedProps, cleanUpBeforePublishing(modified), publication.signer, log);
         publication.raw.pubsubMessageToPublish = modified as typeof orig;

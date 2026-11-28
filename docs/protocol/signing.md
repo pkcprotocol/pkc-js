@@ -2,7 +2,7 @@
 
 ## Summary
 
-Every publication and record in the protocol is Ed25519 signed. Each type declares its own `signedPropertyNames`: an explicit list of which fields the signature covers. Verification re-encodes those exact fields with CBORG and checks the Ed25519 signature.
+Every publication and record in the protocol is Ed25519 signed. Each type declares its own `signedPropertyNames`: an explicit list of which fields the signature covers. Verification re-encodes those exact fields with CBORG and checks the Ed25519 signature. A signature whose `type` is not `"ed25519"` is invalid, on JSON records and on pubsub messages alike: the field is checked, so a later scheme can be told apart by it.
 
 ## How Signing Works
 

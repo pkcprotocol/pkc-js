@@ -157,6 +157,27 @@ describeSkipIfRpc(`verify pages`, async () => {
             expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
         });
 
+        // BSIP-2: a signature's type MUST be "ed25519". A page verifies its CommentUpdates without checking their
+        // signature bytes (the community record that links the page is signed), so the type needs its own check (#614)
+        it(`commentUpdate.signature.type that is not ed25519`, async () => {
+            const invalidPage = clone(validPageIpfsFixture) as PageIpfs;
+            invalidPage.comments[0].commentUpdate.signature = { ...invalidPage.comments[0].commentUpdate.signature, type: "secp256k1" };
+            // validateUpdateSignature: false is how pages loaded from the network are verified (src/pages/pages.ts)
+            const verification = await verifyPage({
+                pageCid: uuidV4(),
+                pageSortName: "hot",
+                page: invalidPage,
+                resolveAuthorNames: pkc.resolveAuthorNames,
+                clientsManager: pkc._clientsManager,
+                community,
+                parentComment: getParentComment(undefined),
+                validatePages: true,
+                validateUpdateSignature: false,
+                log: testLog
+            });
+            expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
+        });
+
         it(`commentUpdate.edit.content`, async () => {
             // Use legacy fixture which has comments with commentUpdate.edit.content
             const invalidPage = clone(legacyPageIpfsFixture) as PageIpfs;

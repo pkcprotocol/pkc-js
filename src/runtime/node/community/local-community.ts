@@ -19,7 +19,7 @@ import { PageGenerator } from "./page-generator.js";
 import { DbHandler } from "./db-handler.js";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import {
-    calculateStringSizeSameAsIpfsAddCidV0,
+    utf8ByteLength,
     hideClassPrivateProps,
     ipnsNameToIpnsOverPubsubTopic,
     isStringDomain,
@@ -370,7 +370,7 @@ export class LocalCommunity extends RpcLocalCommunity implements CreateNewLocalC
         const log = this._log;
 
         const stringifiedNewCommunityRecord = deterministicStringify(recordToPublishRaw);
-        const calculatedSizeOfNewCommunityRecord = await calculateStringSizeSameAsIpfsAddCidV0(stringifiedNewCommunityRecord);
+        const calculatedSizeOfNewCommunityRecord = utf8ByteLength(stringifiedNewCommunityRecord);
 
         // Check if the community record size is less than 1MB
         if (calculatedSizeOfNewCommunityRecord > MAX_FILE_SIZE_BYTES_FOR_COMMUNITY_IPFS) {

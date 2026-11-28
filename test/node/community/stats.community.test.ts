@@ -486,7 +486,7 @@ describe(`community.statsCid`, function () {
             const statsBefore = queryStats();
             insertPost({
                 authorSignerAddress: "foreign-author",
-                overrides: { communityPublicKey: "other-community" }
+                overrides: { communityPublicKey: "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z" }
             });
             const statsAfter = queryStats();
             expectDelta(activeUserCountKeys, statsBefore, statsAfter, 0);
@@ -538,7 +538,7 @@ describe(`community.statsCid`, function () {
             const statsBefore = queryStats();
             const foreignPost = insertPost({
                 authorSignerAddress: "foreign-post-vote",
-                overrides: { communityPublicKey: "another-sub" }
+                overrides: { communityPublicKey: "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo" }
             });
             insertVote(foreignPost, { authorSignerAddress: "vote-on-foreign" });
             const statsAfter = queryStats();

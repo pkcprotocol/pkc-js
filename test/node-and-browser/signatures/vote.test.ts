@@ -80,6 +80,19 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
         await pkc.destroy();
     });
 
+    // BSIP-2: a signature's type MUST be "ed25519". The bytes are otherwise verified as Ed25519 whatever the field
+    // says, which would make the field unusable for a second scheme later (issue #614)
+    it(`a vote whose signature.type is not ed25519 is invalid, even over a valid signature`, async () => {
+        const vote = clone(validVoteFixture) as unknown as VotePubsubMessagePublication;
+        vote.signature = { ...vote.signature, type: "secp256k1" };
+        const verification = await verifyVote({
+            vote,
+            resolveAuthorNames: pkc.resolveAuthorNames,
+            clientsManager: pkc._clientsManager
+        });
+        expect(verification).to.deep.equal({ valid: false, reason: messages.ERR_SIGNATURE_IS_INVALID });
+    });
+
     it(`Valid vote signature fixture is validated correctly`, async () => {
         const vote = clone(validVoteFixture) as unknown as VotePubsubMessagePublication;
         const verification = await verifyVote({

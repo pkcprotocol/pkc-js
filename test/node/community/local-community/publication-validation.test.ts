@@ -5,7 +5,7 @@
 // respondWithErrorIfSignatureOfPublicationIsInvalid wraps real signature verification and is
 // covered by the challenges integration suite.
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Logger from "@pkcprotocol/pkc-logger";
 import {
     checkPublicationValidity,
@@ -17,6 +17,7 @@ import { createAuthorIdentityMatcher } from "../../../../dist/node/runtime/node/
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type { Flair } from "../../../../dist/node/community/types.js";
 import signers from "../../../fixtures/signers.js";
+import { messages } from "../../../../dist/node/errors.js";
 
 // Local-community helpers log through community._log (issue #493); fakes get the process-default root
 const testLog = Logger({ namespace: "pkc-js:test:publication-validation" });
@@ -156,5 +157,57 @@ describe("publication-validation: role keys match across .bso/.eth spellings and
 
     it("an impostor claiming the other spelling of a moderator's role key gets no authority", async () => {
         expect(await check({ roleKey: "mod-424.eth", authorName: "mod-424.bso", signer: impostor })).to.deep.equal({ matched: false });
+    });
+});
+
+// BSIP-4: a publication is rejected when its timestamp is MORE than five minutes before or after the community's
+// clock, so one exactly five minutes off is still in range. The pubsub message check and the wallet proof check
+// already compare strictly; this pins the publication check to the same boundary.
+describe("publication-validation: publication timestamp window", () => {
+    const now = 1_800_000_000; // seconds
+    const communityKey = signers[0].address;
+    const community = {
+        _log: testLog,
+        address: communityKey,
+        signer: { address: communityKey },
+        anchor: undefined,
+        roles: undefined
+    } as unknown as LocalCommunity;
+
+    const validityOfTimestamp = async (publicationTimestamp: number) => {
+        const publication = { communityPublicKey: communityKey, timestamp: publicationTimestamp };
+        try {
+            return await checkPublicationValidity({
+                community,
+                request: { comment: publication } as unknown as Parameters<typeof checkPublicationValidity>[0]["request"],
+                publication: publication as unknown as Parameters<typeof checkPublicationValidity>[0]["publication"]
+            });
+        } catch (e) {
+            // the stub community cannot serve the checks after the timestamp one; reaching them is the pass signal
+            return `threw after the timestamp check: ${(e as Error).message}`;
+        }
+    };
+
+    beforeEach(() => {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(now * 1000);
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it.each([
+        ["exactly five minutes old", now - 300],
+        ["exactly five minutes ahead", now + 300],
+        ["now", now]
+    ])("accepts a timestamp that is %s", async (_label, publicationTimestamp) => {
+        expect(await validityOfTimestamp(publicationTimestamp)).to.not.equal(messages.ERR_PUBLICATION_TIMESTAMP_IS_NOT_IN_PROPER_RANGE);
+    });
+
+    it.each([
+        ["one second more than five minutes old", now - 301],
+        ["one second more than five minutes ahead", now + 301]
+    ])("rejects a timestamp that is %s", async (_label, publicationTimestamp) => {
+        expect(await validityOfTimestamp(publicationTimestamp)).to.equal(messages.ERR_PUBLICATION_TIMESTAMP_IS_NOT_IN_PROPER_RANGE);
     });
 });

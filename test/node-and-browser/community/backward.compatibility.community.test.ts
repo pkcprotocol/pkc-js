@@ -219,7 +219,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`roles[address].extraProp is preserved through createCommunity and update()`, async () => {
-            const testAddress = "12D3KooWTestAddress1234567890abcdefghij";
+            const testAddress = "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z";
             const rolesWithExtra = {
                 [testAddress]: { role: "moderator", extraRoleProp: "customRoleData" }
             };
@@ -249,7 +249,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
         });
 
         it(`Multiple nested objects with extra props are all preserved`, async () => {
-            const testAddress = "12D3KooWTestAddress1234567890abcdefghij";
+            const testAddress = "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z";
             const { communityRecord, communityAddress: communityAddress } = await createMockedCommunityIpns({
                 features: { noVideos: true, extraFeature: true },
                 suggested: { primaryColor: "#00ff00", extraSuggested: "suggestedValue" },

@@ -218,3 +218,41 @@ describe("forbiddenKeysOf", () => {
         for (const name of ["address", "name", "displayName", "tip", "community"]) expect(isForbiddenRecordKey(name)).toBe(false);
     });
 });
+
+// The forbidden names are protocol rules: every implementation, in any language and on any JavaScript engine, must
+// agree on which records are valid. So the list is fixed, never derived from what Object.prototype holds at runtime.
+describe("the forbidden key list is frozen", () => {
+    const frozenNames = [
+        "__proto__",
+        "constructor",
+        "prototype",
+        "hasOwnProperty",
+        "isPrototypeOf",
+        "propertyIsEnumerable",
+        "toString",
+        "toLocaleString",
+        "valueOf"
+    ];
+
+    it("forbids exactly the frozen names plus anything starting with an underscore", () => {
+        for (const name of frozenNames) expect(isForbiddenRecordKey(name), name).to.equal(true);
+        for (const name of ["_", "_private", "__defineGetter__", "__lookupSetter__"]) expect(isForbiddenRecordKey(name), name).to.equal(true);
+        for (const name of ["tip", "title", "toJSON", "then", "length", "name", "hasOwn"]) expect(isForbiddenRecordKey(name), name).to.equal(false);
+    });
+
+    it("covers every name Object.prototype has on this engine", () => {
+        for (const name of Object.getOwnPropertyNames(Object.prototype)) expect(isForbiddenRecordKey(name), name).to.equal(true);
+    });
+
+    it("a name added to Object.prototype at runtime does not become forbidden", () => {
+        const prototypeBag = bag(Object.prototype);
+        Object.defineProperty(Object.prototype, "addedByAPolyfill", { value: () => 1, configurable: true, enumerable: false });
+        try {
+            expect("addedByAPolyfill" in {}).to.equal(true);
+            expect(isForbiddenRecordKey("addedByAPolyfill")).to.equal(false);
+            expect(forbiddenKeysOf({ addedByAPolyfill: 1, tip: 2 })).to.deep.equal([]);
+        } finally {
+            delete prototypeBag.addedByAPolyfill;
+        }
+    });
+});

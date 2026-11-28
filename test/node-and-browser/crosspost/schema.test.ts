@@ -28,7 +28,7 @@ const embedded = () => ({
     depth: 0,
     timestamp: 1700000000,
     protocolVersion: "1.0.0",
-    communityPublicKey: "somePublicKey"
+    communityPublicKey: "12D3KooWANwdyPERMQaCgiMnTT1t3Lr4XLFbK1z4ptFVhW2ozg1z"
 });
 
 const crossposting = (comment: object = embedded()) => ({
@@ -37,7 +37,7 @@ const crossposting = (comment: object = embedded()) => ({
     depth: 0,
     timestamp: 1700000001,
     protocolVersion: "1.0.0",
-    communityPublicKey: "anotherPublicKey",
+    communityPublicKey: "12D3KooWNMYPSuNadceoKsJ6oUQcxGcfiAsHNpVTt1RQ1zSrKKpo",
     crosspost: { cid: "QmYjtig7VJQ6XsnUjqqJvj7QaMcCAwtrgNdahSiFofrE7o", comment }
 });
 
@@ -104,7 +104,7 @@ describe("a bare crosspost satisfies the content/link/title refinement", () => {
 
     const bareCreateOptions = () => ({
         signer: { privateKey: signers[0].privateKey, type: "ed25519" },
-        communityPublicKey: signers[1].publicKey,
+        communityPublicKey: signers[1].address,
         crosspost: crosspost()
     });
 
@@ -134,7 +134,7 @@ describe("a bare crosspost satisfies the content/link/title refinement", () => {
         signature: { ...sig, signedPropertyNames: ["crosspost", "author", "protocolVersion", "timestamp"] },
         timestamp: 1700000000,
         protocolVersion: "1.0.0",
-        communityPublicKey: signers[1].publicKey,
+        communityPublicKey: signers[1].address,
         crosspost: crosspost()
     });
 

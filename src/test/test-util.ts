@@ -4,13 +4,7 @@ import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 import { getAuthorWalletProofMessage, verifyAuthorWalletEntry } from "../signer/author-wallet-proof.js";
 import PKCIndex from "../index.js";
 import type { PKCCommunitiesEntry } from "../clients/rpc-client/types.js";
-import {
-    calculateStringSizeSameAsIpfsAddCidV0,
-    hasTransientNetworkErrorCode,
-    removeUndefinedValuesRecursively,
-    retryKuboIpfsAdd,
-    timestamp
-} from "../util.js";
+import { utf8ByteLength, hasTransientNetworkErrorCode, removeUndefinedValuesRecursively, retryKuboIpfsAdd, timestamp } from "../util.js";
 import type { NetworkErrorDetails } from "../util.js";
 import retry from "retry";
 import { getCommunityAddressFromRecord } from "../publications/publication-community.js";
@@ -2882,7 +2876,7 @@ export async function forceCommunityToGenerateAllPostsPages(community: RemoteCom
 
     community.setMaxListeners(100);
     if (Object.keys(community.posts.pageCids).length > 0) return;
-    const curRecordSize = await calculateStringSizeSameAsIpfsAddCidV0(JSON.stringify(rawCommunityRecord));
+    const curRecordSize = utf8ByteLength(JSON.stringify(rawCommunityRecord));
 
     const maxCommentSize = 30000;
     const defaultContent = "x".repeat(FORCE_COMMUNITY_MIN_POST_CONTENT_BYTES); // 30kb

@@ -1,6 +1,6 @@
 import { BaseClientsManager, OptionsToLoadFromGateway } from "../clients/base-client-manager.js";
 import type { Logger } from "@pkcprotocol/pkc-logger";
-import { isReservedObjectKey } from "../object-key-util.js";
+import { isForbiddenWireName } from "../object-key-util.js";
 import type { ModQueuePageIpfs, ModQueueSortName, PageIpfs } from "./types.js";
 import { isEmpty, keys, unique } from "remeda";
 import { BasePages, ModQueuePages, PostsPages, RepliesPages } from "./pages.js";
@@ -16,6 +16,14 @@ import { PKC } from "../pkc/pkc.js";
 import { sha256 } from "js-sha256";
 import { PagesIpfsGatewayClient, PagesKuboRpcClient, PagesLibp2pJsClient, PagesPKCRpcStateClient } from "./pages-clients.js";
 import type { RemoteCommunity } from "../community/remote-community.js";
+
+// Gives `maps` an own, empty entry for `sortType` unless it has one. Defined rather than assigned and tested as an own
+// key, so a name that Object.prototype also carries (added by some code at runtime) neither hides the missing entry
+// nor makes the write fail or land on the inherited value.
+function ensureOwnSortMap(maps: object, sortType: string): void {
+    if (Object.prototype.hasOwnProperty.call(maps, sortType)) return;
+    Object.defineProperty(maps, sortType, { value: {}, writable: true, enumerable: true, configurable: true });
+}
 
 export class BasePagesClientsManager extends BaseClientsManager {
     clients: {
@@ -45,15 +53,17 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
     // The per-sort client maps are plain objects keyed by whatever sort names a record carries, and the record is kept
     // as parsed JSON (zod drops an own `__proto__` key without rejecting it). A reserved key would write through
-    // Object.prototype or an inherited value, so it is skipped: no page is ever fetched under such a name.
+    // Object.prototype or an inherited value, so it is skipped: no page is ever fetched under such a name. The list of
+    // such names is fixed, so a name that some code added to Object.prototype later is not on it: the initializers
+    // below test for an own key, and give that name a map of its own instead of using the inherited value.
     private _indexableSortTypes(sortTypes: string[]): string[] {
-        return sortTypes.filter((sortType) => !isReservedObjectKey(sortType));
+        return sortTypes.filter((sortType) => !isForbiddenWireName(sortType));
     }
 
     protected _updateIpfsGatewayClientStates(sortTypes: string[]) {
         if (!this.clients.ipfsGateways) this.clients.ipfsGateways = {};
         for (const sortType of this._indexableSortTypes(sortTypes)) {
-            if (!this.clients.ipfsGateways[sortType]) this.clients.ipfsGateways[sortType] = {};
+            ensureOwnSortMap(this.clients.ipfsGateways, sortType);
             for (const gatewayUrl of keys(this._pkc.clients.ipfsGateways))
                 if (!this.clients.ipfsGateways[sortType][gatewayUrl])
                     this.clients.ipfsGateways[sortType][gatewayUrl] = new PagesIpfsGatewayClient("stopped");
@@ -63,7 +73,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
     protected _updateKuboRpcClientStates(sortTypes: string[]) {
         if (this._pkc.clients.kuboRpcClients && !this.clients.kuboRpcClients) this.clients.kuboRpcClients = {};
         for (const sortType of this._indexableSortTypes(sortTypes)) {
-            if (!this.clients.kuboRpcClients[sortType]) this.clients.kuboRpcClients[sortType] = {};
+            ensureOwnSortMap(this.clients.kuboRpcClients, sortType);
             for (const kuboRpcUrl of keys(this._pkc.clients.kuboRpcClients))
                 if (!this.clients.kuboRpcClients[sortType][kuboRpcUrl])
                     this.clients.kuboRpcClients[sortType][kuboRpcUrl] = new PagesKuboRpcClient("stopped");
@@ -73,7 +83,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
     protected _updateLibp2pJsClientStates(sortTypes: string[]) {
         if (this._pkc.clients.libp2pJsClients && !this.clients.libp2pJsClients) this.clients.libp2pJsClients = {};
         for (const sortType of this._indexableSortTypes(sortTypes)) {
-            if (!this.clients.libp2pJsClients[sortType]) this.clients.libp2pJsClients[sortType] = {};
+            ensureOwnSortMap(this.clients.libp2pJsClients, sortType);
             for (const libp2pJsClientKey of keys(this._pkc.clients.libp2pJsClients))
                 if (!this.clients.libp2pJsClients[sortType][libp2pJsClientKey])
                     this.clients.libp2pJsClients[sortType][libp2pJsClientKey] = new PagesLibp2pJsClient("stopped");
@@ -83,7 +93,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
     protected _updatePKCRpcClientStates(sortTypes: string[]) {
         if (this._pkc.clients.pkcRpcClients && !this.clients.pkcRpcClients) this.clients.pkcRpcClients = {};
         for (const sortType of this._indexableSortTypes(sortTypes)) {
-            if (!this.clients.pkcRpcClients[sortType]) this.clients.pkcRpcClients[sortType] = {};
+            ensureOwnSortMap(this.clients.pkcRpcClients, sortType);
             for (const rpcUrl of keys(this._pkc.clients.pkcRpcClients))
                 if (!this.clients.pkcRpcClients[sortType][rpcUrl])
                     this.clients.pkcRpcClients[sortType][rpcUrl] = new PagesPKCRpcStateClient("stopped");
@@ -126,7 +136,7 @@ export class BasePagesClientsManager extends BaseClientsManager {
 
     updatePageCidsToSortTypes(newPageCids: BasePages["pageCids"]) {
         for (const [sortType, pageCid] of Object.entries(newPageCids)) {
-            if (isReservedObjectKey(sortType)) continue;
+            if (isForbiddenWireName(sortType)) continue;
             this._updatePageCidsSortCache(pageCid, [sortType]);
         }
         // A community may publish pageCids under any sort name its page-sort packages declare (settings.pages, #73),

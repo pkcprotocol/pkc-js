@@ -7,6 +7,7 @@ import {
     CidStringSchema,
     CreateSignerSchema,
     JsonSignatureSchema,
+    KeyAddressSchema,
     PKCTimestampSchema,
     ProtocolVersionSchema
 } from "../schema/schema.js";
@@ -22,7 +23,7 @@ export const communityListHasNoDuplicateEntryPublicKeys = (list: { communities: 
 
 // Entry metadata is set by the list curator, NOT the community owner
 const communityListEntryShape = {
-    publicKey: z.string().min(1), // IPNS public key of the community
+    publicKey: KeyAddressSchema, // the community's key address
     name: z.string().min(1).optional(), // crypto domain (e.g. 'memes.bso')
     title: z.string().optional(),
     description: z.string().optional(),
@@ -108,7 +109,7 @@ const isCidV0 = (cid: string) => {
         return false;
     }
 };
-const CommunityListCidSchema = CidStringSchema.refine(isCidV0, messages.ERR_COMMUNITY_LIST_CID_MUST_BE_V0);
+export const CommunityListCidSchema = CidStringSchema.refine(isCidV0, messages.ERR_COMMUNITY_LIST_CID_MUST_BE_V0);
 
 export const CreateCommunityListWithCidOptionsSchema = z.object({ cid: CommunityListCidSchema }).strict();
 

@@ -22,6 +22,7 @@ import { difference, isEmpty, keys, omit } from "remeda";
 import type { DecryptedChallengeRequestMessageTypeWithCommunityAuthor } from "../pubsub-messages/types.js";
 import { messages } from "../errors.js";
 import { isStringDomain } from "../domain-util.js";
+import { isKeyAddress } from "../key-address.js";
 
 // Other props of Community Ipfs here
 export const CommunityEncryptionSchema = z.looseObject({
@@ -33,6 +34,12 @@ export const CommunityRoleNames = z.enum(["owner", "admin", "moderator"]);
 export const CommunityRoleSchema = z.looseObject({
     role: CommunityRoleNames.or(z.string().min(1))
 });
+
+// A role is granted to a domain name or to a key address, nothing else: any other string could never match a signer
+export const CommunityRoleKeySchema = AuthorAddressSchema.refine(
+    (key) => isStringDomain(key) || isKeyAddress(key),
+    messages.ERR_ROLE_KEY_IS_NOT_A_NAME_OR_KEY_ADDRESS
+);
 
 export const PubsubTopicSchema = z.string().min(1);
 
@@ -170,7 +177,7 @@ export const ChallengeExcludePublicationTypeSchema = z
 export const ChallengeExcludePublicKeySchema = AuthorAddressSchema.refine(
     (address) => !isStringDomain(address),
     messages.ERR_CHALLENGE_EXCLUDE_PUBLIC_KEYS_MUST_NOT_BE_DOMAIN
-);
+).refine((address) => isKeyAddress(address), messages.ERR_KEY_ADDRESS_IS_NOT_BASE58BTC);
 export const ChallengeExcludeNameSchema = AuthorAddressSchema.refine(
     (name) => isStringDomain(name),
     messages.ERR_CHALLENGE_EXCLUDE_NAMES_MUST_BE_DOMAIN
@@ -391,7 +398,7 @@ export const CommunityPageSortsSchema = z
 // only surface much later, inside peerIdFromString during publishAnchorRecord, long after the community
 // was created and keyed by it. Validate it as the IPNS name it has to be, at creation.
 export const CommunityAnchorSchema = z
-    .object({ publicKey: z.string().refine((arg) => isIpnsName(arg), messages.ERR_ANCHOR_PUBLIC_KEY_IS_INVALID) })
+    .object({ publicKey: z.string().refine((arg) => isIpnsName(arg) && isKeyAddress(arg), messages.ERR_ANCHOR_PUBLIC_KEY_IS_INVALID) })
     .strict();
 
 export const CommunityIpfsSchema = z
@@ -416,7 +423,7 @@ export const CommunityIpfsSchema = z
         postUpdates: z.record(nonNegativeIntStringSchema, CidStringSchema).optional(),
         title: z.string().optional(),
         description: z.string().optional(),
-        roles: z.record(AuthorAddressSchema, CommunityRoleSchema).optional(),
+        roles: z.record(CommunityRoleKeySchema, CommunityRoleSchema).optional(),
         rules: z.string().array().optional(),
         lastPostCid: CidStringSchema.optional(),
         lastCommentCid: CidStringSchema.optional(),
@@ -477,7 +484,7 @@ export const CommunitySettingsSchema = z
 
 const CommunityRoleToEditSchema = CommunityRoleSchema.or(z.undefined()); // when we pass undefined we're removing the role
 
-const CommunityRolesToEditSchema = z.record(AuthorAddressSchema, CommunityRoleToEditSchema);
+const CommunityRolesToEditSchema = z.record(CommunityRoleKeySchema, CommunityRoleToEditSchema);
 
 export const CommunityEditOptionsSchema = CommunityIpfsSchema.pick({
     flairs: true,
