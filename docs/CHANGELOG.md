@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.166](https://github.com/pkcprotocol/pkc-js/compare/v0.0.165...v0.0.166) (2026-11-28)
+
+### Bug Fixes
+
+* **browser:** make every client work without crypto.subtle, libp2p-js included ([#581](https://github.com/pkcprotocol/pkc-js/issues/581)) ([74ae687](https://github.com/pkcprotocol/pkc-js/commit/74ae687f57ccfefe79955faefbedaadb16afde73)), closes [#506](https://github.com/pkcprotocol/pkc-js/issues/506)
+
 ## [0.0.165](https://github.com/pkcprotocol/pkc-js/compare/v0.0.164...v0.0.165) (2026-11-27)
 
 ### ⚠ BREAKING CHANGES
