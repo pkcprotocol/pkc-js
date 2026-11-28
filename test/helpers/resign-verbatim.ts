@@ -3,12 +3,12 @@
 // cleanUpBeforePublishing first (empty objects and undefined values are dropped), so this is how a test
 // produces what a non-pkc-js or hand-signing client could send (issue #387).
 import { _signJson } from "../../dist/node/signer/signatures.js";
-import Logger from "../../dist/node/logger.js";
+import Logger from "@pkcprotocol/pkc-logger";
 import type { JsonSignature, SignerType } from "../../dist/node/signer/types.js";
 
 export type WirePublication = Record<string, unknown> & { signature: JsonSignature };
 
-const log = Logger("pkc-js:test:resign-verbatim");
+const log = Logger({ namespace: "pkc-js:test:resign-verbatim" });
 
 export async function resignVerbatim(publication: WirePublication, signer: SignerType): Promise<void> {
     const signedPropertyNames = <JsonSignature["signedPropertyNames"]>(

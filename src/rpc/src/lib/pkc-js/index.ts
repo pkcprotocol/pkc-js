@@ -4,8 +4,6 @@
 import PKC from "../../../../index.js";
 
 import assert from "assert";
-import Logger from "../../../../logger.js";
-const log = Logger("pkc-react-hooks:pkc-js");
 
 const PKCJs = {
     PKC: PKC
@@ -23,12 +21,10 @@ export function setPKCJs(_PKC: any) {
     if (_PKC.challenges === undefined) _PKC.challenges = PKC.challenges;
     if (_PKC.pageSorts === undefined) _PKC.pageSorts = PKC.pageSorts;
     PKCJs.PKC = _PKC;
-    log("setPKCJs", _PKC?.constructor?.name);
 }
 
 export function restorePKCJs() {
     PKCJs.PKC = PKC;
-    log("restorePKCJs");
 }
 
 export default PKCJs;

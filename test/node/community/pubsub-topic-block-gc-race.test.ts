@@ -1,7 +1,9 @@
 import { describe, it, beforeAll, afterAll } from "vitest";
 import { create as createKuboRpcClient, type BlockPutOptions, type KuboRPCClient } from "kubo-rpc-client";
 import { retryKuboBlockPutPinAndProvidePubsubTopic, pubsubTopicToDhtKeyCid } from "../../../dist/node/util.js";
-import Logger from "../../../dist/node/logger.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
 
 const KUBO_RPC_URL = "http://localhost:15001/api/v0";
 const SIGNAL_TIMEOUT_MS = 20000;
@@ -35,7 +37,7 @@ describe("pubsub topic routing block vs repo gc", () => {
     });
 
     it("keeps the pubsub topic block on the node when a full repo gc runs right after it is stored", async () => {
-        const log = Logger("pkc-js:test:pubsub-topic-block-gc-race");
+        const log = Logger({ namespace: "pkc-js:test:pubsub-topic-block-gc-race" });
         const pubsubTopic = `/pkc-js-test/gc-race/${Date.now()}-${Math.floor(Math.random() * 100000)}`;
         const expectedCid = pubsubTopicToDhtKeyCid(pubsubTopic);
 

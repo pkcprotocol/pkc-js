@@ -1,5 +1,6 @@
 import { PKCError } from "../../../../pkc-error.js";
-import { loadChallengeFileFromCommunityChallengeSettings } from "./index.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
+import { challengeFileLog, loadChallengeFileFromCommunityChallengeSettings } from "./index.js";
 import type { ChallengeFile, CommunityChallengeSetting } from "../../../../community/types.js";
 import type { PKCWithSettingsChallenges } from "./index.js";
 
@@ -29,11 +30,13 @@ const isOptionSet = (value: string | undefined): boolean => value !== undefined 
 export function validateChallengeSettingsAgainstChallengeFile({
     challengeSettings,
     challengeFile,
-    challengeIndex
+    challengeIndex,
+    log
 }: {
     challengeSettings: CommunityChallengeSetting;
     challengeFile: ChallengeFile;
     challengeIndex: number;
+    log: Logger; // the caller's logger; the validate hook gets a child of it (challengeFileLog)
 }): PKCError | undefined {
     const challengeName = describeChallenge(challengeSettings);
     const baseDetails = { challengeIndex, challengeName };
@@ -75,7 +78,10 @@ export function validateChallengeSettingsAgainstChallengeFile({
     // and copy its message into details.validationError, which is the part that survives RPC serialization.
     if (challengeFile.validateChallengeSettings)
         try {
-            challengeFile.validateChallengeSettings({ challengeSettings });
+            challengeFile.validateChallengeSettings({
+                challengeSettings,
+                log: challengeFileLog({ log, communityChallengeSettings: challengeSettings, challengeIndex })
+            });
         } catch (e) {
             const wrapped = new PKCError("ERR_CHALLENGE_SETTINGS_VALIDATION_FAILED", {
                 ...baseDetails,
@@ -96,18 +102,26 @@ export function validateChallengeSettingsAgainstChallengeFile({
 // different failure from an invalid setting, so it propagates instead of being collected.
 export async function collectChallengeSettingsValidationFailures({
     challengeSettings,
-    pkc
+    pkc,
+    log
 }: {
     challengeSettings: CommunityChallengeSetting[];
     pkc?: PKCWithSettingsChallenges;
+    log: Logger;
 }): Promise<ChallengeSettingsValidationFailure[]> {
     const failures: ChallengeSettingsValidationFailure[] = [];
     for (const [challengeIndex, communityChallengeSettings] of challengeSettings.entries()) {
-        const challengeFile = await loadChallengeFileFromCommunityChallengeSettings({ communityChallengeSettings, challengeIndex, pkc });
+        const challengeFile = await loadChallengeFileFromCommunityChallengeSettings({
+            communityChallengeSettings,
+            challengeIndex,
+            pkc,
+            log
+        });
         const error = validateChallengeSettingsAgainstChallengeFile({
             challengeSettings: communityChallengeSettings,
             challengeFile,
-            challengeIndex
+            challengeIndex,
+            log
         });
         if (error) failures.push({ challengeIndex, challengeName: describeChallenge(communityChallengeSettings), error });
     }
@@ -119,13 +133,15 @@ export async function collectChallengeSettingsValidationFailures({
 export async function throwIfChallengeSettingsAreInvalid({
     challengeSettings,
     pkc,
-    communityAddress
+    communityAddress,
+    log
 }: {
     challengeSettings: CommunityChallengeSetting[];
     pkc?: PKCWithSettingsChallenges;
     communityAddress?: string;
+    log: Logger;
 }): Promise<void> {
-    const failures = await collectChallengeSettingsValidationFailures({ challengeSettings, pkc });
+    const failures = await collectChallengeSettingsValidationFailures({ challengeSettings, pkc, log });
     if (failures.length)
         throw new PKCError("ERR_CHALLENGE_SETTINGS_VALIDATION_FAILED_FOR_CHALLENGES", {
             communityAddress,

@@ -1,4 +1,5 @@
 import { describe, it, beforeEach, afterEach, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { deriveCommentIpfsFromCommentTableRow } from "../../../dist/node/runtime/node/util.js";
 import { CommentIpfsReservedFields } from "../../../dist/node/publications/comment/schema.js";
@@ -8,12 +9,16 @@ import type { LocalCommunity } from "../../../dist/node/runtime/node/community/l
 import type { PurgedCommentTableRows } from "../../../dist/node/runtime/node/community/db-handler-types.js";
 import { intersection } from "remeda";
 
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:purge-reserved-fields" });
+
 interface FakeCommunity {
     address: string;
     _pkc: { noData: boolean };
     _cidsToUnPin: Set<string>;
     _blocksToRm: string[];
     _mfsPathsToRemove: Set<string>;
+    _log: typeof testLog;
     _clientsManager: object;
     _calculateLocalMfsPathForCommentUpdate: () => string;
     _addOldPageCidsToCidsToUnpin: () => Promise<void>;
@@ -48,6 +53,7 @@ describe(`_purgeCommentsWithInvalidSchemaOrSignature constructs CommentIpfs corr
             _cidsToUnPin: new Set<string>(),
             _blocksToRm: [],
             _mfsPathsToRemove: new Set<string>(),
+            _log: testLog,
             _clientsManager: {},
             _calculateLocalMfsPathForCommentUpdate: () => "",
             async _addOldPageCidsToCidsToUnpin() {},

@@ -1,5 +1,5 @@
 import { CID } from "multiformats/cid";
-import Logger from "../../../../logger.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { PKCError } from "../../../../pkc-error.js";
 import { statMfsPathSafely } from "../../../../util.js";
 import type { LocalCommunity } from "../local-community.js";
@@ -90,7 +90,7 @@ export async function markPostsMissingFromBucketForRewrite({
     if (missing.length > 0) {
         community._dbHandler.forceUpdateOnAllCommentsWithCid(missing);
         log.error(
-            `The postUpdates bucket ${bucket} of community ${community.address} holds ${listed.size} entries in MFS and ${missing.length} of its ${published.length} published posts are not in it. They will be written again by the next cycle`
+            `markPostsMissingFromBucketForRewrite: The postUpdates bucket ${bucket} of community ${community.address} holds ${listed.size} entries in MFS and ${missing.length} of its ${published.length} published posts are not in it. They will be written again by the next cycle`
         );
     }
     return missing.length;
@@ -116,7 +116,7 @@ export async function statBucketsOfPaths({
     community: LocalCommunity;
     mfsPaths: string[];
 }): Promise<Map<number, string | undefined | null>> {
-    const log = Logger("pkc-js:local-community:sync:statBucketsOfPaths");
+    const log = community._log;
     const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
     const stats = new Map<number, string | undefined | null>();
     for (const bucket of bucketsOfPaths(community, mfsPaths))
@@ -146,7 +146,7 @@ export async function rememberPostUpdatesBucketsOfPaths({
     mfsPaths: string[];
     before: Map<number, string | undefined | null>;
 }) {
-    const log = Logger("pkc-js:local-community:sync:rememberPostUpdatesBuckets");
+    const log = community._log;
     const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
     for (const bucket of bucketsOfPaths(community, mfsPaths)) {
         const remembered = community._postUpdatesBucketCids.get(bucket);
@@ -263,11 +263,11 @@ async function recoverInterruptedBucketSwap(kuboRpcClient: KuboRpcClient, bucket
     if (next) {
         if (live) {
             // The swap stopped before the live bucket came down: the live one is still the published one
-            log(`Discarding the stale rebuilt bucket ${nextPath} left by an interrupted swap`);
+            log(`recoverInterruptedBucketSwap: Discarding the stale rebuilt bucket ${nextPath} left by an interrupted swap`);
             await kubo.files.rm(nextPath, { recursive: true, timeout: MFS_OP_TIMEOUT_MS });
         } else {
             // The swap stopped between taking the live bucket down and moving the new one in
-            log(`Finishing the interrupted swap of ${nextPath} into ${bucketPath}`);
+            log(`recoverInterruptedBucketSwap: Finishing the interrupted swap of ${nextPath} into ${bucketPath}`);
             await kubo.files.mv(nextPath, bucketPath, { flush: true, timeout: MFS_OP_TIMEOUT_MS });
             // Read back like any other swap: the caller takes what this returns for what MFS holds
             live = await statMfsPathOrUndefined(kuboRpcClient, bucketPath, log);
@@ -290,7 +290,7 @@ export async function writePostUpdatesToBucket({
     bucketPath: string;
     posts: PostUpdatesBucketRow[];
 }): Promise<void> {
-    const log = Logger("pkc-js:local-community:sync:writePostUpdatesToBucket");
+    const log = community._log;
     const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
     const kubo = kuboRpcClient._client;
     const nextPath = bucketPath + POST_UPDATES_BUCKET_NEXT_SUFFIX;
@@ -391,7 +391,7 @@ export async function writePostUpdatesToBucket({
                         `Failed to pin the new blocks of bucket ${bucketPath} (${result.root.cid.toString()}): ${result.root.pinErrorMsg}`
                     );
             log(
-                `Bucket ${bucketPath}: ${posts.length} posts written, ${newBlocks.length} of the bucket's nodes rebuilt (${car.length} bytes imported), root ${root.toString()}`
+                `writePostUpdatesToBucket: Bucket ${bucketPath}: ${posts.length} posts written, ${newBlocks.length} of the bucket's nodes rebuilt (${car.length} bytes imported), root ${root.toString()}`
             );
             // If a step below fails after the daemon did the swap, the next write finds this bucket: it is ours
             community._postUpdatesBucketPendingCids.set(bucket, root.toString());
@@ -404,7 +404,10 @@ export async function writePostUpdatesToBucket({
             for (const manifest of manifests)
                 await kubo.pin.rm(manifest.cid, { timeout: MFS_OP_TIMEOUT_MS }).catch((error) => {
                     if (!(error instanceof Error && error.message.includes("not pinned")))
-                        log.error(`Failed to unpin ${manifest.cid.toString()}, which pinned the new blocks of bucket ${bucketPath}`, error);
+                        log.error(
+                            `writePostUpdatesToBucket: Failed to unpin ${manifest.cid.toString()}, which pinned the new blocks of bucket ${bucketPath}`,
+                            error
+                        );
                 });
         }
 
@@ -417,7 +420,7 @@ export async function writePostUpdatesToBucket({
             return;
         }
         log.error(
-            `Bucket ${bucketPath} is ${swapped?.cid.toString()} in MFS after ${root.toString()} was swapped in (attempt ${attempt}), checking it for the posts' files`
+            `writePostUpdatesToBucket: Bucket ${bucketPath} is ${swapped?.cid.toString()} in MFS after ${root.toString()} was swapped in (attempt ${attempt}), checking it for the posts' files`
         );
         live = await recoverInterruptedBucketSwap(kuboRpcClient, bucketPath, log);
         // MFS holds a bucket this process did not build: it may have lost posts that were published before, and

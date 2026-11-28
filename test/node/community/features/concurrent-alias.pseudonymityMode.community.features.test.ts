@@ -1,4 +1,5 @@
 import { describe, it, beforeAll, afterAll } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     createSubWithNoChallenge,
     mockPKC,
@@ -14,6 +15,9 @@ import type { PKC } from "../../../../dist/node/pkc/pkc.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
 import type { CommentPubsubMessagePublication, CommentIpfsWithCidDefined } from "../../../../dist/node/publications/comment/types.js";
 import type { PseudonymityAliasRow } from "../../../../dist/node/runtime/node/community/db-handler-types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:concurrent-alias" });
 
 // Issue #399: the alias lookup in prepareCommentWithAnonymity and the alias insert after storeComment are
 // separated by awaits (link props, IPFS add-and-provide), so an author's concurrent first publications each
@@ -133,7 +137,7 @@ async function buildSignedPublication({
         content: `concurrent-alias-${Math.random()}`,
         ...(reply ?? { title: `concurrent-alias-post-${Math.random()}` })
     };
-    const signature = await signComment({ comment: base, pkc: {} as PKC });
+    const signature = await signComment({ comment: base, pkc: {} as PKC, log: testLog });
     const publication = { ...base, signature } as CommentPubsubMessagePublication & { signer?: SignerWithPublicKeyAddress };
     delete publication.signer;
     return publication;

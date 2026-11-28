@@ -226,7 +226,7 @@ when the factory registered under the entry's `name` changes (see [Reloading pac
 The returned object is cached and reused by every generation.
 
 ```js
-export default function ({ pageSortSettings }) {
+export default function ({ pageSortSettings, log }) {
     const keywords = (pageSortSettings.options?.noBumpKeywords ?? "").split(",").map((k) => k.trim()).filter(Boolean);
     return {
         sortName: "active",                    // the default wire key; changing it renames the sort on every board that does not set its own
@@ -246,7 +246,7 @@ export default function ({ pageSortSettings }) {
             }
             return score;
         },
-        validatePageSortSettings({ pageSortSettings }) {}  // throw to reject the entry
+        validatePageSortSettings({ pageSortSettings, log }) {}  // throw to reject the entry
     };
 }
 ```
@@ -331,15 +331,18 @@ The contract:
 Typing a package against the contract: pkc-js exports the file types from its root, so a TypeScript package
 compiles against what the community runs rather than a copy of it. `PageSortFileFactory` is the default export's
 type, `PageSortFile` what it returns, `PageSortScoreArgs` what `score` receives, `CommunityPageSortSetting` the
-`settings.pages` entry the factory is called with (`PageSortFileFactoryArgs` is the `{ pageSortSettings }`
-wrapper), `PageSortReplyEntry` one element of `replies`, and `PageSortScope` is `"posts" | "replies"`.
+`settings.pages` entry the factory is called with (`PageSortFileFactoryArgs` is the `{ pageSortSettings, log }`
+wrapper; `log` is a child of the community's logger under `pkc-js:local-community:page-sort:<name>`,
+issues #493 and #625, so a package's lines carry the community's `publicKey` tag and reach `pkc.getLogs()`. It is
+always passed, to `validatePageSortSettings` as well, so a package needs no logger of its own; whoever calls a
+factory directly must pass one), `PageSortReplyEntry` one element of `replies`, and `PageSortScope` is `"posts" | "replies"`.
 `PageSortFileInput` / `PageSortFileFactoryInput` are the input-side variants a consumer passes to the
 `pageSorts` PKC option. The reference package is `@pkcprotocol/active-page-sort`.
 
 Registering a factory under the `pageSorts` PKC option (or on `PKC.pageSorts`) makes it available by
 `name`; a `path` entry loads a file directly. Installing packages to `${dataPath}/page-sorts/` through
 `bitsocial page-sort install` is bitsocial-cli work that builds on the same registry. An installer checks a
-package's default export with `validatePageSortFileFactory(factory, { name })` from
+package's default export with `validatePageSortFileFactory(factory, { name, log })` from
 `@pkcprotocol/pkc-js/page-sorts` before registering it (`validateChallengeFileFactory` from
 `@pkcprotocol/pkc-js/challenges` is the challenge counterpart). It applies the same schemas a community does,
 and throws `ERR_FAILED_TO_IMPORT_PAGE_SORT_FILE_FACTORY` for an export that is not a factory and
@@ -417,7 +420,7 @@ const packageName = community.pageSorts?.posts ? published?.name : sortName;
 const factory = packageName ? registry[packageName] : undefined;
 if (!factory) throw Error(`cannot re-sort ${sortName}: its package is not installed, or it was loaded by path`);
 const options = published?.publicOptions ?? {}; // the option set the sort ran with, reserved options included
-const file = factory({ pageSortSettings: { name: packageName, options } });
+const file = factory({ pageSortSettings: { name: packageName, options }, log: pkc.logger.child({ namespace: `pkc-js:page-sort:${packageName}` }) });
 const baseTimestamp = Math.round(Date.now() / 1000);
 
 // `score` gets the CommentUpdate without its nested `replies`; null declines the comment; ties keep the page's order

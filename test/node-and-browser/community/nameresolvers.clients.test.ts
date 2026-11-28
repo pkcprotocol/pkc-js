@@ -1,4 +1,5 @@
 import signers from "../../fixtures/signers.js";
+import Logger from "@pkcprotocol/pkc-logger";
 
 import {
     createMockNameResolver,
@@ -11,6 +12,9 @@ import { signCommunity } from "../../../dist/node/signer/signatures.js";
 import { it, expect } from "vitest";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { InputPKCOptions } from "../../../dist/node/types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:nameresolvers" });
 
 const communityAddress = signers[9].address;
 
@@ -183,7 +187,7 @@ async function createCommunityFixtureWithDomainAuthors() {
         encryption: encryptionForSigner(ipnsObj.signer)
     };
 
-    communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer });
+    communityRecord.signature = await signCommunity({ community: communityRecord, signer: ipnsObj.signer, log: testLog });
     await ipnsObj.publishToIpns(JSON.stringify(communityRecord));
     await ipnsObj.pkc.destroy();
 

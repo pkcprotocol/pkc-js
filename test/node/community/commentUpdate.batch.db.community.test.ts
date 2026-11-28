@@ -1,4 +1,5 @@
 import { beforeEach, afterEach, describe, it, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import assert from "assert";
 import { DbHandler, createCommunityAuthorMemo } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
@@ -12,6 +13,9 @@ import type {
 import type { VotesTableRowInsert } from "../../../dist/node/publications/vote/types.js";
 import type { CommentModerationsTableRowInsert } from "../../../dist/node/publications/comment-moderation/types.js";
 import type { CommentEditsTableRowInsert } from "../../../dist/node/publications/comment-edit/types.js";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:commentUpdate" });
 
 const PROTOCOL_VERSION = "1.0.0";
 const SIGNATURE = { type: "ed25519", signature: "sig", publicKey: "pk", signedPropertyNames: [] as string[] };
@@ -40,7 +44,7 @@ describeSkipIfRpc("db-handler.queryCalculatedCommentUpdates (batched) matches qu
 
     async function createTestDbHandler(): Promise<DbHandler> {
         communityAddress = `12D3KooBatchCommunity${Date.now()}`;
-        const fakeCommunity = { address: communityAddress, _pkc: { noData: true } };
+        const fakeCommunity = { _log: testLog, address: communityAddress, _pkc: { noData: true } };
         const handler = new DbHandler(fakeCommunity as never);
         await handler.initDbIfNeeded({ filename: ":memory:", fileMustExist: false });
         await handler.createOrMigrateTablesIfNeeded();

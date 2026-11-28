@@ -7,12 +7,16 @@
 // while the community had no name), and name only (migrated pre-v37 domain rows, whose communityPublicKey is NULL).
 // Swapping the fake community's address replays every address change on the same rows.
 import { it, describe, beforeAll, afterAll, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.js";
 import { applyPageSortExclusions } from "../../../dist/node/pages/page-sort-scoring.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 
 import type Database from "better-sqlite3";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:community-identity-page-rule" });
 
 const COMMUNITY_KEY = "12D3KooWCommunityIdentityRuleKey";
 const NAME_A = "board-a.bso";
@@ -77,6 +81,7 @@ function createFakeCommunity(address: string) {
         _cidsToUnPin: new Set<string>(),
         _blocksToRm: [] as string[],
         _mfsPathsToRemove: new Set<string>(),
+        _log: testLog,
         _clientsManager: {},
         _calculateLocalMfsPathForCommentUpdate: () => "",
         _addOldPageCidsToCidsToUnpin: async () => {},

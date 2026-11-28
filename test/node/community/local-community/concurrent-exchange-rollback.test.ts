@@ -162,7 +162,7 @@ const signRequest = (request: Omit<ChallengeRequestMessageType, "signature">, si
         signedPropertyNames: <ChallengeRequestMessageType["signature"]["signedPropertyNames"]>Object.keys(request),
         msg: request,
         signer,
-        log: Logger("pkc-js:test:concurrent-exchange-rollback")
+        log: Logger({ namespace: "pkc-js:test:concurrent-exchange-rollback" })
     });
 
 const failingExchanges: FailingExchange[] = [

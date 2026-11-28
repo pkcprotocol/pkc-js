@@ -15,6 +15,9 @@ import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { holdStartLockInAnotherProcess } from "../../helpers/start-lock-holder.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:start-lock-lifetime" });
 
 // A community is started while the communities registry names the PKC instance that started it and that instance's
 // lock is held (issue #585, see communities-registry.ts and pkc-instance-lock.ts). The instance's lock is a file lock
@@ -28,7 +31,7 @@ import type { PKC } from "../../../dist/node/pkc/pkc.js";
 const instances: { dataPath: string }[] = [];
 
 function createDbHandler({ dataPath, address }: { dataPath: string; address: string }): DbHandler {
-    const fakeCommunity = { address, _pkc: { dataPath } };
+    const fakeCommunity = { _log: testLog, address, _pkc: { dataPath, _log: testLog } };
     instances.push(fakeCommunity._pkc);
     return new DbHandler(fakeCommunity as unknown as LocalCommunity);
 }
@@ -146,7 +149,7 @@ describeSkipIfRpc("how long a start lock stays held", () => {
 
         for (let i = 0; i < 50; i++) expect(isCommunityStartLockedSync({ dataPath, communityAddress: address })).to.be.true;
         // a second instance in this process: it sweeps the lock files of dead instances and lists the directory
-        const otherInstance = { dataPath };
+        const otherInstance = { dataPath, _log: testLog };
         instances.push(otherInstance);
         const otherRegistry = getCommunitiesRegistry(otherInstance);
         try {

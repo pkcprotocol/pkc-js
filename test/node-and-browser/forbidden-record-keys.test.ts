@@ -34,6 +34,9 @@ import validCommentUpdateFixture from "../fixtures/signatures/comment/commentUpd
 import type { PKC } from "../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../dist/node/publications/comment/comment.js";
 import type { CommentUpdateType, CommentPubsubMessagePublication, CommentIpfsType } from "../../dist/node/publications/comment/types.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:forbidden-record-keys" });
 
 const COMMUNITY = "12D3KooWN5rLmRJ8fWMwTtkDN7w2RgPPGRM4mtWTnfbjpi1Sh7zR";
 type Bag = Record<string, unknown>;
@@ -128,7 +131,7 @@ describe("top-level forbidden and member keys, through the gates", () => {
             const signer = signers[0];
             const community = { address: signer.address, signature: { publicKey: signer.publicKey }, pubsubTopic: signer.address };
             const update = <CommentUpdateType>(<unknown>withKey(validCommentUpdateFixture, name));
-            update.signature = await signCommentUpdate({ update, signer });
+            update.signature = await signCommentUpdate({ update, signer, log: testLog });
             const res = await verifyCommentUpdate({
                 update,
                 resolveAuthorNames: false,
@@ -136,7 +139,8 @@ describe("top-level forbidden and member keys, through the gates", () => {
                 community: <never>community,
                 comment: { cid: update.cid, postCid: <string>(<unknown>undefined), depth: 0, signature: validCommentFixture.signature },
                 validatePages: false,
-                validateUpdateSignature: true
+                validateUpdateSignature: true,
+                log: testLog
             });
             expect(res.valid).toBe(false);
         });
@@ -156,7 +160,7 @@ describe("top-level forbidden and member keys, through the gates", () => {
             const signer = signers[0];
             const community = { address: signer.address, signature: { publicKey: signer.publicKey }, pubsubTopic: signer.address };
             const update = <CommentUpdateType>(<unknown>withKey(validCommentUpdateFixture, name));
-            update.signature = await signCommentUpdate({ update, signer });
+            update.signature = await signCommentUpdate({ update, signer, log: testLog });
             const updateRes = await verifyCommentUpdate({
                 update,
                 resolveAuthorNames: false,
@@ -164,7 +168,8 @@ describe("top-level forbidden and member keys, through the gates", () => {
                 community: <never>community,
                 comment: { cid: update.cid, postCid: <string>(<unknown>undefined), depth: 0, signature: validCommentFixture.signature },
                 validatePages: false,
-                validateUpdateSignature: true
+                validateUpdateSignature: true,
+                log: testLog
             });
             expect(updateRes).toEqual({ valid: false, reason: messages.ERR_COMMENT_UPDATE_RECORD_INCLUDES_RESERVED_FIELD });
         });

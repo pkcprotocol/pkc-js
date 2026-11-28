@@ -4,6 +4,10 @@ import { DbHandler } from "../../../dist/node/runtime/node/community/db-handler.
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type Database from "better-sqlite3";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:v47-to-v48" });
 
 // v47 -> v48 adds the commentUpdates.authorBanExpiresAt column (issue #363): the ban a mod published on that comment.
 // Like every migration this one drops the commentUpdates table, so nothing is backfilled into rows; the mark comes
@@ -163,6 +167,7 @@ const signature = (name: string) => ({
 
 interface FakeCommunity {
     address: string;
+    _log: typeof testLog;
     _pkc: { noData: boolean };
     _cidsToUnPin: Set<string>;
     _blocksToRm: string[];
@@ -176,6 +181,7 @@ interface FakeCommunity {
 function createFakeCommunity(address: string): FakeCommunity {
     return {
         address,
+        _log: testLog,
         _pkc: { noData: true },
         _cidsToUnPin: new Set<string>(),
         _blocksToRm: [],

@@ -9,6 +9,10 @@ import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
 import { holdStartLockInAnotherProcess } from "../../helpers/start-lock-holder.js";
 import type { LocalCommunity } from "../../../dist/node/runtime/node/community/local-community.js";
 import type { PKCError } from "../../../dist/node/pkc-error.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+// DbHandler and the community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:start-lock-takeover" });
 
 // The start lock decides which process runs a community. It used to be a file its holder kept fresh from a timer, and
 // another process that found it stale (the holder's event loop blocked past 10s by a VACUUM or a migration) took it
@@ -21,7 +25,7 @@ import type { PKCError } from "../../../dist/node/pkc-error.js";
 const instances: { dataPath: string }[] = [];
 
 function createDbHandler({ dataPath, address }: { dataPath: string; address: string }): DbHandler {
-    const fakeCommunity = { address, _pkc: { dataPath } };
+    const fakeCommunity = { _log: testLog, address, _pkc: { dataPath, _log: testLog } };
     instances.push(fakeCommunity._pkc);
     return new DbHandler(fakeCommunity as unknown as LocalCommunity);
 }

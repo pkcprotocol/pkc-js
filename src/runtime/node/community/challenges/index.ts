@@ -4,6 +4,7 @@ import {
     shouldExcludeChallengeSuccess,
     addToRateLimiter
 } from "./exclude/index.js";
+import { challengeExchangeLog } from "../local-community/exchange-log.js";
 import { NO_OP_AUTHOR_IDENTITY_MATCHER, authorIdentityMatcherForRequest } from "../local-community/author-identity.js";
 import type { AuthorIdentityMatcher, NameIdentityFailure } from "../local-community/author-identity.js";
 
@@ -28,13 +29,13 @@ import type {
     CommunityChallenge,
     CommunityChallengeSetting
 } from "../../../../community/types.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { LocalCommunity } from "../local-community.js";
 import { isEmpty, omit } from "remeda";
 import { ChallengeFileFactorySchema, ChallengeFileSchema, CommunityChallengeSettingSchema } from "../../../../community/schema.js";
 import { PKCError } from "../../../../pkc-error.js";
 import { pathToFileURL } from "node:url";
 import { validateChallengeResultExtras } from "./validate-challenge-result.js";
-import Logger from "../../../../logger.js";
 
 type PendingChallenge = Challenge & { index: number };
 
@@ -221,6 +222,23 @@ const validateChallengeOrChallengeResult = ({
     return { ok: true };
 };
 
+// The logger handed to a challenge package's factory and validate hook (issues #493, #625): the caller's child under
+// the challenge's own namespace, tagged with the entry's index in settings.challenges so two entries of one challenge
+// can be told apart. A caller with no index (a registry listing) gets the namespace only.
+export const challengeFileLog = ({
+    log,
+    communityChallengeSettings,
+    challengeIndex
+}: {
+    log: Logger;
+    communityChallengeSettings: Pick<CommunityChallengeSetting, "name">;
+    challengeIndex?: number;
+}): Logger =>
+    log.child({
+        namespace: `challenge:${communityChallengeSettings.name || "path"}`,
+        ...(challengeIndex === undefined ? {} : { tags: { challengeIndex: String(challengeIndex) } })
+    });
+
 // load and validate a challenge factory + ChallengeFile for one challenge index
 const loadChallengeFile = async ({
     communityChallengeSettings,
@@ -252,7 +270,10 @@ const loadChallengeFile = async ({
             challengeIndex
         });
     }
-    const challengeFile = ChallengeFileFactory({ challengeSettings: communityChallengeSettings });
+    const challengeFile = ChallengeFileFactory({
+        challengeSettings: communityChallengeSettings,
+        log: challengeFileLog({ log: community._log, communityChallengeSettings, challengeIndex })
+    });
     validateChallengeFile({ challengeFile, challengeIndex, community });
     return { challengeFile };
 };
@@ -278,8 +299,8 @@ const callGetChallenge = async ({
     const startedAtMs = Date.now();
     // Warn while the call is still running, so a challenge that never returns is reported too.
     const slowWarningTimer = setTimeout(() => {
-        Logger("pkc-js:local-community:challenges:callGetChallenge").error(
-            `getChallenge() of challenge ${challengeIndex + 1} (${challengeName}) in community ${community.address} is still running after ${community._slowGetChallengeWarningMs / 1000}s.`,
+        community._log.error(
+            `callGetChallenge: getChallenge() of challenge ${challengeIndex + 1} (${challengeName}) in community ${community.address} is still running after ${community._slowGetChallengeWarningMs / 1000}s.`,
             "A publisher that receives no challenge or verification gives up after about two minutes and the publication looks failed to its author.",
             "Slow work belongs behind pendingApproval. challengeRequestId:",
             challengeRequestMessage.challengeRequestId.toString()
@@ -293,12 +314,18 @@ const callGetChallenge = async ({
             challengeIndex,
             challengeAnswer: challengeRequestMessage.challengeAnswers?.[String(challengeIndex)],
             community,
-            authorIdentityMatcher
+            authorIdentityMatcher,
+            // the exchange's child (publicKey + signature tags) under the challenge's own namespace (issue #493),
+            // tagged with this challenge's index (issue #625)
+            log: challengeExchangeLog(community, challengeRequestMessage.challengeRequestId).child({
+                namespace: communityChallengeSettings.name || "path",
+                tags: { challengeIndex: String(challengeIndex) }
+            })
         });
         const elapsedMs = Date.now() - startedAtMs;
         if (elapsedMs >= community._slowGetChallengeWarningMs)
-            Logger("pkc-js:local-community:challenges:callGetChallenge").error(
-                `getChallenge() of challenge ${challengeIndex + 1} (${challengeName}) in community ${community.address} took ${Math.round(elapsedMs / 1000)}s`
+            community._log.error(
+                `callGetChallenge: getChallenge() of challenge ${challengeIndex + 1} (${challengeName}) in community ${community.address} took ${Math.round(elapsedMs / 1000)}s`
             );
         validateChallengeOrChallengeResult({ challengeOrChallengeResult, challengeIndex, community });
     } catch (e) {
@@ -456,7 +483,8 @@ const getPendingChallengesOrChallengeVerification = async ({
                     await getCommunityChallengeFromCommunityChallengeSettings({
                         communityChallengeSettings: s,
                         challengeIndex,
-                        pkc: community._pkc
+                        pkc: community._pkc,
+                        log: community._log
                     })
                 ).communityChallenge
         )
@@ -716,11 +744,13 @@ const getChallengeVerificationFromChallengeAnswers = async ({
         communityChallenges ??
         (await Promise.all(
             community.settings.challenges.map(
-                async (s) =>
+                async (s, challengeIndex) =>
                     (
                         await getCommunityChallengeFromCommunityChallengeSettings({
                             communityChallengeSettings: s,
-                            pkc: community._pkc
+                            challengeIndex,
+                            pkc: community._pkc,
+                            log: community._log
                         })
                     ).communityChallenge
             )
@@ -1002,19 +1032,25 @@ const derivePublicOptions = (communityChallengeSettings: CommunityChallengeSetti
 const loadChallengeFileFromCommunityChallengeSettings = async ({
     communityChallengeSettings,
     challengeIndex,
-    pkc
+    pkc,
+    log
 }: {
     communityChallengeSettings: CommunityChallengeSetting;
     challengeIndex?: number;
     pkc?: PKCWithSettingsChallenges;
+    log: Logger; // the caller's logger; the factory gets a child of it (challengeFileLog)
 }): Promise<ChallengeFile> => {
+    const factoryArgs = {
+        challengeSettings: communityChallengeSettings,
+        log: challengeFileLog({ log, communityChallengeSettings, challengeIndex })
+    };
     // if the challenge is an external file, fetch it and override the communityChallengeSettings values
     let challengeFile: ChallengeFile | undefined = undefined;
     if (communityChallengeSettings.path) {
         try {
             const importedFile = await import(pathToFileURL(communityChallengeSettings.path).href);
             const ChallengeFileFactory = ChallengeFileFactorySchema.parse(importedFile.default);
-            challengeFile = ChallengeFileSchema.parse(ChallengeFileFactory({ challengeSettings: communityChallengeSettings }));
+            challengeFile = ChallengeFileSchema.parse(ChallengeFileFactory(factoryArgs));
         } catch (e) {
             throw new PKCError("ERR_FAILED_TO_IMPORT_CHALLENGE_FILE_FACTORY", {
                 path: communityChallengeSettings.path,
@@ -1029,7 +1065,7 @@ const loadChallengeFileFromCommunityChallengeSettings = async ({
         const ChallengeFileFactory = ChallengeFileFactorySchema.parse(
             resolveRegisteredChallengeFactory({ name: communityChallengeSettings.name, challengeIndex, pkc })
         );
-        challengeFile = ChallengeFileSchema.parse(ChallengeFileFactory({ challengeSettings: communityChallengeSettings }));
+        challengeFile = ChallengeFileSchema.parse(ChallengeFileFactory(factoryArgs));
     }
     if (!challengeFile) throw Error("Failed to load challenge file");
     return challengeFile;
@@ -1039,14 +1075,16 @@ const loadChallengeFileFromCommunityChallengeSettings = async ({
 const getCommunityChallengeFromCommunityChallengeSettings = async ({
     communityChallengeSettings,
     challengeIndex,
-    pkc
+    pkc,
+    log
 }: {
     communityChallengeSettings: CommunityChallengeSetting;
     challengeIndex?: number;
     pkc?: PKCWithSettingsChallenges;
+    log: Logger;
 }): Promise<{ communityChallenge: CommunityChallenge }> => {
     communityChallengeSettings = CommunityChallengeSettingSchema.parse(communityChallengeSettings);
-    const challengeFile = await loadChallengeFileFromCommunityChallengeSettings({ communityChallengeSettings, challengeIndex, pkc });
+    const challengeFile = await loadChallengeFileFromCommunityChallengeSettings({ communityChallengeSettings, challengeIndex, pkc, log });
     const { challenge, type } = challengeFile;
     return {
         communityChallenge: {
@@ -1075,15 +1113,17 @@ export interface ChallengeLoadFailure {
 const deriveCommunityChallengesOrThrow = async ({
     challengeSettings,
     pkc,
-    communityAddress
+    communityAddress,
+    log
 }: {
     challengeSettings: CommunityChallengeSetting[];
     pkc?: PKCWithSettingsChallenges;
     communityAddress?: string;
+    log: Logger;
 }): Promise<CommunityChallenge[]> => {
     const results = await Promise.allSettled(
         challengeSettings.map((communityChallengeSettings, challengeIndex) =>
-            getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings, challengeIndex, pkc })
+            getCommunityChallengeFromCommunityChallengeSettings({ communityChallengeSettings, challengeIndex, pkc, log })
         )
     );
     const failures: ChallengeLoadFailure[] = [];

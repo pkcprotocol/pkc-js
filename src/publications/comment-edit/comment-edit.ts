@@ -22,6 +22,10 @@ export class CommentEdit extends Publication implements CommentEditPubsubMessage
     override raw: { pubsubMessageToPublish?: CommentEditPubsubMessagePublication } = {};
     override challengeRequest?: CreateCommentEditOptions["challengeRequest"];
 
+    protected override _logNamespace(): string {
+        return "pkc-js:comment-edit";
+    }
+
     constructor(pkc: PKC) {
         super(pkc);
 
@@ -64,7 +68,7 @@ export class CommentEdit extends Publication implements CommentEditPubsubMessage
     protected override async _signPublicationOptionsToPublish(
         cleanedPublication: unknown
     ): Promise<CommentEditPubsubMessagePublication["signature"]> {
-        return signCommentEdit({ edit: cleanedPublication as CommentEditOptionsToSign, pkc: this._pkc });
+        return signCommentEdit({ edit: cleanedPublication as CommentEditOptionsToSign, pkc: this._pkc, log: this._log });
     }
 
     _initPubsubPublicationProps(props: CommentEditPubsubMessagePublication): void {

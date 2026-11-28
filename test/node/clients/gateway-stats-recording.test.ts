@@ -3,7 +3,7 @@ import type { AddressInfo } from "net";
 import { describe, it, beforeAll, afterAll, afterEach, expect, vi } from "vitest";
 import { mockGatewayPKC } from "../../../dist/node/test/test-util.js";
 import { calculateIpfsCidV0 } from "../../../dist/node/util.js";
-import Logger from "../../../dist/node/logger.js";
+import Logger from "@pkcprotocol/pkc-logger";
 
 import communityRecordFixture from "../../fixtures/signatures/community/valid_community_ipfs_new_format.json" with { type: "json" };
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
@@ -33,7 +33,7 @@ async function startGateways(count: number, handler: GatewayHandler) {
     return { gatewayUrls, close };
 }
 
-const log = Logger("pkc-js:test:gateway-stats-recording");
+const log = Logger({ namespace: "pkc-js:test:gateway-stats-recording" });
 
 describe("fetchFromMultipleGateways records a failure only for a gateway that failed", () => {
     const body = JSON.stringify({ hello: "from the gateway that answers" });

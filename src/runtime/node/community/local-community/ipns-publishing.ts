@@ -1,5 +1,5 @@
-import Logger from "../../../../logger.js";
 import { difference, isEmpty, keys, omit, pick, unique } from "remeda";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import * as cborg from "cborg";
 import { sha256 } from "js-sha256";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
@@ -40,14 +40,18 @@ import { syncWithRegistries } from "./registry-sync.js";
 export async function calculateNewPostUpdates(community: LocalCommunity): Promise<CommunityIpfsType["postUpdates"]> {
     const postUpdates: CommunityIpfsType["postUpdates"] = {};
     const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
-    const log = Logger("pkc-js:local-community:sync:calculateNewPostUpdates");
+    const log = community._log;
     for (const timeBucket of community._postUpdatesBuckets) {
         const rememberedCid = community._postUpdatesBucketCids.get(timeBucket);
         let cidInMfs: string | undefined;
         let absent = false;
         try {
             // Retries on transient Kubo connection errors so a daemon blip doesn't silently drop a bucket.
-            const statRes = await statMfsPathSafely({ kuboRpcClient, path: `/${community.address}/postUpdates/${timeBucket}` });
+            const statRes = await statMfsPathSafely({
+                kuboRpcClient,
+                path: `/${community.address}/postUpdates/${timeBucket}`,
+                log: community._log
+            });
             cidInMfs = String(statRes.cid);
             if (statRes.blocks !== 0) postUpdates[String(timeBucket)] = cidInMfs;
         } catch (error) {
@@ -67,7 +71,10 @@ export async function calculateNewPostUpdates(community: LocalCommunity): Promis
                 await markPostsMissingFromBucketForRewrite({ community, bucket: timeBucket, log });
             } catch (error) {
                 // Not remembered as audited: the next record build looks again
-                log.error(`Failed to check the postUpdates bucket ${timeBucket} of community ${community.address}`, error);
+                log.error(
+                    `calculateNewPostUpdates: Failed to check the postUpdates bucket ${timeBucket} of community ${community.address}`,
+                    error
+                );
                 continue;
             }
         }
@@ -212,7 +219,8 @@ async function calculateNextCommunityRecord(
         {}, //@ts-expect-error
         ...community._pendingEditProps.map((editProps) => pick(editProps, keys(CommunityIpfsSchema.shape)))
     );
-    if (community._pendingEditProps.length > 0) log("Including edit props in next IPNS update", community._pendingEditProps);
+    if (community._pendingEditProps.length > 0)
+        log("_resolveIpnsAndLogIfPotentialProblematicSequence: Including edit props in next IPNS update", community._pendingEditProps);
     const newIpns: Omit<CommunityIpfsType, "signature"> = {
         ...cleanUpBeforePublishing({
             ...omit(community._toJSONIpfsBaseNoPosts(), ["signature"]),
@@ -279,7 +287,7 @@ async function calculateNextCommunityRecord(
 
 // Phase 2: sign and run schema/signature validation, returning the final record.
 async function validateAndSignCommunityRecord(community: LocalCommunity, build: CommunityRecordBuild): Promise<CommunityIpfsType> {
-    const signature = await signCommunity({ community: build.newIpns, signer: community.signer });
+    const signature = await signCommunity({ community: build.newIpns, signer: community.signer, log: community._log });
     const newCommunityRecord = <CommunityIpfsType>{ ...build.newIpns, signature };
 
     await community._validateCommunitySizeSchemaAndSignatureBeforePublishing(newCommunityRecord);
@@ -321,7 +329,7 @@ export async function publishIpnsRecordContinuingStoredSequence({
     path: string;
     ttl: string;
 }) {
-    const log = Logger("pkc-js:local-community:publishIpnsRecordContinuingStoredSequence");
+    const log = community._log;
     if (!community.signer.ipnsKeyName) throw Error("IPNS key name is not defined");
     const publishOptions = { key: community.signer.ipnsKeyName, allowOffline: true, resolve: true, ttl };
     const storedSequence = readStoredIpnsSequence(community);
@@ -333,7 +341,7 @@ export async function publishIpnsRecordContinuingStoredSequence({
     } catch (e) {
         if (!(e instanceof Error) || !e.message.includes(KUBO_SEQUENCE_NOT_GREATER_ERROR_MESSAGE)) throw e;
         log(
-            "Kubo holds an IPNS record for community",
+            "publishIpnsRecordContinuingStoredSequence: Kubo holds an IPNS record for community",
             community.address,
             "at or past the stored sequence",
             storedSequence,
@@ -381,12 +389,15 @@ async function publishCommunityRecordToIpns(
     const ttl = `${community._pkc.publishInterval * 1}ms`;
     const publishRes = await publishIpnsRecordContinuingStoredSequence({ community, kuboRpcClient, path: file.path, ttl });
     log(
-        `Published a new IPNS record for community(${community.address}) on IPNS (${publishRes.name}) that points to file (${publishRes.value}) with updatedAt (${newCommunityRecord.updatedAt}) and TTL (${ttl})`
+        `_resolveIpnsAndLogIfPotentialProblematicSequence: Published a new IPNS record for community(${community.address}) on IPNS (${publishRes.name}) that points to file (${publishRes.value}) with updatedAt (${newCommunityRecord.updatedAt}) and TTL (${ttl})`
     );
 
     community._clientsManager.updateKuboRpcState("stopped", kuboRpcClient.url);
     addOldPageCidsToCidsToUnpin(community, community.raw.communityIpfs?.modQueue, newIpns.modQueue).catch((err) =>
-        log.error("Failed to add old page cids of community.modQueue to _cidsToUnpin", err)
+        log.error(
+            "_resolveIpnsAndLogIfPotentialProblematicSequence: Failed to add old page cids of community.modQueue to _cidsToUnpin",
+            err
+        )
     );
     // Queue the record this publish just superseded BEFORE the flush below (issue #336): it was
     // generated while any comment a pending purge just deleted was still in the DB, so the purge
@@ -402,7 +413,7 @@ async function publishCommunityRecordToIpns(
             cids: community._blocksToRm,
             options: { force: true }
         });
-        log("Removed blocks", removedBlocks, "from kubo node");
+        log("_resolveIpnsAndLogIfPotentialProblematicSequence: Removed blocks", removedBlocks, "from kubo node");
         community._blocksToRm = community._blocksToRm.filter((blockCid) => !removedBlocks.includes(blockCid));
     }
     const configuredPubsubTopic = community.pubsubTopic;
@@ -449,12 +460,18 @@ async function publishCommunityRecordToIpns(
         // Not fatal: the next publish still goes out (see publishIpnsRecordContinuingStoredSequence). But until a
         // later refresh succeeds the DB holds an older sequence than kubo, and that is the sequence a move to
         // another kubo node would continue from (issue #553).
-        log.error("Failed to store the published IPNS record in the community DB, its stored sequence is now behind", e);
+        log.error(
+            "_resolveIpnsAndLogIfPotentialProblematicSequence: Failed to store the published IPNS record in the community DB, its stored sequence is now behind",
+            e
+        );
     }
 
     community._combinedHashOfPendingCommentsCids = newModQueue?.combinedHashOfCids || sha256("");
 
-    log.trace("Updated combined hash of pending comments to", community._combinedHashOfPendingCommentsCids);
+    log.trace(
+        "_resolveIpnsAndLogIfPotentialProblematicSequence: Updated combined hash of pending comments to",
+        community._combinedHashOfPendingCommentsCids
+    );
 
     // built inside the write transaction, so it keeps an edit stored meanwhile (see updateDbInternalState)
     await community._updateDbInternalState(() => community.toJSONInternalAfterFirstUpdate());
@@ -493,7 +510,7 @@ export async function updateCommentsAndWritePostUpdates(community: LocalCommunit
 }
 
 export async function updateCommunityIpnsIfNeeded(community: LocalCommunity, cidsUpdatedInThisCycle: string[]) {
-    const log = Logger("pkc-js:local-community:start:updateCommunityIpnsIfNeeded");
+    const log = community._log;
 
     community._calculateLatestUpdateTrigger();
 
@@ -550,14 +567,14 @@ function reportCycleIfSlow({
     community: LocalCommunity;
     cycleMs: number;
     phasesMs: Record<string, number>;
-    log: ReturnType<typeof Logger>;
+    log: Logger;
 }) {
     const report = slowCycleReport({ cycleMs, slowAfterMs: community._pkc.publishInterval, phasesMs });
-    if (report) log.error(`A publish cycle of community`, community.address, report);
+    if (report) log.error(`reportCycleIfSlow: A publish cycle of community`, community.address, report);
 }
 
 export async function syncIpnsWithDb(community: LocalCommunity) {
-    const log = Logger("pkc-js:local-community:sync");
+    const log = community._log;
 
     const kuboRpc = community._clientsManager.getDefaultKuboRpcClient();
     const cycleStartedAtMs = performance.now();
@@ -599,7 +616,7 @@ export async function syncIpnsWithDb(community: LocalCommunity) {
         community._clientsManager.updateKuboRpcState("stopped", kuboRpc.url);
 
         log.error(
-            `Failed to sync community`,
+            `sync: Failed to sync community`,
             community.address,
             `due to error,`,
             errorTyped,

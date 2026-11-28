@@ -419,6 +419,8 @@ PubsubSignature {
   - [`pkc.createVote(createVoteOptions)`](#pkccreatevotecreatevoteoptions)
   - [`pkc.createSigner(createSignerOptions)`](#pkccreatesignercreatesigneroptions)
   - `pkc.communities`
+  - [`pkc.getLogs(query)`](#pkcgetlogsquery)
+  - `pkc.logger`
   - `pkc.clients`
   - [`pkc.getDefaults()`](#pkcgetdefaults) *(not yet implemented)*
   - `pkc.fetchCid({cid})`
@@ -563,14 +565,15 @@ An object which may have the following keys:
 | pubsubKuboRpcClientsOptions | `(string \| KuboRpcClientOptions)[]` or `undefined` | `[{url: 'https://pubsubprovider.xyz/api/v0'}, {url: 'https://plebpubsub.xyz/api/v0'}]` | Optional URLs or [KuboRpcClientOptions](https://www.npmjs.com/package/kubo-rpc-client#options) used for pubsub publishing when `kuboRpcClientsOptions` isn't available, like in the browser |
 | pkcRpcClientsOptions | `string[]` or `undefined` | `undefined` | Optional websocket URLs of PKC RPC servers, required to run a community from a browser/electron/webview |
 | httpRoutersOptions | `string[]` or `undefined` | `['https://peers.pleb.bot', 'https://routing.lol', 'https://peers.forumindex.com', 'https://peers.plebpubsub.xyz', 'https://routerofbitsocial.xyz', 'https://bsotracker.online']` | URLs of HTTP delegated-routing endpoints, used for content routing only: provider lookups and provider announcements. With `libp2pJsClientsOptions` they are registered as the node's content routers; with `kuboRpcClientsOptions` in Node with a `dataPath` they are written into the Kubo node's `Routing` config. They are not used for IPNS records or peer routing. Each URL must start with `http://` or `https://`. |
-| libp2pJsClientsOptions | `Array<{key: string, libp2pOptions?: Partial<Libp2pOptions>, heliaOptions?: Partial<HeliaOptions>, blockstoreOptions?: {maxBytes?: number, lowWaterRatio?: number}}>` or `undefined` | `undefined` | Optional in-process libp2p/Helia client. Cannot be combined with `kuboRpcClientsOptions` or `pubsubKuboRpcClientsOptions`: setting either alongside it throws `ERR_CAN_NOT_HAVE_BOTH_KUBO_AND_LIBP2P_JS_CLIENTS_DEFINED` (the default `pubsubKuboRpcClientsOptions` are dropped). At most one entry; `key` is a unique identifier. `libp2pOptions` is forwarded to [Helia's libp2p](https://github.com/ipfs/helia) (e.g. `connectionGater`, `services`, transports), `heliaOptions` to [Helia](https://github.com/ipfs/helia) (e.g. `blockstore`, `blockBrokers`; a caller-supplied `blockBrokers` replaces the default bitswap broker, and `http` is not supported since the client is composed without Helia's HTTP components). Requires `httpRoutersOptions` to be set. By default WebRTC dials are rejected, so browser nodes connect over WebSocket(/WSS) or WebTransport; pass your own `libp2pOptions.connectionGater` to override this (it fully replaces the default gater). Peer addresses are dialed WSS first, then WebTransport on UDP 443, then IPv6, then IPv4 on other UDP ports; `libp2pOptions.connectionManager` replaces that sorter. Providers reachable only on private or loopback addresses are dialed after the public ones. A client keeps track of a bounded number of topic subscriptions per connected peer: gossipsub's `maxTopicBytesPerPeer`, which pkc-js sets to 8 MiB, about 8000 topics at roughly 1 KiB each (gossipsub's own default is 1 MiB). Subscriptions past the budget are ignored without an error, and the client then never publishes to that peer on those topics. Every community a peer hosts or seeds adds a pubsub topic and an IPNS record topic, so a peer serving more than about 4000 communities is past it. The limit is applied by the node that receives the subscriptions, not by the peer that has them: an app that connects to such peers raises it with its own `libp2pOptions.services.pubsub` (`gossipsub({ maxTopicBytesPerPeer, decodeRpcLimits })` from `@libp2p/gossipsub`), which replaces the default pubsub service. Raise `decodeRpcLimits.maxSubscriptions` with it: it caps how many subscriptions a single message may carry (gossipsub's default is 5000, pkc-js sets 65536), a peer announces all its topics in one message on connect, and a message over the cap is rejected whole, leaving that peer known for no topic at all. `blockstoreOptions` tunes the block cache described below. |
+| libp2pJsClientsOptions | `Array<{key: string, libp2pOptions?: Partial<Libp2pOptions>, heliaOptions?: Partial<HeliaOptions>, blockstoreOptions?: {maxBytes?: number, lowWaterRatio?: number}}>` or `undefined` | `undefined` | Optional in-process libp2p/Helia client. Cannot be combined with `kuboRpcClientsOptions` or `pubsubKuboRpcClientsOptions`: setting either alongside it throws `ERR_CAN_NOT_HAVE_BOTH_KUBO_AND_LIBP2P_JS_CLIENTS_DEFINED` (the default `pubsubKuboRpcClientsOptions` are dropped). At most one entry; `key` is a unique identifier. `libp2pOptions` is forwarded to [Helia's libp2p](https://github.com/ipfs/helia) (e.g. `connectionGater`, `services`, transports), `heliaOptions` to [Helia](https://github.com/ipfs/helia) (e.g. `blockstore`, `blockBrokers`; a caller-supplied `blockBrokers` replaces the default bitswap broker, and `http` is not supported since the client is composed without Helia's HTTP components). Requires `httpRoutersOptions` to be set. By default WebRTC dials are rejected, so browser nodes connect over WebSocket(/WSS) or WebTransport; pass your own `libp2pOptions.connectionGater` to override this (it fully replaces the default gater). Peer addresses are dialed WSS first, then WebTransport on UDP 443, then IPv6, then IPv4 on other UDP ports; `libp2pOptions.connectionManager` replaces that sorter. Each instance starts with a new libp2p peer id: pkc-js generates an Ed25519 key per start and the node's keychain is not used. To keep one peer id across restarts, pass your own key as `libp2pOptions.privateKey` (a `PrivateKey` from `@libp2p/crypto/keys`, e.g. `await generateKeyPair('Ed25519')`, which you store and reload yourself); it is used as given. If you pass `heliaOptions.datastore`, pkc-js leaves the key to Helia instead, which keeps it in that datastore's keychain, so a persistent datastore keeps its peer id (the keychain needs WebCrypto). Providers reachable only on private or loopback addresses are dialed after the public ones. A client keeps track of a bounded number of topic subscriptions per connected peer: gossipsub's `maxTopicBytesPerPeer`, which pkc-js sets to 8 MiB, about 8000 topics at roughly 1 KiB each (gossipsub's own default is 1 MiB). Subscriptions past the budget are ignored without an error, and the client then never publishes to that peer on those topics. Every community a peer hosts or seeds adds a pubsub topic and an IPNS record topic, so a peer serving more than about 4000 communities is past it. The limit is applied by the node that receives the subscriptions, not by the peer that has them: an app that connects to such peers raises it with its own `libp2pOptions.services.pubsub` (`gossipsub({ maxTopicBytesPerPeer, decodeRpcLimits })` from `@libp2p/gossipsub`), which replaces the default pubsub service. Raise `decodeRpcLimits.maxSubscriptions` with it: it caps how many subscriptions a single message may carry (gossipsub's default is 5000, pkc-js sets 65536), a peer announces all its topics in one message on connect, and a message over the cap is rejected whole, leaving that peer known for no topic at all. `blockstoreOptions` tunes the block cache described below. |
 | dataPath | `string` or `undefined` | `.pkc` folder in the current working directory | (Node only) Optional folder path to create/resume the user and community databases. Must be on a local filesystem, not a network one (NFS, SMB): the lock that keeps two processes from running the same community is a file lock |
 | resolveAuthorNames | `boolean` or `undefined` | `true` | Optionally disable resolving crypto domain author names, which can be done lazily later to save time |
-| nameResolvers | `NameResolver[]` or `undefined` | `undefined` | Custom resolvers for crypto domain names. Each resolver: `{key, resolve, canResolve, provider, destroy?}`. |
+| nameResolvers | `NameResolver[]` or `undefined` | `undefined` | Custom resolvers for crypto domain names. Each resolver: `{key, resolve, canResolve, provider, destroy?}`. `resolve({name, abortSignal, log})` always receives a `log` from `@pkcprotocol/pkc-logger`, tagged with the `name` being resolved, whose lines land in `pkc.getLogs()`. `destroy({log})` receives the same `name-resolver:<key>` logger that `resolve()`'s `log` is a child of, without the `name` tag. |
 | validatePages | `boolean` or `undefined` | `true` | If `false`, pages returned in `commentUpdate` / `Community` / `getPage` are not validated. Use only when you trust the source. |
 | userAgent | `string` or `undefined` | `/pkc-js:<version>/` | User-agent string sent on outgoing HTTP requests. |
 | challenges | `Record<string, ChallengeFileFactory>` or `undefined` | `undefined` | Instance-level challenge registry; keys shadow built-in challenges with the same name. See [docs/protocol/challenge-flow.md](docs/protocol/challenge-flow.md). |
 | pageSorts | `Record<string, PageSortFileFactory>` or `undefined` | `undefined` | Instance-level page sort registry (`PKC.pageSorts`); keys shadow built-in sorts with the same name and are referenced by `settings.pages[].name`. See [docs/protocol/page-sorts.md](docs/protocol/page-sorts.md). |
+| logger | `{instance?: Logger, buffer?: {maxBytes: number}}` or `undefined` | `undefined` | The instance's root logger, see [`pkc.getLogs(query)`](#pkcgetlogsquery). `instance` is a root created with `createLogger()` from `@pkcprotocol/pkc-logger` (hand one over to attach listeners before the instance exists, or to share one buffer between instances); `buffer.maxBytes` sizes the buffer of the root pkc-js creates otherwise (default 4 MiB, `0` disables capture). Passing both is rejected. Never sent over RPC: a server keeps its own root across `setSettings`. |
 
 #### Returns
 
@@ -1354,6 +1357,56 @@ for (const { address, publicKey, started } of pkc.communities) {
   console.log('starting', address) // same as community.address
   await community.start()
 }
+```
+
+### `pkc.getLogs(query)`
+
+> The log lines this instance captured, filtered by identifier tags, a regex and a time range, or, with `rpcUrl`, the lines an RPC server captured. Every logger in pkc-js is a child of the instance's root (`pkc.logger`, from `@pkcprotocol/pkc-logger`), so a line lands in that root's in-memory buffer with the tags of the object that logged it. Capture follows the `DEBUG` namespace selection: a line whose namespace is not enabled costs nothing and is not kept, so enable `DEBUG=pkc-js*` (or a narrower pattern) to fill the buffer. The buffer and the listeners attached to `pkc.logger` outlive `pkc.destroy()`.
+
+#### Parameters
+
+| Name | Type | Description |
+| -------- | -------- | -------- |
+| `query.tags` | `Record<string, string>` (optional) | Every listed key must be present on the line with exactly that value (AND). Keys are matched exactly, so one cid takes two queries: `{tags: {cid}}` for the comment's own lines and `{tags: {parentCid: cid}}` for its replies' lines that concern it |
+| `query.regex` | `{source: string, flags?: string}` (optional) | Tested against `namespace + " " + msg`. Compiled before anything is read, locally and on the server, so an invalid pattern throws `ERR_INVALID_LOG_QUERY`. Trusted input: a backtracking pattern runs synchronously, so never forward one from an untrusted source |
+| `query.since`, `query.until` | `number` (optional) | Inclusive bounds on the line's epoch milliseconds |
+| `query.limit` | `number` (optional) | Max lines returned, default 1000, cap 10000 |
+| `query.cursor`, `query.order` | `number`, `"asc"` or `"desc"` (optional) | Resume after (`asc`, the default) or before (`desc`) a `seq`; pass the previous result's `nextCursor` |
+| `query.rpcUrl` | `string` (optional) | Read that RPC server's buffer instead of the local one, through its `getLogs` method. Must equal one of this instance's `pkcRpcClientsOptions` as an exact string (no normalization), otherwise `ERR_PKC_NOT_CONNECTED_TO_RPC` with the configured URLs in `details`. The server serves only its own buffer and rejects an `rpcUrl` in its own params, so a call is never chained to a third daemon |
+
+The tag keys pkc-js sets:
+
+| Key | On |
+| -------- | -------- |
+| `challengeIndex` | The `log` argument of a challenge file's factory, `getChallenge()` and `validateChallengeSettings()`: the entry's position in `settings.challenges`, as a string |
+| `name` | The `log` argument of a name resolver's `resolve()`: the name being resolved |
+| `publicKey` | A community's lines: start, the update loop, each challenge exchange, edit, delete and settings calls, the community's db handler, page generator, pages and clients, and the challenge and page sort files it loads (their `log` argument) |
+| `signature` | A publication's lines, from signing or receipt on: `publish()` on the client side, and each exchange on the community side (`challenge-exchange` namespace), including `getChallenge()`'s `log` |
+| `cid` | A comment's lines once its cid is known: after the challenge verification on publish, and around its update loop |
+| `parentCid` | A reply's lines that also concern its parent: fetching the update from the parent's pages, the post's update event |
+
+#### Returns
+
+| Type | Description |
+| -------- | -------- |
+| `Promise<{entries: LogEntry[], nextCursor?: number}>` | `entries` are frozen `{seq, time, level, namespace, msg, tags}` records, oldest first unless `order: "desc"`; `nextCursor` is the last returned `seq`, absent when nothing matched |
+
+Errors: `ERR_INVALID_LOG_QUERY` for an invalid regex, an unknown field or a value out of range, before anything is scanned; `ERR_PKC_NOT_CONNECTED_TO_RPC` for an `rpcUrl` that is not configured.
+
+The shared libp2p-js client (`libp2pJsClientsOptions[].key`) is created once per key and reused by every instance that names it; its lines go to the buffer of the instance that created it, so a later instance reusing the client does not see them in its own `getLogs()`.
+
+#### Example
+
+```js
+// DEBUG=pkc-js* node script.js
+const { entries } = await pkc.getLogs({ tags: { publicKey: community.publicKey }, regex: { source: "challenge" } })
+for (const entry of entries) console.log(new Date(entry.time).toISOString(), entry.namespace, entry.msg)
+
+// the same, on the RPC daemon this instance is connected to
+const remote = await pkc.getLogs({ tags: { cid: comment.cid }, rpcUrl: pkc.pkcRpcClientsOptions[0] })
+
+// a host that wants a file: listen on the root, the entries also reach the buffer
+const stop = pkc.logger.addListener((entry) => fileStream.write(JSON.stringify(entry) + "\n"))
 ```
 
 ### `pkc.getDefaults()` *(not yet implemented)*

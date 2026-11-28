@@ -1,4 +1,4 @@
-import Logger from "../../logger.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import { guardDetached } from "../../detached-guard.js";
 import { Client as WebSocketClient } from "rpc-websockets";
 import assert from "assert";
@@ -44,6 +44,8 @@ import type {
     CancelExportRpcParam,
     RpcExportCommunityResult,
     ExportCommunityModLogsRpcParam,
+    GetLogsQuery,
+    RpcGetLogsResult,
     RpcExportCommunityModLogsResult,
     PublishAnchorRecordRpcParam,
     AnchorPublishPreparation,
@@ -71,6 +73,8 @@ import {
     parseRpcExportCommunityResult,
     parseRpcExportCommunityModLogsParam,
     parseRpcExportCommunityModLogsResult,
+    parseRpcGetLogsResult,
+    parseLogQueryWithPKCErrorIfItFails,
     parseRpcPublishAnchorRecordParam,
     parseRpcAnchorPublishPreparationResult,
     parseRpcPublishedAnchorRecordResult,
@@ -79,8 +83,6 @@ import {
     parseRpcFetchCommunityListParam,
     parseRpcFetchCommunityListResult
 } from "./rpc-schema-util.js";
-
-const log = Logger("pkc-js:PKCRpcClient");
 
 // The subset of ws (Node) and the native WebSocket (browser) that destroy() needs to wait for a close
 interface RawWebSocket {
@@ -162,9 +164,11 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     private _reconnectIntervalMs = this._reconnectBaseIntervalMs;
     private _openConnectionPromise?: Promise<any>;
     private _destroyRequested: boolean;
-    constructor(rpcServerUrl: string) {
+    _log: Logger;
+    constructor(rpcServerUrl: string, log: Logger) {
         super();
         assert(rpcServerUrl, "pkc.pkcRpcClientsOptions needs to be defined to create a new rpc client");
+        this._log = log;
 
         this._websocketServerUrl = rpcServerUrl; // default to first for now. Will change later
         this._timeoutSeconds = 20;
@@ -204,7 +208,6 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     }
 
     async _init() {
-        const log = Logger("pkc-js:pkc-rpc-client:_init");
         if (this._destroyRequested) return;
         // wait for websocket connection to open
         if (!(this._webSocketClient instanceof WebSocketClient)) {
@@ -217,11 +220,11 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                 reconnect_interval: this._reconnectIntervalMs,
                 max_reconnects: 0 // retry forever, with the backoff below
             });
-            log("Created a new WebSocket instance with url " + this._websocketServerUrl);
+            this._log("_init: Created a new WebSocket instance with url " + this._websocketServerUrl);
             this._attachNotificationHandler();
 
             this._webSocketClient.on("open", () => {
-                log("Connected to RPC server", this._websocketServerUrl);
+                this._log("_init: Connected to RPC server", this._websocketServerUrl);
                 // rpc-websockets replaced the socket if this is a reconnect
                 this._attachNotificationHandler();
                 this._reconnectIntervalMs = this._reconnectBaseIntervalMs;
@@ -241,7 +244,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                 this._backOffReconnectInterval();
                 this._lastWebsocketError = error;
                 if (this._destroyRequested) {
-                    log("Ignoring websocket error emitted after destroy request", error);
+                    this._log("_init: Ignoring websocket error emitted after destroy request", error);
                     return;
                 }
                 // Detect HTTP 403 from server auth rejection
@@ -262,14 +265,14 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                 try {
                     this.emit("error", errorToEmit);
                 } catch (emitError) {
-                    log.error("No listener received the RPC websocket error", this._websocketServerUrl, emitError);
+                    this._log.error("_init: No listener received the RPC websocket error", this._websocketServerUrl, emitError);
                 }
             });
 
             this._webSocketClient.on("close", (closeCode: number, closeReason: unknown) => {
                 // destroy() already awaited this close and logged it; a log here would land after
                 // destroy() resolved (#325)
-                if (!this._destroyRequested) log.error("connection with web socket has been closed", this._websocketServerUrl);
+                if (!this._destroyRequested) this._log.error("_init: connection with web socket has been closed", this._websocketServerUrl);
                 this._openConnectionPromise = undefined;
                 this.setState("stopped");
                 this._lastClose = { closeCode, closeReason: String(closeReason ?? "") };
@@ -321,7 +324,10 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
             await openConnectionPromise;
         } catch (e) {
             if (this._destroyRequested) {
-                log("Aborted RPC connection before it finished opening because destroy was requested", this._websocketServerUrl);
+                this._log(
+                    "_init: Aborted RPC connection before it finished opening because destroy was requested",
+                    this._websocketServerUrl
+                );
                 return;
             }
             const err =
@@ -371,7 +377,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                     await this.unsubscribe(Number(subscriptionId));
                 } else cleanupSubscriptionLocally(subscriptionId);
             } catch (e) {
-                log.error("Failed to unsubscribe to subscription ID", subscriptionId, e);
+                this._log.error("destroy: Failed to unsubscribe to subscription ID", subscriptionId, e);
                 cleanupSubscriptionLocally(subscriptionId);
             }
 
@@ -394,10 +400,10 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                 const socketClosed = this._waitForSocketClose();
                 this._webSocketClient.close();
                 await socketClosed;
-                log("Closed websocket connection to", this._websocketServerUrl);
+                this._log("destroy: Closed websocket connection to", this._websocketServerUrl);
             }
         } catch (e) {
-            log.error("Failed to close websocket", e);
+            this._log.error("destroy: Failed to close websocket", e);
         }
 
         this._openConnectionPromise = undefined;
@@ -415,7 +421,12 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         try {
             await pTimeout(closed, { milliseconds: DESTROY_SOCKET_CLOSE_TIMEOUT_MS });
         } catch {
-            log.error("Websocket did not close within", DESTROY_SOCKET_CLOSE_TIMEOUT_MS, "ms of destroy()", this._websocketServerUrl);
+            this._log.error(
+                "_waitForSocketClose: Websocket did not close within",
+                DESTROY_SOCKET_CLOSE_TIMEOUT_MS,
+                "ms of destroy()",
+                this._websocketServerUrl
+            );
         }
     }
 
@@ -463,6 +474,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
             "message",
             guardDetached({
                 entryPoint: "PKCRpcClient socket message",
+                log: this._log,
                 handler: (jsonMessage: string) => {
                     const message: unknown = JSON.parse(jsonMessage);
                     if (!isRpcSubscriptionNotification(message)) return; // a response to a call, handled by rpc-websockets
@@ -472,7 +484,10 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                     this._dispatchNotification(subscriptionId, message);
                 },
                 onFailure: (cause) =>
-                    this.emit("error", new PKCError("ERR_RPC_CLIENT_FAILED_TO_HANDLE_SERVER_MESSAGE", { rpcUrl: this._websocketServerUrl, cause }))
+                    this.emit(
+                        "error",
+                        new PKCError("ERR_RPC_CLIENT_FAILED_TO_HANDLE_SERVER_MESSAGE", { rpcUrl: this._websocketServerUrl, cause })
+                    )
             })
         );
     }
@@ -566,14 +581,21 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                 if ((error as { code?: unknown })?.code === "ERR_RPC_COMMUNITY_NOT_RUNNING") {
                     // Someone stopped the community on purpose, possibly while we were away; tell the
                     // instance the way a stop reaches a connected client, and do not try again
-                    log("Not re-establishing start(), the community was stopped on purpose", subscriptionId);
+                    this._log(
+                        "_resubscribeAllAfterReconnect: Not re-establishing start(), the community was stopped on purpose",
+                        subscriptionId
+                    );
                     this._resubscribeCalls.delete(subscriptionId);
                     this._dispatchNotification(subscriptionId, {
                         params: { event: "startedstatechange", subscription: subscriptionId, result: { state: "stopped" } }
                     });
                     return;
                 }
-                log.error("Failed to re-subscribe after reconnecting to the RPC server", subscriptionId, error);
+                this._log.error(
+                    "_resubscribeAllAfterReconnect: Failed to re-subscribe after reconnecting to the RPC server",
+                    subscriptionId,
+                    error
+                );
                 this._dispatchNotification(subscriptionId, {
                     params: { event: "error", subscription: subscriptionId, result: error }
                 });
@@ -597,7 +619,11 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         for (const subscribe of subscriptions)
             this._runBackgroundSubscription(subscribe).catch((error) => {
                 if (this._destroyRequested) return;
-                log.error("Failed to subscribe after connecting to the RPC server", this._websocketServerUrl, error);
+                this._log.error(
+                    "_retryBackgroundSubscriptions: Failed to subscribe after connecting to the RPC server",
+                    this._websocketServerUrl,
+                    error
+                );
             });
     }
 
@@ -618,7 +644,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
             // Unsubscribed while the call was in flight
             if (!this._destroyRequested)
                 await this._webSocketClient.call("unsubscribe", [{ subscriptionId: serverSubscriptionId }]).catch((error) => {
-                    log.error("Failed to unsubscribe a subscription re-issued after it was unsubscribed", error);
+                    this._log.error("_resubscribe: Failed to unsubscribe a subscription re-issued after it was unsubscribed", error);
                 });
             return;
         }
@@ -626,7 +652,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         if (previousServerSubscriptionId !== undefined) this._localIdByServerId.delete(previousServerSubscriptionId);
         this._serverIdByLocalId.set(subscriptionId, serverSubscriptionId);
         this._localIdByServerId.set(serverSubscriptionId, subscriptionId);
-        log("Re-subscribed after reconnecting", call.method, { subscriptionId, serverSubscriptionId });
+        this._log("_resubscribe: Re-subscribed after reconnecting", call.method, { subscriptionId, serverSubscriptionId });
         for (const message of earlyMessages) {
             message.params.subscription = subscriptionId;
             this._dispatchNotification(subscriptionId, message);
@@ -728,7 +754,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
         replayErrorContainment: {
             // The noun used in the log lines, e.g. "community", "comment", "publication"
             entityName: string;
-            log: ReturnType<typeof Logger>;
+            log: Logger;
             // Typically (error) => this.emit("error", error) on the subscribing instance
             emitError: (error: Error) => void;
             // The teardown matching the entity's blast radius (e.g. stopWithoutRpcCall for a
@@ -751,7 +777,7 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
 
     private _containReplayError(
         e: unknown,
-        containment: { entityName: string; log: ReturnType<typeof Logger>; emitError: (error: Error) => void; stop: () => Promise<void> }
+        containment: { entityName: string; log: Logger; emitError: (error: Error) => void; stop: () => Promise<void> }
     ) {
         const { entityName, log: siteLog, emitError, stop } = containment;
         siteLog.error(`Error thrown while replaying buffered subscribe-time notifications, stopping the ${entityName}`, e);
@@ -987,6 +1013,13 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
     async exportCommunityModLogs(args: ExportCommunityModLogsRpcParam): Promise<RpcExportCommunityModLogsResult> {
         const parsedArgs = parseRpcExportCommunityModLogsParam(args);
         return parseRpcExportCommunityModLogsResult(await this._webSocketClient.call("exportCommunityModLogs", [parsedArgs]));
+    }
+
+    // The server's own log buffer (issue #493). The query is parsed here before the wire, so a bad regex never leaves
+    // the client; the server parses it again with the same schema
+    async getLogs(query: GetLogsQuery): Promise<RpcGetLogsResult> {
+        const parsedQuery = parseLogQueryWithPKCErrorIfItFails(query);
+        return parseRpcGetLogsResult(await this._webSocketClient.call("getLogs", [parsedQuery]));
     }
 
     async exportsSubscribe(args: CommunityIdentifierRpcParam): Promise<RpcSubscriptionIdResult> {

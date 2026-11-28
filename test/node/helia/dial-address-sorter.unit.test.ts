@@ -4,6 +4,9 @@ import type { Address } from "@libp2p/interface";
 import { pkcDialAddressSorter } from "../../../dist/node/helia/dial-address-sorter.js";
 import { createLibp2pJsClientOrUseExistingOne } from "../../../dist/node/helia/helia-for-pkc.js";
 import type { Libp2pJsClient } from "../../../dist/node/helia/libp2pjsClient.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:dial-address-sorter" });
 
 // libp2p dials a peer's addresses one at a time, with a 6 s limit per address and 10 s per dial. Some
 // consumer networks drop IPv4 UDP to port 4001, so a WebTransport address on IPv4 UDP 4001 that sorts
@@ -73,7 +76,8 @@ describe("pkcDialAddressSorter wiring into the libp2p-js helia client", () => {
             key: `dial-address-sorter-test-${keyCounter++}`,
             httpRoutersOptions: ["http://localhost:1"], // never reached; required only so setup doesn't throw
             libp2pOptions,
-            heliaOptions: {}
+            heliaOptions: {},
+            log: testLog
         }) as Promise<Libp2pJsClient>;
 
     afterEach(async () => {

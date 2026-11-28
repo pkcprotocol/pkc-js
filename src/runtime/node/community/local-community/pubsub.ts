@@ -1,4 +1,3 @@
-import Logger from "../../../../logger.js";
 import { retryKuboBlockPutPinAndProvidePubsubTopic } from "../../../../util.js";
 import type { LocalCommunity } from "../local-community.js";
 import { challengeExchangePubsubTopic, communityChallengePubsubTopic } from "./comment-updates.js";
@@ -9,7 +8,7 @@ import { listSubscribedPubsubTopicsShared } from "../../../../clients/shared-pub
 const SHARED_TOPIC_LIST_MAX_AGE_AS_FRACTION_OF_PUBLISH_INTERVAL = 1 / 4;
 
 export async function listenToIncomingRequests(community: LocalCommunity) {
-    const log = Logger("pkc-js:local-community:sync:_listenToIncomingRequests");
+    const log = community._log;
     // Make sure community listens to pubsub topic
     // Code below is to handle in case the ipfs node restarted and the subscription got lost or something
     const topic = challengeExchangePubsubTopic(community);
@@ -32,7 +31,7 @@ export async function listenToIncomingRequests(community: LocalCommunity) {
         if (subscribedTopics.has(staleTopic))
             await community._clientsManager.pubsubUnsubscribe(staleTopic, community.handleChallengeExchange);
         community._subscribedChallengePubsubTopic = undefined;
-        log(`Stopped listening on the previous challenge exchange pubsub topic (${staleTopic})`);
+        log(`_listenToIncomingRequests: Stopped listening on the previous challenge exchange pubsub topic (${staleTopic})`);
     };
 
     if (!topic) {
@@ -42,7 +41,7 @@ export async function listenToIncomingRequests(community: LocalCommunity) {
         if (disabledTopic && subscribedTopics.has(disabledTopic)) {
             await community._clientsManager.pubsubUnsubscribe(disabledTopic, community.handleChallengeExchange);
             if (community._subscribedChallengePubsubTopic === disabledTopic) community._subscribedChallengePubsubTopic = undefined;
-            log(`Challenge exchange is disabled, unsubscribed from pubsub topic (${disabledTopic})`);
+            log(`_listenToIncomingRequests: Challenge exchange is disabled, unsubscribed from pubsub topic (${disabledTopic})`);
         }
         await unsubscribeStaleTopicIfNeeded(undefined);
         return;
@@ -55,13 +54,13 @@ export async function listenToIncomingRequests(community: LocalCommunity) {
         await community._clientsManager.pubsubUnsubscribe(topic, community.handleChallengeExchange); // Make sure it's not hanging
         await community._clientsManager.pubsubSubscribe(topic, community.handleChallengeExchange);
         community._clientsManager.updateKuboRpcPubsubState("waiting-challenge-requests", pubsubClient.url);
-        log(`Waiting for publications on pubsub topic (${topic})`);
+        log(`_listenToIncomingRequests: Waiting for publications on pubsub topic (${topic})`);
     }
     community._subscribedChallengePubsubTopic = topic;
 }
 
 export async function providePubsubTopicRoutingCidsIfNeeded(community: LocalCommunity, force = false) {
-    const log = Logger("pkc-js:local-community:_providePubsubTopicRoutingCidsIfNeeded");
+    const log = community._log;
     const reprovideIntervalMs = 1 * 60 * 60 * 1000; // re-provide the pubsub-topic routing CIDs hourly so their HTTP-router records keep fresh addresses
     const now = Date.now();
     if (!force && community._lastPubsubTopicRoutingProvideAt && now - community._lastPubsubTopicRoutingProvideAt < reprovideIntervalMs)
@@ -83,7 +82,7 @@ export async function providePubsubTopicRoutingCidsIfNeeded(community: LocalComm
                 pubsubTopic: topic
             });
         } catch (error) {
-            log.error("Failed to reprovide pubsub topic routing block", { topic, error });
+            log.error("_providePubsubTopicRoutingCidsIfNeeded: Failed to reprovide pubsub topic routing block", { topic, error });
         }
     }
 }

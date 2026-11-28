@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import {
     isBrowserDialableAddr,
     normalizeSelfAddrsForProvider,
@@ -11,6 +12,9 @@ import type {
     AddressChangeReprovidable,
     ReprovideKuboRpcClient
 } from "../../../dist/node/runtime/node/community/local-community/reprovide-on-address-change.js";
+
+// Free helpers take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:reprovide-on-address-change" });
 
 // Pure unit test (no kubo / no PKC). Pins down the publisher-side behaviour that keeps browsers able to
 // connect: when the node's browser-dialable (WSS/WebRTC/WebTransport) self-addresses rotate, the connection-critical
@@ -66,6 +70,7 @@ function makeCommunity(client: ReprovideKuboRpcClient): AddressChangeReprovidabl
         pubsubTopicRoutingCid: PUBSUB_ROUTING_CID,
         ipnsPubsubTopicRoutingCid: IPNS_PUBSUB_ROUTING_CID,
         _lastProvidedBrowserDialableSelfAddrs: undefined,
+        _log: testLog,
         _clientsManager: {
             getDefaultKuboRpcClient: () => ({ _client: client })
         }

@@ -12,11 +12,15 @@
 //    first is the community node's to fix and gets reported to the publisher, the second gets nothing.
 
 import { describe, it, expect, vi } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { createAuthorIdentityMatcher } from "../../../../dist/node/runtime/node/community/local-community/author-identity.js";
 import { PKCError } from "../../../../dist/node/pkc-error.js";
 import { messages } from "../../../../dist/node/errors.js";
 import signers from "../../../fixtures/signers.js";
 import type { LocalCommunity } from "../../../../dist/node/runtime/node/community/local-community.js";
+
+// Local-community helpers log through community._log (issue #493); fakes get the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:author-identity" });
 
 const owner = signers[6];
 const impostor = signers[7];
@@ -37,6 +41,7 @@ const buildMatcher = ({
         resolvedAuthorName: await (resolve ?? (async () => owner.address))(authorName)
     }));
     const community = {
+        _log: testLog,
         _clientsManager: { resolveAuthorNameIfNeeded },
         _pkc: { _timeouts: { "resolve-author-name": 5000 } }
     } as unknown as LocalCommunity;

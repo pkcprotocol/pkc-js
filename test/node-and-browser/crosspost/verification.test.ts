@@ -9,6 +9,7 @@
 // Verification is wired into verifyCommentPubsubMessage rather than verifyCommentIpfs so the single
 // call site covers both the community's acceptance path and every client fetch path.
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import { clone } from "remeda";
 import { of as calculateIpfsHash } from "typestub-ipfs-only-hash";
 import { stringify as deterministicStringify } from "safe-stable-stringify";
@@ -20,6 +21,9 @@ import { messages } from "../../../dist/node/errors.js";
 import type { PKC } from "../../../dist/node/pkc/pkc.js";
 import type { Comment } from "../../../dist/node/publications/comment/comment.js";
 import type { CommentIpfsType, CommentPubsubMessagePublication } from "../../../dist/node/publications/comment/types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:verification" });
 
 const communityAddress = signers[0].address;
 
@@ -399,7 +403,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
                     signer: await pkc.createSigner()
                 };
                 delete (toSign as Partial<typeof toSign>).signature;
-                const signature = await signComment({ comment: toSign as never, pkc });
+                const signature = await signComment({ comment: toSign as never, pkc, log: testLog });
                 const { signer: _signer, ...record } = toSign;
                 return { ...record, signature } as unknown as CommentPubsubMessagePublication;
             };

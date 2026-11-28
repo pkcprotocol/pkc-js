@@ -206,7 +206,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it("loads a new-format CommentIpfs (no wire author.address) and derives author.publicKey and author.address from signature", async () => {
             const signer = signers[7];
-            const log = Logger("pkc-js:test:getcomment:new-format-derivation");
+            const log = Logger({ namespace: "pkc-js:test:getcomment:new-format-derivation" });
             const signedPropertyNames = ["content", "title", "author", "subplebbitAddress", "protocolVersion", "timestamp", "depth"];
             const commentIpfs = {
                 content: `New format no author.address ${Date.now()}`,
@@ -231,7 +231,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
 
         it("loads a new-format CommentIpfs with domain author.name and derives author.publicKey from signature", async () => {
             const signer = signers[7];
-            const log = Logger("pkc-js:test:getcomment:new-format-domain");
+            const log = Logger({ namespace: "pkc-js:test:getcomment:new-format-domain" });
             const signedPropertyNames = ["content", "title", "author", "subplebbitAddress", "protocolVersion", "timestamp", "depth"];
             const commentIpfs = {
                 content: `New format domain author ${Date.now()}`,
@@ -303,7 +303,7 @@ getAvailablePKCConfigsToTestAgainst().map((config) => {
             // signature.signedPropertyNames is rejected (issue #249), so the record is signed fresh
             // with them included instead of patching them onto an already-signed fixture.
             const signer = signers[7];
-            const log = Logger("pkc-js:test:getcomment:key-rotation");
+            const log = Logger({ namespace: "pkc-js:test:getcomment:key-rotation" });
             const signedPropertyNames = ["content", "title", "communityName", "communityPublicKey", "protocolVersion", "timestamp"];
             const commentIpfs = {
                 content: `Key rotation content ${Date.now()}`,

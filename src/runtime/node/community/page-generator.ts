@@ -1,4 +1,5 @@
 import { calculateUnixFsDagSizeCidV0, hideClassPrivateProps, retryKuboIpfsAddAndProvide, timestamp } from "../../../util.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 import v8 from "node:v8";
 import { Buffer } from "buffer";
 import { LocalCommunity } from "./local-community.js";
@@ -30,7 +31,6 @@ import {
 } from "../../../pages/page-sort-scoring.js";
 import { MAX_PAGE_SIZE_BYTES } from "../../../pages/page-size.js";
 import type { PageSortScope } from "../../../community/types.js";
-import Logger from "../../../logger.js";
 import type { CommunityIpfsType } from "../../../community/types.js";
 import { cleanUpBeforePublishing, signCommentUpdateForChallengeVerification } from "../../../signer/signatures.js";
 import { deriveCommentIpfsFromCommentTableRow } from "../util.js";
@@ -291,9 +291,11 @@ class SerializedEntries {
 export class PageGenerator {
     private _community: LocalCommunity;
     private _postEntryCache: EntryJsonCache | undefined; // post page entries across generations, see EntryJsonCache
+    private _log: Logger;
 
     constructor(community: PageGenerator["_community"]) {
         this._community = community;
+        this._log = community._log.child({ namespace: "page-generator" });
         hideClassPrivateProps(this);
     }
 
@@ -309,7 +311,7 @@ export class PageGenerator {
             if (!modQueuePageIpfs.nextCid) delete modQueuePageIpfs.nextCid; // we don't to include undefined anywhere in the protocol
             const addRes = await retryKuboIpfsAddAndProvide({
                 ipfsClient: ipfsClient._client,
-                log: Logger("pkc-js:page-generator:addQueuedCommentChunksToIpfs"),
+                log: this._log,
                 content: deterministicStringify(modQueuePageIpfs),
                 addOptions: { pin: true },
                 provideOptions: { recursive: true },
@@ -400,7 +402,7 @@ export class PageGenerator {
         const content = PAGE_OPEN + serialized.stringsOf(entries).join(",") + (nextCid ? pageCloseWithNextCid(nextCid) : PAGE_CLOSE);
         const addRes = await retryKuboIpfsAddAndProvide({
             ipfsClient: this._community._clientsManager.getDefaultKuboRpcClient()._client,
-            log: Logger("pkc-js:page-generator:addChunksToIpfs"),
+            log: this._log,
             content,
             addOptions: { pin: true },
             provideOptions: { recursive: true },
@@ -471,9 +473,9 @@ export class PageGenerator {
                     chunkIndex++;
                     accumulatedBytes = isLastItem ? WRAPPER_WITHOUT_CID_BYTES : WRAPPER_WITH_CID_BYTES;
                 } else if (commentBytes > byteBudget) {
-                    const log = Logger("pkc-js:page-generator:_chunkComments");
+                    const log = this._log;
                     log.trace(
-                        `Single comment at index ${i} (${commentBytes} bytes) is large relative to page size limit (${maxSize}) for page ${chunkIndex}`
+                        `_chunkComments: Single comment at index ${i} (${commentBytes} bytes) is large relative to page size limit (${maxSize}) for page ${chunkIndex}`
                     );
                     accumulatedBytes = isLastItem ? WRAPPER_WITHOUT_CID_BYTES : WRAPPER_WITH_CID_BYTES;
                 }
@@ -821,7 +823,8 @@ export class PageGenerator {
             ...commentUpdateOfVerificationNoSignature,
             signature: await signCommentUpdateForChallengeVerification({
                 update: commentUpdateOfVerificationNoSignature,
-                signer: this._community.signer
+                signer: this._community.signer,
+                log: this._log
             })
         };
         const commentIpfs = deriveCommentIpfsFromCommentTableRow(queuedComment);

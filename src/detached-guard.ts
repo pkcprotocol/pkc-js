@@ -1,4 +1,4 @@
-import Logger from "./logger.js";
+import type { Logger } from "@pkcprotocol/pkc-logger";
 
 // Wraps an entry point that nothing awaits: an event listener, a timer callback, a stream or socket callback. A throw
 // or a rejection there is an uncaught exception or an unhandled rejection, which ends a Node process and with it every
@@ -16,14 +16,16 @@ import Logger from "./logger.js";
 export function guardDetached<Args extends unknown[], Result>({
     entryPoint,
     handler,
-    onFailure
+    onFailure,
+    log
 }: {
     entryPoint: string;
     handler: (...args: Args) => Result;
     onFailure: (error: unknown) => unknown;
+    log: Logger;
 }): (...args: Args) => Result extends PromiseLike<unknown> ? Promise<void> : void {
     const handleFailure = (error: unknown) => {
-        Logger("pkc-js:detached-guard").error(`Detached entry point (${entryPoint}) failed`, describeFailure(error));
+        log.error(`guardDetached: Detached entry point (${entryPoint}) failed`, describeFailure(error));
         return onFailure(error);
     };
     // The conditional return type is the contract: an async handler gives a promise, a sync one gives nothing

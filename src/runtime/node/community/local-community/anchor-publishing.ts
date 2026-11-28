@@ -1,4 +1,3 @@
-import Logger from "../../../../logger.js";
 import { peerIdFromString } from "@libp2p/peer-id";
 import { STORAGE_KEYS } from "../../../../constants.js";
 import { PKCError } from "../../../../pkc-error.js";
@@ -39,7 +38,7 @@ export function getHighestAcceptedAnchorSequence(community: LocalCommunity): big
 // name does not resolve, which kubo reports the same way whether the record has never existed or the
 // routers merely failed us — the caller must never turn that ambiguity into a sequence of 0.
 async function lookupAnchorRecordOnNetwork(community: LocalCommunity, anchorName: string) {
-    const log = Logger("pkc-js:local-community:prepareAnchorPublish");
+    const log = community._log;
     const kuboRpcClient = community._clientsManager.getDefaultKuboRpcClient();
     try {
         return await Promise.race([
@@ -47,7 +46,7 @@ async function lookupAnchorRecordOnNetwork(community: LocalCommunity, anchorName
             new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), ANCHOR_LOOKUP_TIMEOUT_MS))
         ]);
     } catch (e) {
-        log.trace(`Anchor (${anchorName}) did not resolve while preparing a publish`, e);
+        log.trace(`prepareAnchorPublish: Anchor (${anchorName}) did not resolve while preparing a publish`, e);
         return undefined;
     }
 }
@@ -56,7 +55,7 @@ async function lookupAnchorRecordOnNetwork(community: LocalCommunity, anchorName
 // needed to rotate or re-publish: a community's first anchor record uses the nextSequence of 0 that
 // createCommunity already returned. See docs/protocol/delegated-ipns.md.
 export async function prepareAnchorPublish(community: LocalCommunity): Promise<AnchorPublishPreparation> {
-    const log = Logger("pkc-js:local-community:prepareAnchorPublish");
+    const log = community._log;
     const anchor = assertDelegated(community);
     await community._dbHandler.initDbIfNeeded();
 
@@ -82,7 +81,7 @@ export async function prepareAnchorPublish(community: LocalCommunity): Promise<A
     );
     const nextSequence = highestKnown + ANCHOR_SEQUENCE_MARGIN;
     log(
-        `Prepared anchor publish for community (${community.address}): persisted=${persistedSequence}, network=${networkSequence}, next=${nextSequence}`
+        `prepareAnchorPublish: Prepared anchor publish for community (${community.address}): persisted=${persistedSequence}, network=${networkSequence}, next=${nextSequence}`
     );
 
     return {
@@ -141,7 +140,7 @@ export async function publishAnchorRecord(community: LocalCommunity, recordBytes
 }
 
 async function publishAnchorRecordSerialized(community: LocalCommunity, recordBytes: Uint8Array): Promise<PublishedAnchorRecord> {
-    const log = Logger("pkc-js:local-community:publishAnchorRecord");
+    const log = community._log;
     const anchor = assertDelegated(community);
     await community._dbHandler.initDbIfNeeded();
 
@@ -194,7 +193,9 @@ async function publishAnchorRecordSerialized(community: LocalCommunity, recordBy
     await community._dbHandler.keyvSet(STORAGE_KEYS[STORAGE_KEYS.HIGHEST_ACCEPTED_ANCHOR_SEQUENCE], sequence.toString());
     community.anchorRecordSequence = sequence.toString();
 
-    log(`Published anchor record for community (${community.address}) at sequence ${sequence}, pointing at ${record.value}`);
+    log(
+        `publishAnchorRecord: Published anchor record for community (${community.address}) at sequence ${sequence}, pointing at ${record.value}`
+    );
 
     return { sequence: sequence.toString(), value: record.value, anchorPublicKey: anchor.publicKey };
 }
@@ -204,14 +205,14 @@ async function publishAnchorRecordSerialized(community: LocalCommunity, recordBy
 // subscription, so it stops answering for the anchor until something puts again. Hence this runs at
 // start() as well as on the publish loop, not on a timer alone.
 export async function reprovideAnchorRecordIfNeeded(community: LocalCommunity): Promise<boolean> {
-    const log = Logger("pkc-js:local-community:reprovideAnchorRecord");
+    const log = community._log;
     if (!community.anchor) return false;
     const bytes = getPersistedAnchorRecordBytes(community);
     if (!bytes) return false;
 
     await putAnchorRecordThroughKubo(community, community.anchor.publicKey, bytes);
     community._lastAnchorRecordReprovideAt = Date.now();
-    log.trace(`Re-provided anchor record of community (${community.address})`);
+    log.trace(`reprovideAnchorRecord: Re-provided anchor record of community (${community.address})`);
     return true;
 }
 

@@ -18,6 +18,9 @@ import type {
     ChallengeRequestMessageType,
     ChallengeVerificationMessageType
 } from "../../../dist/node/pubsub-messages/types.js";
+import Logger from "@pkcprotocol/pkc-logger";
+
+const testLog = Logger({ namespace: "pkc-js:test:publication-state-machine" });
 
 // State-machine regressions of a publication publishing over pubsub without an RPC client. The pubsub provider is
 // stubbed on the publication's clients manager, so these run without the test server: the test decides which publish
@@ -51,7 +54,7 @@ const challengeFor = async ({ request, by }: { request: ChallengeRequestMessageT
         protocolVersion: env.PROTOCOL_VERSION,
         timestamp: nowInSeconds()
     });
-    return { ...toSign, signature: await signChallengeMessage({ challengeMessage: toSign, signer: by }) };
+    return { ...toSign, signature: await signChallengeMessage({ challengeMessage: toSign, signer: by, log: testLog }) };
 };
 
 // A CHALLENGEVERIFICATION for the request, signed by `by`, with `encryptedPlaintext` as its encrypted part if given
@@ -78,7 +81,7 @@ const challengeVerificationFor = async ({
         protocolVersion: env.PROTOCOL_VERSION,
         timestamp: nowInSeconds()
     });
-    return { ...toSign, signature: await signChallengeVerification({ challengeVerification: toSign, signer: by }) };
+    return { ...toSign, signature: await signChallengeVerification({ challengeVerification: toSign, signer: by, log: testLog }) };
 };
 
 describe("publication publishing over a stubbed pubsub provider", () => {

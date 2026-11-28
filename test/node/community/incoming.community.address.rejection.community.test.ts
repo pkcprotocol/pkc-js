@@ -66,7 +66,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
     // --- helpers ---
 
     async function injectWrongCommunityAddress(publication: PublicationWithSigner) {
-        const log = Logger("pkc-js:test:injectWrongCommunityAddress");
+        const log = Logger({ namespace: "pkc-js:test:injectWrongCommunityAddress" });
         if (!publication.signer) throw Error("Expected publication to have a signer");
         await ensurePublicationIsSigned(publication, community);
 
@@ -87,7 +87,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
     }
 
     async function injectWrongCommunityPublicKey(publication: PublicationWithSigner) {
-        const log = Logger("pkc-js:test:injectWrongCommunityPublicKey");
+        const log = Logger({ namespace: "pkc-js:test:injectWrongCommunityPublicKey" });
         if (!publication.signer) throw Error("Expected publication to have a signer");
         await ensurePublicationIsSigned(publication, community);
 
@@ -101,7 +101,7 @@ describeSkipIfRpc.sequential("LocalCommunity rejects publications with wrong com
     }
 
     async function injectSubplebbitAddress(publication: PublicationWithSigner) {
-        const log = Logger("pkc-js:test:injectSubplebbitAddress");
+        const log = Logger({ namespace: "pkc-js:test:injectSubplebbitAddress" });
         if (!publication.signer) throw Error("Expected publication to have a signer");
         await ensurePublicationIsSigned(publication, community);
 

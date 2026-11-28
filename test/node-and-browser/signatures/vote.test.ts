@@ -1,4 +1,5 @@
 import { beforeAll, afterAll, expect } from "vitest";
+import Logger from "@pkcprotocol/pkc-logger";
 import signers from "../../fixtures/signers.js";
 import { mockPKCNoDataPathWithOnlyKuboClient } from "../../../dist/node/test/test-util.js";
 import { describeSkipIfRpc } from "../../helpers/conditional-tests.js";
@@ -11,6 +12,9 @@ import validVoteFixture from "../../fixtures/valid_vote.json" with { type: "json
 import type { PKC as PKCType } from "../../../dist/node/pkc/pkc.js";
 import type { RemoteCommunity } from "../../../dist/node/community/remote-community.js";
 import type { VoteOptionsToSign, VoteSignature, VotePubsubMessagePublication } from "../../../dist/node/publications/vote/types.js";
+
+// Free signer/verify helpers and raw clients take a required log (issue #493); tests use the process-default root
+const testLog = Logger({ namespace: "pkc-js:test:vote" });
 
 describe.concurrent("Sign Vote", async () => {
     let pkc: PKCType;
@@ -29,7 +33,7 @@ describe.concurrent("Sign Vote", async () => {
             vote: 1,
             protocolVersion: "1.0.0"
         };
-        voteSignature = await signVote({ vote: { ...voteProps, signer: signers[7] }, pkc: pkc });
+        voteSignature = await signVote({ vote: { ...voteProps, signer: signers[7] }, pkc: pkc, log: testLog });
     });
 
     afterAll(async () => {
@@ -49,7 +53,7 @@ describe.concurrent("Sign Vote", async () => {
         const cloneVote = clone(voteProps);
         cloneVote.author = { name: "gibbreish" };
         try {
-            await signVote({ vote: { ...cloneVote, signer: signers[7] }, pkc: pkc });
+            await signVote({ vote: { ...cloneVote, signer: signers[7] }, pkc: pkc, log: testLog });
             expect.fail("Should have thrown");
         } catch (e) {
             expect((e as { code: string }).code).to.equal("ERR_AUTHOR_ADDRESS_IS_NOT_A_DOMAIN_OR_B58");
@@ -58,7 +62,8 @@ describe.concurrent("Sign Vote", async () => {
     it(`signVote allows author to be omitted`, async () => {
         const signature = await signVote({
             vote: { ...omit(voteProps, ["author"]), signer: signers[7] } as VoteOptionsToSign,
-            pkc: pkc
+            pkc: pkc,
+            log: testLog
         });
         expect(signature.publicKey).to.equal(signers[7].publicKey);
     });
@@ -119,7 +124,7 @@ describeSkipIfRpc.concurrent("Verify vote", async () => {
         };
         const vote: VotePubsubMessagePublication = {
             ...omit(voteToSign, ["signer", "communityAddress"]),
-            signature: await signVote({ vote: voteToSign, pkc: pkc })
+            signature: await signVote({ vote: voteToSign, pkc: pkc, log: testLog })
         };
         const verification = await verifyVote({
             vote,
