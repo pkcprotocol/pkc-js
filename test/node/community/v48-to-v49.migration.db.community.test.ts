@@ -237,8 +237,30 @@ describeSkipIfRpc("v48 → v49 DB migration (commentUpdates.pseudonymityAuthorTa
                 depth, protocolVersion, insertedAt)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '1.0.0', ?)`
         );
-        insertPost.run(ALIASED_POST_CID, author.address, JSON.stringify(author), ALIASED_POST_CID, COMMUNITY_ADDRESS, "content", "title", now - 300, JSON.stringify(signature), now - 300);
-        insertPost.run(PLAIN_POST_CID, author.address, JSON.stringify(author), PLAIN_POST_CID, COMMUNITY_ADDRESS, "content", "title", now - 200, JSON.stringify({ ...signature, signature: "sig2" }), now - 200);
+        insertPost.run(
+            ALIASED_POST_CID,
+            author.address,
+            JSON.stringify(author),
+            ALIASED_POST_CID,
+            COMMUNITY_ADDRESS,
+            "content",
+            "title",
+            now - 300,
+            JSON.stringify(signature),
+            now - 300
+        );
+        insertPost.run(
+            PLAIN_POST_CID,
+            author.address,
+            JSON.stringify(author),
+            PLAIN_POST_CID,
+            COMMUNITY_ADDRESS,
+            "content",
+            "title",
+            now - 200,
+            JSON.stringify({ ...signature, signature: "sig2" }),
+            now - 200
+        );
 
         // The aliased post has an alias row; the plain post does not.
         db.prepare(
@@ -265,7 +287,9 @@ describeSkipIfRpc("v48 → v49 DB migration (commentUpdates.pseudonymityAuthorTa
     });
 
     it("the commentUpdates table has a pseudonymityAuthorTag column", () => {
-        const columns = (getPrivate(dbHandler!)._db.prepare("PRAGMA table_info(commentUpdates)").all() as { name: string }[]).map((c) => c.name);
+        const columns = (getPrivate(dbHandler!)._db.prepare("PRAGMA table_info(commentUpdates)").all() as { name: string }[]).map(
+            (c) => c.name
+        );
         expect(columns).to.include("pseudonymityAuthorTag");
     });
 

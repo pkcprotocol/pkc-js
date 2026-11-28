@@ -43,7 +43,7 @@ CommunityListEntry { // metadata set by the list curator, NOT the community owne
   check like every other record.
 - All array-valued fields are plural (`communities`, `languages`, `locations`, `features`,
   `tags`).
-- **Load schemas are loose.** When loading a record, `CommunityListSchema` and
+- **Load schemas are loose.** When loading a record, `CommunityListIpfsLooseSchema` and
   `CommunityListEntrySchema` must accept and preserve unknown extra props (zod `.loose()`),
   exactly like `CommentIpfsSchema` and `CommunityIpfsSchema`. This is load-bearing, not
   stylistic: a newer publisher may add fields and sign them, and verification walks the
@@ -54,11 +54,12 @@ CommunityListEntry { // metadata set by the list curator, NOT the community owne
   from `signedPropertyNames`, like `CommunityIpfs` and unlike `CommentIpfs`, because a list
   has no second producer allowed to attach fields. Otherwise anyone could add a field to a
   curator's list, re-add it under a new CID, and have it verify as the curator's.
-- The runtime-only conveniences (`cid`, `shortCid` on the record; `address`, `shortAddress`
-  on entries) go on reserved-field lists (`CommunityListReservedFields` and the entry
-  equivalent), so looseness never lets a wire record smuggle in runtime-only names; same
-  rule as every other record type. The author object reuses the publication author reserved
-  list (`address`, `publicKey`, `shortAddress`, `community`, `nameResolved`).
+- The runtime-only names (`cid`, `shortCid`, `state`, `updatingState`, `publishingState`,
+  `clients`, `signer` and `raw` on the record; `address`, `shortAddress` on entries) go on
+  reserved-field lists (`CommunityListReservedFields` and the entry equivalent), so
+  looseness never lets a wire record smuggle in runtime-only names; same rule as every other
+  record type. The author object reuses the publication author reserved list (`address`,
+  `publicKey`, `shortAddress`, `community`, `nameResolved`).
 
 ## Why immutable
 
@@ -134,16 +135,30 @@ schema verbatim, wire and runtime:
 ## Owner API
 
 - `pkc.createCommunityList({signer, title?, description?, author?, communities,
-  timestamp?})`: builds the instance. `timestamp` defaults to now, like publications.
+  timestamp?, protocolVersion?})`: builds the instance. `timestamp` defaults to now, like
+  publications, and `protocolVersion` to the version of this pkc-js.
 - `publish()`: explicit one-shot. Signs the JSON and adds the file to IPFS (locally, or via
   the RPC server). Sets `cid` on the instance and returns. Throws on any validation
   failure (see below).
 - `stop()`: aborts an in-flight `publish()`.
 - There is no `edit()`. Publishing a revision means calling `createCommunityList()` again
-  with the previous record's props from a loaded instance (`title`, `description`,
-  `author`, `communities`) and publishing a new CID. The runtime fields a loaded instance
-  carries (`address`/`shortAddress` on entries, the derived author fields) are dropped on
-  create; anything else unknown is still rejected.
+  with the previous record's props and publishing a new CID. Two ways to get those props
+  from a loaded instance:
+  - From `raw.communityList`, the signed record exactly as fetched. It has no runtime
+    fields, so remove only `signature` (refused on create), and `timestamp` and
+    `protocolVersion` (so the revision gets the current ones; a `protocolVersion` passed on
+    create is kept as given), then change what you need:
+    `const { signature, timestamp, protocolVersion, ...props } = loaded.raw.communityList`.
+    A loaded record can carry fields this version does not know, at the top level, in
+    `author` or in an entry of `communities`, because loading is loose. Create is strict, so
+    drop those as well.
+  - From the instance's own props (`title`, `description`, `author`, `communities`). The
+    runtime fields they carry (`address`/`shortAddress` on entries, the derived author
+    fields) are dropped on create.
+
+  Anything else unknown is still rejected, and the loaded instance itself cannot be passed
+  back: options that carry a `cid` are parsed as a load by CID, which allows no other
+  option.
 - Publishing is isomorphic (Node and browser). There is no Node-only dependency: no
   sqlite, no MFS, no pubsub. It does require a node that can `ipfs add`: a kubo RPC client
   or a PKC RPC server. Gateway-only and libp2p-js-only instances can load lists but not

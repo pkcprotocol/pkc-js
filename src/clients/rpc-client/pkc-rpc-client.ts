@@ -484,7 +484,10 @@ export default class PKCRpcClient extends TypedEmitter<PKCRpcClientEvents> {
                     this._dispatchNotification(subscriptionId, message);
                 },
                 onFailure: (cause) =>
-                    this.emit("error", new PKCError("ERR_RPC_CLIENT_FAILED_TO_HANDLE_SERVER_MESSAGE", { rpcUrl: this._websocketServerUrl, cause }))
+                    this.emit(
+                        "error",
+                        new PKCError("ERR_RPC_CLIENT_FAILED_TO_HANDLE_SERVER_MESSAGE", { rpcUrl: this._websocketServerUrl, cause })
+                    )
             })
         );
     }

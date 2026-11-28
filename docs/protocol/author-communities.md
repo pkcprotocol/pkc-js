@@ -71,13 +71,13 @@ first published. That discussion is unaffected, but it is not mirrored into the 
 
 **Converting an existing community.** The same configuration can be applied with `edit()` to a
 community that was created with `anchor`; an ordinary community cannot be re-keyed onto the author's
-identity afterwards. `settings` and `suggested` are replaced wholesale on edit, so spread what is
-already there, or the edit silently drops everything it does not repeat, `settings.pages` included.
-`roles` is a patch, so it needs no spread:
+identity afterwards. `roles`, `settings` and `suggested` are replaced wholesale on edit, so spread
+what is already there, or the edit silently drops everything it does not repeat, existing roles and
+`settings.pages` included:
 
 ```js
 await community.edit({
-    roles: { [An]: { role: "owner" } },
+    roles: { ...community.roles, [An]: { role: "owner" } },
     suggested: { ...community.suggested, uiType: "author" },
     settings: {
         ...community.settings,
@@ -133,13 +133,16 @@ const profile = await pkc.createCommunity({
 })
 ```
 
-How it resolves, given that an `exclude` array matches if **any** item matches, and an item matches
-only if **all** of its conditions hold:
+How it resolves, given that an `exclude` array matches if **any** item matches. The conditions about
+the author and the publication inside one item (`roles`, `publicationType`, `postScore`, ...) must
+**all** hold. An item's `challenges` and `community` conditions are checked separately from those: an
+item that sets both kinds excuses a publisher who satisfies either one. The items below use only the
+first kind:
 
 | publisher and type | challenge 0 (`fail`) | challenge 1 (`question`) | result |
 |---|---|---|---|
-| owner, post | excluded by `role` | excluded by `role` | accepted, unchallenged |
-| owner, reply | excluded by either rule | excluded by `role` | accepted, unchallenged |
+| owner, post | excluded by `roles` | excluded by `roles` | accepted, unchallenged |
+| owner, reply | excluded by either rule | excluded by `roles` | accepted, unchallenged |
 | stranger, post | matches neither rule, so it runs and fails | dropped | **rejected** |
 | stranger, reply | excluded by `publicationType` | runs | challenged normally |
 | stranger, vote | matches neither rule, so it runs and fails | dropped | **rejected** |
@@ -149,7 +152,7 @@ question: they get one immediate failed verification rather than a challenge rou
 
 **Votes stay rejected.** In the feed-only default nobody can send one in the first place; in this
 flavor `vote` is deliberately absent from the `publicationType` exclude, so a stranger's vote hits the
-`fail` challenge exactly like a stranger's post, while the owner's own votes stay excluded by `role`.
+`fail` challenge exactly like a stranger's post, while the owner's own votes stay excluded by `roles`.
 The reason is the karma model in [crossposts.md](crossposts.md): karma over a profile is read at
 tier 2 from each entry's origin community, so a vote published to the profile lands on the crosspost
 copy, is tallied by the owner's own delegate, and counts toward nothing a client should trust. It
@@ -228,9 +231,9 @@ rejected by their own `fail` challenge.
 ### The roles key
 
 `exclude.roles` does not look the publisher up by `author.address`. It walks the roles map and binds
-each key to the **signer** of the publication, the same way `isPublicationAuthorPartOfRoles` does for
-moderation authority (see the identity table in `challenge-flow.md`). Either form of the owner's
-identity is a valid key, and each one matches by its own rule:
+each key to the **signer** of the publication, the same way `matchPublicationAuthorAgainstRoles`
+does for moderation authority (see the identity table in `challenge-flow.md`). Either form of the
+owner's identity is a valid key, and each one matches by its own rule:
 
 - **The peer-ID key** (`author.publicKey`) matches when it equals the address derived from
   `signature.publicKey`. That holds whatever `author.name` the owner sends, and it costs nothing: keys
@@ -434,9 +437,10 @@ identity and orphans the profile, and compromise of it takes both. Minter rotati
 fully supported, see [delegated-ipns.md](delegated-ipns.md); it re-points `An` at a new `Mn'` and the
 address does not move.
 
-Migration between minters reuses `exportCommunity`, which is type-blind and already sqlite-based. The
-community address in the database is the anchor, and the minter key is node-local configuration that
-is never part of an export, so the database is portable by construction.
+Migration between minters reuses `community.export()`, which is type-blind and already sqlite-based. The
+community address in the database is the anchor, and the minter key is the community signer, which
+an export leaves out unless it is called with `includePrivateKey: true`, so the database is portable
+by construction.
 
 ## Finding a profile
 

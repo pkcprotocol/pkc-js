@@ -443,6 +443,7 @@ PubsubSignature {
   - [`community.stop()`](#communitystop)
   - [`community.update()`](#communityupdate)
   - `community.delete()`
+  - [`community.export(options?)`](#communityexportoptions)
   - [`community.exportCommunityModLogs(opts?)`](#communityexportcommunitymodlogsopts)
   - `community.address`
   - `community.shortAddress`
@@ -564,8 +565,8 @@ An object which may have the following keys:
 | kuboRpcClientsOptions | `(string \| KuboRpcClientOptions)[]` or `undefined` | `undefined` | Optional URLs of Kubo IPFS APIs or [KuboRpcClientOptions](https://www.npmjs.com/package/kubo-rpc-client#options). Use `'http://localhost:5001/api/v0'` to point at a local Kubo node. Cannot be combined with `libp2pJsClientsOptions`. |
 | pubsubKuboRpcClientsOptions | `(string \| KuboRpcClientOptions)[]` or `undefined` | `[{url: 'https://pubsubprovider.xyz/api/v0'}, {url: 'https://plebpubsub.xyz/api/v0'}]` | Optional URLs or [KuboRpcClientOptions](https://www.npmjs.com/package/kubo-rpc-client#options) used for pubsub publishing when `kuboRpcClientsOptions` isn't available, like in the browser |
 | pkcRpcClientsOptions | `string[]` or `undefined` | `undefined` | Optional websocket URLs of PKC RPC servers, required to run a community from a browser/electron/webview |
-| httpRoutersOptions | `string[]` or `undefined` | `['https://peers.pleb.bot', 'https://routing.lol', 'https://peers.forumindex.com', 'https://peers.plebpubsub.xyz', 'https://routerofbitsocial.xyz', 'https://bsotracker.online']` | URLs of HTTP delegated-routing endpoints used by `libp2pJsClientsOptions` for content/peer routing and IPNS lookups. Each URL must start with `http://` or `https://`. |
-| libp2pJsClientsOptions | `Array<{key: string, libp2pOptions?: Partial<Libp2pOptions>, heliaOptions?: Partial<HeliaOptions>, blockstoreOptions?: {maxBytes?: number, lowWaterRatio?: number}}>` or `undefined` | `undefined` | Optional in-process libp2p/Helia client. When set, replaces `kuboRpcClientsOptions` and `pubsubKuboRpcClientsOptions` (which are then ignored). At most one entry; `key` is a unique identifier. `libp2pOptions` is forwarded to [Helia's libp2p](https://github.com/ipfs/helia) (e.g. `connectionGater`, `services`, transports), `heliaOptions` to [Helia](https://github.com/ipfs/helia) (e.g. `blockstore`, `blockBrokers`; a caller-supplied `blockBrokers` replaces the default bitswap broker, and `http` is not supported since the client is composed without Helia's HTTP components). Requires `httpRoutersOptions` to be set. By default WebRTC dials are rejected, so browser nodes connect over WebSocket(/WSS) or WebTransport; pass your own `libp2pOptions.connectionGater` to override this (it fully replaces the default gater). Peer addresses are dialed WSS first, then WebTransport on UDP 443, then IPv6, then IPv4 on other UDP ports; `libp2pOptions.connectionManager` replaces that sorter. Each instance starts with a new libp2p peer id: pkc-js generates an Ed25519 key per start and the node's keychain is not used. To keep one peer id across restarts, pass your own key as `libp2pOptions.privateKey` (a `PrivateKey` from `@libp2p/crypto/keys`, e.g. `await generateKeyPair('Ed25519')`, which you store and reload yourself); it is used as given. If you pass `heliaOptions.datastore`, pkc-js leaves the key to Helia instead, which keeps it in that datastore's keychain, so a persistent datastore keeps its peer id (the keychain needs WebCrypto). Providers reachable only on private or loopback addresses are dialed after the public ones. A client keeps track of a bounded number of topic subscriptions per connected peer: gossipsub's `maxTopicBytesPerPeer`, which pkc-js sets to 8 MiB, about 8000 topics at roughly 1 KiB each (gossipsub's own default is 1 MiB). Subscriptions past the budget are ignored without an error, and the client then never publishes to that peer on those topics. Every community a peer hosts or seeds adds a pubsub topic and an IPNS record topic, so a peer serving more than about 4000 communities is past it. The limit is applied by the node that receives the subscriptions, not by the peer that has them: an app that connects to such peers raises it with its own `libp2pOptions.services.pubsub` (`gossipsub({ maxTopicBytesPerPeer, decodeRpcLimits })` from `@libp2p/gossipsub`), which replaces the default pubsub service. Raise `decodeRpcLimits.maxSubscriptions` with it: it caps how many subscriptions a single message may carry (gossipsub's default is 5000, pkc-js sets 65536), a peer announces all its topics in one message on connect, and a message over the cap is rejected whole, leaving that peer known for no topic at all. `blockstoreOptions` tunes the block cache described below. |
+| httpRoutersOptions | `string[]` or `undefined` | `['https://peers.pleb.bot', 'https://routing.lol', 'https://peers.forumindex.com', 'https://peers.plebpubsub.xyz', 'https://routerofbitsocial.xyz', 'https://bsotracker.online']` | URLs of HTTP delegated-routing endpoints, used for content routing only: provider lookups and provider announcements. With `libp2pJsClientsOptions` they are registered as the node's content routers; with `kuboRpcClientsOptions` in Node with a `dataPath` they are written into the Kubo node's `Routing` config. They are not used for IPNS records or peer routing. Each URL must start with `http://` or `https://`. |
+| libp2pJsClientsOptions | `Array<{key: string, libp2pOptions?: Partial<Libp2pOptions>, heliaOptions?: Partial<HeliaOptions>, blockstoreOptions?: {maxBytes?: number, lowWaterRatio?: number}}>` or `undefined` | `undefined` | Optional in-process libp2p/Helia client. Cannot be combined with `kuboRpcClientsOptions` or `pubsubKuboRpcClientsOptions`: setting either alongside it throws `ERR_CAN_NOT_HAVE_BOTH_KUBO_AND_LIBP2P_JS_CLIENTS_DEFINED` (the default `pubsubKuboRpcClientsOptions` are dropped). At most one entry; `key` is a unique identifier. `libp2pOptions` is forwarded to [Helia's libp2p](https://github.com/ipfs/helia) (e.g. `connectionGater`, `services`, transports), `heliaOptions` to [Helia](https://github.com/ipfs/helia) (e.g. `blockstore`, `blockBrokers`; a caller-supplied `blockBrokers` replaces the default bitswap broker, and `http` is not supported since the client is composed without Helia's HTTP components). Requires `httpRoutersOptions` to be set. By default WebRTC dials are rejected, so browser nodes connect over WebSocket(/WSS) or WebTransport; pass your own `libp2pOptions.connectionGater` to override this (it fully replaces the default gater). Peer addresses are dialed WSS first, then WebTransport on UDP 443, then IPv6, then IPv4 on other UDP ports; `libp2pOptions.connectionManager` replaces that sorter. Each instance starts with a new libp2p peer id: pkc-js generates an Ed25519 key per start and the node's keychain is not used. To keep one peer id across restarts, pass your own key as `libp2pOptions.privateKey` (a `PrivateKey` from `@libp2p/crypto/keys`, e.g. `await generateKeyPair('Ed25519')`, which you store and reload yourself); it is used as given. If you pass `heliaOptions.datastore`, pkc-js leaves the key to Helia instead, which keeps it in that datastore's keychain, so a persistent datastore keeps its peer id (the keychain needs WebCrypto). Providers reachable only on private or loopback addresses are dialed after the public ones. A client keeps track of a bounded number of topic subscriptions per connected peer: gossipsub's `maxTopicBytesPerPeer`, which pkc-js sets to 8 MiB, about 8000 topics at roughly 1 KiB each (gossipsub's own default is 1 MiB). Subscriptions past the budget are ignored without an error, and the client then never publishes to that peer on those topics. Every community a peer hosts or seeds adds a pubsub topic and an IPNS record topic, so a peer serving more than about 4000 communities is past it. The limit is applied by the node that receives the subscriptions, not by the peer that has them: an app that connects to such peers raises it with its own `libp2pOptions.services.pubsub` (`gossipsub({ maxTopicBytesPerPeer, decodeRpcLimits })` from `@libp2p/gossipsub`), which replaces the default pubsub service. Raise `decodeRpcLimits.maxSubscriptions` with it: it caps how many subscriptions a single message may carry (gossipsub's default is 5000, pkc-js sets 65536), a peer announces all its topics in one message on connect, and a message over the cap is rejected whole, leaving that peer known for no topic at all. `blockstoreOptions` tunes the block cache described below. |
 | dataPath | `string` or `undefined` | `.pkc` folder in the current working directory | (Node only) Optional folder path to create/resume the user and community databases. Must be on a local filesystem, not a network one (NFS, SMB): the lock that keeps two processes from running the same community is a file lock |
 | resolveAuthorNames | `boolean` or `undefined` | `true` | Optionally disable resolving crypto domain author names, which can be done lazily later to save time |
 | nameResolvers | `NameResolver[]` or `undefined` | `undefined` | Custom resolvers for crypto domain names. Each resolver: `{key, resolve, canResolve, provider, destroy?}`. `resolve({name, abortSignal, log})` always receives a `log` from `@pkcprotocol/pkc-logger`, tagged with the `name` being resolved, whose lines land in `pkc.getLogs()`. `destroy({log})` receives the same `name-resolver:<key>` logger that `resolve()`'s `log` is a child of, without the `name` tag. |
@@ -803,6 +804,7 @@ Either `{cid}` to load an existing list (a CIDv0 `Qm...`, as `publish()` returns
 | author | `Author` or `undefined` | The curator's profile, same schema as `publication.author`; `author.name` must be a domain |
 | communities | `CommunityListEntry[]` | Entries of the list; duplicate `publicKey` entries throw |
 | timestamp | `number` or `undefined` | Seconds, defaults to now |
+| protocolVersion | `string` or `undefined` | Defaults to the protocol version of this pkc-js. A value passed here is kept as given |
 
 #### Returns
 
@@ -831,14 +833,20 @@ const loaded = await pkc.createCommunityList({cid})
 loaded.on('update', () => console.log(loaded.title, loaded.author?.nameResolved))
 await loaded.update()
 
-// publish a revision from the loaded props (runtime fields like entry.address are dropped on create)
+// publish a revision: start from the signed record as fetched, without its signature, old timestamp and
+// old protocolVersion (the revision gets the current ones).
+// getCommunityList() resolves once the record is loaded; update() above returns before it is
+const previous = await pkc.getCommunityList({cid})
+const {signature, timestamp, protocolVersion, ...previousProps} = previous.raw.communityList
+// createCommunityList() rejects fields it does not know: if the record carries any (written by a newer
+// version; at the top level, in `author` or in an entry of `communities`), drop them from previousProps too
 const revision = await pkc.createCommunityList({
+  ...previousProps,
   signer,
-  title: loaded.title,
-  author: loaded.author,
-  communities: [...loaded.communities, {publicKey: '12D3KooY...'}]
+  communities: [...previousProps.communities, {publicKey: '12D3KooY...'}]
 })
 const revisionCid = await revision.publish()
+// passing `previous` itself does not work: options with a `cid` mean "load this list" and allow nothing else
 ```
 
 ### `pkc.createCommunity(createCommunityOptions)`
@@ -1575,6 +1583,59 @@ community.on('error', (error) => {
 community.update()
 ```
 
+### `community.export(options?)`
+
+> Write a backup of the community's database to a sqlite file. Only usable by the community owner: a read-only `RemoteCommunity` throws `ERR_COMMUNITY_NOT_LOCAL`. The promise resolves with an `exportId` once the export is queued; the copy itself runs in the background. Follow it through `community.exports` and the `exportschange` event, which both carry the community's export records. The full behaviour, including the RPC methods and the download endpoint of an RPC server, is in [`src/rpc/EXPORT_COMMUNITY_SPEC.md`](src/rpc/EXPORT_COMMUNITY_SPEC.md).
+
+#### Parameters
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| options | `ExportCommunityUserOptions` or `undefined` | Options of the export |
+
+##### ExportCommunityUserOptions
+
+An object which may have the following keys:
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| includePrivateKey | `boolean` or `undefined` | Keep the community signer's private key in the file. Defaults to `false`, which removes it. An RPC server started with `allowPrivateKeyExport: false` refuses `true` |
+| exportPath | `string` or `undefined` | Where to write the file. Defaults to `<dataPath>/exports/<exportId>.sqlite`. Not available over RPC (`ERR_EXPORT_PATH_NOT_SUPPORTED_OVER_RPC`) |
+| signal | `AbortSignal` or `undefined` | Aborting it cancels the export; this is the only way to cancel one |
+
+#### Returns
+
+`Promise<{ exportId: string }>`
+
+##### CommunityExportRecord
+
+Each entry of `community.exports` and of the `exportschange` payload:
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| exportId | `string` | Id returned by `community.export()` |
+| name | `string` or `undefined` | Name of the community, if it has one |
+| publicKey | `string` | Public key of the community |
+| includePrivateKey | `boolean` | The option the export was requested with |
+| progress | `number` | From `0` to `1`; `1` means the file is complete |
+| size | `number` or `undefined` | Size of the file in bytes, once complete |
+| sha256 | `string` or `undefined` | Hex sha256 of the file, once complete |
+| url | `string` or `undefined` | Once complete: a `file://` URL locally, or an `http(s)://<rpc server>/exports/<exportId>` URL for an RPC client. The RPC server deletes the file after it has been downloaded once |
+| error | `{code: string, message: string}` or `undefined` | Set if the export failed or was cancelled (`ERR_EXPORT_CANCELLED`) |
+
+#### Example
+
+```js
+const community = await pkc.createCommunity({ address: '12D3KooW...' })
+community.on('exportschange', (records) => {
+  for (const record of records) {
+    if (record.error) console.log('export failed', record.exportId, record.error.code)
+    else if (record.progress === 1) console.log('export ready', record.url, record.sha256)
+  }
+})
+const { exportId } = await community.export()
+```
+
 ### `community.exportCommunityModLogs(opts?)`
 
 > Read the community moderation log — the `commentModeration` records (removals, approvals, locks, spoilers, pins, bans, flairs, etc.) stored in your local community database. Only usable if the community database corresponding to `community.address` exists locally (ie. you are the community owner); a read-only `RemoteCommunity` throws `ERR_COMMUNITY_NOT_LOCAL`. Works whether the community is started or stopped.
@@ -1842,7 +1903,6 @@ setTimeout(() => comment.stop(), 600000)
 | Type | Description |
 | -------- | -------- |
 | `ChallengeMessage` | The challenge the user must complete |
-| `Comment` | The `Comment` instance, i.e. `this` |
 
 Object is of the form:
 

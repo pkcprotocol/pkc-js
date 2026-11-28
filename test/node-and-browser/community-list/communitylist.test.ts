@@ -167,6 +167,69 @@ getAvailablePKCConfigsToTestAgainst({ includeOnlyTheseTests: ["remote-kubo-rpc",
             expect(revision.raw.communityList?.author).to.deep.equal({ displayName: "Curator" });
         });
 
+        it("publishes a revision from raw.communityList once signature, timestamp and protocolVersion are removed", async () => {
+            // The recipe in docs/protocol/community-lists.md: raw.communityList is the signed record as fetched, so
+            // it has no runtime fields to strip, only the signature (refused on create), the old timestamp and the
+            // old protocolVersion (kept as given when passed, so a revision would be signed with the old version)
+            const signer = await pkc.createSigner();
+            const original = await pkc.createCommunityList({
+                signer,
+                title: "v1",
+                description: "kept as is",
+                author: { displayName: "Curator" },
+                communities: mockCommunityListEntries
+            });
+            const cid = await original.publish();
+            const loaded = await pkc.getCommunityList({ cid });
+            const { signature, timestamp, protocolVersion, ...previousProps } = loaded.raw.communityList!;
+            expect(signature.publicKey).to.equal(signer.publicKey);
+            expect(protocolVersion).to.be.a("string");
+
+            const revision = await pkc.createCommunityList({
+                ...previousProps,
+                signer,
+                communities: [...previousProps.communities, { publicKey: signers[2].address, title: "Added in v2" }]
+            });
+            const revisionCid = await revision.publish();
+            expect(revisionCid).to.not.equal(cid);
+
+            const loadedRevision = await pkc.getCommunityList({ cid: revisionCid });
+            const revisionRecord = loadedRevision.raw.communityList!;
+            // the revision differs from the original only by the added entry, the new timestamp and its signature
+            expect(revisionRecord.communities.slice(0, 2)).to.deep.equal(loaded.raw.communityList!.communities);
+            expect(revisionRecord.communities[2]).to.deep.equal({ publicKey: signers[2].address, title: "Added in v2" });
+            expect(revisionRecord.title).to.equal("v1");
+            expect(revisionRecord.description).to.equal("kept as is");
+            expect(revisionRecord.author).to.deep.equal({ displayName: "Curator" });
+            expect(revisionRecord.timestamp).to.be.at.least(timestamp);
+            expect(revisionRecord.signature.signature).to.not.equal(signature.signature);
+        });
+
+        it("createCommunityList refuses raw.communityList while it still carries its signature", async () => {
+            const signer = await pkc.createSigner();
+            const original = await pkc.createCommunityList({ signer, title: "v1", communities: mockCommunityListEntries });
+            const loaded = await pkc.getCommunityList({ cid: await original.publish() });
+
+            await expect(pkc.createCommunityList({ ...loaded.raw.communityList!, signer })).rejects.toMatchObject({
+                code: "ERR_INVALID_CREATE_COMMUNITY_LIST_OPTIONS_SCHEMA"
+            });
+        });
+
+        it("options that carry a cid are never a revision: a cid takes the load branch and allows nothing else", async () => {
+            // Why a revision cannot start from the loaded instance itself: its cid selects the load-by-CID schema
+            const signer = await pkc.createSigner();
+            const original = await pkc.createCommunityList({ signer, title: "v1", communities: mockCommunityListEntries });
+            const cid = await original.publish();
+            const loaded = await pkc.getCommunityList({ cid });
+
+            const optionsFromLoadedInstance = { cid: loaded.cid!, signer, title: "v2", communities: loaded.communities! };
+            await expect(pkc.createCommunityList(optionsFromLoadedInstance)).rejects.toMatchObject({
+                code: "ERR_INVALID_CREATE_COMMUNITY_LIST_OPTIONS_SCHEMA"
+            });
+            // the cid alone loads the original
+            expect((await pkc.createCommunityList({ cid: loaded.cid! })).cid).to.equal(cid);
+        });
+
         it("update() after publish() emits update with the already-loaded record and stops itself", async () => {
             const signer = await pkc.createSigner();
             const list = await pkc.createCommunityList({ signer, communities: mockCommunityListEntries });

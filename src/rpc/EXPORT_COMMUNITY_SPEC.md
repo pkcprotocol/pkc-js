@@ -123,7 +123,7 @@ There is no public `cancelExport(exportId)` method; the RPC client uses a wire-l
 
 Each `LocalCommunity` keeps a private `_activeExports: Map<string, InternalExportHandle>` keyed by `exportId`. Each enqueued export adds an entry; terminal transitions remove it. `pkc.destroy()` walks every community's `_activeExports` and cancels everything in flight before the existing teardown.
 
-On the RPC server side, `PKCWsServer.close()` likewise cancels per-connection subscriptions.
+On the RPC server side, `PKCWsServer.destroy()` likewise cancels per-connection subscriptions.
 
 ## RPC Wire Protocol
 
@@ -142,7 +142,7 @@ Three new RPC methods. `AbortSignal` is a client-side concept and never crosses 
 - Per-community subscription.
 - Initial notification carries the **current** `community.exports` array.
 - Subsequent notifications fire whenever any record on the community changes.
-- Notification shape: `event: "exportschange"`, `result: CommunityExportRecord[]`.
+- Notification shape: `method: "exportschange"`, `event: "exportschange"`, `result: { records: CommunityExportRecord[] }`.
 - The wire-format `record.url` is a **relative URL** (`/exports/<exportId>`); the RPC client absolutizes.
 - Tearing down the subscription does **not** cancel any in-flight exports.
 
@@ -158,9 +158,9 @@ When none of these hold (for example once `stop()` resolves), the instance unsub
 
 The reason is memory: the RPC client's subscription registry holds the `exportschange` handler, which references the instance. A subscription kept for the instance's whole life pinned every instance ever created, and a publisher leaked one community instance (record, pages, page clients) per publication (#490).
 
-### `cancelExport({ exportId })` → `void`
+### `cancelExport({ exportId })` → `{ success: true }`
 
-- Idempotent: unknown `exportId` returns success without action.
+- Idempotent: unknown `exportId` returns `{ success: true }` without action.
 - Server stops the backup if running, unlinks the `.partial`, sets `error.code = ERR_EXPORT_CANCELLED`, fires `exportschange`.
 
 ### Disconnect behavior
@@ -203,13 +203,13 @@ The signer lives inside the `internalCommunity` KeyV record. With the backup DB 
 
 - Directory: `<pkcDataPath>/exports/` (sibling of `<pkcDataPath>/communities/`).
 - On-disk filename: `<exportId>.sqlite`. Embedded callers can override the entire path with `exportPath`.
-- Persistence: each community persists its `exports` array in its internal KeyV record so records survive process restart. On community load, the server prunes any records whose backing files no longer exist on disk.
+- Persistence: each community persists its `exports` array in its internal KeyV record so records survive process restart. On community load, the server prunes any records whose backing files no longer exist on disk, and any record that was still in progress when the process exited (`progress < 1` with no `error`), since an export cannot be resumed. Records that carry an `error` are kept.
 
 ### Retention
 
 - **Embedded mode (shipped)**: no auto-deletion. The record stays in `community.exports` indefinitely. The user manages cleanup; deleting the file out-of-band causes the record to be pruned from `community.exports` on next community load (via `loadAndPruneExportsFromKeyv`).
 - **After successful HTTP download**: the RPC server deletes the export file once it finishes streaming the HTTP response, removes the record from `community.exports`, and fires `exportschange`.
-- **Never-downloaded exports**: on RPC server startup, delete any files in `<pkcDataPath>/exports/` older than 24 hours and prune the matching records. The age threshold is configurable via the `exportFileMaxAgeMs` server option (default `86_400_000` = 24h). Setting `exportFileMaxAgeMs: 0` disables the sweep entirely so export files are kept forever.
+- **Never-downloaded exports**: on RPC server startup, delete any files in `<pkcDataPath>/exports/` older than 24 hours. The matching records are pruned the next time the community is loaded. The age threshold is configurable via the `exportFileMaxAgeMs` server option (default `86_400_000` = 24h). Setting `exportFileMaxAgeMs: 0` disables the sweep entirely so export files are kept forever.
 
 ## HTTP Download Endpoint
 
@@ -217,6 +217,8 @@ The signer lives inside the `internalCommunity` KeyV record. With the backup DB 
 - Returns `200` with `Content-Length` and `Content-Type: application/vnd.sqlite3`, streams file.
 - After streaming completes successfully, server deletes the file, removes the record from `community.exports`, and fires `exportschange`.
 - Unknown `exportId`: `404`.
+- Any method other than `GET`: `405` with `Allow: GET`.
+- A file whose community is not loaded on the server (for example after a restart) is served straight from `<pkcDataPath>/exports/<exportId>.sqlite`. After that download only the file is deleted: no `exportschange` fires, and the record is pruned the next time the community is loaded.
 - No range/resume in v1.
 
 ### Capability via `exportId`
@@ -237,7 +239,7 @@ The `exportId` is unguessable (UUIDv4 = 122 bits of entropy), so it doubles as t
 
 ## Concurrency
 
-- Per-community serialization. Each `LocalCommunity` instance keeps a private `_exportQueue: Promise<void>` chained per call. A second `community.export()` call for the same community immediately appends a record (`progress: 0`) and waits for the prior export to finish before stepping its own backup. The same in-process serialization will back the RPC server when that lands.
+- Per-community serialization. Each `LocalCommunity` instance keeps a private `_exportQueue: Promise<void>` chained per call. A second `community.export()` call for the same community immediately appends a record (`progress: 0`) and waits for the prior export to finish before stepping its own backup. The RPC server uses the same in-process serialization once it holds an instance for the community: an export-related call reuses the cached `LocalCommunity`. Two first calls for a community that is not started, arriving before either has cached its instance, each create their own. They are not serialized against each other, and the instance cached last replaces the other, so a later export can also overlap one still running on the replaced instance (#622).
 - Different communities export in parallel.
 
 ## File Format
@@ -256,13 +258,14 @@ Sync errors (thrown from `community.export()`):
 - `ERR_EXPORT_PATH_TARGETS_LIVE_DB` — caller-supplied `exportPath` resolves to the live community DB; refusing to overwrite it (shipped).
 - `ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED` — server refused an `includePrivateKey: true` request because `allowPrivateKeyExport` is `false`; the message instructs the operator to restart with `allowPrivateKeyExport=true` (shipped).
 - `ERR_EXPORT_PATH_NOT_SUPPORTED_OVER_RPC` — caller used an RPC client and passed `exportPath` (shipped).
+- `ERR_COMMUNITY_NOT_FOUND` — over RPC, neither `name` nor `publicKey` matches a community on the server (shipped).
 
 Async errors (recorded in `record.error.code`):
 - `ERR_EXPORT_CANCELLED` — recorded when an `AbortSignal` aborts an in-progress record (or when `pkc.destroy()` cancels in-flight exports). The signal is honored throughout the backup pipeline, including the post-backup scrub, hash, and rename steps.
 - `ERR_EXPORT_BACKUP_FAILED` — generic catch-all for `better-sqlite3.backup()` failures (disk full, source DB corruption, etc.); inspect `error.message` for specifics.
 
 HTTP-only (shipped):
-- `ERR_DOWNLOAD_EXPORT_ID_NOT_FOUND` — `GET /exports/<exportId>` hit but no record/file exists (404 to the caller; logged server-side with this code).
+- `ERR_DOWNLOAD_EXPORT_ID_NOT_FOUND` — `GET /exports/<exportId>` hit but no record/file exists (404 to the caller). The code is defined in `src/errors.ts` but is not emitted today: the server logs the unknown `exportId` as plain text.
 
 ## Out of Scope (future work)
 

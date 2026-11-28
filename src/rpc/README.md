@@ -3,7 +3,7 @@
 ```js
 const {PKCWsServer} = require('@pkcprotocol/pkc-js/rpc')
 const port = 8080
-const pkcOptions = {ipfsHttpClientsOptions: ['http://localhost:5001/api/v0']}
+const pkcOptions = {kuboRpcClientsOptions: ['http://localhost:5001/api/v0']}
 const pkcWebSocketServer = await PKCWsServer({port, pkcOptions})
 
 // debug raw JSON RPC messages in console (optional)
@@ -18,13 +18,26 @@ pkcWebSocketServer.on('error', console.log)
 console.log(`test server pkc wss listening on port ${port}`)
 ```
 
+`PKCWsServer(options)` takes these options, all optional:
+
+| Name | Type | Default | Description |
+| ---- | ---- | ------- | ----------- |
+| port | `number` | | Port to listen on. `0` asks the OS for a free port |
+| server | `http.Server` or `https.Server` | | An existing HTTP(S) server to attach to, in place of `port` |
+| pkcOptions | `PKCOptions` | | Options of the `PKC` instance the server creates |
+| authKey | `string` | `undefined` | Connections that do not come from localhost are rejected unless the request path is `/<authKey>`, e.g. `ws://host:port/<authKey>`. A connection through a proxy (one that sends `X-Forwarded-For`) does not count as localhost |
+| startStartedCommunitiesOnStartup | `boolean` | `true` | Start the communities that were running when the server last stopped |
+| autoStartConcurrency | `number` | `5` | How many of those communities are started in parallel. `0` or `1` starts them one at a time |
+| allowPrivateKeyExport | `boolean` | `true` | When `false`, `exportCommunity` with `includePrivateKey: true` is rejected with `ERR_PRIVATE_KEY_EXPORT_NOT_ALLOWED` |
+| exportFileMaxAgeMs | `number` | `86400000` (24 hours) | On startup, export files older than this are deleted. `0` disables the deletion. See [EXPORT_COMMUNITY_SPEC.md](EXPORT_COMMUNITY_SPEC.md) |
+
 ## Name resolution
 
 Name resolution (`.bso`, `.eth` domains) happens **server-side**. The RPC server must have `nameResolvers` configured in its `pkcOptions` — for example, by registering `@bitsocial/bso-resolver`. RPC clients do **not** need `nameResolvers`; they pass domain names directly to methods like `communityUpdateSubscribe` and the server resolves them.
 
 ```js
 const pkcOptions = {
-  ipfsHttpClientsOptions: ['http://localhost:5001/api/v0'],
+  kuboRpcClientsOptions: ['http://localhost:5001/api/v0'],
   nameResolvers: [bsoResolver({provider: 'https://cloudflare-eth.com'})]
 }
 const pkcWebSocketServer = await PKCWsServer({port, pkcOptions})
@@ -64,12 +77,20 @@ class Subscription extends EventEmitter {
   constructor(subscriptionId) {
     super()
     let emittingMessages = false
+    // an arrow function, so `this` is the subscription
+    const emitMessage = (jsonMessage) => {
+      const message = JSON.parse(jsonMessage)
+      if (subscriptionId === message?.params?.subscription) {
+        this.emit('message', message)
+      }
+    }
     this.on('newListener', (eventName) => {
-      // emit all subscription messages received before the listener started
-      if (eventName === 'message') {
-        for (const message of subscriptionsMessages[subscriptionId] || []) {
-          this.emit('message', message)
-        }
+      // emit, in order, the subscription messages received before the first listener started. 'newListener'
+      // fires before the listener is registered, so they are emitted right after: emitting here would reach
+      // nobody (and an initial snapshot sent before the subscription id would be lost)
+      if (eventName === 'message' && this.listenerCount('message') === 0) {
+        const receivedBefore = [...(subscriptionsMessages[subscriptionId] || [])]
+        queueMicrotask(() => receivedBefore.forEach((message) => this.emit('message', message)))
       }
       // emit all new messages
       if (!emittingMessages) {
@@ -84,12 +105,6 @@ class Subscription extends EventEmitter {
         webSocketClient.socket.off('message', emitMessage)
       }
     })
-    function emitMessage(jsonMessage) {
-      const message = JSON.parse(jsonMessage)
-      if (subscriptionId === message?.params?.subscription) {
-        this.emit('message', message)
-      }
-    }
   }
 }
 
@@ -99,7 +114,7 @@ const comment = await webSocketClient.call('getComment', [{cid: commentCid}])
 console.log(comment)
 
 // get comment updates
-const subscriptionId = await webSocketClient.call('commentUpdateSubscribe', [{cid: comment.cid}])
+const {subscriptionId} = await webSocketClient.call('commentUpdateSubscribe', [{cid: commentCid}])
 new Subscription(subscriptionId).on('message', console.log)
 ```
 
@@ -108,7 +123,7 @@ new Subscription(subscriptionId).on('message', console.log)
 The server registers the following methods. Param shapes are defined in `src/clients/rpc-client/schema.ts`; all params are passed as the single element of a one-element array, e.g. `webSocketClient.call('getComment', [{cid}])`.
 
 - `method: getComment, params: [{cid: string, communityPublicKey?: string, communityName?: string}], result: CommentIpfs`
-- `method: getCommunityPage, params: [{cid: string, communityName?: string, communityPublicKey?: string, type: "posts" | "modqueue", pageMaxSize: number}], result: {page, runtimeFields?}`
+- `method: getCommunityPage, params: [{cid: string, communityName?: string, communityPublicKey?: string, type: "posts" | "modqueue", pageMaxSize: number}], result: {page, runtimeFields?}` (at least one of `communityName` or `communityPublicKey` is required)
 - `method: getCommentPage, params: [{cid: string, commentCid: string, communityName?: string, communityPublicKey?: string, pageMaxSize: number}], result: {page, runtimeFields?}`
 - `method: createCommunity, params: [createCommunityOptions: CreateNewLocalCommunityUserOptions], result: RpcInternalCommunityRecordBeforeFirstUpdate`
 - `method: editCommunity, params: [{name?: string, publicKey?: string, editOptions: CommunityEditOptions}], result: RpcLocalCommunityUpdateResult`
@@ -118,12 +133,17 @@ The server registers the following methods. Param shapes are defined in `src/cli
 - `method: fetchCid, params: [{cid: string}], result: {content: string}`
 - `method: resolveAuthorName, params: [{name: string, cache?: NameResolveCacheOptions}], result: {resolvedAuthorName: string | null}`
 - `method: setSettings, params: [{pkcOptions: PKCOptions}], result: {success: true}`
+- `method: publishCommunityList, params: [{communityListRawString: string}], result: {cid: string}` — the client signs the `CommunityList` locally and sends the exact signed string; the server checks its size, schema and signature, then adds those bytes to IPFS (see `docs/protocol/community-lists.md`)
+- `method: fetchCommunityList, params: [{cid: string}], result: {communityListRawString: string}` — returns the raw record so the client can check the bytes against the cid and verify the signature itself
+- `method: exportCommunity, params: [{name?: string, publicKey?: string, includePrivateKey?: boolean}], result: {exportId: string}` — starts a database export of a local community; follow it with `exportsSubscribe`. At least one of `name` or `publicKey` is required. See [EXPORT_COMMUNITY_SPEC.md](EXPORT_COMMUNITY_SPEC.md)
+- `method: cancelExport, params: [{exportId: string}], result: {success: true}` — idempotent, an unknown `exportId` also returns success
+- `method: exportCommunityModLogs, params: [{name?: string, publicKey?: string, startTimestamp?: number, endTimestamp?: number, commentCid?: string, limit?: number, order?: "ASC" | "DESC"}], result: {moderations: CommentModerationTableRow[]}` — at least one of `name` or `publicKey` is required; see `community.exportCommunityModLogs()` in the root README
 
 # JSON-RPC Pubsub Websocket API
 
 Each subscribe/publish method returns `{subscriptionId: number}` and streams JSON-RPC notifications until `unsubscribe` is called.
 
-- [`method: startCommunity, params: [{name?: string, publicKey?: string}]`](#startcommunity)
+- `method: startCommunity, params: [{name?: string, publicKey?: string}]`: starts a local community and streams its events. Notifications use `method: "startCommunity"` (not `startCommunityNotification`) and these events: `update` (`{community, localCommunity, runtimeFields}`, or `{localCommunity}` before the first update), `startedstatechange` (`{state}`), `challengerequest`, `challenge` and `challengeanswer` (the encoded pubsub message), `challengeverification` (`{challengeVerification}`) and `error`. A client attaching to a community that is already running receives one `update` snapshot at once
 - `method: startedCommunitySubscribe, params: [{name?: string, publicKey?: string}]`: same notifications as `startCommunity`, for a client re-establishing its `start()` after a reconnect. It attaches if the community is running and starts it only if it was started and never explicitly stopped since; otherwise it errors with `ERR_RPC_COMMUNITY_NOT_RUNNING`. It never overrides a stop.
 - `method: stopCommunity, params: [{name?: string, publicKey?: string}], result: {success: true}`
 - [`method: commentUpdateSubscribe, params: [{cid: string, communityPublicKey?: string, communityName?: string}]`](#commentupdatesubscribe)
@@ -133,10 +153,11 @@ Each subscribe/publish method returns `{subscriptionId: number}` and streams JSO
 - `method: publishCommentEdit, params: [CommentEditChallengeRequestToEncrypt]`
 - `method: publishCommentModeration, params: [CommentModerationChallengeRequestToEncrypt]`
 - `method: publishCommunityEdit, params: [CommunityEditChallengeRequestToEncrypt]`
-- `method: publishChallengeAnswers, params: [{subscriptionId: number, challengeAnswers: string[]}], result: {success: true}`
+- `method: publishChallengeAnswers, params: [{subscriptionId: number, challengeAnswers: {[challengeIndex: string]: string}}], result: {success: true}`: `challengeAnswers` is a non-empty object keyed by the index of the challenge each answer is for, e.g. `{"0": "1+1=2", "2": "6"}`. An array is rejected
 - [`method: communitiesSubscribe, params: []`](#communitiessubscribe)
 - [`method: settingsSubscribe, params: []`](#settingssubscribe)
-- [`method: unsubscribe, params: [{subscriptionId: number}]`](#unsubscribe)
+- `method: exportsSubscribe, params: [{name?: string, publicKey?: string}]` (at least one of `name` or `publicKey`): notifications use `method: "exportschange"` and `event: "exportschange"` with `result: {records: CommunityExportRecord[]}`, the community's current exports first and again on every change. Unsubscribing does not cancel an export. See [EXPORT_COMMUNITY_SPEC.md](EXPORT_COMMUNITY_SPEC.md)
+- [`method: unsubscribe, params: [{subscriptionId: number}], result: {success: true}`](#unsubscribe)
 
 ## commentUpdateSubscribe
 
@@ -150,7 +171,7 @@ Subscribe to a comment update to receive notifications when the comment is updat
 
 ### Result:
 
-`<number>` - Subscription id \(needed to unsubscribe\)
+`{subscriptionId: number}` - Subscription id \(needed to unsubscribe\)
 
 ### Code sample:
 
@@ -170,12 +191,31 @@ Subscribe to a comment update to receive notifications when the comment is updat
 ### Response:
 
 ```json
-{ "jsonrpc": "2.0", "result": 23784, "id": 1 }
+{ "jsonrpc": "2.0", "result": { "subscriptionId": 23784 }, "id": 1 }
 ```
 
 #### Notification Format:
 
 The notification format is the same as seen in the pkc-js [Comment Events](https://github.com/pkcprotocol/pkc-js#comment-events)
+
+`comment` event, sent once when the comment's `CommentIpfs` is loaded:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "commentUpdateNotification",
+  "params": {
+    "result": {
+      "comment": {...},
+      "runtimeFields": {
+        "author": { "nameResolved": true }
+      }
+    },
+    "event": "comment",
+    "subscription": 23784
+  }
+}
+```
 
 `update` event:
 
@@ -199,6 +239,22 @@ The notification format is the same as seen in the pkc-js [Comment Events](https
 }
 ```
 
+`runtimeupdate` event, sent when `author.nameResolved` changes after the `comment` event and no `CommentUpdate` has been loaded yet. Once a `CommentUpdate` is loaded, the change arrives in an `update` event that repeats the record with the new `runtimeFields`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "commentUpdateNotification",
+  "params": {
+    "result": {
+      "author": { "nameResolved": false }
+    },
+    "event": "runtimeupdate",
+    "subscription": 23784
+  }
+}
+```
+
 `updatingstatechange` event:
 
 ```json
@@ -206,8 +262,22 @@ The notification format is the same as seen in the pkc-js [Comment Events](https
   "jsonrpc": "2.0",
   "method": "commentUpdateNotification",
   "params": {
-    "result": "fetching-ipfs",
+    "result": { "state": "fetching-ipfs" },
     "event": "updatingstatechange",
+    "subscription": 23784
+  }
+}
+```
+
+`statechange` event:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "commentUpdateNotification",
+  "params": {
+    "result": { "state": "updating" },
+    "event": "statechange",
     "subscription": 23784
   }
 }
@@ -221,11 +291,12 @@ Subscribe to a community update to receive notifications when the community is u
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| address | `string` | address of the community |
+| name | `string` | domain name of the community, e.g. `memes.bso` \(at least one of `name` or `publicKey`\) |
+| publicKey | `string` | IPNS public key of the community |
 
 ### Result:
 
-`<number>` - Subscription id \(needed to unsubscribe\)
+`{subscriptionId: number}` - Subscription id \(needed to unsubscribe\)
 
 ### Code sample:
 
@@ -236,7 +307,7 @@ Subscribe to a community update to receive notifications when the community is u
   "method": "communityUpdateSubscribe",
   "params": [
     {
-      "address": "memes.bso"
+      "name": "memes.bso"
     }
   ]
 }
@@ -245,14 +316,14 @@ Subscribe to a community update to receive notifications when the community is u
 ### Response:
 
 ```json
-{ "jsonrpc": "2.0", "result": 23784, "id": 1 }
+{ "jsonrpc": "2.0", "result": { "subscriptionId": 23784 }, "id": 1 }
 ```
 
 #### Notification Format:
 
 The notification format is the same as seen in the pkc-js [Community Events](https://github.com/pkcprotocol/pkc-js#community-events)
 
-`update` event:
+`update` event, for a remote community:
 
 ```json
 {
@@ -260,15 +331,25 @@ The notification format is the same as seen in the pkc-js [Community Events](htt
   "method": "communityUpdateNotification",
   "params": {
     "result": {
-      "title": "Memes",
-      "description": "Publish memes here",
-      "updatedAt": 1689886478
+      "community": {
+        "title": "Memes",
+        "description": "Publish memes here",
+        "updatedAt": 1689886478
+      },
+      "runtimeFields": {
+        "updateCid": "Qm...",
+        "updatingState": "succeeded",
+        "nameResolved": true,
+        "ipnsHops": ["12D3KooW..."]
+      }
     },
     "event": "update",
     "subscription": 23784
   }
 }
 ```
+
+For a community that is local to the RPC server, `result` is `{community, localCommunity, runtimeFields}`, or only `{localCommunity}` before its first update; `localCommunity` carries the owner-side props such as `settings` and `signer` \(without its private key\). When a remote community's record is cleared after a key migration, `result` is `{resetInstance: true, runtimeFields: {newPublicKey, nameResolved, updatingState}}`. For a community that is started on the RPC server, changes of its `startedState` are also sent as `updatingstatechange` events. An `error` event is sent as well; there is no `statechange` event for communities.
 
 `updatingstatechange` event:
 
@@ -277,7 +358,7 @@ The notification format is the same as seen in the pkc-js [Community Events](htt
   "jsonrpc": "2.0",
   "method": "communityUpdateNotification",
   "params": {
-    "result": "fetching-ipfs",
+    "result": { "state": "fetching-ipfs" },
     "event": "updatingstatechange",
     "subscription": 23784
   }
@@ -292,11 +373,13 @@ Publish a comment and subscribe to receive notifications of the challenge pubsub
 
 | Name | Type | Description |
 | ---- | ---- | ----------- |
-| comment | `Comment` | Comment to publish |
+| comment | `CommentPubsubMessage` | The signed comment to publish |
+| challengeAnswers | `{[challengeIndex: string]: string}` or `undefined` | Answers sent with the request, keyed by the index of the challenge each one is for |
+| challengeCommentCids | `string[]` or `undefined` | Comment CIDs for challenges that ask for them |
 
 ### Result:
 
-`<number>` - Subscription id \(needed to unsubscribe and publishChallengeAnswers\)
+`{subscriptionId: number}` - Subscription id \(needed to unsubscribe and publishChallengeAnswers\)
 
 ### Code sample:
 
@@ -309,7 +392,7 @@ Publish a comment and subscribe to receive notifications of the challenge pubsub
     "comment": {
       "title": "Hello",
       "content": "World",
-      "author": {"address": "john.bso"},
+      "author": {"name": "john.bso"},
       "signature": {
         "signature": "...",
         "publicKey": "...",
@@ -317,7 +400,7 @@ Publish a comment and subscribe to receive notifications of the challenge pubsub
         "signedPropertyNames": ["title", "content", "author"]
       }
     },
-    "challengeAnswers": ["some answer"]
+    "challengeAnswers": {"0": "some answer"}
   }]
 }
 ```
@@ -325,7 +408,7 @@ Publish a comment and subscribe to receive notifications of the challenge pubsub
 ### Response:
 
 ```json
-{ "jsonrpc": "2.0", "result": 23784, "id": 1 }
+{ "jsonrpc": "2.0", "result": { "subscriptionId": 23784 }, "id": 1 }
 ```
 
 #### Notification Format:
@@ -341,10 +424,11 @@ The notification format is the same as seen in the pkc-js [Comment Events](https
   "params": {
     "result": {
       "type": "CHALLENGE",
-      "challenges": [
-        {"type": "text/plain", "challenge": "2+2"},
-        {"type": "text/plain", "challenge": "5+5"}
-      ]
+      "challengeRequestId": "...",
+      "challenges": {
+        "0": {"type": "text/plain", "challenge": "2+2"},
+        "1": {"type": "text/plain", "challenge": "5+5"}
+      }
     },
     "event": "challenge",
     "subscription": 23784
@@ -352,7 +436,7 @@ The notification format is the same as seen in the pkc-js [Comment Events](https
 }
 ```
 
-`challengeverification` event:
+`challengeverification` event. The message is wrapped in `challengeVerification`; `publishComment` also sends `runtimeFields`, the other publish methods send only `challengeVerification`:
 
 ```json
 {
@@ -360,27 +444,32 @@ The notification format is the same as seen in the pkc-js [Comment Events](https
   "method": "publishCommentNotification",
   "params": {
     "result": {
-      "type": "CHALLENGEVERIFICATION",
-      "challengeSuccess": true,
-      "comment": {
-        "title": "Hello",
-        "content": "World",
-        "author": {"address": "john.bso"},
-        "signature": {
-          "signature": "...",
-          "publicKey": "...",
-          "type": "ed25519",
-          "signedPropertyNames": ["title", "content", "author"]
+      "challengeVerification": {
+        "type": "CHALLENGEVERIFICATION",
+        "challengeSuccess": true,
+        "comment": {
+          "title": "Hello",
+          "content": "World",
+          "author": {"name": "john.bso"},
+          "signature": {
+            "signature": "...",
+            "publicKey": "...",
+            "type": "ed25519",
+            "signedPropertyNames": ["title", "content", "author"]
+          }
+        },
+        "commentUpdate": {
+          "cid": "Qm...",
+          "signature": {
+            "signature": "...",
+            "publicKey": "...",
+            "type": "ed25519",
+            "signedPropertyNames": ["cid"]
+          }
         }
       },
-      "commentUpdate": {
-        "cid": "Qm...",
-        "signature": {
-          "signature": "...",
-          "publicKey": "...",
-          "type": "ed25519",
-          "signedPropertyNames": ["cid"]
-        }
+      "runtimeFields": {
+        "author": { "nameResolved": true }
       }
     },
     "event": "challengeverification",
@@ -389,13 +478,19 @@ The notification format is the same as seen in the pkc-js [Comment Events](https
 }
 ```
 
+`publishingstatechange` and `statechange` events send `{ "state": "..." }`, like the state events above. Only `publishComment` sends `statechange`.
+
+Every publish method also sends `challengerequest` and `challengeanswer` (the encoded pubsub message) and `error`. The other four use the same events under their own notification names: `publishVoteNotification`, `publishCommentEditNotification`, `publishCommentModerationNotification` and `publishCommunityEditNotification`.
+
+`error` events carry the error with its `stack` removed, and `details` name the state the instance moved to: `newPublishingState` and `newState` for the publish methods, `newUpdatingState` or `newPublishingState` for `commentUpdateSubscribe`, `newUpdatingState` or `newStartedState` for `communityUpdateSubscribe` and `startCommunity`. When `publish()` itself throws, the call still returns `{subscriptionId}` and the failure arrives as an `error` event whose `details.publishThrowError` is `true`.
+
 ## communitiesSubscribe
 
 Subscribe to the communities list managed by the pkc rpc to receive notifications when they change
 
 ### Result:
 
-`<number>` - Subscription id \(needed to unsubscribe\)
+`{subscriptionId: number}` - Subscription id \(needed to unsubscribe\)
 
 ### Code sample:
 
@@ -411,7 +506,7 @@ Subscribe to the communities list managed by the pkc rpc to receive notification
 ### Response:
 
 ```json
-{ "jsonrpc": "2.0", "result": 23784, "id": 1 }
+{ "jsonrpc": "2.0", "result": { "subscriptionId": 23784 }, "id": 1 }
 ```
 
 #### Notification Format:
@@ -443,7 +538,7 @@ Subscribe to the pkc rpc settings to receive notifications when they change
 
 ### Result:
 
-`<number>` - Subscription id \(needed to unsubscribe\)
+`{subscriptionId: number}` - Subscription id \(needed to unsubscribe\)
 
 ### Code sample:
 
@@ -459,12 +554,12 @@ Subscribe to the pkc rpc settings to receive notifications when they change
 ### Response:
 
 ```json
-{ "jsonrpc": "2.0", "result": 23784, "id": 1 }
+{ "jsonrpc": "2.0", "result": { "subscriptionId": 23784 }, "id": 1 }
 ```
 
 #### Notification Format:
 
-The notification format is the same as seen in the pkc-js [PKC Events](https://github.com/pkcprotocol/pkc-js#pkc-events)
+The notification format is the same as seen in the pkc-js [PKC Events](https://github.com/pkcprotocol/pkc-js#pkc-events). `challenges` and `pageSorts` list the challenges and page sorts the server can run (built-in and registered), with their functions left out.
 
 `settingschange` event:
 
@@ -477,6 +572,9 @@ The notification format is the same as seen in the pkc-js [PKC Events](https://g
       "pkcOptions": {...},
       "challenges": {
         "challenge-name": {...}
+      },
+      "pageSorts": {
+        "sort-name": {...}
       }
     },
     "event": "settingschange",
@@ -497,7 +595,7 @@ Unsubscribe from notifications
 
 ### Result:
 
-`<bool>` - unsubscribe success message
+`{success: true}` - unsubscribe success message, also returned for an unknown subscription id
 
 ### Code sample:
 
@@ -506,12 +604,12 @@ Unsubscribe from notifications
   "jsonrpc": "2.0",
   "id": 1,
   "method": "unsubscribe",
-  "params": [23784]
+  "params": [{ "subscriptionId": 23784 }]
 }
 ```
 
 ### Response:
 
 ```json
-{ "jsonrpc": "2.0", "result": true, "id": 1 }
+{ "jsonrpc": "2.0", "result": { "success": true }, "id": 1 }
 ```
