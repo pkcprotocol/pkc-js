@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.167](https://github.com/pkcprotocol/pkc-js/compare/v0.0.166...v0.0.167) (2026-11-28)
+
+### Bug Fixes
+
+* align size limits, signature type, wallet entries and rename validation with the BSIPs ([#621](https://github.com/pkcprotocol/pkc-js/issues/621)) ([fc3eeef](https://github.com/pkcprotocol/pkc-js/commit/fc3eeef2acf8bc781c0358a96cf56ee1dca97a5a)), closes [#485](https://github.com/pkcprotocol/pkc-js/issues/485) [#485](https://github.com/pkcprotocol/pkc-js/issues/485) [#485](https://github.com/pkcprotocol/pkc-js/issues/485) [#619](https://github.com/pkcprotocol/pkc-js/issues/619) [#620](https://github.com/pkcprotocol/pkc-js/issues/620) [#485](https://github.com/pkcprotocol/pkc-js/issues/485) [#485](https://github.com/pkcprotocol/pkc-js/issues/485) [#485](https://github.com/pkcprotocol/pkc-js/issues/485) [#485](https://github.com/pkcprotocol/pkc-js/issues/485) [#485](https://github.com/pkcprotocol/pkc-js/issues/485)
+
 ## [0.0.166](https://github.com/pkcprotocol/pkc-js/compare/v0.0.165...v0.0.166) (2026-11-28)
 
 ### Bug Fixes
